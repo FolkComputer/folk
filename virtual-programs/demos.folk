@@ -1,0 +1,45 @@
+# Setting aside this tag space (45000 to 45050) for Folk Demo Booklet
+Claim 45000 has program code {
+    Wish $this is labelled "Welcome to Folk! This is a program"
+    Wish $this is outlined green
+}
+Claim 45001 has program code  {
+    Wish $this is labelled "My wishes came true!"
+    Wish $this is outlined blue
+}
+Claim 45002 has program code {
+    When /actor/ is cool {
+        Wish $this is labelled "$actor is pretty cool"
+        Wish $actor is outlined red 
+    }
+}
+Claim 45003 has program code {
+    Claim $this is actor
+    Claim $this is cool
+}
+Claim 45004 has program code {
+    When the clock time is /t/ {
+        Wish $this is labelled $t
+    }
+}
+Claim 45005 has program code {
+    When the clock time is /t/ {
+        Wish $this draws a circle offset [list expr {sin($t) * 50} 0]
+    }
+}
+Claim 45006 has program code {
+    Wish $this is outlined blue
+    When $this points up at /p/ {
+        Wish $this is labelled "Pointing at $p"
+        Wish $p is labelled "and I am being pointed at"
+    }
+}
+Claim 45007 has program code {
+    Wish $this is outlined red
+    Wish $this is labelled "I am a program"
+}
+Claim 45008 has program code {
+    When $this has camera slice /slice/ {
+    Wish $this displays camera slice $slice
+    }
+}

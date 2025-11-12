@@ -148,13 +148,8 @@ fn musicExec {args} {
   }
 }
 fn musicFinishSetup {} {
-  if {$::thisNode ne "folk-beads"} {
-    exec jack_control start
-    exec jack_control ds alsa
-    exec jack_control dps device hw:HDMI,10
-    exec jack_control dps rate 48000
-    exec jack_control dps nperiods 2
-    exec jack_control dps period 64
+  if {$::thisNode eq "folk-hex"} {
+      exec jackd -d alsa -d hdmi:CARD=NVidia,DEV=0 -r 48000 -p 1024 -n 2 &
   }
 
   catch {exec pkill ghci}

@@ -1,6 +1,6 @@
 When tag /tag/ has detection /any/ on camera /any/ at timestamp /any/ {
     # Setting aside this tag space (48600 to 48713) for calibration.
-    if {$tag >= 48600} { return }
+    if {$tag >= 45000} { return }
 
     Claim (keep 100ms) tag $tag is a tag
     Claim (keep 100ms) tag $tag has a program
@@ -17,15 +17,15 @@ When -noncapturing the program save directory is /saveDir/ {
             } else {
                 if {![file exists "$saveDir/$obj.folk"] &&
                     ($::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial" || $::thisNode eq "gadget-platinum")} {
-                    # HACK: 'Page fault' to folk0, try getting page from
+                    # HACK: 'Page fault' to folk-hex, try getting page from
                     # there. Ideally we would have some general (Avahi?)
                     # way of finding the 'authoritative' node on the local
                     # network, or broadcasting out, and getting pages from
                     # there.
                     exec curl --output "$saveDir/$obj.folk" \
-                        "http://folk0.local:4273/printed-programs/$obj.folk" &
+                        "http://folk-hex.local:4273/printed-programs/$obj.folk" &
                     exec curl --output "$saveDir/$obj.meta.folk" \
-                        "http://folk0.local:4273/printed-programs/$obj.meta.folk" &
+                        "http://folk-hex.local:4273/printed-programs/$obj.meta.folk" &
                     # HACK: It won't be reloaded until you redetect the tag.
                 }
                 set fd [open "$saveDir/$obj.folk" r]
