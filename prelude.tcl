@@ -367,13 +367,13 @@ proc Say {args} {
     set pattern [list]
     for {set i 0} {$i < [llength $args]} {incr i} {
         set term [lindex $args $i]
-        if {$term eq {(keep}} { # e.g., (keep 3ms)
+        if {$term eq {-keep}} { # e.g., -keep 3ms
             incr i
             set keep [lindex $args $i]
-            if {[string match {*ms)} $keep]} {
-                set keepMs [string range $keep 0 end-3]
+            if {[string match {*ms} $keep]} {
+                set keepMs [string range $keep 0 end-2]
             } else {
-                error "Say: invalid keep value [string range $keep 0 end-1]"
+                error "Say: invalid keep value [string range $keep 0 end]"
             }
         } elseif {$term eq "-destructor"} {
             incr i

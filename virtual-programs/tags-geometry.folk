@@ -39,7 +39,7 @@ When the default program geometry is /defaultGeom/ &\
         set writableTextureId [list $tag canvas]
         # TODO: Set canvas resolution based on physical width
         # & height.
-        Wish (keep 40ms) the GPU creates canvas $writableTextureId \
+        Wish -keep 40ms the GPU creates canvas $writableTextureId \
             with width 1024 height 1024
         When the GPU has created canvas $writableTextureId with /...opts/ {
             Claim $tag has canvas $writableTextureId with {*}$opts

@@ -176,7 +176,7 @@ When the collected results for \
         # We want to not immediately destroy the entire drawlist /
         # downstream statement set from the previous detection (give
         # the new detection some time to converge first).
-        Claim (keep 8ms) tag $id has detection $det on camera [dict get $det camera] \
+        Claim -keep 8ms tag $id has detection $det on camera [dict get $det camera] \
             at timestamp [dict get $det timestamp]
     }
     set aprilTime [lmap r $results {dict get $r aprilTime}]

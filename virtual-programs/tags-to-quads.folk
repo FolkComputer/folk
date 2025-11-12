@@ -607,7 +607,7 @@ When tag /tag/ has detection /any/ on camera /any/ at timestamp /timestamp/ {
     # Setting aside this tag space (48600 to 48713) for calibration.
     if {!($tag >= 0 && $tag < 48600)} { return }
 
-    Wish (keep 100ms) $tag has resolved geometry
+    Wish -keep 100ms $tag has resolved geometry
 }
 
 When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
