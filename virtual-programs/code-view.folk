@@ -237,20 +237,11 @@ Subscribe: save code on view /view/ {
         puts -nonewline $fp $programCode
         close $fp
 
-        # code may be saved even without an attached keyboard, hence
-        # feedback being optional
-        set results [Query! /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
-                            /keyboard/ points up at $view]
-        if {[llength $results] > 0} {
-            set keyboard [dict get [lindex $results 0] keyboard]
-
-            # give the user some feedback
-            Hold! -key saved-alert:$keyboard \
-                Wish $keyboard is labelled "Saved!"
-
-            sleep 0.25
-            Hold! -key saved-alert:$keyboard {}
-        }
+        # Give the user some feedback
+        Hold! -key saved-alert:$view \
+            Wish $view is labelled "Saved!"
+        sleep 0.25
+        Hold! -key saved-alert:$view {}
     }
 }
 
