@@ -1,5 +1,4 @@
-When type library for mm is /mm/ &\
-     the program save directory is /programDir/ &\
+When the program save directory is /programDir/ &\
      the editor utils library is /utils/ {
 
 # TODO: also don't hardcode this?

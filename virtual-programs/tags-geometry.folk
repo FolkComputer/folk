@@ -1,21 +1,23 @@
-When type library for mm is /mm/ &\
-     the default program geometry is /defaultGeom/ &\
+When the default program geometry is /defaultGeom/ &\
      program /program/ is scaled by x /xScale/ y /yScale/ {
-    set tagSize [$mm unbox [dict get $defaultGeom tagSize]]
-    set left [$mm unbox [dict get $defaultGeom left]]
-    set right [$mm unbox [dict get $defaultGeom right]]
-    set top [$mm unbox [dict get $defaultGeom top]]
-    set bottom [$mm unbox [dict get $defaultGeom bottom]]
+    proc extractMm {mm} {
+        regexp {([0-9.]+)mm} $mm -> extracted
+        return $extracted
+    }
+
+    set tagSize [extractMm [dict get $defaultGeom tagSize]]
+    set left [extractMm [dict get $defaultGeom left]]
+    set right [extractMm [dict get $defaultGeom right]]
+    set top [extractMm [dict get $defaultGeom top]]
+    set bottom [extractMm [dict get $defaultGeom bottom]]
 
     set width [expr {$left + $tagSize + $right}]
     set height [expr {$top + $tagSize + $bottom}]
 
-    set left [$mm box $left]
-    set right [$mm box [expr {$right + ($width * $xScale - $width)}]]
-    set top [$mm box $top]
-    set bottom [$mm box [expr {$bottom + ($height * $yScale - $height)}]]
+    set right $($right + ($width * $xScale - $width))mm
+    set bottom $($bottom + ($height * $yScale - $height))mm
 
-    set newGeom [list tagSize [$mm box $tagSize] left $left right $right top $top bottom $bottom]
+    set newGeom [list tagSize ${tagSize}mm left ${left}mm right ${right}mm top ${top}mm bottom ${bottom}mm]
 
     Claim tag $program has geometry $newGeom
 }
