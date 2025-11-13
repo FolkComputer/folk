@@ -44,7 +44,11 @@ set editorUtilsLib [library create editorUtilsLib {
         set after [string range $code $cursor end]
         set joined [join [list $before $newText $after] ""]
 
-        return $joined
+        incr cursor
+        lassign [cursorToXy $code $cursor] cursorX cursorY
+        set maxCursorX $cursorX
+
+        return [list $joined $cursor $maxCursorX]
     }
 
     proc deleteText {code cursor count} {

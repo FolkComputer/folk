@@ -164,10 +164,7 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
 
       if {$keyState == "down" || $keyState == "repeat"} {
         if {[dict exists $options printable]} {
-          set editorCode [$utils insertText $editorCode $cursor [dict get $options printable]]
-
-          incr cursor
-          incr maxCursorX
+          lassign [$utils insertText $code $cursor [dict get $options printable]] code cursor maxCursorX
         } else {
           lassign [$utils handleNavigation $key $editorCode $cursor $maxCursorX] cursor maxCursorX
           lassign [$utils handleRemovalAndReturn $key $editorCode $cursor $maxCursorX] editorCode cursor maxCursorX
