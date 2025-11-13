@@ -38,7 +38,7 @@ When -noncapturing the program save directory is /saveDir/ {
                 set editedCode [read $fd]
                 close $fd
 
-                Hold! -key new-code-for:$obj \
+                Hold! -on virtual-programs/programs.folk -key new-code-for:$obj \
                     Wish program $obj is replaced with code $editedCode
             }
 
