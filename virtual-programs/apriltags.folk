@@ -63,7 +63,7 @@ fn makeAprilTagDetector {TAG_FAMILY QUAD_DECIMATE NTHREADS} {
 Claim the AprilTag detector maker is [fn makeAprilTagDetector]
 
 set tagFamily "tagStandard52h13"
-set entireFrameDetector [makeAprilTagDetector $tagFamily 4.0 1]
+set entireFrameDetector [makeAprilTagDetector $tagFamily 2.0 1]
 set incrementalDetector [makeAprilTagDetector $tagFamily 1.5 1]
 
 # Entire-frame tag detector:
