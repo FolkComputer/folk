@@ -633,9 +633,8 @@ proc ForEach! {args} {
         }
 
         try {
+            # FIXME: how to deal with early return in $body?
             uplevel [list dict with __result $body]
-        } on error {err opts} {
-            puts stderr "Error in ForEach!: $err --  $opts"
         } finally {
             StatementRelease! $ref
         }
