@@ -1,232 +1,326 @@
-When the editor utils library is /utils/ {
-
-set baseCode "Wish \$this is outlined green"
-
 # This makes all keyboards into editors automatically, so a keyboard
-# doesn't need an extra printed claim to be an editor. May choose to
-# change later, or exclude keyboards that opt out.
-When /page/ is a keyboard with /...opts/ &\
-     /nobody/ claims /page/ is not an editor {
-    dict set opts locale [dict getdef $opts locale us]
-    if {[dict exists $opts path]} {
-        Wish -keep 100ms $page is an editor with {*}$opts
+# doesn't need to point at a real editor. May choose to change later, or
+# exclude keyboards that opt out.
+When /k/ is a keyboard with /...opts/ &\
+     /nobody/ wishes /k/ does not create an editor {
+
+    # Create a synthetic editor above the keyboard page.
+    set editor [list $k editor]
+    Claim $editor is an editor
+    Wish $editor has a canvas
+    When $k has resolved geometry /geom/ {
+        Claim $editor has resolved geometry $geom
     }
+    When the quad library is /quadLib/ & $k has quad /q/ {
+        Claim $editor has quad [$quadLib move $q up 105%]
+    }
+    Claim $k has created editor $editor
+    Claim $k is typing into $editor
+}
+When /k/ is a keyboard with /...opts/ &\
+     /nobody/ claims /k/ has created editor /any/ &\
+     /k/ points up at /editor/ & /editor/ is an editor with /...opts/ {
+
+    Claim $k is typing into $editor
 }
 
-# HACK: This is so that the wish can cycle in and out but the identity
-# of the inner claim is retained, so the editor doesn't reboot.
-When /someone/ wishes /page/ is an editor with /...opts/ {
-    Claim $page is an editor with {*}$opts
+When the program save directory is /programDir/ &\
+     the editor utils library is /utils/ {
+
+# TODO: also don't hardcode this?
+set margin [list 0.035 0.09]
+set defaults { textScale 0.01 }
+
+set codeViewLib [library create codeViewLib {margin defaults} {
+    proc getEmAndAdvance {textScale} {
+        set em [expr {$textScale * 1}]
+        # From NeomatrixCode.csv
+        set advance [expr {0.5859375 * $em}]
+
+        return [list $em $advance]
+    }
+
+    proc widthAndHeight {resolvedGeom} {
+        set tagSize [dict get $resolvedGeom tagSize]
+        set left [dict get $resolvedGeom left]
+        set right [dict get $resolvedGeom right]
+        set top [dict get $resolvedGeom top]
+        set bottom [dict get $resolvedGeom bottom]
+
+        set width [expr {$left + $tagSize + $right}]
+        set height [expr {$top + $tagSize + $bottom}]
+
+        return [list $width $height]
+    }
+
+    # given program and the editor options, figure out how many characters can
+    # fit in this editor
+    proc viewCharacterSize {resolvedGeom options} {
+        variable margin
+
+        set textScale [dict get $options textScale]
+        lassign [getEmAndAdvance $textScale] em advance
+
+        lassign [widthAndHeight $resolvedGeom] width height
+        set width [expr {$width - [lindex $margin 0]}]
+        set height [expr {$height - [lindex $margin 1]}]
+
+        set widthInCharacters [expr {int($width / $advance)}]
+        set heightInCharacters [expr {int($height / $em)}]
+
+        return [list $widthInCharacters $heightInCharacters]
+    }
+}]
+
+When /someone/ claims /view/ is an editor {
+    Claim $view is an editor with {*}$defaults
 }
 
-When /page/ is an editor with path /kbPath/ /...anything/ {
-  Wish tag $page is stabilized
+# initial setup
+When /view/ is an editor with /...options/ {
+    set options [dict merge $defaults $options]
 
-  set id [list editing $page $kbPath]
+    # select which program the view is viewing
+    When $view points up with length 0.3 at /program/ {
+        Hold! -key selected-program:$view \
+            Claim $view has selected program $program
+    }
 
-  set writableTextureId [list $id canvas]
-  Wish -keep 100ms the GPU creates canvas $writableTextureId with width 1024 height 1024
-  When the GPU has created canvas $writableTextureId with /...opts/ {
-      Claim $id has canvas $writableTextureId with {*}$opts
-  }
-  When $page has resolved geometry /geom/ {
-      Claim $id has resolved geometry $geom
-  }
-  When $page has canvas projection /proj/ {
-      Claim $id has canvas projection $proj
-  }
-  When the quad library is /quadLib/ & $page has quad /q/ {
-      Claim $id has quad [$quadLib move $q up 210%]
-  }
+    # reset selected program when it's not pointing at anything
+    When /nobody/ claims $view points up at /anything/ {
+        Hold! -key selected-program:$view {}
+    }
 
-  if {[llength [Query! /someone/ claims $id has program code /c/]] == 0} {
-      Hold! -key "programCode$kbPath" \
-          Claim $id has program code $baseCode
-  }
-  if {[llength [Query! /someone/ claims $id has editor code /c/]] == 0} {
-      Hold! -save -key "code$kbPath" {
-          Claim $id has editor code $baseCode
-      }
-  }
+    # Load initial text settings if not set
+    When /nobody/ claims $view has text settings /...anything/ {
+        set textScale [dict get $options textScale]
 
-  if {[llength [Query! /someone/ claims $id has start time /startTime/]] == 0} {
-      set t [expr {[clock milliseconds] / 1000.0}]
-      Hold! -key [list $id start-time] \
-          Claim $id has start time $t
-      Hold! -key [list $id most-recent-time] \
-          Claim $id has most recent time $t
-  }
+        Hold! -save -key text-params-of:$view \
+            Claim $view has text settings with scale $textScale
+    }
+
+    # load in defaults for the view if it hasn't been initialized
+    set results [Query! /somebody/ claims $view has cursor /anything/]
+    if {[llength $results] == 0} {
+        # We need the view's region in geometry to get its size.
+        # We then use its size to figure out how many characters we can fit in it,
+        # width-wise and height-wise
+        When $view has resolved geometry /geom/ {
+            Hold! -key view-state-of:$view {
+                lassign [$codeViewLib viewCharacterSize $geom $options] widthInCharacters heightInCharacters
+
+                Claim $view has view dimensions [list 0 0 $widthInCharacters $heightInCharacters]
+                Claim $view has cursor 0
+                Claim $view has max cursor x 0
+            }
+        }
+    }
+
+    # load in initial program code
+    When $view has selected program /program/ &\
+         /program/ has program code /programCode/ {
+        set results [Query! view code for $program is /anything/]
+        if {[llength $results] == 0} {
+            Hold! -key code-for:$program \
+                Claim view code for $program is $programCode
+        }
+    }
+
+    # feedback: show that the editor is not active
+    When /nobody/ claims $view is outlined green {
+        Wish $view is outlined blue
+    }
+
+    Wish tag $view is stabilized
 }
 
-When /page/ is an editor with path /kbPath/ /...anything/ {
-  set id [list editing $page $kbPath]
-  On unmatch {
-      Hold! -key [list $id start-time] {}
-  }
-}
-
-fn x {vector} { lindex $vector 0 }
-fn y {vector} { lindex $vector 1 }
-
-When /page/ is an editor with path /kbPath/ /...anything/ {
-  set id [list editing $page $kbPath]
-  if {[llength [Query! /someone/ claims the $kbPath cursor is /anything/]] == 0} {
-    Hold! -key "cursor$kbPath" {
-      Claim the $kbPath cursor is 0
-      Claim the $kbPath max cursor x is 0
+Subscribe: keyboard /keyboard/ claims key /key/ is /keyState/ with /...options/ {
+    if {$keyState == "down" && $key == "Control_b"} {
+        Notify: print code "# blank"
     }
-  }
-}
+} 
 
-When /page/ is an editor with path /kbPath/ /...anything/ {
-    set id [list editing $page $kbPath]
+When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
+     /keyboard/ is typing into /view/ &\
+     /view/ is an editor with /...anything/ &\
+     /view/ has selected program /program/ {
+    Wish $view is outlined green
 
-    # Construct the editor window $id':
-    set writableTextureId [list $id' canvas]
-    Wish -keep 100ms the GPU creates canvas $writableTextureId with width 1024 height 1024
-    When the GPU has created canvas $writableTextureId with /...opts/ {
-        Claim $id' has canvas $writableTextureId with {*}$opts
-    }
-    When $page has resolved geometry /geom/ {
-        Claim $id' has resolved geometry $geom
-    }
-    When $page has canvas projection /proj/ {
-        Claim $id' has canvas projection $proj
-    }
+    Subscribe: keyboard $kbPath claims key /key/ is /keyState/ with /...options/ {
+        ForEach! $view has view dimensions /dims/ &\
+                 view code for $program is /code/ &\
+                 $view has max cursor x /maxCursorX/ &\
+                 $view has cursor /cursor/ &\
+                 $view has text settings with /...textOptions/ {
+            lassign $dims vpX vpY vpWidth vpHeight
 
-    When the quad library is /quadLib/ & $id has quad /q/ {
-        Claim $id' has quad [$quadLib move $q down 105%]
-    }
+            if {$keyState == "up"} { return }
 
-    set scale 0.0075
-    Wish $id' is outlined white
+            # if this is true, the code will remove the hold for program code
+            # (triggering a reinitialization)
+            set resetCode false
 
-    When $id has program code /code/ & $id has editor code /editorCode/ {
-        set p [list 0.02 0.01]
-        Wish to draw text onto $id' with \
-            position $p text $editorCode \
-            scale $scale anchor topleft font NeomatrixCode
+            if {[dict exists $options printable]} {
+                lassign [$utils insertText $code $cursor [dict get $options printable]] code cursor maxCursorX
+            } else {
+                # general editor functionality
+                lassign [$utils handleNavigation $key $code $cursor $maxCursorX] cursor maxCursorX
+                lassign [$utils handleRemovalAndReturn $key $code $cursor $maxCursorX] code cursor maxCursorX
 
-        # Draw line numbers
-        set lp [list 0.005 0.01]
-        set linecount [llength [split $editorCode "\n"]]
-        set linenumbers [$utils lineNumberView 0 $linecount]
-        Wish to draw text onto $id' with \
-            position $lp text $linenumbers \
-            scale $scale anchor topleft font NeomatrixCode
+                # specific editor functionality
+                switch $key {
+                    Control_r {
+                        set resetCode true
+                    }
+                    Control_s {
+                        Notify: save code on view $view
+                    }
+                    Control_p {
+                        Notify: print code $code
+                    }
+                    Control_t {
+                        # remove the edited code to restore the program to its original code
+                        Hold! -on virtual-programs/programs.folk -key new-code-for:$program {}
+                        set resetCode true
+                        file delete "$programDir/$program.folk.edited"
+                    }
+                    Control_underscore {
+                        # ctrl and - (zoom out)
+                        set geom [dict get [QueryOne! $view has resolved geometry /geom/] geom]
 
-        When the $kbPath cursor is /cursor/ {
-            set cursor [$utils cursorToXy $editorCode $cursor]
+                        set textScale [dict get $textOptions scale]
+                        set textScale [/ $textScale 1.1]
 
-            set em [expr {$scale * 1}]
-            # From NeomatrixCode.csv
-            set advance [expr {0.5859375 * $scale}]
+                        Hold! -save -key text-params-of:$view \
+                            Claim $view has text settings with scale $textScale
 
-            # Draw cursor
-            set curs [vec2 scale $cursor $advance $em]
+                        # overwrite vpWidth and vpHeight as it's used later when updating the viewport
+                        set codeViewOptions [dict create textScale $textScale]
+                        lassign [$codeViewLib viewCharacterSize $geom $codeViewOptions] vpWidth vpHeight
+                    }
+                    equal {
+                        # Dunno why it registers as equal instead of Control_equal? It works regardless, lol
+                        # ctrl and + (zoom in)
+                        set geom [dict get [QueryOne! $view has resolved geometry /geom/] geom]
 
-            set x1 [vec2 add $p $curs]
-            set x2 [vec2 add $x1 [list 0 [expr {$em * 1.3}]]]
+                        set textScale [dict get $textOptions scale]
+                        set textScale [* $textScale 1.1]
 
-            set s [expr {$scale / 6}]
-            Wish to draw a circle onto $id' with center $x1 radius $s thickness 0 color green filled true
-            Wish to draw a line onto $id' with points [list $x1 $x2] width $s color green
+                        Hold! -save -key text-params-of:$view \
+                            Claim $view has text settings with scale $textScale
+
+                        # overwrite vpWidth and vpHeight as it's used later when updating the viewport
+                        set codeViewOptions [dict create textScale $textScale]
+                        lassign [$codeViewLib viewCharacterSize $geom $codeViewOptions] vpWidth vpHeight
+                    }
+                }
+            }
+
+            if {$resetCode} {
+                set cursor 0
+                set maxCursorX 0
+
+                Hold! -keep 12ms -key code-for:$program {
+                    When $program has program code /originalCode/ {
+                        Claim view code for $program is $originalCode
+                    }
+                }
+            } else {
+                Hold! -keep 12ms -key code-for:$program \
+                    Claim view code for $program is $code
+            }
+
+            lassign [$utils cursorToXy $code $cursor] cursorX cursorY
+            if {$cursorX < $vpX} { set vpX $cursorX }
+            if {$cursorX >= $vpX + $vpWidth} {
+                set vpX [expr {$cursorX - $vpWidth}]
+            }
+            if {$cursorY < $vpY} { set vpY $cursorY }
+            if {$cursorY >= $vpY + $vpHeight - 1} {
+                set vpY [expr {$cursorY - $vpHeight + 1}]
+            }
+
+            Hold! -key view-state-of:$view {
+                Claim $view has view dimensions [list $vpX $vpY $vpWidth $vpHeight]
+                Claim $view has cursor $cursor
+                Claim $view has max cursor x $maxCursorX
+            }
         }
     }
 }
 
-# OK, what's next?
+Subscribe: save code on view /view/ {
+    ForEach! /view/ has selected program /program/ &\
+             view code for /program/ is /programCode/ {
+        Hold! -on virtual-programs/programs.folk -key new-code-for:$program \
+            Wish program $program is replaced with code $programCode
 
-# - figure out how to speed up Hold serialization when you edit the code (cache the outgoing env? share env values instead of whole env?)
-# - figure out how to KEEP PRESENTATION VISUALS so the page doesn't vanish but NOT MATCH ON DATA QUERY so you don't get weird behavior when editing the code
-#   - maybe you can set a query policy?
+        set fp [open "$programDir/[set program].folk.edited" w]
+        puts -nonewline $fp $programCode
+        close $fp
 
-When /page/ is printing /jobid/ & /page/ has region /r/ {
-  set r [region move $r left 50px]
-  lassign [region left $r] x y
-  set angle [region angle $r]
-  Wish to draw text with x $x y $y text  "Printing (jobid: $jobid)" radians [+ $angle 1.55] font NeomatrixCode
-}
-
-When /page/ is an editor with path /kbPath/ /...anything/ {
-    set id [list editing $page $kbPath]
-
-  Subscribe: keyboard $kbPath claims key /key/ is /keyState/ with /...options/ {
-    ForEach! the $kbPath cursor is /cursor/ &\
-             the $kbPath max cursor x is /maxCursorX/ &\
-             $id has program code /programCode/ &\
-             $id has editor code /editorCode/ &\
-             $id has start time /startTime/ {
-      set timestamp [dict get $options timestamp]
-
-      if {$keyState == "down" || $keyState == "repeat"} {
-        if {[dict exists $options printable]} {
-          lassign [$utils insertText $editorCode $cursor [dict get $options printable]] \
-            editorCode cursor maxCursorX
-        } else {
-          lassign [$utils handleNavigation $key $editorCode $cursor $maxCursorX] cursor maxCursorX
-          lassign [$utils handleRemovalAndReturn $key $editorCode $cursor $maxCursorX] editorCode cursor maxCursorX
-
-          # TODO: Implement DELETE, operates like BACKSPACE, but in the opposite direction
-          # TODO: MUTE VOLUMEUP VOLUMEDOWN
-          #       implement sound.folk that allows a system-wide
-          #       volume setting to be adjusted.
-          #       Perhaps `Wish $system volume is 0.5` or something
-          switch $key {
-            Control_p {
-              set tooSoon false
-
-              # debouncing, in case the user accidentally hits it twice
-              set results [Query! $id has printed /lastPrintedCode/ at /previousTime/]
-              if {[llength $results] > 0} {
-                set previousTime [dict get [lindex $results 0] previousTime]
-
-                if {($timestamp - $previousTime) < 1000} {
-                  set tooSoon true
-                }
-              }
-
-              if {!$tooSoon} {
-                Hold! -key print { Claim $id has printed $programCode at $timestamp }
-
-                Notify: print code $programCode
-                Hold! -key print-feedback {
-                  Claim $id' is printing
-                  sleep 2
-                  Hold! -key print-feedback {}
-                }
-              }
-            }
-            Control_r {
-              set editorCode $baseCode
-              set programCode $editorCode
-
-              set cursor 0
-            }
-            Control_s {
-              set programCode $editorCode
-            }
-          }
-        }
-      }
-
-      Hold! -keep 12ms -key "code$kbPath" {
-        Claim $id has program code $programCode
-        Claim $id has editor code $editorCode
-      }
-
-      Hold! -key "cursor$kbPath" {
-        Claim the $kbPath cursor is $cursor
-        Claim the $kbPath max cursor x is $maxCursorX
-      }
+        # Give the user some feedback
+        Hold! -key saved-alert:$view \
+            Wish $view is labelled "Saved!"
+        sleep 0.25
+        Hold! -key saved-alert:$view {}
     }
-  }
 }
 
-Claim $this has demo {
-  # Find your keyboard path with the script in this guide: https://folk.computer/guides/keyboard
-  Claim $this is a keyboard with path /dev/input/by-path/pci-0000:02:00.0-usb-0:2:1.2-event-mouse locale us
-  Claim $this is an editor
+# calculate cursor position
+When /view/ is an editor with /...anything/ &\
+     /view/ has cursor /cursor/ &\
+     /view/ has selected program /program/ &\
+     view code for /program/ is /code/ &\
+     /view/ has view dimensions /dims/ &\
+     /view/ has text settings with /...textOptions/ {
+    lassign $dims vpX vpY vpWidth vpHeight
+
+    lassign [$utils cursorToXy $code $cursor] cursorX cursorY
+
+    set textScale [dict get $textOptions scale]
+    lassign [$codeViewLib getEmAndAdvance $textScale] em advance
+
+    set offsetX [expr {($cursorX - $vpX) * $advance}]
+    set offsetY [expr {($cursorY - $vpY) * $em}]
+
+    Claim $view has cursor position [list $offsetX $offsetY]
 }
 
+# Draw text and cursor
+When /view/ is an editor with /...anything/ &\
+     /view/ has view dimensions /dims/ &\
+     /view/ has resolved geometry /geom/ &\
+     /view/ has text settings with /...textOptions/ {
+    # vp = viewport
+    lassign $dims vpX vpY vpWidth vpHeight
+
+    set textScale [dict get $textOptions scale]
+    lassign [$codeViewLib getEmAndAdvance $textScale] em advance
+
+    When $view has selected program /program/ &\
+         view code for /program/ is /code/ &\
+         $view has cursor position /cursorPos/ {
+        set lineCount [- [llength [split $code "\n"]] $vpY]
+        set lineNumbers [$utils lineNumberView $vpY $lineCount]
+        Wish to draw text onto $view with \
+            position [vec2 sub $margin [list 0.005 0.0]] text $lineNumbers \
+            scale $textScale anchor topright font NeomatrixCode
+
+        set text [$utils applyTextViewport $code $vpX $vpY $vpWidth $vpHeight]
+        set pos $margin
+        Wish to draw text onto $view with \
+            position $pos text $text \
+            scale $textScale anchor topleft font NeomatrixCode
+
+        set p1 [vec2 add $cursorPos $pos]
+        set p2 [vec2 add $p1 [list 0 [expr {$em + 0.004}]]]
+        set s [expr {$textScale / 6}]
+        Wish to draw a circle onto $view with center $p1 radius $s thickness 0 color green filled true
+        Wish to draw a line onto $view with points [list $p1 $p2] width $s color green
+    }
+}
+
+
+# end of library code
 }
