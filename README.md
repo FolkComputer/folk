@@ -459,12 +459,12 @@ You can overwrite another program's Hold! with the `on` parameter, like
 virtual-programs/example.folk) { ... }` (if the Hold! is from the
 example.folk virtual program)
 
-### Subscribe:
+### Subscribe: and Notify:
 
-`Subscribe:` works almost like `When`, but it only executes once per `Notify:`
-and cannot support any Claims/Whens/Wishes.
+`Subscribe:` subscribes to notifications. It executes once per
+`Notify:` and cannot support any Claims/Whens/Wishes in its body.
 
-**You can't make Claims, Whens, or Wishes inside an `Subscribe:`
+**You can't make Claims, Whens, or Wishes inside a `Subscribe:`
 block. You can only Hold!.**
 
 Example:
@@ -480,14 +480,6 @@ Subscribe: there is a boop {
 
 Notify: there is a boop
 ```
-
-If you had used `When` here, it wouldn't terminate, since the new
-`$this has seen n+1 boops` hold would cause the `When` to retrigger,
-resulting in a `$this has seen n+2 boops` hold, then another
-retrigger, and so on.
-
-`Subscribe:`, in contrast, will 'only react once' to the boop; nothing
-in its body will run again unless the boop notifies again.
 
 ### Animation
 
@@ -525,13 +517,7 @@ When when /personVar/ is cool /lambda/ with environment /e/ {
 }
 ```
 
-#### On
-
-FIXME: General note: the `On` block is used for weird
-non-reactive behavior. Need to fill this out more.
-
-
-##### On unmatch
+#### On unmatch
 
 You should _not_ use `When`, `Claim`, or `Wish` directly inside an
 `On unmatch` block; those only make sense inside a normal reactive
@@ -722,35 +708,3 @@ isn't meeting timing
 old hold have fully converged? but WARN if this happens
 - build a settlement-based local fps counter like clock time labeler
   (how many frames are we dropping?)
-
-### crash: Vulkan crash 2
-
-```
-Oct 01 18:26:59 folk0 make[71943]: Empty input file
-Oct 01 18:26:59 folk0 make[71943]: folk: /home/folk/Vulkan-ValidationLayers/layers/vulkan/generated/command_validation.cpp:1852: bool CoreChecks::ValidateCmd(const vvl::CommandBuffer&, const Location&) const: Assertion `false' failed.
-Oct 01 18:27:03 folk0 make[71935]: Aborted (core dumped)
-Oct 01 18:27:03 folk0 make[71931]: make: *** [Makefile:138: start] Error 134
-Oct 01 18:27:03 folk0 make[71931]: make: Leaving directory '/home/folk/folk2'
-Oct 01 18:27:03 folk0 systemd[1]: folk.service: Main process exited, code=exited, status=2/INVALIDARGUMENT
-```
-
-### crash: Hold overflow
-with animation + editors
-
-```
-Oct 01 18:12:56 folk0 make[70753]:   251. {virtual-programs/tags-to-quads.folk 1335 image}
-Oct 01 18:12:56 folk0 make[70753]:   252. {collect /wisher/ wishes the GPU draws pipeline /name/ onto canvas {1335 canvas} with /...options/}
-Oct 01 18:12:56 folk0 make[70753]:   253. {collect /someone/ claims tag 1336 has geometry /geom/}
-Oct 01 18:12:56 folk0 make[70753]:   254. {virtual-programs/tags-to-quads.folk tag pose 1336}
-Oct 01 18:12:56 folk0 make[70753]:   255. {virtual-programs/tags-to-quads.folk 1336 image}
-Oct 01 18:12:56 folk0 make[70753]: camera 19; bufcount 4
-Oct 01 18:12:56 folk0 make[70753]: camera_start(0): Success
-Oct 01 18:12:56 folk0 make[70753]: camera_start(1): Success
-Oct 01 18:12:56 folk0 make[70753]: camera_start(2): Success
-Oct 01 18:12:56 folk0 make[70753]: camera_start(3): Success
-Oct 01 18:12:56 folk0 make[70753]: Found 1 Vulkan devices
-Oct 01 18:12:56 folk0 make[70753]: Gpu: Found 1 displays
-Oct 01 18:12:56 folk0 make[70741]: make: *** [Makefile:138: start] Error 1
-Oct 01 18:12:56 folk0 make[70741]: make: Leaving directory '/home/folk/folk2'
-```
-
