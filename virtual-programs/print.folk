@@ -288,7 +288,7 @@ Subscribe: print program /id/ with /...options/ {
     ForEach! printer /printer/ is a receipt printer &\
              printer /printer/ is the default printer {
         escpos printProgram $printer $id $code
-        return ;# FIXME: doesn't work yet.
+        return
     }
 
     if {![dict exists $options printer]} {
