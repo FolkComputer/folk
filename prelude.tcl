@@ -632,12 +632,18 @@ proc ForEach! {args} {
             continue
         }
 
-        try {
-            # FIXME: how to deal with early return in $body?
-            uplevel [list dict with __result $body]
-        } finally {
-            StatementRelease! $ref
+        set code [catch {uplevel [list dict with __result $body]} result]
+        StatementRelease! $ref
+
+        if {$code == 2} {
+            # TCL_RETURN - the body did an early return
+            # Propagate it to the caller of ForEach!
+            return -code return $result
+        } elseif {$code == 1} {
+            # TCL_ERROR - an error occurred
+            error $result
         }
+        # code == 0 - normal completion, continue to next iteration
     }
 }
 
