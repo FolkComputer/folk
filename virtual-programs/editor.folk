@@ -151,9 +151,6 @@ When /page/ is printing /jobid/ & /page/ has region /r/ {
 When /page/ is an editor with path /kbPath/ /...anything/ {
     set id [list editing $page $kbPath]
 
-  # Desired behavior: query all the other stuff every time you hit a
-  # key, then destroy the when (don't want _any_ reaction after the
-  # original firing, and don't want to keep the match around).
   Subscribe: keyboard $kbPath claims key /key/ is /keyState/ with /...options/ {
     ForEach! the $kbPath cursor is /cursor/ &\
              the $kbPath max cursor x is /maxCursorX/ &\
