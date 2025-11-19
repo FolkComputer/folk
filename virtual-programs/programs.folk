@@ -38,18 +38,21 @@ When -noncapturing the program save directory is /saveDir/ {
                 set editedCode [read $fd]
                 close $fd
 
+                set editedTime [file mtime "$saveDir/$obj.folk.edited"]
                 Hold! -on virtual-programs/programs.folk -key new-code-for:$obj \
-                    Wish program $obj is replaced with code $editedCode
+                    Wish program $obj is replaced with \
+                    code $editedCode editedTime $editedTime
             }
 
             Claim $obj has original program code $code
-            When /nobody/ wishes program $obj is replaced with code /anything/ {
+            When /nobody/ wishes program $obj is replaced with /...anything/ {
                 Claim $obj has program code $code
             }
 
-            When /someone/ wishes program $obj is replaced with code /newCode/ {
-                Claim $obj has program code $newCode
-                Wish $obj is titled "EDITED"
+            When /someone/ wishes program $obj is replaced with /...opts/ {
+                Claim $obj has program code [dict get $opts code]
+                set editedTime [dict get $opts editedTime]
+                Wish $obj is titled "(edited [clock format $editedTime -format "%a, %d %b %Y, %r"])"
             }
 
             if {[file exists "$saveDir/$obj.meta.folk"]} {

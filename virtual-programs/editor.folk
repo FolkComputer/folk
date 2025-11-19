@@ -28,7 +28,7 @@ When the program save directory is /programDir/ &\
      the editor utils library is /utils/ {
 
 # TODO: also don't hardcode this?
-set margin [list 0.035 0.09]
+set margin [list 0.02 0.01]
 set defaults { textScale 0.01 }
 
 set codeViewLib [library create codeViewLib {margin defaults} {
@@ -253,7 +253,8 @@ Subscribe: save code on view /view/ {
     ForEach! /view/ has selected program /program/ &\
              view code for /program/ is /programCode/ {
         Hold! -on virtual-programs/programs.folk -key new-code-for:$program \
-            Wish program $program is replaced with code $programCode
+            Wish program $program is replaced with \
+            code $programCode editedTime [clock seconds]
 
         set fp [open "$programDir/[set program].folk.edited" w]
         puts -nonewline $fp $programCode

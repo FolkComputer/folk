@@ -19,7 +19,7 @@ When the quad library is /quadLib/ &\
         set text [join [lmap result $results {dict get $result text}] "\n"]
         if {$text eq ""} { return }
     
-        When $thing has quad /q/ {
+        When -atomically $thing has quad /q/ {
             # HACK: This is just direct working with pixels, like
             # points-at, and it's ugly.
 
