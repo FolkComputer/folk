@@ -89,24 +89,24 @@ When the quad library is /quadLib/ &\
         }]
 
         if {[::math::geometry::pointInsidePolygon $to $displayVertices]} {
-            Claim -keep 20ms $rect points $direction at $target
-            Claim -keep 20ms $rect points $direction with length $l at $target
+            Claim -keep 50ms $rect points $direction at $target
+            Claim -keep 50ms $rect points $direction with length $l at $target
 
             set color green
-            Wish -keep 20ms to draw a line onto $disp with \
+            Wish to draw a line onto $disp with \
                 points [list $from $to] width 4 \
                 color $color
-            Wish -keep 20ms to draw a circle onto $disp with \
+            Wish to draw a circle onto $disp with \
                 center $to radius 10 thickness 5 \
-                color $color filled false
+                color $color filled true
         }
     }
 
     When /nobody/ claims $rect points /anything/ at /anything/ {
-        Wish -keep 20ms to draw a line onto $disp with \
+        Wish to draw a line onto $disp with \
             points [list $from $to] width 4 \
             color $color
-        Wish -keep 20ms to draw a circle onto $disp with \
+        Wish to draw a circle onto $disp with \
             center $to radius 10 thickness 5 \
             color $color filled false
     }
