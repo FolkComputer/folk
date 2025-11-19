@@ -4,6 +4,8 @@
 When /k/ is a keyboard with /...opts/ &\
      /nobody/ wishes /k/ does not create an editor {
 
+    Wish tag $k is stabilized
+
     # Create a synthetic editor above the keyboard page.
     set editor [list $k editor]
     Claim $editor is an editor
