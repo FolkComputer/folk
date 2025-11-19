@@ -103,14 +103,16 @@ FOLK_REMOTE_NODE ?= folk-live
 
 sync:
 	ssh $(FOLK_REMOTE_NODE) -t \
-    'cd ~/folk && git init > /dev/null && git ls-files --exclude-standard -oi --directory' \
-    > .git/ignores.tmp || true
+		'cd ~/folk && git init > /dev/null && git ls-files --exclude-standard -oi --directory' \
+		> .git/ignores.tmp || true
 	git ls-files --exclude-standard -oi --directory >> .git/ignores.tmp
 	rsync --timeout=15 -e "ssh -o StrictHostKeyChecking=no" \
-    --archive --delete --itemize-changes \
-    --exclude='/.git' \
-    --exclude-from='.git/ignores.tmp' \
-    ./ $(FOLK_REMOTE_NODE):~/folk/
+		--archive --delete --itemize-changes \
+		--exclude='/.git' \
+		--exclude-from='.git/ignores.tmp' \
+		--include='vendor/tracy/public/***' \
+		--exclude='vendor/tracy/*' \
+		./ $(FOLK_REMOTE_NODE):~/folk/
 
 remote-setup:
 	ssh-copy-id $(FOLK_REMOTE_NODE)

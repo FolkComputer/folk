@@ -1004,7 +1004,7 @@ AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key) {
                 atomically->key = strdup(key);
                 atomically->nextNumber = 0;
                 atomically->allVersions = NULL;
-                atomically->timeout = 30000000;
+                atomically->timeout = 100000000; // 100ms
                 atomically->latestConvergedTime = 0;
                 break;
             }

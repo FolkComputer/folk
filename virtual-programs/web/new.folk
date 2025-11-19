@@ -164,6 +164,12 @@ Wish the web server handles route "/new" with handler {
       Claim ${program} has resolved geometry {width ${w / 2000} height ${h / 2000}}
    `);
     ws.hold('quad', tcl`
+      package require linalg
+      namespace import ::math::linearalgebra::add
+      namespace import ::math::linearalgebra::sub
+      namespace import ::math::linearalgebra::matmul
+      namespace import ::math::linearalgebra::scale
+
       set quadLib [dict get [lindex [Query! the quad library is /quadLib/] 0] quadLib]
 
       set dims [lindex [Query! display /disp/ has width /displayWidth/ height /displayHeight/] 0]
@@ -200,12 +206,39 @@ Wish the web server handles route "/new" with handler {
       set x2_3d [expr {($x_scaled + $w_scaled - $cx) * $depth / $fx}]
       set y2_3d [expr {($y_scaled + $h_scaled - $cy) * $depth / $fy}]
       
-      set vertices [list [list $x1_3d $y1_3d $depth] \
-            [list $x2_3d $y1_3d $depth] \
-            [list $x2_3d $y2_3d $depth] \
-            [list $x1_3d $y2_3d $depth]]
+      set vertices [list \
+          [list $x1_3d $y1_3d $depth] \
+          [list $x2_3d $y1_3d $depth] \
+          [list $x2_3d $y2_3d $depth] \
+          [list $x1_3d $y2_3d $depth] \
+      ]
+
+      # Get the angle (in radians) from JS
+      set angle_rad [expr {${regionAngle} * 3.14159265 / 180.0}]
+
+      # Manually create the 3D rotation matrix for the Z-axis
+      set c [expr {cos($angle_rad)}]
+      set s [expr {sin($angle_rad)}]
+      set R [list [list $c [expr {-1.0 * $s}] 0.0] \
+                  [list $s $c              0.0] \
+                  [list 0.0 0.0             1.0]]
+
+      # Calculate the centroid (center) of the quad
+      lassign $vertices v1 v2 v3 v4
+
+      set centroid [scale 0.25 [add [add $v1 $v2] [add $v3 $v4]]]
+
+      # Rotate each vertex around the centroid
+      # Formula: new_vertex = RotationMatrix * (vertex - centroid) + centroid
+      set rotated_vertices [list \
+          [add [matmul $R [sub $v1 $centroid]] $centroid] \
+          [add [matmul $R [sub $v2 $centroid]] $centroid] \
+          [add [matmul $R [sub $v3 $centroid]] $centroid] \
+          [add [matmul $R [sub $v4 $centroid]] $centroid] \
+      ]
+
       Claim ${program} has quad \
-          [$quadLib create "display $disp" $vertices]
+          [$quadLib create "display $disp" $rotated_vertices]
   `);
   }
   function handleSave() {

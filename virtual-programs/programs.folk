@@ -2,8 +2,8 @@ When tag /tag/ has detection /any/ on camera /any/ at timestamp /any/ {
     # Setting aside this tag space (48600 to 48713) for calibration.
     if {$tag >= 45000} { return }
 
-    Claim (keep 100ms) tag $tag is a tag
-    Claim (keep 100ms) tag $tag has a program
+    Claim -keep 100ms tag $tag is a tag
+    Claim -keep 100ms tag $tag has a program
 }
 
 When -noncapturing the program save directory is /saveDir/ {

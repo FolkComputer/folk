@@ -9,7 +9,7 @@ When /page/ is a keyboard with /...opts/ &\
      /nobody/ claims /page/ is not an editor {
     dict set opts locale [dict getdef $opts locale us]
     if {[dict exists $opts path]} {
-        Wish (keep 100ms) $page is an editor with {*}$opts
+        Wish -keep 100ms $page is an editor with {*}$opts
     }
 }
 
@@ -25,7 +25,7 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
   set id [list editing $page $kbPath]
 
   set writableTextureId [list $id canvas]
-  Wish (keep 100ms) the GPU creates canvas $writableTextureId with width 1024 height 1024
+  Wish -keep 100ms the GPU creates canvas $writableTextureId with width 1024 height 1024
   When the GPU has created canvas $writableTextureId with /...opts/ {
       Claim $id has canvas $writableTextureId with {*}$opts
   }
@@ -83,7 +83,7 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
 
     # Construct the editor window $id':
     set writableTextureId [list $id' canvas]
-    Wish (keep 100ms) the GPU creates canvas $writableTextureId with width 1024 height 1024
+    Wish -keep 100ms the GPU creates canvas $writableTextureId with width 1024 height 1024
     When the GPU has created canvas $writableTextureId with /...opts/ {
         Claim $id' has canvas $writableTextureId with {*}$opts
     }

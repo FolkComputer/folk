@@ -1,5 +1,5 @@
 When the parent statement exists {
-    Claim (keep 1000ms) the child statement exists
+    Claim -keep 1000ms the child statement exists
 }
 Assert! the parent statement exists
 
