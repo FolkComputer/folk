@@ -11,7 +11,9 @@ ForEach! the first step is /a/ &\
 # Test if ForEach prints a decent-looking error message:
 fn errorTest {} {
     ForEach! the first step is /a/ {
-        error "Error in looking at $a"
+        ForEach! the second step is /b/ {
+            error "Error in looking at $a and $b"
+        }
     }
 }
 try {
@@ -23,8 +25,11 @@ try {
 
 # Test if we can early-return from inside ForEach:
 fn innerFunction {} {
-    ForEach! the third step is /c/ {
-        return GOOD
+    ForEach! the first step is /a/ {
+        ForEach! the third step is /c/ {
+            return GOOD
+        }
+        Exit! 2
     }
     Exit! 1
 }

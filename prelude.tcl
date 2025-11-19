@@ -632,18 +632,24 @@ proc ForEach! {args} {
             continue
         }
 
-        set code [catch {uplevel [list dict with __result $body]} result]
+        # This is so that the filename/linenum information in $body is
+        # preserved at the caller level.
+        upvar __body __body; set __body $body
+
+        set code [catch {uplevel {dict with __result $__body}} \
+                      result opts]
         StatementRelease! $ref
 
         if {$code == 2} {
-            # TCL_RETURN - the body did an early return
-            # Propagate it to the caller of ForEach!
+            # TCL_RETURN: the body did an early return; propagate it
+            # to the caller of ForEach!
             return -code return $result
         } elseif {$code == 1} {
-            # TCL_ERROR - an error occurred
-            error $result
+            # TCL_ERROR: an error occurred; preserve the original
+            # stack trace.
+            return -code error -errorinfo [dict get $opts -errorinfo] $result
         }
-        # code == 0 - normal completion, continue to next iteration
+        # code == 0: normal completion; continue to next iteration.
     }
 }
 
