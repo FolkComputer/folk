@@ -80,6 +80,9 @@ When /someone/ claims /view/ is an editor {
 
 # initial setup
 When /view/ is an editor with /...options/ {
+    # HACK: because we partial match
+    if {![info exists options]} { return }
+
     set options [dict merge $defaults $options]
 
     # select which program the view is viewing
