@@ -365,18 +365,26 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
                 # mark that the draw list is clear.
                 dict set drawListsByTexture $id [list]
 
-                set resultsList [Query! the collected results for \
-                                     [list /wisher/ wishes the GPU draws pipeline /name/ \
-                                          onto canvas $id with /...options/] are /results/]
-                if {[llength $resultsList] == 0} { continue }
-                set resultsStmt [lindex $resultsList 0]
-                set ref [dict get $resultsStmt __ref]
-                try {
-                    StatementAcquire! $ref
-                    lappend acquiredRefs $ref
-                } on error e {
-                    continue
+                while true {
+                    set resultsList [Query! the collected results for \
+                                         [list /wisher/ wishes the GPU draws pipeline /name/ \
+                                              onto canvas $id with /...options/] are /results/]
+                    if {[llength $resultsList] == 0} { break }
+                    set resultsStmt [lindex $resultsList 0]
+                    set ref [dict get $resultsStmt __ref]
+                    try {
+                        StatementAcquire! $ref
+                        lappend acquiredRefs $ref
+                        break
+
+                    } on error e {
+                        # Couldn't acquire the collection. Try again
+                        # until we get a valid collection or no
+                        # collection.
+                        continue
+                    }
                 }
+                if {[llength $resultsList] == 0} { continue }
 
                 set results [dict get $resultsStmt results]
                 foreach result $results { dict with result {
@@ -444,9 +452,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
 
     When display /disp/ has width /dispWidth/ height /dispHeight/ {
         # Create a canvas wrapper around the bare display so that you
-        # can draw onto it using the canvas-oriented interface, and so
-        # that it can use canvas settlement semantics to prevent
-        # blinking.
+        # can draw onto it using the canvas-oriented interface.
         set dispCanvas [list $disp canvas]
         Wish the GPU creates canvas $dispCanvas with \
             width $dispWidth height $dispHeight settle 0ms
