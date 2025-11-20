@@ -129,7 +129,7 @@ When /view/ is an editor with /...options/ {
     }
 
     # feedback: show that the editor is not active
-    When /nobody/ claims $view is outlined green {
+    When /nobody/ wishes $view is outlined green {
         Wish $view is outlined blue
     }
 
