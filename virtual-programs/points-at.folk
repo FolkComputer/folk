@@ -94,7 +94,7 @@ When $rect has quad /quad/ {
             Claim -keep 50ms $rect points $direction with length $l at $target
 
             set color green
-            Hold! -key [list $rect pointer] {
+            Hold! -keep 16ms -key [list $rect pointer] {
                 Wish to draw a line onto $disp with \
                     points [list $from $to] width 4 \
                     color $color
@@ -106,7 +106,7 @@ When $rect has quad /quad/ {
     }
 
     When /nobody/ claims $rect points /anything/ at /anything/ {
-        Hold! -key [list $rect pointer] {
+        Hold! -keep 16ms -key [list $rect pointer] {
             Wish to draw a line onto $disp with \
                 points [list $from $to] width 4 \
                 color $color
