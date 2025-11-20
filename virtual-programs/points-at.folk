@@ -13,8 +13,9 @@ When the quad library is /quadLib/ &\
      the quad changer is /quadChange/ &\
      display /disp/ has width /displayWidth/ height /displayHeight/ &\
      display /disp/ has intrinsics /displayIntrinsics/ &\
-     /someone/ wishes /rect/ points /direction/ with length /l/ &\
-     /rect/ has quad /quad/ {
+     /someone/ wishes /rect/ points /direction/ with length /l/ {
+
+When $rect has quad /quad/ {
 
     package require linalg
     namespace import \
@@ -93,21 +94,31 @@ When the quad library is /quadLib/ &\
             Claim -keep 50ms $rect points $direction with length $l at $target
 
             set color green
+            Hold! -key [list $rect pointer] {
+                Wish to draw a line onto $disp with \
+                    points [list $from $to] width 4 \
+                    color $color
+                Wish to draw a circle onto $disp with \
+                    center $to radius 10 thickness 5 \
+                    color $color filled true
+            }
+        }
+    }
+
+    When /nobody/ claims $rect points /anything/ at /anything/ {
+        Hold! -key [list $rect pointer] {
             Wish to draw a line onto $disp with \
                 points [list $from $to] width 4 \
                 color $color
             Wish to draw a circle onto $disp with \
                 center $to radius 10 thickness 5 \
-                color $color filled true
+                color $color filled false
         }
     }
+}
 
-    When /nobody/ claims $rect points /anything/ at /anything/ {
-        Wish to draw a line onto $disp with \
-            points [list $from $to] width 4 \
-            color $color
-        Wish to draw a circle onto $disp with \
-            center $to radius 10 thickness 5 \
-            color $color filled false
-    }
+On unmatch {
+    Hold! -key [list $rect pointer] {}
+}
+
 }
