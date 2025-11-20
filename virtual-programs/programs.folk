@@ -2,8 +2,8 @@ When tag /tag/ has detection /any/ on camera /any/ at timestamp /any/ {
     # Setting aside this tag space (48600 to 48713) for calibration.
     if {$tag >= 45000} { return }
 
-    Claim -keep 100ms tag $tag is a tag
     Claim -keep 100ms tag $tag has a program
+    Claim -keep 100ms tag $tag is a tag
 }
 
 When -noncapturing the program save directory is /saveDir/ {
@@ -52,7 +52,7 @@ When -noncapturing the program save directory is /saveDir/ {
             When /someone/ wishes program $obj is replaced with /...opts/ {
                 Claim $obj has program code [dict get $opts code]
                 set editedTime [dict get $opts editedTime]
-                Wish $obj is titled "(edited [clock format $editedTime -format "%a, %d %b %Y, %r"])"
+                Wish $obj is titled "(edited [clock format $editedTime -format "%a, %d %b %Y, %I:%M %p"])"
             }
 
             if {[file exists "$saveDir/$obj.meta.folk"]} {
