@@ -220,6 +220,10 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                 set cursor 0
                 set maxCursorX 0
 
+                # remove the edited code to restore the program to its original code
+                Hold! -on virtual-programs/programs.folk -key new-code-for:$program {}
+                file delete "$programDir/$program.folk.edited"
+
                 Hold! -keep 12ms -key code-for:$program {
                     When $program has program code /originalCode/ {
                         Claim view code for $program is $originalCode
