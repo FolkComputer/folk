@@ -126,7 +126,7 @@ When /view/ is an editor with /...options/ {
          /program/ has program code /programCode/ {
         set results [Query! view code for $program is /anything/]
         if {[llength $results] == 0} {
-            Hold! -key code-for:$program \
+            Hold! -save -key code-for:$program \
                 Claim view code for $program is $programCode
         }
     }
@@ -229,13 +229,13 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                 Hold! -on virtual-programs/programs.folk -key new-code-for:$program {}
                 file delete "$programDir/$program.folk.edited"
 
-                Hold! -keep 12ms -key code-for:$program {
+                Hold! -keep 12ms -save -key code-for:$program {
                     When $program has program code /originalCode/ {
                         Claim view code for $program is $originalCode
                     }
                 }
             } else {
-                Hold! -keep 12ms -key code-for:$program \
+                Hold! -keep 12ms -save -key code-for:$program \
                     Claim view code for $program is $code
             }
 
