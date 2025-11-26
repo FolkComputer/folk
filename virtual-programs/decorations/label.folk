@@ -17,8 +17,12 @@ When /thing/ has resolved geometry /geom/ {
         # Scale inversely with length to keep text readable.
         set defaultScale [::math::min 0.02 [/ 0.45 $maxLength]]
 
-        set x [/ [dict get $geom width] 2.0]
-        set y [/ [dict get $geom height] 2.0]
+        set x [/ $geom(width) 2.0]
+        try {
+            set y $($geom(top) + $geom(tagSize) + $geom(bottom)/2.0)
+        } on error e {
+            set y [/ $geom(height) 2.0]
+        }
         set options [dict create x $x y $y scale $defaultScale]
         # FIXME: support per-label options; right now, this just
         # applies an arbitrary label's options to all of them
