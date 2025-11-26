@@ -56,8 +56,7 @@ When when /p/ has camera slice /slice/ /lambda/ with environment /e/ {
   Wish $p has camera slice
 }
 
-# Display a camera slice -- similar to displaying an image, but with
-# automatic bridging so that the image doesn't blink out
+# Display a camera slice (for backward compatibility).
 When /someone/ wishes /p/ displays camera slice /slice/ {
-    Wish -keep 20ms $p displays image $slice
+    Wish $p displays image $slice
 }

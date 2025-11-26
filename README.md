@@ -714,6 +714,7 @@ isn't meeting timing
   - also not camera images
   - also not jim allocations
   - could it be clauses?
+    - it's clauses -- specifically clause strings
 - bug where camera slices halt / slow down animation
 - make web handlers inherit lexical scope
 - gadget-platinum outline blink
