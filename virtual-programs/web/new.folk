@@ -1,4 +1,4 @@
-Wish the web server handles route "/new" with handler {
+Wish the web server handles route "/new" with nav "<button>New program</button>" handler {
     html {
 <html lang="en">
   <head>

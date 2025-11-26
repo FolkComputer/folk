@@ -31,33 +31,19 @@ When the db library is /dbLib/ {
     set navLinks [list]
     foreach handler $handlers { dict with handler {
       if {[dict getdef $options hidden false]} { continue }
-
-      # Extract just the route path (strip regex patterns).
-      set displayRoute [regsub {\$\s*$} $route ""]
-      set displayRoute [regsub {\(\?\:\\?\.\*\)\?} $displayRoute ""]
-      set displayRoute [regsub {\[.*?\]} $displayRoute ""]
-      set displayRoute [regsub {\\} $displayRoute ""]
+      if {$route eq "/"} { continue }
 
       # Create a nice display name from the route.
+      set displayRoute [regsub {\$$} $route ""]
       set displayName [string trim $displayRoute "/"]
-      if {$displayName eq ""} { set displayName "Statements" }
       set displayName [string map {"-" " " ".pdf" "" "_" " "} $displayName]
       set displayName [string totitle $displayName]
 
       # Use the original route for the href.
       set cleanRoute [regsub {\$\s*$} $route ""]
 
-      # Special handling for the "/" root path.
-      if {$route eq "/" || [string match "/*" $route] && [string length $route] == 1} {
-        continue
-      }
-
-      # Special styling for "new" button.
-      if {[string match "*/new*" $route]} {
-        lappend navLinks "<a href=\"$cleanRoute\"><button>$displayName</button></a>"
-      } else {
-        lappend navLinks "<a href=\"$cleanRoute\">$displayName</a>"
-      }
+      set nav [dict getdef $options nav $displayName]
+      lappend navLinks "<a href=\"$cleanRoute\">$nav</a>"
     } }
 
     html [subst {
