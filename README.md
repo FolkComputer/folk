@@ -95,9 +95,7 @@ if flashing from a Mac] -- Ubuntu doesn't have a good kernel for Pi 5)
      1. See [notes](https://folk.computer/notes/vulkan) and [Naveen's
         notes](https://gist.github.com/nmichaud/1c08821833449bdd3ac70dcb28486539).
 
-1. `sudo nano /etc/udev/rules.d/99-input.rules`. add
-   `SUBSYSTEM=="input", GROUP="input", MODE="0666"`. `sudo udevadm
-   control --reload-rules && sudo udevadm trigger`
+1. `sudo sh -c 'echo SUBSYSTEM=="input", GROUP="input", MODE="0666" > /etc/udev/rules.d/99-input.rules && udevadm control --reload-rules && udevadm trigger'`
 
 1. Add the systemd service so it starts on boot and can be managed
    when you run it from laptop. On Ubuntu Server or Raspberry Pi OS
