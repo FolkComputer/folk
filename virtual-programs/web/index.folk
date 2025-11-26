@@ -26,6 +26,38 @@ When the db library is /dbLib/ {
         }]
     } }
 
+    # Generate navigation from all route handlers.
+    set handlers [Query! /someone/ wishes the web server handles route /route/ with handler /handler/]
+    set navLinks [list]
+    foreach handler $handlers { dict with handler {
+      # Extract just the route path (strip regex patterns).
+      set displayRoute [regsub {\$\s*$} $route ""]
+      set displayRoute [regsub {\(\?\:\\?\.\*\)\?} $displayRoute ""]
+      set displayRoute [regsub {\[.*?\]} $displayRoute ""]
+      set displayRoute [regsub {\\} $displayRoute ""]
+
+      # Create a nice display name from the route.
+      set displayName [string trim $displayRoute "/"]
+      if {$displayName eq ""} { set displayName "Statements" }
+      set displayName [string map {"-" " " ".pdf" "" "_" " "} $displayName]
+      set displayName [string totitle $displayName]
+
+      # Use the original route for the href.
+      set cleanRoute [regsub {\$\s*$} $route ""]
+
+      # Special handling for the "/" root path.
+      if {$route eq "/" || [string match "/*" $route] && [string length $route] == 1} {
+        continue
+      }
+
+      # Special styling for "new" button.
+      if {[string match "*/new*" $route]} {
+        lappend navLinks "<a href=\"$cleanRoute\"><button>$displayName</button></a>"
+      } else {
+        lappend navLinks "<a href=\"$cleanRoute\">$displayName</a>"
+      }
+    } }
+
     html [subst {
         <html>
         <head>
@@ -33,14 +65,7 @@ When the db library is /dbLib/ {
         <title>Statements</title>
         </head>
         <nav>
-          <a href="/new"><button>New program</button></a>
-          <a href="/calibrate">Calibrate</a>
-          <a href="/programs">Running programs</a>
-          <!-- <a href="/keyboards">Keyboards</a> -->
-          <a href="/threads">Threads</a>
-          <a href="/trace">Trace</a>
-          <a href="/trie-graph.pdf">Trie graph</a>
-          <a href="/dep-graph.pdf">Dep graph</a>
+          [join $navLinks "\n          "]
         </nav>
         <h1>Statements</h1>
         <ul>[join $l "\n"]</ul>
