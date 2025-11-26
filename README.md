@@ -724,4 +724,6 @@ isn't meeting timing
   - warn if sysmon is too slow?
 - make RAM/metrics page to not clutter up stdout
 - make errors page
-- enumerate web pages nav bar automatically
+- ~~enumerate web pages nav bar automatically~~
+- remove Hold and Atomically limits
+- automatic default calibration so you can drag stuff around on laptop
