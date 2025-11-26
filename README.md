@@ -656,27 +656,24 @@ Capitalized namespace, like `Statements`.
 - s-ol bekic: WebSocket library, keyboard locale support
 - terminal subsystem
 - Mason Jones: tag stabilization, `Notify:`/`Subscribe:` event system,
-  `-save` statement persistence
+  `-save` statement persistence, new code editor with scrolling & font
+  size & editing of existing programs
 
 ## todo
 
 - clean up shader reference errors (use trick from main?)
 - **fix camera-rpi corruption**
-- remove live queries from region generation?
 - restore smj cam/display parameters
 - fix remaining display/ primitives
 - rebuild live image
 - why is web endpoints so slow?
 - optimize jpeg decoding
-- vendor wslay?
 - only intern long strings?
 - accidentally matches prefixes even when not all teh way up to end of statement
 - camera stops working when calibration terminates
-- ~~develop new animation program~~
   - laser-cut or cnc or 3d print a plate with 2 sliders and a slot
     for a program
 - camera slices cause hop/distortion when pulled off
-- ForEach! stack fix
 
 ### perf
 - on folk-live at home, folk2-leakfix: 160ms calibration cycle
@@ -702,7 +699,25 @@ Capitalized namespace, like `Statements`.
 - aborted executions shouldn't be too high a percentage of total # of
 executions of the block? if they are, then we warn on the page that it
 isn't meeting timing
-- delay the removal of the old hold until downstream statements of the
-old hold have fully converged? but WARN if this happens
 - build a settlement-based local fps counter like clock time labeler
   (how many frames are we dropping?)
+
+### other stuff
+- stereo calibration
+- run segmentation model
+- **editor cutoff bug**
+- recsale camera slice to have correct aspect ratio
+- debug memory leaks
+  - are we ever freeing AtomicallyVersion? -- no, but this isn't the
+    main memory leak (not enough allocated)
+  - also not camera images
+- bug where camera slices halt / slow down animation
+- make web handlers inherit lexical scope
+- gadget-platinum outline blink
+- remaining blink on clock time
+- slowdown where sysmon starts taking forever bc of endless chains of
+  destructors/atomicallyversions
+  - warn if sysmon is too slow?
+- make RAM/metrics page to not clutter up stdout
+- make errors page
+- enumerate web pages nav bar automatically
