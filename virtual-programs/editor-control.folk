@@ -3,7 +3,7 @@ When /page/ has editor code /editorCode/ & /page/ has program code /programCode/
                            program code [binary encode base64 $programCode]
 }
 
-Wish the web server handles route "/editor-control" with handler {
+Wish the web server handles route "/editor-control" with hidden true handler {
     html {
 <!DOCTYPE html>
 <html lang="en">

@@ -27,9 +27,11 @@ When the db library is /dbLib/ {
     } }
 
     # Generate navigation from all route handlers.
-    set handlers [Query! /someone/ wishes the web server handles route /route/ with handler /handler/]
+    set handlers [Query! /someone/ wishes the web server handles route /route/ with /...options/]
     set navLinks [list]
     foreach handler $handlers { dict with handler {
+      if {[dict getdef $options hidden false]} { continue }
+
       # Extract just the route path (strip regex patterns).
       set displayRoute [regsub {\$\s*$} $route ""]
       set displayRoute [regsub {\(\?\:\\?\.\*\)\?} $displayRoute ""]

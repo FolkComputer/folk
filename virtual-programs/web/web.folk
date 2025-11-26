@@ -86,7 +86,8 @@ proc handleRead {chan addr} {
     if {[regexp {GET ([^ ]*) HTTP/1.1} $firstline -> path] && $path ne "/ws"} {
         set response {}
         try {
-            ForEach! /someone/ wishes the web server handles route /route/ with handler /handler/ {
+            ForEach! /someone/ wishes the web server handles route /route/ with /...options/ {
+                set handler [dict get $options handler]
                 if {[regexp ^$route$ $path whole_match]} {
                     set ^html [proc html {body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: text/html; charset=utf-8\n\n" body $body}]
                     set ^json [proc json {body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: application/json; charset=utf-8\n\n" body $body}]
