@@ -384,14 +384,14 @@ static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
     const char* sourceFileName;
     long sourceLineNumber;
     sourceFileName = Jim_String(argv[1]);
-    if (sourceFileName == NULL) { return JIM_ERR; }
+    if (sourceFileName == NULL) { goto err; }
     if (Jim_GetLong(interp, argv[2], &sourceLineNumber) == JIM_ERR) {
-        return JIM_ERR;
+        goto err;
     }
 
     long keepMs;
     if (Jim_GetLong(interp, argv[3], &keepMs) == JIM_ERR) {
-        return JIM_ERR;
+        goto err;
     }
 
     int destructorCodeLen;
@@ -402,12 +402,16 @@ static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 
     if (self->inSubscription) {
         Jim_SetResultString(interp, "Cannot call Say within Subscribe", -1);
-        return JIM_ERR;
+        goto err;
     }
 
     Say(clause, keepMs, destructorCode,
         sourceFileName, (int) sourceLineNumber);
     return JIM_OK;
+
+ err:
+    clauseFree(clause);
+    return JIM_ERR;
 }
 
 static int DestructorFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
