@@ -1089,7 +1089,7 @@ static void reactToNewStatement(StatementRef ref) {
         if (pattern->nTerms == 0) {
             // Empty pattern: When { ... }
             pushRunWhenBlock(ref, pattern, STATEMENT_REF_NULL);
-            free(pattern);
+            clauseFreeBorrowed(pattern);
 
         } else {
             // Scan the existing statement set for any
@@ -1113,8 +1113,8 @@ static void reactToNewStatement(StatementRef ref) {
 
             // pattern and claimizedPattern don't allocate any new terms,
             // so just free the clause structs themselves.
-            free(pattern);
-            free(claimizedPattern);
+            clauseFreeBorrowed(pattern);
+            clauseFreeBorrowed(claimizedPattern);
         }
     }
 
@@ -1156,12 +1156,12 @@ static void reactToNewStatement(StatementRef ref) {
                 statementRelease(db, when);
 
                 pushRunWhenBlock(whenRef, whenPattern, ref);
-                free(whenPattern); // doesn't own any terms.
+                clauseFreeBorrowed(whenPattern); // doesn't own any terms.
             }
         }
         free(existingReactingWhens);
 
-        free(whenizedClause); // doesn't own any terms.
+        clauseFreeBorrowed(whenizedClause); // doesn't own any terms.
     }
     if (clause->nTerms >= 2 && strcmp(clause->terms[1], "claims") == 0) {
         // Cut off `/x/ claims` from start of clause:
@@ -1172,8 +1172,8 @@ static void reactToNewStatement(StatementRef ref) {
         Clause* whenizedUnclaimizedClause = whenizeClause(unclaimizedClause);
 
         ResultSet* existingReactingWhens = dbQuery(db, whenizedUnclaimizedClause);
-        free(unclaimizedClause);
-        free(whenizedUnclaimizedClause);
+        clauseFreeBorrowed(unclaimizedClause);
+        clauseFreeBorrowed(whenizedUnclaimizedClause);
 
         for (int i = 0; i < existingReactingWhens->nResults; i++) {
             StatementRef whenRef = existingReactingWhens->results[i];
@@ -1186,8 +1186,8 @@ static void reactToNewStatement(StatementRef ref) {
                 statementRelease(db, when);
 
                 pushRunWhenBlock(whenRef, claimizedUnwhenizedWhenPattern, ref);
-                free(unwhenizedWhenPattern);
-                free(claimizedUnwhenizedWhenPattern);
+                clauseFreeBorrowed(unwhenizedWhenPattern);
+                clauseFreeBorrowed(claimizedUnwhenizedWhenPattern);
             }
         }
         free(existingReactingWhens);

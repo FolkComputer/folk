@@ -13,6 +13,7 @@ typedef struct Clause {
 
 Clause* clauseDup(Clause* c);
 void clauseFree(Clause* c);
+void clauseFreeBorrowed(Clause* c);
 
 // Caller must free the string.
 char* clauseToString(Clause* c);

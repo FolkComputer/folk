@@ -20,6 +20,9 @@ void clauseFree(Clause* c) {
     }
     free(c);
 }
+void clauseFreeBorrowed(Clause* c) {
+    free(c);
+}
 
 char* clauseToString(Clause* c) {
     if (c == NULL) {

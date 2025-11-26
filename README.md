@@ -710,7 +710,10 @@ isn't meeting timing
 - debug memory leaks
   - are we ever freeing AtomicallyVersion? -- no, but this isn't the
     main memory leak (not enough allocated)
+  - not destructors
   - also not camera images
+  - also not jim allocations
+  - could it be clauses?
 - bug where camera slices halt / slow down animation
 - make web handlers inherit lexical scope
 - gadget-platinum outline blink
