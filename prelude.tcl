@@ -275,6 +275,14 @@ namespace eval ::math {
 }
 namespace import ::math::*
 
+proc lseq count {
+    set ret [list]
+    for {set i 0} {$i < $count} {incr i} {
+        lappend ret $i
+    }
+    return $ret
+}
+
 proc baretime body { string map {" microseconds per iteration" ""} [uplevel [list time $body]] }
 
 proc Hold! {args} {

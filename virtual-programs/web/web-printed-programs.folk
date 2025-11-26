@@ -1,7 +1,6 @@
-Wish the web server handles route {/printed-programs/[^/]+\.folk$} with handler {
+Wish the web server handles route {/printed-programs/([^/]+)\.folk$} with handler {
     set programDir [dict get [QueryOne! the program save directory is /programDir/] programDir]
-    regexp {/printed-programs/([^/]+)\.folk$} $path -> prefix
-    set filename "$programDir/$prefix.folk" 
+    set filename "$programDir/$1.folk"
     set fp [open $filename r]
     set data [read $fp]
     close $fp
