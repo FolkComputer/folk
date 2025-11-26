@@ -216,7 +216,14 @@ void *sysmonMain(void *ptr) {
         nanosleep(&tickTime, NULL);
 
         tick++;
+
+#ifdef TRACY_ENABLE
+        TracyCZoneN(zone, "sysmon", 1);
+#endif
         sysmon();
+#ifdef TRACY_ENABLE
+        TracyCZoneEnd(zone);
+#endif
     }
     return NULL;
 }
