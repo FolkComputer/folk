@@ -1219,6 +1219,8 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
         parentMatch = matchAcquire(db, parentMatchRef);
         if (parentMatch == NULL) {
             setReusedStatementRef(STATEMENT_REF_NULL);
+
+            clauseFree(clause);
             return NULL; // Abort!
         }
 
@@ -1228,6 +1230,8 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
             matchRelease(db, parentMatch);
 
             setReusedStatementRef(STATEMENT_REF_NULL);
+
+            clauseFree(clause);
             return NULL; // Abort!
         }
 
