@@ -29,22 +29,40 @@ When the db library is /dbLib/ {
     # Generate navigation from all route handlers.
     set handlers [Query! /someone/ wishes the web server handles route /route/ with /...options/]
     set navLinks [list]
-    foreach handler $handlers { dict with handler {
-      if {[dict getdef $options hidden false]} { continue }
+    foreach handler $handlers {
+      set route $handler(route)
+      if {[dict getdef $handler(options) hidden false]} { continue }
       if {$route eq "/"} { continue }
 
+      # Filter out routes with non-optional capture groups.
+      # Check if route has capturing groups (not non-capturing (?:...)).
+      set hasCapturingGroup [regexp {\([^?]} $route]
+      # Check if ANY group is non-optional (has ) not followed by ?).
+      set hasNonOptionalGroup [regexp {\)[^?]} $route]
+      if {$hasCapturingGroup && $hasNonOptionalGroup} { continue }
+
+      # Remove all regex patterns and capture groups for the href and
+      # display name.
+      set route [regsub -all {\([^)]*\)} $route ""]
+      set route [regsub -all {\[[^\]]*\]} $route ""]
+      # Convert escaped dots to plain dots first
+      set route [regsub -all {\\.} $route "."]
+      # Remove wildcard patterns like .* and .+
+      set route [regsub -all {\.\*} $route ""]
+      set route [regsub -all {\.\+} $route ""]
+      # Remove other regex metacharacters (but not .)
+      set route [regsub -all {[\\?*+^]} $route ""]
+      set route [regsub {\$$} $route ""]
+      set route [regsub {\$\s*$} $route ""]
+
       # Create a nice display name from the route.
-      set displayRoute [regsub {\$$} $route ""]
-      set displayName [string trim $displayRoute "/"]
+      set displayName [string trim $route "/"]
       set displayName [string map {"-" " " ".pdf" "" "_" " "} $displayName]
       set displayName [string totitle $displayName]
 
-      # Use the original route for the href.
-      set cleanRoute [regsub {\$\s*$} $route ""]
-
-      set nav [dict getdef $options nav $displayName]
-      lappend navLinks "<a href=\"$cleanRoute\">$nav</a>"
-    } }
+      set nav [dict getdef $handler(options) nav $displayName]
+      lappend navLinks "<a href=\"$route\">$nav</a>"
+    }
 
     html [subst {
         <html>

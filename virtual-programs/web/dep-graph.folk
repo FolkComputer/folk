@@ -40,7 +40,7 @@ set getDotAsPdf {{dot} {
 }}
 
 When the db library is /dbLib/ {
-    Wish the web server handles route "/dep-graph.pdf" with handler [list apply {{dbLib dbDotify getDotAsPdf} {
+    Wish the web server handles route {/dep-graph\.pdf} with handler [list apply {{dbLib dbDotify getDotAsPdf} {
         set dot [apply $dbDotify $dbLib [__db]]
 
         dict create statusAndHeaders "HTTP/1.1 200 OK
