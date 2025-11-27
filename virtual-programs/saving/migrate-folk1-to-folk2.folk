@@ -63,11 +63,6 @@ When the hold save directory is /holdDirectory/ &\
             Claim the calibration poses are $calibrationPoses
     }
 
-    # move setup.folk to its new home
-    try {
-        exec cp "$::env(HOME)/folk-live/setup.folk" "$::env(HOME)/folk-data/setup.folk"
-    } on error e {}
-
     puts "\n\n\n### MIGRATION SUCCESSFUL ###\n"
     puts "Note: folk-printed-programs/ and folk-live/ are no longer needed. \
 Feel free to delete them once you've confirmed that everything works!"

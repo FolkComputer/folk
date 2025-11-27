@@ -24,9 +24,6 @@ Wish the web server handles route "/programs" with handler {
             "virtual-programs/*" {
                 lappend vp $match
             }
-            "setup.folk.default" {
-                lappend cp $match
-            }
             "/home/*" {
                 lappend cp $match
             }

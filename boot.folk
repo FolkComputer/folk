@@ -37,28 +37,13 @@ local proc LoadProgram! {programFilename} {
         Claim $programFilename has program code [read $fp]
     close $fp
 }
-
-# Load the setup program -- setup.folk.default gets overridden
-# if the user made their own setup.folk.
-if {[file exists "$::env(HOME)/folk-data/setup.folk"]} {
-    set setupFilename "$::env(HOME)/folk-data/setup.folk"
-} elseif {[file exists "$::env(HOME)/folk-live/setup.folk"] &&
-          ![file exists "$::env(HOME)/folk-data"]} {
-    set setupFilename "$::env(HOME)/folk-live/setup.folk"
-} else {
-    set setupFilename "setup.folk.default"
-}
-puts "boot: Using config at $setupFilename"
-LoadProgram! $setupFilename
-
 foreach programFilename [list {*}[glob -nocomplain virtual-programs/*.folk] \
                              {*}[glob -nocomplain virtual-programs/*/*.folk] \
                              {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"] \
                              {*}[glob -nocomplain "$::env(HOME)/folk-live/*.folk"] \
                              {*}[glob -nocomplain "$::env(HOME)/folk-live/*/*.folk"]] {
     if {[string match "*/_archive/*" $programFilename] ||
-        [string match "*/folk-printed-programs/*" $programFilename] ||
-        [string match "*/setup.folk" $programFilename]} { continue }
+        [string match "*/folk-printed-programs/*" $programFilename]} { continue }
 
     LoadProgram! $programFilename
 }

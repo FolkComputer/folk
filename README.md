@@ -727,3 +727,4 @@ isn't meeting timing
 - ~~enumerate web pages nav bar automatically~~
 - remove Hold and Atomically limits
 - automatic default calibration so you can drag stuff around on laptop
+- automatically allow optional fields on `with`
