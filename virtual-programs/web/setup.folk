@@ -53,7 +53,7 @@ const folk = new FolkWS();
             [join [lmap mode $info(modes) { subst {
               <label>
                 <input type="radio" name="display-mode-$display" value="$mode">
-                Mode: $mode
+                $mode
               </label><br>
             } }] \n]
           </div>
@@ -80,7 +80,7 @@ displayRadios.forEach(radio => {
 <form id="camera-form">
   [join [lmap cameraData [Query! $::thisNode has camera /camera/ with /...opts/] { dict with cameraData {
     set camera [dict get $cameraData camera]
-    set modes [dict get $cameraData(opts)(modes)]
+    set modes [dict get $cameraData(opts) modes]
     set calibrated [expr {[dict exists $opts intrinsics] ? "✓ CALIBRATED" : ""}]
     set cameraId [string map {/ _} $camera]
     subst {
@@ -90,20 +90,20 @@ displayRadios.forEach(radio => {
           <strong>$camera</strong> ([llength $modes]) $calibrated
         </label>
 
-        <div id="camera-modes-$cameraId" style="margin-left: 20px; margin-top: 10px; display: none;">
+        <div id="camera-modes-$cameraId" style="margin-left: 20px; margin-top: 10px">
           <h4>Select mode:</h4>
-          [lmap mode $modes { subst {
+          [join [lmap mode $modes { subst {
             <label style="display: block; margin: 5px 0;">
               <input type="radio" name="camera-mode-$cameraId" value="$mode" data-camera="$camera">
               $mode
             </label>
-          } }]
+          } }] \n]
+        </div>
 
-          <div id="camera-preview-$cameraId" style="margin-top: 10px; display: none;">
-            <img src="/camera-frame?camera=[string map {/ %2F} $camera]"
-                 style="max-width: 320px; border: 1px solid #999;"
-                 alt="Camera preview">
-          </div>
+        <div id="camera-preview-$cameraId" style="margin-top: 10px; display: none;">
+          <img src="/camera-frame?camera=[string map {/ %2F} $camera]"
+            style="max-width: 320px; border: 1px solid #999;"
+            alt="Camera preview">
         </div>
       </div>
     }
@@ -115,14 +115,11 @@ displayRadios.forEach(radio => {
 document.querySelectorAll('input\[name="camera-enabled"\]').forEach(checkbox => {
   checkbox.addEventListener('change', async function() {
     const cameraId = this.dataset.cameraId;
-    const modesDiv = document.getElementById(`camera-modes-\${cameraId}`);
     const previewDiv = document.getElementById(`camera-preview-\${cameraId}`);
 
     if (this.checked) {
-      modesDiv.style.display = 'block';
       previewDiv.style.display = 'block';
     } else {
-      modesDiv.style.display = 'none';
       previewDiv.style.display = 'none';
       // TODO: Remove the wish when unchecked
     }
