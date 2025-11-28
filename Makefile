@@ -156,7 +156,7 @@ start: folk
 	   [ -z "$$INVOCATION_ID" ] && \
 	   [ -z "$(CFLAGS)" ] ; then \
 		sudo systemctl start folk.service; \
-		journalctl -f -u folk.service; \
+		journalctl --output=cat -f -u folk.service; \
 	else \
 		$(if $(ENABLE_ASAN),ASAN_OPTIONS=detect_leaks=1:halt_on_error=0,) ./folk; \
 	fi
