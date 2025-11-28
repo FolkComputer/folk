@@ -1,6 +1,6 @@
 # Watch for virtual-programs/ changes.
 try {
-    set fd [open "|fswatch --event Updated --event Created virtual-programs" r]
+    set fd [open "|fswatch --recursive --event Updated --event Created virtual-programs" r]
     fconfigure $fd -buffering line
     while true {
         if {[gets $fd line] < 0} {
