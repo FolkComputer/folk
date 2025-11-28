@@ -144,7 +144,7 @@ fn makeExampleProgramPng {} {
     return $png
 }
 
-Wish the web server handles route "/calibrate$" with handler [list applyBlock {
+Wish the web server handles route "/calibrate" with handler [list applyBlock {
     package require base64
 
     set calibrationBoardPdf [makeCalibrationBoardPdf $UNIT_MODEL 70]

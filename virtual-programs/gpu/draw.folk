@@ -1,0 +1,1196 @@
+# draw.folk --
+#
+#     Provides the ability to run pixel shaders with image and
+#     numerical parameters (so you can draw images, shapes, etc.)
+
+if {[info exists this] && $::tcl_platform(os) eq "darwin"} {
+    # We hard-code draw.folk into thread 0, so we should abort if not
+    # running that way.
+    return
+}
+
+When the GPU library is /gpuLib/ &\
+     the GPU Vulkan handle type definer is /defineVulkanHandleType/ &\
+     /someone/ wishes $::thisNode uses display /displayIdx/ with /...opts/ {
+
+fn defineVulkanHandleType
+set useGlfw $($displayIdx eq "glfw")
+
+set cc [C]
+$cc cflags -I./vendor
+$cc include <stdlib.h>
+$cc include <pthread.h>
+$cc code {
+    #define VOLK_IMPLEMENTATION
+    #include "volk/volk.h"
+}
+if {$useGlfw} {
+    $cc code {
+        // This must be included _after_ volk.h (Vulkan).
+        #include <GLFW/glfw3.h>
+    }
+    $cc endcflags -lglfw
+}
+
+$cc extend $gpuLib
+
+local proc vktry {call} { string map {\n " "} [csubst {{
+    VkResult res = $call;
+    if (res != VK_SUCCESS) {
+        fprintf(stderr, "Failed $call: %s (%d)\n",
+                VkResultToString(res), res); exit(1);
+    }
+}}] }
+
+$cc define {
+    VkRenderPass renderPass;
+
+    VkSwapchainKHR swapchain;
+    uint32_t swapchainImageCount;
+    VkFormat swapchainImageFormat;
+    VkFramebuffer* swapchainFramebuffers;
+    VkExtent2D swapchainExtent;
+
+    uint32_t imageIndex;
+
+    VkSemaphore imageAvailableSemaphore;
+    VkSemaphore renderFinishedSemaphore;
+    VkFence inFlightFence;
+}
+
+$cc code {
+    VkDevice device;
+    VkPhysicalDevice physicalDevice;
+
+    __thread VkCommandPool _commandPool;
+    __thread VkCommandBuffer _commandBuffer;
+}
+defineVulkanHandleType $cc VkCommandPool
+defineVulkanHandleType $cc VkCommandBuffer
+$cc proc getCommandPool {} VkCommandPool {
+    if (_commandPool == 0) {
+        VkCommandPoolCreateInfo poolInfo = {0};
+        poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        poolInfo.queueFamilyIndex = *graphicsQueueFamilyIndex_ptr();
+
+        $[vktry {vkCreateCommandPool(device, &poolInfo, NULL, &_commandPool)}]
+    }
+    return _commandPool;
+}
+# Returns a thread-local command buffer. This assumes that you only
+# work on one command buffer at a time in a given thread.
+$cc proc getCommandBuffer {} VkCommandBuffer {
+    if (_commandBuffer == 0) {
+        VkCommandBufferAllocateInfo allocInfo = {0};
+        allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocInfo.commandPool = getCommandPool();
+        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocInfo.commandBufferCount = 1;
+
+        $[vktry {vkAllocateCommandBuffers(device, &allocInfo, &_commandBuffer)}]
+    }
+    return _commandBuffer;
+}
+
+$cc proc initDraw {int displayIdx} void {
+    $[vktry volkInitialize()]
+    volkLoadInstanceOnly(*instance_ptr());
+
+    device = *device_ptr();
+    volkLoadDevice(device);
+
+    physicalDevice = *physicalDevice_ptr();
+
+    // Get drawing surface.
+    VkSurfaceKHR surface;
+    $[expr { $useGlfw ? {
+        GLFWwindow* window;
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+        window = glfwCreateWindow(640, 480, "Folk", NULL, NULL);
+        if (glfwCreateWindowSurface(*instance_ptr(), window, NULL, &surface) != VK_SUCCESS) {
+            FOLK_ERROR("Failed to create GLFW window surface");
+        }
+    } : [csubst {
+
+        int chosenMode = 0;
+        // HACK: On Nvidia GPU, for some reason 60Hz is not mode 0, so
+        // we manually find it.
+        if (modeProps[chosenMode].parameters.refreshRate < 60000) {
+            for (int i = 0; i < modeCount; i++) {
+                if (modeProps[i].parameters.refreshRate == 60000) {
+                    chosenMode = i;
+                    break;
+                }
+            }
+        }
+
+        VkDisplaySurfaceCreateInfoKHR createInfo = {0};
+        createInfo.sType = VK_STRUCTURE_TYPE_DISPLAY_SURFACE_CREATE_INFO_KHR;
+        createInfo.displayMode = modeProps[chosenMode].displayMode;
+        createInfo.planeIndex = 0;
+        createInfo.transform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+        createInfo.alphaMode = VK_DISPLAY_PLANE_ALPHA_PER_PIXEL_BIT_KHR;
+        createInfo.imageExtent = modeProps[chosenMode].parameters.visibleRegion;
+        if (vkCreateDisplayPlaneSurfaceKHR(*instance_ptr(), &createInfo, NULL, &surface) != VK_SUCCESS) {
+            fprintf(stderr, "Failed to create Vulkan display plane surface\n"); exit(1);
+        }
+    }] }]
+
+    uint32_t presentQueueFamilyIndex; {
+        VkBool32 presentSupport = 0; 
+        vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, *graphicsQueueFamilyIndex_ptr(), surface, &presentSupport);
+        if (!presentSupport) {
+            fprintf(stderr, "Vulkan graphics queue family doesn't support presenting to surface\n"); exit(1);
+        }
+        presentQueueFamilyIndex = *graphicsQueueFamilyIndex_ptr();
+    }
+
+    // Figure out capabilities/format/mode of physical device for surface.
+    VkSurfaceCapabilitiesKHR capabilities;
+    VkExtent2D extent;
+    uint32_t imageCount;
+    VkSurfaceFormatKHR surfaceFormat;
+    VkPresentModeKHR presentMode; {
+        vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &capabilities);
+
+        if (capabilities.currentExtent.width != UINT32_MAX) {
+            extent = capabilities.currentExtent;
+        } else {
+            $[expr { $useGlfw ? {
+                glfwGetFramebufferSize(window, (int*) &extent.width, (int*) &extent.height);
+                if (capabilities.minImageExtent.width > extent.width) { extent.width = capabilities.minImageExtent.width; }
+                if (capabilities.maxImageExtent.width < extent.width) { extent.width = capabilities.maxImageExtent.width; }
+                if (capabilities.minImageExtent.height > extent.height) { extent.height = capabilities.minImageExtent.height; }
+                if (capabilities.maxImageExtent.height < extent.height) { extent.height = capabilities.maxImageExtent.height; }
+            } : {} }]
+        }
+
+        imageCount = capabilities.minImageCount + 1;
+        if (capabilities.maxImageCount > 0 && imageCount > capabilities.maxImageCount) {
+            imageCount = capabilities.maxImageCount;
+        }
+
+        uint32_t formatCount;
+        vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, NULL);
+        VkSurfaceFormatKHR formats[formatCount];
+        if (formatCount == 0) { fprintf(stderr, "No supported surface formats.\n"); exit(1); }
+        vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, formats);
+        surfaceFormat = formats[0]; // semi-arbitrary default
+        for (int i = 0; i < formatCount; i++) {
+            if (formats[i].format == VK_FORMAT_B8G8R8A8_SRGB && formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+                surfaceFormat = formats[i];
+            }
+        }
+
+        uint32_t presentModeCount;
+        vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, NULL);
+        VkPresentModeKHR presentModes[presentModeCount];
+        if (presentModeCount == 0) { fprintf(stderr, "No supported present modes.\n"); exit(1); }
+        vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, presentModes);
+        presentMode = VK_PRESENT_MODE_FIFO_KHR; // guaranteed to be available
+        for (int i = 0; i < presentModeCount; i++) {
+            if (presentModes[i] == VK_PRESENT_MODE_MAILBOX_KHR) {
+                presentMode = presentModes[i];
+            }
+        }
+    }
+
+    // Set up VkSwapchainKHR swapchain
+    {
+        VkSwapchainCreateInfoKHR createInfo = {0};
+        createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+        createInfo.surface = surface;
+
+        createInfo.minImageCount = imageCount;
+        createInfo.imageFormat = surfaceFormat.format;
+        createInfo.imageColorSpace = surfaceFormat.colorSpace;
+        createInfo.imageExtent = extent;
+        createInfo.imageArrayLayers = 1;
+        createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+
+        if (*graphicsQueueFamilyIndex_ptr() != presentQueueFamilyIndex) {
+            fprintf(stderr, "Graphics and present queue families differ\n"); exit(1);
+        }
+        createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        createInfo.queueFamilyIndexCount = 0;
+        createInfo.pQueueFamilyIndices = NULL;
+
+        createInfo.preTransform = capabilities.currentTransform;
+        createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+        createInfo.presentMode = presentMode;
+        createInfo.clipped = VK_TRUE;
+        createInfo.oldSwapchain = VK_NULL_HANDLE;
+
+        $[vktry {vkCreateSwapchainKHR(device, &createInfo, NULL, &swapchain)}]
+    }
+
+    // Set up uint32_t swapchainImageCount:
+    vkGetSwapchainImagesKHR(device, swapchain, &swapchainImageCount, NULL);
+    VkImage swapchainImages[swapchainImageCount];
+    // Set up VkExtent2D swapchainExtent:
+    {
+        vkGetSwapchainImagesKHR(device, swapchain, &swapchainImageCount, swapchainImages);
+        swapchainImageFormat = surfaceFormat.format;
+        swapchainExtent = extent;
+    }
+
+    VkImageView swapchainImageViews[swapchainImageCount]; {
+        for (size_t i = 0; i < swapchainImageCount; i++) {
+            VkImageViewCreateInfo createInfo = {0};
+            createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            createInfo.image = swapchainImages[i];
+            createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            createInfo.format = swapchainImageFormat;
+            createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+            createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+            createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+            createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+            createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            createInfo.subresourceRange.baseMipLevel = 0;
+            createInfo.subresourceRange.levelCount = 1;
+            createInfo.subresourceRange.baseArrayLayer = 0;
+            createInfo.subresourceRange.layerCount = 1;
+            $[vktry {vkCreateImageView(device, &createInfo, NULL, &swapchainImageViews[i])}]
+        }
+    }
+
+    // Set up VkRenderPass renderPass:
+    {
+        VkAttachmentDescription colorAttachment = {0};
+        colorAttachment.format = swapchainImageFormat;
+        colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+        colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+        VkAttachmentReference colorAttachmentRef = {0};
+        colorAttachmentRef.attachment = 0;
+        colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+        VkSubpassDescription subpass = {0};
+        subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        subpass.colorAttachmentCount = 1;
+        subpass.pColorAttachments = &colorAttachmentRef;
+
+        VkRenderPassCreateInfo renderPassInfo = {0};
+        renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        renderPassInfo.attachmentCount = 1;
+        renderPassInfo.pAttachments = &colorAttachment;
+        renderPassInfo.subpassCount = 1;
+        renderPassInfo.pSubpasses = &subpass;
+
+        VkSubpassDependency dependency = {0};
+        dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+        dependency.dstSubpass = 0;
+        dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        dependency.srcAccessMask = 0;
+        dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+        renderPassInfo.dependencyCount = 1;
+        renderPassInfo.pDependencies = &dependency;
+
+        $[vktry {vkCreateRenderPass(device, &renderPassInfo, NULL, &renderPass)}]
+    }
+
+    // Set up VkFramebuffer swapchainFramebuffers[swapchainImageCount]:
+    swapchainFramebuffers = (VkFramebuffer *) malloc(sizeof(VkFramebuffer) * swapchainImageCount);
+    for (size_t i = 0; i < swapchainImageCount; i++) {
+        VkImageView attachments[] = { swapchainImageViews[i] };
+
+        VkFramebufferCreateInfo framebufferInfo = {0};
+        framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        framebufferInfo.renderPass = renderPass;
+        framebufferInfo.attachmentCount = 1;
+        framebufferInfo.pAttachments = attachments;
+        framebufferInfo.width = swapchainExtent.width;
+        framebufferInfo.height = swapchainExtent.height;
+        framebufferInfo.layers = 1;
+
+        $[vktry {vkCreateFramebuffer(device, &framebufferInfo, NULL, &swapchainFramebuffers[i])}]
+    }
+
+    {
+        VkSemaphoreCreateInfo semaphoreInfo = {0};
+        semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+        VkFenceCreateInfo fenceInfo = {0};
+        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+        $[vktry {vkCreateSemaphore(device, &semaphoreInfo, NULL, &imageAvailableSemaphore)}]
+        $[vktry {vkCreateSemaphore(device, &semaphoreInfo, NULL, &renderFinishedSemaphore)}]
+        $[vktry {vkCreateFence(device, &fenceInfo, NULL, &inFlightFence)}]
+    }
+}
+$cc proc getWidth {} uint32_t { return swapchainExtent.width; }
+$cc proc getHeight {} uint32_t { return swapchainExtent.height; }
+
+# Shader compilation:
+defineVulkanHandleType $cc VkShaderModule
+# createShaderModule takes a Tcl list of integers (the compiled shader
+# bytecode).
+$cc proc createShaderModule {Jim_Obj* codeObj} VkShaderModule {
+    int codeObjc = Jim_ListLength(interp, codeObj);
+    uint32_t code[codeObjc];
+    for (int i = 0; i < codeObjc; i++) {
+        Jim_Obj* codeObjv = Jim_ListGetIndex(interp, codeObj, i);
+        Jim_GetLong(interp, codeObjv, (long *)&code[i]);
+    }
+
+    VkShaderModuleCreateInfo createInfo = {0};
+    createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;                
+    createInfo.codeSize = codeObjc * sizeof(code[0]);
+    createInfo.pCode = code;
+
+    VkShaderModule shaderModule;
+    $[vktry {vkCreateShaderModule(device, &createInfo, NULL, &shaderModule)}]
+    return shaderModule;
+}
+
+# Pipeline creation:
+defineVulkanHandleType $cc VkPipeline
+defineVulkanHandleType $cc VkPipelineLayout
+defineVulkanHandleType $cc VkDescriptorSet
+defineVulkanHandleType $cc VkDescriptorSetLayout
+$cc typedef uint64_t VkDeviceSize
+$cc argtype VkDescriptorType { int $argname; __ENSURE_OK(Tcl_GetIntFromObj(interp, $obj, &$argname)); }
+$cc rtype VkDescriptorType { $robj = Tcl_NewIntObj($rvalue); }
+$cc code {
+    typedef struct PushConstantsEncoder {
+        int (*encode)(Jim_Interp* interp, Jim_Obj* obj, uint8_t out[128]);
+    } PushConstantsEncoder;
+}
+$cc define {
+    VkDescriptorSetLayout textureDescriptorSetLayout;
+    VkDescriptorSet textureDescriptorSet;
+    pthread_rwlock_t textureDescriptorSetLock;
+}
+$cc struct Pipeline {
+    VkPipeline pipeline;
+    VkPipelineLayout pipelineLayout;
+
+    size_t pushConstantsSize;
+    PushConstantsEncoder* encodePushConstants;
+}
+$cc proc createPipeline {VkShaderModule vertShaderModule
+                           VkShaderModule fragShaderModule
+                           PushConstantsEncoder* encodePushConstants
+                           size_t pushConstantsSize} Pipeline {
+        VkPipelineShaderStageCreateInfo shaderStages[2]; {
+        VkPipelineShaderStageCreateInfo vertShaderStageInfo = {0};
+        vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+        vertShaderStageInfo.module = vertShaderModule;
+        vertShaderStageInfo.pName = "main";
+
+        VkPipelineShaderStageCreateInfo fragShaderStageInfo = {0};
+        fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        fragShaderStageInfo.module = fragShaderModule;
+        fragShaderStageInfo.pName = "main";
+
+        shaderStages[0] = vertShaderStageInfo;
+        shaderStages[1] = fragShaderStageInfo;
+    }
+
+    VkPipelineVertexInputStateCreateInfo vertexInputInfo = {0}; {
+        vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        vertexInputInfo.vertexBindingDescriptionCount = 0;
+        vertexInputInfo.vertexAttributeDescriptionCount = 0;
+    }
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly = {0}; {
+        inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        inputAssembly.primitiveRestartEnable = VK_FALSE;
+    }
+
+    VkViewport viewport = {0}; {
+        viewport.x = 0.0f;
+        viewport.y = 0.0f;
+        viewport.width = (float) swapchainExtent.width;
+        viewport.height = (float) swapchainExtent.height;
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+    }
+    VkRect2D scissor = {0}; {
+        scissor.offset = (VkOffset2D) {0, 0};
+        scissor.extent = swapchainExtent;
+    }
+    VkPipelineViewportStateCreateInfo viewportState = {0};
+    viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.pViewports = &viewport;
+    viewportState.scissorCount = 1;
+    viewportState.pScissors = &scissor;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer = {0};
+    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.depthClampEnable = VK_FALSE;
+    rasterizer.rasterizerDiscardEnable = VK_FALSE;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.lineWidth = 1.0f;
+    rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+    rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+    rasterizer.depthBiasEnable = VK_FALSE;
+
+    VkPipelineMultisampleStateCreateInfo multisampling = {0};
+    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampling.sampleShadingEnable = VK_FALSE;
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineColorBlendAttachmentState colorBlendAttachment = {0};
+    colorBlendAttachment.colorWriteMask =
+      VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT |
+      VK_COLOR_COMPONENT_A_BIT;
+    colorBlendAttachment.blendEnable = VK_TRUE;
+    colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+    colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+
+    VkPipelineColorBlendStateCreateInfo colorBlending = {0};
+    colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlending.logicOpEnable = VK_FALSE;
+    colorBlending.logicOp = VK_LOGIC_OP_COPY; // Optional
+    colorBlending.attachmentCount = 1;
+    colorBlending.pAttachments = &colorBlendAttachment;
+
+    VkPipelineDynamicStateCreateInfo dynamicState = {0};
+    dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount = 2;
+    // We need these to be dynamic so that pipelines can be retargeted
+    // to drawable surfaces (which have different viewports & scissors
+    // than the whole screen does).
+    VkDynamicState dynamicStates[] = {
+        VK_DYNAMIC_STATE_VIEWPORT,
+        VK_DYNAMIC_STATE_SCISSOR
+    };
+    dynamicState.pDynamicStates = dynamicStates;
+
+    VkPipelineLayout pipelineLayout; {
+        VkPipelineLayoutCreateInfo pipelineLayoutInfo = {0};
+        pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+
+        pipelineLayoutInfo.pSetLayouts = &textureDescriptorSetLayout;
+        pipelineLayoutInfo.setLayoutCount = 1;
+
+        // We configure all pipelines with push constants size =
+        // 128 (the maximum), no matter what actual push constants
+        // they take; this is so that pipelines are all
+        // layout-compatible so we can reuse descriptor set
+        // between pipelines without needing to rebind it.
+        VkPushConstantRange pushConstantRange = {0};
+        pushConstantRange.offset = 0;
+        pushConstantRange.size = 128;
+        pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+
+        pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+        pipelineLayoutInfo.pushConstantRangeCount = 1;
+
+        $[vktry {vkCreatePipelineLayout(device, &pipelineLayoutInfo, NULL, &pipelineLayout)}]
+    }
+
+    VkPipeline pipeline; {
+        VkGraphicsPipelineCreateInfo pipelineInfo = {0};
+        pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pipelineInfo.stageCount = 2;
+        pipelineInfo.pStages = shaderStages;
+        pipelineInfo.pVertexInputState = &vertexInputInfo;
+        pipelineInfo.pInputAssemblyState = &inputAssembly;
+        pipelineInfo.pViewportState = &viewportState;
+        pipelineInfo.pRasterizationState = &rasterizer;
+        pipelineInfo.pMultisampleState = &multisampling;
+        pipelineInfo.pDepthStencilState = NULL;
+        pipelineInfo.pColorBlendState = &colorBlending;
+        pipelineInfo.pDynamicState = &dynamicState;
+
+        pipelineInfo.layout = pipelineLayout;
+
+        pipelineInfo.renderPass = renderPass;
+        pipelineInfo.subpass = 0;
+
+        pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+        pipelineInfo.basePipelineIndex = -1;
+
+        $[vktry {vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &pipeline)}]
+    }
+
+    return (Pipeline) {
+        .pipeline = pipeline,
+        .pipelineLayout = pipelineLayout,
+        .pushConstantsSize = pushConstantsSize,
+        .encodePushConstants = encodePushConstants
+    };
+}
+    
+$cc code {
+    static VkPipeline boundPipeline;
+    static VkDescriptorSet boundDescriptorSet;
+}
+$cc proc drawStart {} void {
+    VkCommandBuffer commandBuffer = getCommandBuffer();
+
+    vkResetFences(device, 1, &inFlightFence);
+
+    vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+
+    vkResetCommandBuffer(commandBuffer, 0);
+
+    VkCommandBufferBeginInfo beginInfo = {0};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    beginInfo.pInheritanceInfo = NULL;
+    pthread_rwlock_rdlock(textureDescriptorSetLock_ptr());
+    $[vktry {vkBeginCommandBuffer(commandBuffer, &beginInfo)}]
+
+    {
+        VkRenderPassBeginInfo renderPassInfo = {0};
+        renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        renderPassInfo.renderPass = renderPass;
+        renderPassInfo.framebuffer = swapchainFramebuffers[imageIndex];
+        renderPassInfo.renderArea.offset = (VkOffset2D) {0, 0};
+        renderPassInfo.renderArea.extent = swapchainExtent;
+
+        VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
+        renderPassInfo.clearValueCount = 1;
+        renderPassInfo.pClearValues = &clearColor;
+
+        vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+    }
+
+    boundPipeline = VK_NULL_HANDLE;
+    boundDescriptorSet = VK_NULL_HANDLE;
+}
+
+# Draw to the screen using pipeline `pipeline`. Each arg in `args`
+# should be a push-constant parameter of the pipeline. Can only be
+# called between `drawStart` and `drawEnd`.
+$cc proc draw {Pipeline pipeline Jim_Obj* argsObj} void {
+    VkCommandBuffer commandBuffer = getCommandBuffer();
+
+    if (boundPipeline != pipeline.pipeline) {
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
+        boundPipeline = pipeline.pipeline;
+
+        VkViewport viewport = {0}; {
+            viewport.x = 0.0f;
+            viewport.y = 0.0f;
+            viewport.width = (float) swapchainExtent.width;
+            viewport.height = (float) swapchainExtent.height;
+            viewport.minDepth = 0.0f;
+            viewport.maxDepth = 1.0f;
+        }
+        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+        VkRect2D scissor = {0}; {
+            scissor.offset = (VkOffset2D) {0, 0};
+            scissor.extent = swapchainExtent;
+        }
+        vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+    }
+
+    if (boundDescriptorSet != textureDescriptorSet) {
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                pipeline.pipelineLayout, 0, 1, &textureDescriptorSet, 0, NULL);
+        boundDescriptorSet = textureDescriptorSet;
+    }
+
+    {
+        uint8_t pushConstantsData[128];
+        int pushConstantsDataSize = pipeline.encodePushConstants->encode(interp, argsObj, pushConstantsData);
+        if (pushConstantsDataSize == -1) {
+            FOLK_ABORT();
+        }
+        if (pushConstantsDataSize != pipeline.pushConstantsSize) {
+            FOLK_ERROR("Gpu draw: Expected push constants size %zu; push constants data size was %d\n",
+                       pipeline.pushConstantsSize, pushConstantsDataSize);
+        }
+        vkCmdPushConstants(commandBuffer, pipeline.pipelineLayout,
+                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                           pipeline.pushConstantsSize, pushConstantsData);
+    }
+
+    // 1 quad -> 2 triangles -> 6 vertices
+    vkCmdDraw(commandBuffer, 6, 1, 0, 0);
+}
+
+$cc proc drawEnd {} void {
+    VkCommandBuffer commandBuffer = getCommandBuffer();
+
+    vkCmdEndRenderPass(commandBuffer);
+    $[vktry {vkEndCommandBuffer(commandBuffer)}]
+
+    VkSemaphore signalSemaphores[] = {renderFinishedSemaphore};
+    {
+        VkSubmitInfo submitInfo = {0};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+
+        VkSemaphore waitSemaphores[] = {imageAvailableSemaphore};
+        VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+        submitInfo.waitSemaphoreCount = 1;
+        submitInfo.pWaitSemaphores = waitSemaphores;
+        submitInfo.pWaitDstStageMask = waitStages;
+
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &commandBuffer;
+
+        submitInfo.signalSemaphoreCount = 1;
+        submitInfo.pSignalSemaphores = signalSemaphores;
+
+        pthread_mutex_lock(graphicsQueueMutex_ptr());
+        $[vktry {vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo, inFlightFence)}]
+        pthread_mutex_unlock(graphicsQueueMutex_ptr());
+    }
+    {
+        VkPresentInfoKHR presentInfo = {0};
+        presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+        presentInfo.waitSemaphoreCount = 1;
+        presentInfo.pWaitSemaphores = signalSemaphores;
+
+        VkSwapchainKHR swapchains[] = {swapchain};
+        presentInfo.swapchainCount = 1;
+        presentInfo.pSwapchains = swapchains;
+        presentInfo.pImageIndices = &imageIndex;
+        presentInfo.pResults = NULL;
+
+        pthread_mutex_lock(graphicsQueueMutex_ptr());
+        vkQueuePresentKHR(*presentQueue_ptr(), &presentInfo);
+        pthread_mutex_unlock(graphicsQueueMutex_ptr());
+    }
+
+    vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
+    pthread_rwlock_unlock(textureDescriptorSetLock_ptr());
+}
+
+$cc proc poll {} void {
+    $[expr { $useGlfw ? { glfwPollEvents(); } : {} }]
+}
+
+proc makeGpu {gpuLib drawLib} { return [library create gpu {gpuLib drawLib} {
+    variable gpuLib
+    variable drawLib
+
+    if {![exists -command $drawLib]} {
+        # Load manually so we don't need to call a command.
+        $drawLib
+    }
+
+    foreach drawLibCmd [info commands "$drawLib *"] {
+        lassign $drawLibCmd _ drawLibCmd
+        proc $drawLibCmd {args} {drawLib drawLibCmd} {
+            tailcall "$drawLib $drawLibCmd" {*}$args
+        }
+    }
+
+    # Construct a reusable GLSL function that can be linked into and
+    # called from a shader/pipeline.
+    proc fn {fnDict arguments rtype body} {
+        set fnArgs [list]
+        # We inline all dependent functions from the caller scope
+        # immediately here, since we don't know if those dependencies
+        # would be accessible/in scope at all when this function gets
+        # actually compiled into a shader.
+        set depFnDict [dict create]
+        foreach {argtype argname} $arguments {
+            if {$argtype eq "fn"} {
+                # TODO: Support fn being a list {fnName fn}.
+                if {![dict exists $fnDict $argname]} {
+                    puts stderr "Gpu::fn: $argname not found"
+                    return -code 99 $argname
+                }
+                dict set depFnDict [string map {: ""} $argname] \
+                    [dict get $fnDict $argname]
+            } else {
+                lappend fnArgs $argtype $argname
+            }
+        }
+        return [list $fnArgs $depFnDict $rtype $body]
+    }
+
+    # Construct a shader pipeline that can be used to draw to the
+    # screen.
+    proc pipeline {fnDict args} {
+        variable gpuLib
+        variable drawLib
+
+        if {[llength $args] == 3} {
+            lassign $args vertArgs vertBody fragBody
+            set fragArgs [list]
+        } elseif {[llength $args] == 4} {
+            lassign $args vertArgs vertBody fragArgs fragBody
+        } else {
+            error {Gpu pipeline: should be used as [$gpu pipeline vertArgs vertBody fragBody], or [$gpu pipeline vertArgs vertBody fragArgs fragBody]}
+        }
+        set vertFnDict [dict create]
+        set fragFnDict [dict create]
+        set pushConstants [list]
+        foreach {argtype argname} $vertArgs {
+            if {$argtype eq "fn"} {
+                # TODO: Support fn being a list {name fn}.
+                if {![dict exists $fnDict $argname]} {
+                    return -code 99 $argname
+                }
+                set fn [dict get $fnDict $argname]
+                set vertFnDict [dict merge $vertFnDict [lindex $fn 1]]
+                dict set vertFnDict $argname $fn
+                continue
+            }
+            lappend pushConstants $argtype $argname
+        }
+        foreach {argtype argname} $fragArgs {
+            if {$argtype eq "fn"} {
+                # TODO: Support fn being a list {name fn}.
+                if {![dict exists $fnDict $argname]} {
+                    return -code 99 $argname
+                }
+                set fn [dict get $fnDict $argname]
+                set fragFnDict [dict merge $fragFnDict [lindex $fn 1]]
+                dict set fragFnDict $argname $fn
+                continue
+            } else {
+                error "Fragment arguments not supported"
+            }
+        }
+
+        # Create a C subcompiler to create a fast routine to encode
+        # the push constants on each draw call.
+        set cc [C]
+        $cc typedef int sampler2D
+        $cc struct vec2 { float x; float y; }
+        $cc struct vec3 { float x; float y; float z; }
+        $cc struct vec4 { float x; float y; float z; float w; }
+        $cc struct uvec4 { uint32_t x; uint32_t y; uint32_t z; uint32_t w; }
+        # Note that mat3 is COLUMN-MAJOR and every column has 1 float
+        # of padding at the end.
+        $cc struct mat3 { float data[12]; }
+
+        $cc argtype vec2 {
+            vec2 $argname;
+            {
+                int $[set argname]_objc = Jim_ListLength(interp, $obj);
+                __ENSURE($[set argname]_objc == 2);
+                double x; double y;
+                __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 0), &x));
+                __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 1), &y));
+                $argname = (vec2) { (float)x, (float)y };
+            }
+        }
+        $cc argtype vec3 {
+            vec3 $argname;
+            {
+                int $[set argname]_objc = Jim_ListLength(interp, $obj);
+                __ENSURE($[set argname]_objc == 3);
+                double x; double y; double z;
+                __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 0), &x));
+                __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 1), &y));
+                __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 2), &z));
+                $argname = (vec3) { (float)x, (float)y, (float)z };
+            }
+        }
+        $cc argtype vec4 {
+            vec4 $argname;
+            {
+                int $[set argname]_objc = Jim_ListLength(interp, $obj);
+                __ENSURE($[set argname]_objc == 4);
+                double x; double y; double z; double w;
+                __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 0), &x));
+                __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 1), &y));
+                __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 2), &z));
+                __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 3), &w));
+                $argname = (vec4) { (float)x, (float)y, (float)z, (float)w };
+            }
+        }
+        $cc argtype uvec4 {
+            uvec4 $argname;
+            {
+                int $[set argname]_objc = Jim_ListLength(interp, $obj);
+                __ENSURE($[set argname]_objc == 4);
+                jim_wide x; jim_wide y; jim_wide z; jim_wide w;
+                __ENSURE_OK(Jim_GetWide(interp, Jim_ListGetIndex(interp, $obj, 0), &x));
+                __ENSURE_OK(Jim_GetWide(interp, Jim_ListGetIndex(interp, $obj, 1), &y));
+                __ENSURE_OK(Jim_GetWide(interp, Jim_ListGetIndex(interp, $obj, 2), &z));
+                __ENSURE_OK(Jim_GetWide(interp, Jim_ListGetIndex(interp, $obj, 3), &w));
+                $argname = (uvec4) { (uint32_t)x, (uint32_t)y, (uint32_t)z, (uint32_t)w };
+            }
+        }
+        # Note that we take matrices from Tcl in ROW-MAJOR form and
+        # convert them to column-major form inline here.
+        $cc argtype mat3 {
+            mat3 $argname;
+            {
+                int $[set argname]_objc = Jim_ListLength(interp, $obj);
+                __ENSURE($[set argname]_objc == 3);
+                for (int y = 0; y < 3; y++) {
+                    Jim_Obj* rowObj = Jim_ListGetIndex(interp, $obj, y);
+                    __ENSURE(Jim_ListLength(interp, rowObj) == 3);
+                    for (int x = 0; x < 3; x++) {
+                        double el;
+                        __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, rowObj, x), &el));
+
+                        int i = x * 4 + y;
+                        $argname.data[i] = el;
+                    }
+                }
+            }
+        }
+        $cc code [csubst {
+            typedef struct Args {
+                $[join [lmap {argtype argname} $pushConstants {
+                    set alignas [expr {$argtype eq "mat3" ? "16" : "sizeof($argtype)"}]
+                    subst {_Alignas($alignas) $argtype $argname;}
+                }] "\n"]
+            } Args;
+
+            typedef struct PushConstantsEncoder {
+                int (*encode)(Jim_Interp* interp, Jim_Obj* obj, uint8_t out[128]);
+            } PushConstantsEncoder;
+
+            static __thread uint8_t argsBuf[128];
+        }]
+        $cc include <stddef.h>
+        $cc proc getArgsSize {} int { return sizeof(Args); }
+        $cc proc encodeArgs $pushConstants void {
+            Args args = {$[join [lmap {argtype argname} $pushConstants { subst {.$argname = $argname} }] " ,"]};
+            memcpy(argsBuf, &args, sizeof(args));
+        }
+        # This is what gets saved as the PushConstantsEncoder and
+        # called at draw time.
+        $cc proc encodeObj {Jim_Interp* interp Jim_Obj* obj uint8_t* out} int {
+            int objc = Jim_ListLength(interp, obj);
+            Jim_Obj* objv[1 + objc];
+            for (int i = 0; i < objc; i++) {
+                objv[1 + i] = Jim_ListGetIndex(interp, obj, i);
+            }
+
+            int ret = encodeArgs_Cmd(interp, 1 + objc, objv);
+            if (ret != JIM_OK) {
+                // You CANNOT use FOLK_ENSURE here, because this is
+                // passed as function pointer and does not capture the
+                // correct jmp_buf for the caller.
+                return -1;
+            }
+
+            memcpy(out, argsBuf, sizeof(Args));
+            return sizeof(Args);
+        }
+        $cc proc makeEncoder {} PushConstantsEncoder* {
+            PushConstantsEncoder* encoder = malloc(sizeof(PushConstantsEncoder));
+            encoder->encode = encodeObj;
+            return encoder;
+        }
+        set pipelineLib [$cc compile]
+
+        set encodePushConstants [$pipelineLib makeEncoder]
+        set pushConstantsSize [$pipelineLib getArgsSize]
+
+        set pushConstantsCode [if {[llength $pushConstants] > 0} {
+            subst {
+                layout(push_constant) uniform Args {
+                    [join [lmap {argtype argname} $pushConstants {
+                        if {$argname eq "_"} continue
+                        if {$argtype eq "sampler2D"} {
+                            expr {"int $argname;"}
+                        } else {
+                            expr {"$argtype $argname;"}
+                        }
+                    }] "\n"]
+                } args;
+            }
+        }]
+
+        set vertShaderModule [$drawLib createShaderModule [glslc -fshader-stage=vert [csubst {
+            #version 450
+
+            $pushConstantsCode
+
+            $[join [lmap {fnName fn} $vertFnDict {
+                lassign $fn fnArgs _ fnRtype fnBody
+                subst {
+                    $fnRtype $fnName ([join [lmap {fnArgtype fnArgname} $fnArgs {subst {$fnArgtype $fnArgname}}] ", "]) {
+                        $fnBody
+                    }
+                }
+            }] "\n"]
+
+            vec4 vert() {
+                $[join [lmap {argtype argname} $pushConstants {
+                    if {$argname eq "_"} continue
+                    if {$argtype eq "sampler2D"} continue
+                    expr {"$argtype $argname = args.$argname;"}
+                }] " "]
+                $vertBody
+            }
+
+            void main() {
+                gl_Position = vert();
+            }
+        }]]]
+        # We pass the descriptor set with all textures (samplers) to all
+        # fragment shaders, so we never need to rebind it (at draw
+        # time, the shader may get an index into the array if it's
+        # meant to draw an texture).
+        #
+        # Note that we have individual combined image+samplers,
+        # instead of 1 global sampler and multiple images/textures,
+        # because that's the only way to allow each texture to have
+        # its own dimensions (dimensions are a property bound to the
+        # sampler).
+        #
+        # We have a whole code path basically just to handle v3dv
+        # (Raspberry Pi GPU), which doesn't support dynamic indexing
+        # (based on push constant) into the descriptor array. On GPUs
+        # like that, we manually emit an if ladder that checks each
+        # possible value of the push constant and uses the right
+        # statically-indexed descriptor.
+        set gpuSupportsDynamicIndexing [$gpuLib getDoesSupportShaderSampledImageArrayDynamicIndexing]
+        set fragShaderModule [$drawLib createShaderModule [glslc -fshader-stage=frag [csubst {
+            #version 450
+
+            layout(set = 0, binding = 0) uniform sampler2D _samplers[$[$gpuLib getMaxTextures]];
+
+            $pushConstantsCode
+
+            layout(location = 0) out vec4 outColor;
+
+            $[join [lmap {fnName fn} $fragFnDict {
+                lassign $fn fnArgs _ fnRtype fnBody
+                subst {
+                    $fnRtype $fnName ([join [lmap {fnArgtype fnArgname} $fnArgs {subst {$fnArgtype $fnArgname}}] ", "]) {
+                        $fnBody
+                    }
+                }
+            }] "\n"]
+
+            vec4 frag($[join [lmap {argtype argname} $pushConstants {
+                if {$argname eq "_"} continue
+                expr {"$argtype $argname"}
+            }] ", "]) {
+                $fragBody
+            }
+
+            $[eval {
+                set samplerIdxs [lsearch -all -exact $pushConstants sampler2D]
+                proc emitFragInvocation {gpuSupportsDynamicIndexing pushConstants} { subst {
+                    outColor = frag([join [lmap {argtype argname} $pushConstants {
+                        if {$argname eq "_"} continue
+                        if {$argtype eq "sampler2D"} {
+                            if {$gpuSupportsDynamicIndexing} {
+                                expr {"_samplers\[args.$argname\]"}
+                            } else {
+                                # This should have been patched to a
+                                # static expression like
+                                # `_samplers[3]` by the caller.
+                                expr {"$argname"}
+                            }
+                        } else {
+                            expr {"args.$argname"}
+                        }
+                    }] ", "]);
+                } }
+                list
+            }]
+            void main() {
+                $[if {$gpuSupportsDynamicIndexing || [llength $samplerIdxs] == 0} {
+                    emitFragInvocation $gpuSupportsDynamicIndexing $pushConstants
+
+                } elseif {[llength $samplerIdxs] == 1} {
+                    set samplerIdx [+ [lindex $samplerIdxs 0] 1]
+                    set samplerName [lindex $pushConstants $samplerIdx]
+                    set maxTextures [$gpuLib getMaxTextures]
+                    set xs [list]
+                    for {set i 0} {$i < $maxTextures} {incr i} {
+                        set patchedPushConstants [lreplace $pushConstants $samplerIdx $samplerIdx \
+                                                      _samplers\[$i\]]
+                        lappend xs [subst {
+                            [expr {$i == 0 ? "if" : "else if"}] (args.$samplerName == $i) {
+                                [emitFragInvocation $gpuSupportsDynamicIndexing $patchedPushConstants]
+                            }
+                        }]
+                    }
+                    join $xs "\n"
+                } else {
+                    error "display: Cannot currently compile a shader that has more than 1 sampler2D parameter on this GPU."
+                }]
+            }
+        }]]]
+
+        # pipeline needs to contain a specification of push constants,
+        # so they can be filled in at draw time.
+        set pipeline [$drawLib createPipeline \
+                          $vertShaderModule $fragShaderModule \
+                          $encodePushConstants \
+                          $pushConstantsSize]
+        return $pipeline
+    }
+
+    proc glslc {args} {
+        set cmdargs [lreplace $args end end]
+        set glsl [lindex $args end]
+        set glslfile [file tempfile /tmp/glslfileXXXXXX].glsl
+        set glslfd [open $glslfile w]; puts $glslfd $glsl; close $glslfd
+        split [string map {\n ""} [exec glslc {*}$cmdargs -mfmt=num -o - $glslfile]] ","
+    }
+}] }
+
+set drawLib [$cc compile]
+Claim the GPU draw library is $drawLib
+
+set gpu [makeGpu $gpuLib $drawLib]
+
+When the GPU texture library is /gpuTextureLib/ {
+    if {$displayIdx eq "glfw"} { set displayIdx -1 }
+
+    tracy setThreadName "gpu"
+
+    $gpu initDraw $displayIdx
+    $gpuTextureLib textureManagerInit
+
+    Claim display $displayIdx has width [$gpu getWidth] height [$gpu getHeight]
+
+    set kGpu [tracy makeString "gpu"]
+    set kLatency [tracy makeString "latency"]
+    set kQuadCount [tracy makeString "quadCount"]
+    set kRegionCount [tracy makeString "regionCount"]
+    set kDrawCount [tracy makeString "drawCount"]
+
+    fn QueryAllFns! {} {
+        set fns [dict create]
+        ForEach! /someone/ claims the GPU compiles function /name/ to /fn/ {
+            dict set fns $name $fn
+        }
+        return $fns
+    }
+    fn tryCompileFn {wisher name source} {
+        try {
+            set fns [QueryAllFns!]
+            set fn [$gpu fn $fns {*}$source]
+
+            # Technically a misnomer: the function is just stored, not
+            # compiled until it's been inlined into a shader.
+            Claim the GPU compiles function $name to $fn
+
+        } on 99 notFoundName {
+            puts "gpu fn $name: Waiting for $notFoundName"
+            When the GPU compiles function $notFoundName to /anything/ {
+                puts "Did compile $notFoundName"
+                tryCompileFn $wisher $name $source
+            }
+        } on error e {
+            puts stderr "Error: GPU compiles function $name: [errorInfo $e]"
+            Claim $wisher has error $e with info [errorInfo $e]
+        }
+    }
+    fn tryCompilePipeline {wisher name source} {
+        try {
+            set fns [QueryAllFns!]
+            set pipeline [$gpu pipeline $fns {*}$source]
+
+            puts "gpu: tryCompilePipeline: Compiled $name"
+            Claim the GPU compiles pipeline $name to $pipeline
+
+        } on 99 notFoundName {
+            puts "gpu pipeline $name: Waiting for $notFoundName"
+            When the GPU compiles function $notFoundName to /anything/ {
+                puts "Did compile $notFoundName"
+                tryCompilePipeline $wisher $name $source
+            }
+        } on error e {
+            puts stderr "Error: GPU compiles pipeline $name: [errorInfo $e]"
+            Claim $wisher has error $e with info [errorInfo $e]
+        }
+    }
+
+    When /wisher/ wishes the GPU compiles function /name/ /source/ {
+        tryCompileFn $wisher $name $source
+    }
+    When /wisher/ wishes the GPU compiles pipeline /name/ /source/ {
+        tryCompilePipeline $wisher $name $source
+    }
+
+    set missingPipelines [dict create]
+    while true {
+        ForEach! /someone/ wishes the GPU runs frame prelude handler /hd/ {
+            {*}$hd
+        }
+
+        tracy zoneBegin
+        tracy zoneName "gpu-draw-start"
+        $gpu drawStart
+        tracy zoneEnd
+
+        # We do the queries now (when we are about to draw) so we get
+        # the most up-to-date information.
+
+        set results [Query! /someone/ claims the GPU compiles pipeline /name/ to /pipeline/]
+        set pipelines [dict create]
+        foreach result $results { dict with result { dict set pipelines $name $pipeline } }
+
+        set displayList [dict create]
+        foreach result [Query! /wisher/ wishes the GPU draws pipeline /name/ with /...options/] {
+            try {
+                set name [dict get $result name]
+                if {![dict exists $pipelines $name]} {
+                    if {![dict exists $missingPipelines $name]} {
+                        puts stderr "gpu: Missing pipeline $name"
+                        dict set missingPipelines $name true
+                    }
+                    continue
+                }
+                dict unset missingPipelines $name
+
+                set pipeline [dict get $pipelines [dict get $result name]]
+
+                set options [dict get $result options]
+                set layer [dict getdef $options layer 0]
+                if {[dict exists $options instances]} {
+                    set instances [dict get $options instances]
+                } else {
+                    set instances [list [dict get $options arguments]]
+                }
+                foreach instance $instances {
+                    dict lappend displayList $layer \
+                        [list $gpu draw $pipeline $instance]
+                }
+            } on error e {
+                puts stderr "Error: GPU draws pipeline $name: [errorInfo $e]"
+                Assert! $this claims [dict get $result wisher] has error $e with info [errorInfo $e]
+                # TODO: does this ever get disposed?
+            }
+        }
+
+        set drawCount 0
+        foreach layer [lsort -real [dict keys $displayList]] {
+            set layerDisplayList [dict get $displayList $layer]
+            foreach displayCommand $layerDisplayList {
+                incr drawCount
+                try { {*}$displayCommand } \
+                    on error e { puts stderr [errorInfo $e] }
+            }
+        }
+
+        # tracy plot $kQuadCount [llength [Query! /someone/ claims /tag/ has quad /q/]]
+        # tracy plot $kRegionCount [llength [Query! /someone/ claims {editing 785 /dev/input/by-path/pci-0000:02:00.0-usb-0:2:1.2-event-mouse} has region /r/]]
+        # tracy plot $kDrawCount $drawCount
+
+        # This blocks until the frame is actually drawn:
+        tracy zoneBegin
+        tracy zoneName "gpu-draw-end"
+        $gpu drawEnd
+        tracy zoneEnd
+
+        tracy frameMarkNamed $kGpu
+
+        $gpu poll
+
+        # TODO: sleep for 5ms or something?
+    }
+}
+
+}

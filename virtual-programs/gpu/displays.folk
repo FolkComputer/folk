@@ -1,0 +1,79 @@
+set cc [C]
+$cc cflags -I./vendor
+$cc code {
+    #define VOLK_IMPLEMENTATION
+    #include "volk/volk.h"
+}
+
+$cc proc enumerateDisplaysForPhysicalDevice {VkPhysicalDevice physicalDevice} Jim_Obj* {
+    uint32_t displayCount;
+    vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, NULL);
+
+    VkDisplayPropertiesKHR displayProps[displayCount];
+    vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, displayProps);
+
+    Jim_Obj *displayList = Jim_NewListObj(interp, NULL, 0);
+
+    for (uint32_t i = 0; i < displayCount; i++) {
+        Jim_Obj *displayDict = Jim_NewDictObj(interp, NULL, 0);
+        
+        Jim_Obj *nameKey = Jim_NewStringObj(interp, "name", -1);
+        Jim_Obj *nameVal = Jim_NewStringObj(interp, displayProps[i].displayName ? displayProps[i].displayName : "", -1);
+        Jim_DictAddKeyValue(interp, displayDict, nameKey, nameVal);
+        
+        Jim_Obj *physDimKey = Jim_NewStringObj(interp, "physicalDimensions", -1);
+        Jim_Obj *physDimList = Jim_NewListObj(interp, NULL, 0);
+        Jim_ListAppendElement(interp, physDimList, Jim_NewIntObj(interp, displayProps[i].physicalDimensions.width));
+        Jim_ListAppendElement(interp, physDimList, Jim_NewIntObj(interp, displayProps[i].physicalDimensions.height));
+        Jim_DictAddKeyValue(interp, displayDict, physDimKey, physDimList);
+
+        Jim_Obj *physResKey = Jim_NewStringObj(interp, "physicalResolution", -1);
+        Jim_Obj *physResList = Jim_NewListObj(interp, NULL, 0);
+        Jim_ListAppendElement(interp, physResList, Jim_NewIntObj(interp, displayProps[i].physicalResolution.width));
+        Jim_ListAppendElement(interp, physResList, Jim_NewIntObj(interp, displayProps[i].physicalResolution.height));
+        Jim_DictAddKeyValue(interp, displayDict, physResKey, physResList);
+        
+        uint32_t modeCount;
+        vkGetDisplayModePropertiesKHR(physicalDevice, displayProps[i].display,
+                                      &modeCount, NULL);
+
+        VkDisplayModePropertiesKHR modeProps[modeCount];
+        vkGetDisplayModePropertiesKHR(physicalDevice, displayProps[i].display,
+                                      &modeCount, modeProps);
+        
+        Jim_Obj *modesList = Jim_NewListObj(interp, NULL, 0);
+        for (uint32_t j = 0; j < modeCount; j++) {
+            Jim_Obj *modeDict = Jim_NewDictObj(interp, NULL, 0);
+            
+            Jim_Obj *visRegKey = Jim_NewStringObj(interp, "visibleRegion", -1);
+            Jim_Obj *visRegList = Jim_NewListObj(interp, NULL, 0);
+            Jim_ListAppendElement(interp, visRegList, Jim_NewIntObj(interp, modeProps[j].parameters.visibleRegion.width));
+            Jim_ListAppendElement(interp, visRegList, Jim_NewIntObj(interp, modeProps[j].parameters.visibleRegion.height));
+            Jim_DictAddKeyValue(interp, modeDict, visRegKey, visRegList);
+
+            Jim_Obj *refreshKey = Jim_NewStringObj(interp, "refreshRate", -1);
+            Jim_Obj *refreshVal = Jim_NewIntObj(interp, modeProps[j].parameters.refreshRate);
+            Jim_DictAddKeyValue(interp, modeDict, refreshKey, refreshVal);
+            
+            Jim_ListAppendElement(interp, modesList, modeDict);
+        }
+
+        Jim_Obj *modesKey = Jim_NewStringObj(interp, "modes", -1);
+        Jim_DictAddKeyValue(interp, displayDict, modesKey, modesList);
+        
+        Jim_ListAppendElement(interp, displayList, displayDict);
+    }
+
+    return displayList;
+}
+
+set displayLib [$cc compile]
+
+When the GPU physical device is /physicalDevice/ {
+    set idx 0
+    foreach display [$displayLib enumerateDisplaysForPhysicalDevice $physicalDevice] {
+        set modes [$displayLib enumerateDisplayModesForDisplay $display]
+        Claim $::thisNode has display $idx with modes $modes
+        incr idx
+    }
+}

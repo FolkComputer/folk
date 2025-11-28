@@ -1,4 +1,5 @@
-When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
+When the GPU library is /gpuLib/ & the GPU draw library is /drawLib/ &\
+     the image library is /imageLib/ &\
      the GPU texture library is /gpuTextureLib/ {
     set gpuc [C]
     $gpuc include <pthread.h>
@@ -14,8 +15,9 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
     $gpuc typedef {struct Pipeline} Pipeline
 
     $gpuc extend -noprocs $gpuLib
+    $gpuc extend -noprocs $drawLib
     $gpuc import $gpuLib VkResultToString
-    $gpuc import $gpuLib getCommandBuffer
+    $gpuc import $drawLib getCommandBuffer
 
     $gpuc extend $imageLib
     $gpuc extend $gpuTextureLib

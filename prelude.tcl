@@ -661,7 +661,36 @@ proc ForEach! {args} {
     }
 }
 
-set ::thisNode [info hostname]
+set ::thisNode [apply {{} {
+    switch $::tcl_platform(os) {
+        "darwin" {
+            # macOS: Try IOPlatformUUID (fastest)
+            if {[catch {exec ioreg -rd1 -c IOPlatformExpertDevice | awk '/IOPlatformUUID/ {print $4}' | tr -d '"'} uuid] == 0} {
+                set uuid [string trim $uuid]
+                if {$uuid ne ""} {
+                    return $uuid
+                }
+            }
+        }
+        "linux" {
+            # Linux: Try machine-id
+            foreach idFile {/etc/machine-id /var/lib/dbus/machine-id} {
+                if {[file readable $idFile]} {
+                    set f [open $idFile r]
+                    set id [string trim [read $f]]
+                    close $f
+                    if {$id ne ""} {
+                        return $id
+                    }
+                }
+            }
+        }
+    }
+
+    # Fallback, because the network screws with you (on macOS, at
+    # least) and changes your hostname.
+    return [info hostname]
+}}]
 
 if {[__isTracyEnabled]} {
     set tracyCid "tracy_[pid]"
@@ -771,6 +800,6 @@ proc Assert {args} {
     puts stderr "Warning: Assert with no ! is deprecated: trying to [list Assert {*}$args]"
     uplevel Assert! {*}$args
 }
-set ::isLaptop [expr {$tcl_platform(os) eq "Darwin" ||
+set ::isLaptop [expr {$::tcl_platform(os) eq "darwin" ||
                       ([info exists ::env(XDG_SESSION_TYPE)] &&
                        $::env(XDG_SESSION_TYPE) ne "tty")}]

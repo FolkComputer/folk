@@ -15,7 +15,9 @@ apply {{} {
             puts stderr "boot: ($::errorCode) ERROR: Another Folk (PID $oldPid) already running."
             Exit! 1
         } on error e {
-            puts stderr "boot: $e; this is OK; continuing."
+            if {$e ne ""} {
+                puts stderr "boot: $e; this is OK; continuing."
+            }
         }
     }
 
@@ -49,5 +51,35 @@ foreach programFilename [list {*}[glob -nocomplain virtual-programs/*.folk] \
 }
 
 if {$::tcl_platform(os) eq "darwin"} {
-    apply {{} { source "virtual-programs/gpu/gpu.folk" }}
+    # HACK: We must run all the GPU and window setup stuff
+    # synchronously in the main thread on macOS.
+
+    proc fake {s} {
+        set __envStack [list]
+
+        rename When When'
+        proc When args {
+            set pattern [lrange $args 0 end-1]
+            # Await the dependencies being available.
+            while {[llength [Query! {*}$pattern]] != 1} {
+                sleep 0.1
+            }
+
+            if {$pattern eq {the GPU texture library is /gpuTextureLib/}} {
+                # HACK: We want Whens inside this block to be normal
+                # Whens and run off-thread/async.
+                rename When {}
+                rename When' When
+            }
+
+            tailcall ForEach! {*}$args
+        }
+
+        source $s
+
+        rename When {}
+        rename When' When
+    }
+    fake "virtual-programs/gpu/gpu.folk"
+    fake "virtual-programs/gpu/draw.folk"
 }

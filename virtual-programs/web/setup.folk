@@ -1,0 +1,92 @@
+Wish the web server handles route "/setup" with handler {
+    html [subst {
+<html>
+<head>
+<title>Folk setup</title>
+<script src="/lib/folk.js"></script>
+</head>
+
+<body>
+<script>
+const folk = new FolkWS();
+</script>
+
+<h1>Folk setup</h1>
+
+<div>LIST IF SYSTEMD SERVICE EXISTS</div>
+
+<div>LIST IF PART OF ALL GROUPS</div>
+
+<div>LIST ALL ERRORS</div>
+
+<div>
+<h2>Display</h2>
+<form id="display-form">
+  <div>
+    <label>
+      <input type="radio" name="display-type" value="glfw">
+      GLFW (windowed)
+    </label>
+  </div>
+
+  <div>
+    <label>
+      <input type="radio" name="display-type" value="direct">
+      Direct to display
+    </label>
+
+    <h3>Available displays:</h3>
+    [lmap disp [Query! $::thisNode has display /display/ with /...opts/] { dict with opts {
+      set calibrated [expr {[dict exists $opts intrinsics] ? "✓ CALIBRATED" : ""}]
+      subst {
+        <div style="margin: 10px 0;">
+          <strong>Display $display</strong> $calibrated
+          <div style="margin-left: 20px;">
+            [lmap mode $modes { subst {
+              <label>
+                <input type="radio" name="display-mode-$display" value="$mode">
+                Mode: $mode
+              </label><br>
+            } }]
+          </div>
+        </div>
+      }
+    } }]
+  </div>
+</form>
+
+<script>
+const displayRadios = document.querySelectorAll('input\[name="display-type"\]');
+displayRadios.forEach(radio => {
+  radio.addEventListener('change', async function() {
+    if (this.value === 'glfw' && this.checked) {
+      await folk.evaluate('Hold! -save -key display-type Wish $::thisNode uses display glfw with width 640 height 480');
+    }
+  });
+});
+</script>
+</div>
+
+<div>
+<h2>Camera</h2>
+[lmap camera [Query! $::thisNode has camera /camera/ with modes /modes/] {
+    - check box for camera; Hold! -save wish to use camera with selcted mode when checked
+    [lmap mode $modes [subst {
+      - radio button for mode
+    }]]
+    - display camera image live when checked; crop camera by dragging
+    - has intrinsics? (IS CALIBRATED?)
+}]
+</div>
+
+<div>
+<h2>Projector-camera calibration</h2>
+- radio buttons for projectors
+- check boxes for cameras
+<button>Calibrate</button>
+</div>
+
+</body>
+</html>
+}]
+}

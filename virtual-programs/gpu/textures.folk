@@ -1,12 +1,9 @@
 When the GPU Vulkan handle type definer is /defineVulkanHandleType/ &\
      the GPU library is /gpuLib/ &\
+     the GPU draw library is /drawLib/ &\
      the image library is /imageLib/ {
 
-local proc defineVulkanHandleType {args} {defineVulkanHandleType} {
-    tailcall {*}$defineVulkanHandleType {*}$args
-}
-
-puts "GPU: $gpuLib"
+fn defineVulkanHandleType
 
 set gpuc [C]
 $gpuc cflags -I./vendor
@@ -20,6 +17,7 @@ $gpuc typedef {struct PushConstantsEncoder} PushConstantsEncoder
 $gpuc typedef {struct Pipeline} Pipeline
 
 $gpuc extend $gpuLib
+$gpuc extend $drawLib
 $gpuc extend $imageLib
 
 $gpuc include <pthread.h>
