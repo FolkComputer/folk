@@ -1,5 +1,6 @@
 When the db library is /dbLib/ {
-  Wish the web server handles route "/" with handler [list apply {{db dbLib} {
+  set db [__db]
+  Wish the web server handles route "/" with handler {
     set l [list]
     # You need to use the Simple form so it doesn't auto-claimize it.
     set results [QuerySimple! false /...terms/]
@@ -77,5 +78,5 @@ When the db library is /dbLib/ {
         <ul>[join $l "\n"]</ul>
         </html>
     }]
-  }} [__db] $dbLib]
+  }
 }

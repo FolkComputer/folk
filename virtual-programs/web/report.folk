@@ -1,5 +1,6 @@
 When the db library is /dbLib/ {
-  Wish the web server handles route "/report" with handler [list apply {{db dbLib} {
+  set db [__db]
+  Wish the web server handles route "/report" with handler {
     set aliveCount [$dbLib countAliveStatements $db]
 
     html [subst {
@@ -21,5 +22,5 @@ When the db library is /dbLib/ {
       </div>
       </html>
     }]
-  }} [__db] $dbLib]
+  }
 }

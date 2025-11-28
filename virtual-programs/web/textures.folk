@@ -214,7 +214,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
     set texturesLib [$cc compile]
     $texturesLib texturesLibInit
 
-    Wish the web server handles route {/textures$} with handler [list apply {{texturesLib} {
+    Wish the web server handles route {/textures} with handler {
         package require base64
 
         set images [$texturesLib copyAllTexturesFromGpu]
@@ -235,5 +235,5 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
             </body>
             </html>
         }]
-    }} $texturesLib]
+    }
 }

@@ -373,6 +373,7 @@ proc Say {args} {
     set destructorCode {}
 
     set pattern [list]
+    set isWith false
     for {set i 0} {$i < [llength $args]} {incr i} {
         set term [lindex $args $i]
         if {$term eq {-keep}} { # e.g., -keep 3ms
@@ -388,6 +389,17 @@ proc Say {args} {
             set destructorCode [lindex $args $i]
         } else {
             lappend pattern $term
+        }
+
+        if {$term eq "with"} {
+            # HACK: now we should keep an eye out for "handler"; we
+            # want to attach the lexical scope to "with handler
+            # {...}".
+            set isWith true
+        } elseif {$isWith && $term eq "handler"} {
+            set handler [lindex $args $i+1]
+            set envStack [uplevel captureEnvStack]
+            lset args $i+1 [list applyBlock $handler $envStack]
         }
     }
     tailcall SayWithSource $sourceFileName $sourceLineNumber \

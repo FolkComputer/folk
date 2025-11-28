@@ -53,8 +53,8 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
     </label>
 
     <h3>Available displays:</h3>
-    [join [lmap disp [Query! $::thisNode has display /display/ with /...opts/] {
-      set display $disp(display)
+    [join [lmap disp [Query! $::thisNode has display /displayIdx/ with /...opts/] {
+      set displayIdx $disp(displayIdx)
       set info [dict get $disp(opts) info]
 
       set modesByRegion [dict create]
@@ -65,7 +65,8 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
 
       subst {
         <div style="margin: 10px 0;">
-          <strong>Display $display</strong>: $info(name)
+          <strong>Display $displayIdx</strong>: <code>$info(name)</code>
+          <p>Physical resolution: [join $info(physicalResolution) x]</p>
           <fieldset style="margin-left: 20px;">
             <legend>Select mode:</legend>
             [join [lmap region $regions {
@@ -74,15 +75,16 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
                                      {dict get $mode refreshRate}]
               set refreshRates [lsort -decreasing -integer $refreshRates]
               subst {
-                <label>
-                  <input type="radio" name="display-mode-$display" value="$mode">
+                <label style="display: block;">
+                  <input type="radio" name="display-mode-$displayIdx" value="$mode">
                   ${width}x${height}
-                  <select name="display-refreshrate-$display-${width}x${height}">
-                    [join [lmap refreshRate $refreshRates { subst {
-                      <option value="$refreshRate">[format "%.2g" [/ $refreshRate 1000]] Hz</option>
-                    } }] \n]
-                  </select>
-                </label><br> 
+                  [join [lmap refreshRate $refreshRates { subst {
+                    <label>
+                      <input type="radio" name="display-refreshrate-$displayIdx-${width}x${height}">
+                      [format "%.3g" [/ $refreshRate 1000]] Hz
+                    </label>
+                  } }] \n]
+                </label>
               }
             }] \n]
           </fieldset>
@@ -107,12 +109,27 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
   <h2>Camera</h2>
   [join [lmap cameraData [Query! $::thisNode has camera /camera/ with /...opts/] { dict with cameraData {
     set camera [dict get $cameraData camera]
-    set formats [dict get $cameraData(opts) formats]
-    if {[llength $formats] == 0} {
-      # Cameras often have extra camera devices with no formats for
-      # some reason. Not very useful for us, so leave 'em out.
+
+    set resolutions [list]
+    foreach format [dict get $cameraData(opts) formats] {
+        # For now, we only support MJPG. The more raw formats are
+        # rarely used by cameras at even medium resolutions and
+        # framerates, anyway, so it's only worth supporting MJPG.
+        if {$format(fourcc) eq "MJPG"} {
+            lappend resolutions {*}$format(resolutions)
+        }
+    }
+    set resolutions [lsort -command {apply {{a b} {
+        expr {[dict get $b width] - [dict get $a width]}
+    }}} $resolutions]
+
+    if {[llength $resolutions] == 0} {
+      # Cameras often have extra camera devices with no formats (or no
+      # MJPG, at least) for some reason. Not very useful for us, so
+      # leave 'em out.
       continue
     }
+
     set cameraId [string map {/ _} $camera]
     subst {
       <div style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
@@ -121,12 +138,18 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
           <strong>$camera</strong>
         </label>
 
-        <fieldset id="camera-formats-$cameraId" style="margin-left: 20px; margin-top: 10px">
-          <legend>Select format:</legend>
-          [join [lmap format $formats { subst {
-            <label style="display: block; margin: 5px 0;">
-              <input type="radio" name="camera-format-$cameraId" value="$format" data-camera="$camera">
-              $format
+        <fieldset style="margin-left: 20px; margin-top: 10px">
+          <legend>Select resolution:</legend>
+          [join [lmap resolution $resolutions { subst {
+            <label style="display: block;">
+              <input type="radio" name="camera-format-$cameraId" value="$resolution" data-camera="$camera">
+              ${resolution(width)}x${resolution(height)}
+              [join [lmap framerate $resolution(framerates) { subst {
+                <label>
+                  <input type="radio">
+                  [format "%.3g" $framerate] Hz
+                </label>
+              } }] \n]
             </label>
           } }] \n]
         </fieldset>

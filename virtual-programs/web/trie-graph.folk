@@ -165,7 +165,7 @@ set getDotAsPdf {{dot} {
     set response [read $fd]; close $fd; return $response
 }}
 
-Wish the web server handles route "/trie-graph.pdf" with handler [list apply {{trieLib trieDotify getDotAsPdf} {
+Wish the web server handles route {/trie-graph\.pdf} with handler {
     set trie []
     set dot [apply $trieDotify $trieLib [$trieLib dbTrieTclify]]
 
@@ -175,4 +175,4 @@ Content-Type: application/pdf
 
 " \
         body [apply $getDotAsPdf $dot]
-}} $trieLib $trieDotify $getDotAsPdf]
+}

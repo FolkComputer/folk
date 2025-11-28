@@ -1,5 +1,5 @@
 When the image library is /imageLib/ {
-    Wish the web server handles route {/camera-frame(?:\?.*)?} with handler [list apply {{imageLib} {
+    Wish the web server handles route {/camera-frame(?:\?.*)?} with handler {
         ForEach! camera /any/ has frame /im/ at timestamp /any/ {
             set filename "/tmp/web-image-frame.jpg"
             $imageLib saveAsJpeg $im $filename
@@ -12,5 +12,5 @@ When the image library is /imageLib/ {
         }
         if {![info exists body]} { error "camera-frame: No valid camera frame found" }
         dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: image/jpeg\nContent-Length: $fsize\n\n" body $body
-    }} $imageLib]
+    }
 }
