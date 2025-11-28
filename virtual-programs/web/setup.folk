@@ -9,6 +9,15 @@ Wish the web server handles route "/setup" with handler {
 <body>
 <script>
 const folk = new FolkWS();
+
+let hasSeenHandlers = false;
+folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with handler /handler/`, handlers => {
+    if (hasSeenHandlers) {
+        window.location.reload();
+    } else {
+        hasSeenHandlers = true;
+    }
+});
 </script>
 
 <h1>Folk setup</h1>
@@ -24,7 +33,8 @@ const folk = new FolkWS();
 </div>
 
 <div>
-  <h2>LIST ALL ERRORS</h2>
+  <h2>Errors</h2>
+  LIST ALL ERRORS
 </div>
 
 <div>
@@ -46,18 +56,21 @@ const folk = new FolkWS();
     [join [lmap disp [Query! $::thisNode has display /display/ with /...opts/] {
       set display $disp(display)
       set info [dict get $disp(opts) info]
-      # set calibrated [expr {[dict exists $opts intrinsics] ? "✓ CALIBRATED" : ""}]
       subst {
         <div style="margin: 10px 0;">
           <strong>Display $display</strong> ($info(name))
-          <div style="margin-left: 20px;">
-            [join [lmap mode $info(modes) { subst {
-              <label>
-                <input type="radio" name="display-mode-$display" value="$mode">
-                $mode
-              </label><br>
-            } }] \n]
-          </div>
+          <fieldset style="margin-left: 20px;">
+            <legend>Select mode:</legend>
+            [join [lmap mode $info(modes) {
+              lassign [dict get $mode visibleRegion] width height
+              subst {
+                <label>
+                  <input type="radio" name="display-mode-$display" value="$mode">
+                  ${width}x${height}
+                </label><br>
+              }
+            }] \n]
+          </fieldset>
         </div>
       }
     }] \n]
@@ -81,27 +94,27 @@ const folk = new FolkWS();
     set camera [dict get $cameraData camera]
     set formats [dict get $cameraData(opts) formats]
     if {[llength $formats] == 0} {
-      # Cameras often have 'extra camera devices' with no formats for some reason.
+      # Cameras often have extra camera devices with no formats for
+      # some reason. Not very useful for us, so leave 'em out.
       continue
     }
-    set calibrated [expr {[dict exists $opts intrinsics] ? "✓ CALIBRATED" : ""}]
     set cameraId [string map {/ _} $camera]
     subst {
       <div style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
         <label>
           <input type="checkbox" name="camera-enabled" value="$camera" data-camera-id="$cameraId">
-          <strong>$camera</strong> ([llength $formats]) $calibrated
+          <strong>$camera</strong>
         </label>
 
-        <div id="camera-formats-$cameraId" style="margin-left: 20px; margin-top: 10px">
-          <h4>Select format:</h4>
+        <fieldset id="camera-formats-$cameraId" style="margin-left: 20px; margin-top: 10px">
+          <legend>Select format:</legend>
           [join [lmap format $formats { subst {
             <label style="display: block; margin: 5px 0;">
               <input type="radio" name="camera-format-$cameraId" value="$format" data-camera="$camera">
               $format
             </label>
           } }] \n]
-        </div>
+        </fieldset>
 
         <div id="camera-preview-$cameraId" style="margin-top: 10px; display: none;">
           <img src="/camera-frame?camera=[string map {/ %2F} $camera]"
