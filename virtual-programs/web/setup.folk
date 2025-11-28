@@ -56,18 +56,33 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
     [join [lmap disp [Query! $::thisNode has display /display/ with /...opts/] {
       set display $disp(display)
       set info [dict get $disp(opts) info]
+
+      set modesByRegion [dict create]
+      foreach mode $info(modes) {
+        dict lappend modesByRegion $mode(visibleRegion) $mode
+      }
+      set regions [lsort -decreasing -integer -index 0 [dict keys $modesByRegion]]
+
       subst {
         <div style="margin: 10px 0;">
-          <strong>Display $display</strong> ($info(name))
+          <strong>Display $display</strong>: $info(name)
           <fieldset style="margin-left: 20px;">
             <legend>Select mode:</legend>
-            [join [lmap mode $info(modes) {
-              lassign [dict get $mode visibleRegion] width height
+            [join [lmap region $regions {
+              lassign $region width height
+              set refreshRates [lmap mode [dict get $modesByRegion $region] \
+                                     {dict get $mode refreshRate}]
+              set refreshRates [lsort -decreasing -integer $refreshRates]
               subst {
                 <label>
                   <input type="radio" name="display-mode-$display" value="$mode">
                   ${width}x${height}
-                </label><br>
+                  <select name="display-refreshrate-$display-${width}x${height}">
+                    [join [lmap refreshRate $refreshRates { subst {
+                      <option value="$refreshRate">[format "%.2g" [/ $refreshRate 1000]] Hz</option>
+                    } }] \n]
+                  </select>
+                </label><br> 
               }
             }] \n]
           </fieldset>
