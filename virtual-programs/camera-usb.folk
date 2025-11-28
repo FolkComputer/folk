@@ -455,6 +455,10 @@ When the image library is /imageLib/ &\
 }
 
 set cc [C]
+$cc include <fcntl.h>
+$cc include <unistd.h>
+$cc include <sys/ioctl.h>
+$cc include <linux/videodev2.h>
 $cc proc enumerateFormatsForCamera {char* camera} Jim_Obj* {
     int fd = open(camera, O_RDWR);
     FOLK_ENSURE(fd >= 0);
@@ -466,10 +470,8 @@ $cc proc enumerateFormatsForCamera {char* camera} Jim_Obj* {
     fmt_desc.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     
     while (ioctl(fd, VIDIOC_ENUM_FMT, &fmt_desc) == 0) {
-        // Create format dict
         Jim_Obj *formatDict = Jim_NewDictObj(interp, NULL, 0);
         
-        // Add fourcc as string
         char fourcc_str[5];
         fourcc_str[0] = fmt_desc.pixelformat & 0xFF;
         fourcc_str[1] = (fmt_desc.pixelformat >> 8) & 0xFF;
@@ -479,14 +481,12 @@ $cc proc enumerateFormatsForCamera {char* camera} Jim_Obj* {
         
         Jim_Obj *fourccKey = Jim_NewStringObj(interp, "fourcc", -1);
         Jim_Obj *fourccVal = Jim_NewStringObj(interp, fourcc_str, -1);
-        Jim_DictAddKeyValue(interp, formatDict, fourccKey, fourccVal);
+        Jim_DictAddElement(interp, formatDict, fourccKey, fourccVal);
         
-        // Add description
         Jim_Obj *descKey = Jim_NewStringObj(interp, "description", -1);
         Jim_Obj *descVal = Jim_NewStringObj(interp, (char*)fmt_desc.description, -1);
-        Jim_DictAddKeyValue(interp, formatDict, descKey, descVal);
+        Jim_DictAddElement(interp, formatDict, descKey, descVal);
         
-        // Enumerate frame sizes for this format
         Jim_Obj *resolutionsList = Jim_NewListObj(interp, NULL, 0);
         
         struct v4l2_frmsizeenum frm_size = {0};
@@ -494,19 +494,16 @@ $cc proc enumerateFormatsForCamera {char* camera} Jim_Obj* {
         
         while (ioctl(fd, VIDIOC_ENUM_FRAMESIZES, &frm_size) == 0) {
             if (frm_size.type == V4L2_FRMSIZE_TYPE_DISCRETE) {
-                // Create resolution dict
                 Jim_Obj *resDict = Jim_NewDictObj(interp, NULL, 0);
                 
-                // Add width and height
                 Jim_Obj *widthKey = Jim_NewStringObj(interp, "width", -1);
                 Jim_Obj *widthVal = Jim_NewIntObj(interp, frm_size.discrete.width);
-                Jim_DictAddKeyValue(interp, resDict, widthKey, widthVal);
+                Jim_DictAddElement(interp, resDict, widthKey, widthVal);
                 
                 Jim_Obj *heightKey = Jim_NewStringObj(interp, "height", -1);
                 Jim_Obj *heightVal = Jim_NewIntObj(interp, frm_size.discrete.height);
-                Jim_DictAddKeyValue(interp, resDict, heightKey, heightVal);
+                Jim_DictAddElement(interp, resDict, heightKey, heightVal);
                 
-                // Enumerate frame rates for this resolution
                 Jim_Obj *frameratesList = Jim_NewListObj(interp, NULL, 0);
                 
                 struct v4l2_frmivalenum frm_interval = {0};
@@ -531,32 +528,28 @@ $cc proc enumerateFormatsForCamera {char* camera} Jim_Obj* {
                         
                         Jim_Obj *minKey = Jim_NewStringObj(interp, "min", -1);
                         Jim_Obj *minVal = Jim_NewDoubleObj(interp, min_fps);
-                        Jim_DictAddKeyValue(interp, rangeDict, minKey, minVal);
+                        Jim_DictAddElement(interp, rangeDict, minKey, minVal);
                         
                         Jim_Obj *maxKey = Jim_NewStringObj(interp, "max", -1);
                         Jim_Obj *maxVal = Jim_NewDoubleObj(interp, max_fps);
-                        Jim_DictAddKeyValue(interp, rangeDict, maxKey, maxVal);
+                        Jim_DictAddElement(interp, rangeDict, maxKey, maxVal);
                         
                         Jim_ListAppendElement(interp, frameratesList, rangeDict);
                     }
                     frm_interval.index++;
                 }
                 
-                // Add framerates to resolution dict
                 Jim_Obj *frameratesKey = Jim_NewStringObj(interp, "framerates", -1);
-                Jim_DictAddKeyValue(interp, resDict, frameratesKey, frameratesList);
+                Jim_DictAddElement(interp, resDict, frameratesKey, frameratesList);
                 
-                // Add resolution to resolutions list
                 Jim_ListAppendElement(interp, resolutionsList, resDict);
             }
             frm_size.index++;
         }
         
-        // Add resolutions to format dict
         Jim_Obj *resolutionsKey = Jim_NewStringObj(interp, "resolutions", -1);
-        Jim_DictAddKeyValue(interp, formatDict, resolutionsKey, resolutionsList);
+        Jim_DictAddElement(interp, formatDict, resolutionsKey, resolutionsList);
         
-        // Add format to formats list
         Jim_ListAppendElement(interp, formatsList, formatDict);
         
         fmt_desc.index++;
