@@ -162,7 +162,15 @@ set trieDotify {{trieLib tclifiedTrie} {
 
 set getDotAsPdf {{dot} {
     set fd [open |[list dot -Tpdf <<$dot] rb]
-    set response [read $fd]; close $fd; return $response
+    set response [read $fd]
+    try {
+        close $fd
+        return $response
+    } on error e {
+        if {[catch {exec which dot}]} {
+            error "graphviz not installed!"
+        }
+    }
 }}
 
 Wish the web server handles route {/trie-graph\.pdf} with handler {

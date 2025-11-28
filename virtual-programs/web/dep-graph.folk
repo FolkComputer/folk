@@ -36,7 +36,15 @@ set dbDotify {{dbLib db} {
 set getDotAsPdf {{dot} {
     set fd [open |[list dot -Tpdf <<$dot] r]
     fconfigure $fd -translation binary
-    set response [read $fd]; close $fd; return $response
+    set response [read $fd]
+    try {
+        close $fd
+        return $response
+    } on error e {
+        if {[catch {exec which dot}]} {
+            error "graphviz not installed!"
+        }
+    }
 }}
 
 When the db library is /dbLib/ {
