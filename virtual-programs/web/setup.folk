@@ -14,20 +14,21 @@ const folk = new FolkWS();
 <h1>Folk setup</h1>
 
 <div>
-  <h2>Start Folk service on boot</h2>
+  <h2>Start service on boot</h2>
   LIST IF SYSTEMD SERVICE EXISTS
 </div>
 
 <div>
-  <h2>Configure Folk user permissions</h2>
+  <h2>Configure user permissions</h2>
   LIST IF PART OF ALL GROUPS
 </div>
 
-<div>LIST ALL ERRORS</div>
+<div>
+  <h2>LIST ALL ERRORS</h2>
+</div>
 
 <div>
-<h2>Display</h2>
-<form id="display-form">
+  <h2>Display</h2>
   <div>
     <label>
       <input type="radio" name="display-type" value="glfw">
@@ -61,41 +62,43 @@ const folk = new FolkWS();
       }
     }] \n]
   </div>
-</form>
 
-<script>
-const displayRadios = document.querySelectorAll('input\[name="display-type"\]');
-displayRadios.forEach(radio => {
-  radio.addEventListener('change', async function() {
-    if (this.value === 'glfw' && this.checked) {
-      await folk.evaluate('Hold! -save -key display-type Wish $::thisNode uses display glfw with width 640 height 480');
-    }
+  <script>
+  const displayRadios = document.querySelectorAll('input\[name="display-type"\]');
+  displayRadios.forEach(radio => {
+    radio.addEventListener('change', async function() {
+      if (this.value === 'glfw' && this.checked) {
+        await folk.evaluate('Hold! -save -key display-type Wish $::thisNode uses display glfw with width 640 height 480');
+      }
+    });
   });
-});
-</script>
+  </script>
 </div>
 
 <div>
-<h2>Camera</h2>
-<form id="camera-form">
+  <h2>Camera</h2>
   [join [lmap cameraData [Query! $::thisNode has camera /camera/ with /...opts/] { dict with cameraData {
     set camera [dict get $cameraData camera]
-    set modes [dict get $cameraData(opts) modes]
+    set formats [dict get $cameraData(opts) formats]
+    if {[llength $formats] == 0} {
+      # Cameras often have 'extra camera devices' with no formats for some reason.
+      continue
+    }
     set calibrated [expr {[dict exists $opts intrinsics] ? "✓ CALIBRATED" : ""}]
     set cameraId [string map {/ _} $camera]
     subst {
       <div style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
         <label>
           <input type="checkbox" name="camera-enabled" value="$camera" data-camera-id="$cameraId">
-          <strong>$camera</strong> ([llength $modes]) $calibrated
+          <strong>$camera</strong> ([llength $formats]) $calibrated
         </label>
 
-        <div id="camera-modes-$cameraId" style="margin-left: 20px; margin-top: 10px">
-          <h4>Select mode:</h4>
-          [join [lmap mode $modes { subst {
+        <div id="camera-formats-$cameraId" style="margin-left: 20px; margin-top: 10px">
+          <h4>Select format:</h4>
+          [join [lmap format $formats { subst {
             <label style="display: block; margin: 5px 0;">
-              <input type="radio" name="camera-mode-$cameraId" value="$mode" data-camera="$camera">
-              $mode
+              <input type="radio" name="camera-format-$cameraId" value="$format" data-camera="$camera">
+              $format
             </label>
           } }] \n]
         </div>
@@ -108,42 +111,41 @@ displayRadios.forEach(radio => {
       </div>
     }
   } }] \n]
-</form>
 
-<script>
-// Handle camera enable/disable
-document.querySelectorAll('input\[name="camera-enabled"\]').forEach(checkbox => {
-  checkbox.addEventListener('change', async function() {
-    const cameraId = this.dataset.cameraId;
-    const previewDiv = document.getElementById(`camera-preview-\${cameraId}`);
+  <script>
+  // Handle camera enable/disable
+  document.querySelectorAll('input\[name="camera-enabled"\]').forEach(checkbox => {
+    checkbox.addEventListener('change', async function() {
+      const cameraId = this.dataset.cameraId;
+      const previewDiv = document.getElementById(`camera-preview-\${cameraId}`);
 
-    if (this.checked) {
-      previewDiv.style.display = 'block';
-    } else {
-      previewDiv.style.display = 'none';
-      // TODO: Remove the wish when unchecked
-    }
+      if (this.checked) {
+        previewDiv.style.display = 'block';
+      } else {
+        previewDiv.style.display = 'none';
+        // TODO: Remove the wish when unchecked
+      }
+    });
   });
-});
 
-// Handle camera mode selection
-document.querySelectorAll('input\[type="radio"\]\[name^="camera-mode-"\]').forEach(radio => {
-  radio.addEventListener('change', async function() {
-    if (this.checked) {
-      const camera = this.dataset.camera;
-      const mode = this.value;
-      // TODO: Parse mode dict and extract width/height, then create wish
-      await folk.evaluate(`Hold! -save -key camera-\${camera} Wish $::thisNode uses camera "\${camera}" with \${mode}`);
-    }
+  // Handle camera format selection
+  document.querySelectorAll('input\[type="radio"\]\[name^="camera-format-"\]').forEach(radio => {
+    radio.addEventListener('change', async function() {
+      if (this.checked) {
+        const camera = this.dataset.camera;
+        const format = this.value;
+        // TODO: Parse format dict and extract width/height, then create wish
+        await folk.evaluate(`Hold! -save -key camera-\${camera} Wish $::thisNode uses camera "\${camera}" with \${format}`);
+      }
+    });
   });
-});
-</script>
+  </script>
 </div>
 
 <div>
-<h2>Projector-camera calibration</h2>
-- radio buttons for projectors
-- check boxes for cameras
+  <h2>Projector-camera calibration</h2>
+  - radio buttons for projectors
+  - check boxes for cameras
 <button>Calibrate</button>
 </div>
 
