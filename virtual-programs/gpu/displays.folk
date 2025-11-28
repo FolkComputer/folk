@@ -5,57 +5,104 @@ $cc code {
     #include "volk/volk.h"
 }
 
-$cc proc enumerateDisplaysForPhysicalDevice {VkPhysicalDevice physicalDevice} Jim_Obj* {
-    uint32_t displayCount;
-    vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, NULL);
+$cc proc enumerateDisplays {} Jim_Obj* {
+    FOLK_ENSURE(volkInitialize() == VK_SUCCESS);
 
-    VkDisplayPropertiesKHR displayProps[displayCount];
-    vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, displayProps);
+    // Create a minimal Vulkan instance for display enumeration.
+    VkInstance instance;
+    {
+        VkInstanceCreateInfo createInfo = {0};
+        createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
 
-    Jim_Obj *displayList = Jim_NewListObj(interp, NULL, 0);
+        const char* enabledExtensions[] = {
+            VK_KHR_DISPLAY_EXTENSION_NAME,
+            VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
+#ifdef __APPLE__
+            VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
+#endif
+        };
+        createInfo.enabledExtensionCount = sizeof(enabledExtensions)/sizeof(enabledExtensions[0]);
+        createInfo.ppEnabledExtensionNames = enabledExtensions;
 
-    for (uint32_t i = 0; i < displayCount; i++) {
-        uint32_t modeCount;
-        vkGetDisplayModePropertiesKHR(physicalDevice, displayProps[i].display,
-                                      &modeCount, NULL);
+#ifdef __APPLE__
+        createInfo.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+#endif
 
-        VkDisplayModePropertiesKHR modeProps[modeCount];
-        vkGetDisplayModePropertiesKHR(physicalDevice, displayProps[i].display,
-                                      &modeCount, modeProps);
-
-        Jim_Obj *modesList = Jim_NewListObj(interp, NULL, 0);
-        for (uint32_t j = 0; j < modeCount; j++) {
-            Jim_Obj *modeDict = Jim_ObjPrintf("visibleRegion {%u %u} refreshRate %u",
-                modeProps[j].parameters.visibleRegion.width,
-                modeProps[j].parameters.visibleRegion.height,
-                modeProps[j].parameters.refreshRate);
-            Jim_ListAppendElement(interp, modesList, modeDict);
+        VkResult res = vkCreateInstance(&createInfo, NULL, &instance);
+        if (res != VK_SUCCESS) {
+            if (res == VK_ERROR_EXTENSION_NOT_PRESENT) {
+                FOLK_ERROR("Unable to enumerate displays (for example, this doesn't work on macOS)");
+            }
+            FOLK_ERROR("Failed to create Vulkan instance: %d", res);
         }
-
-        int modesLen;
-        const char *modesStr = Jim_GetString(modesList, &modesLen);
-        Jim_Obj *displayDict = Jim_ObjPrintf("name {%s} physicalDimensions {%u %u} "
-                                             "physicalResolution {%u %u} modes {%s}",
-            displayProps[i].displayName ? displayProps[i].displayName : "",
-            displayProps[i].physicalDimensions.width,
-            displayProps[i].physicalDimensions.height,
-            displayProps[i].physicalResolution.width,
-            displayProps[i].physicalResolution.height,
-            modesStr);
-
-        Jim_ListAppendElement(interp, displayList, displayDict);
     }
 
-    return displayList;
+    volkLoadInstance(instance);
+
+    uint32_t physicalDeviceCount = 0;
+    vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, NULL);
+    if (physicalDeviceCount == 0) {
+        vkDestroyInstance(instance, NULL);
+        return Jim_NewListObj(interp, NULL, 0);
+    }
+
+    VkPhysicalDevice physicalDevices[physicalDeviceCount];
+    vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, physicalDevices);
+
+    Jim_Obj *allDisplaysList = Jim_NewListObj(interp, NULL, 0);
+
+    // Enumerate displays for each physical device
+    for (uint32_t devIdx = 0; devIdx < physicalDeviceCount; devIdx++) {
+        VkPhysicalDevice physicalDevice = physicalDevices[devIdx];
+
+        uint32_t displayCount;
+        vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, NULL);
+
+        VkDisplayPropertiesKHR displayProps[displayCount];
+        vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, displayProps);
+
+        for (uint32_t i = 0; i < displayCount; i++) {
+            uint32_t modeCount;
+            vkGetDisplayModePropertiesKHR(physicalDevice, displayProps[i].display,
+                                          &modeCount, NULL);
+
+            VkDisplayModePropertiesKHR modeProps[modeCount];
+            vkGetDisplayModePropertiesKHR(physicalDevice, displayProps[i].display,
+                                          &modeCount, modeProps);
+
+            Jim_Obj *modesList = Jim_NewListObj(interp, NULL, 0);
+            for (uint32_t j = 0; j < modeCount; j++) {
+                Jim_Obj *modeDict = Jim_ObjPrintf("visibleRegion {%u %u} refreshRate %u",
+                    modeProps[j].parameters.visibleRegion.width,
+                    modeProps[j].parameters.visibleRegion.height,
+                    modeProps[j].parameters.refreshRate);
+                Jim_ListAppendElement(interp, modesList, modeDict);
+            }
+
+            int modesLen;
+            const char *modesStr = Jim_GetString(modesList, &modesLen);
+            Jim_Obj *displayDict = Jim_ObjPrintf("name {%s} physicalDimensions {%u %u} "
+                                                 "physicalResolution {%u %u} modes {%s}",
+                displayProps[i].displayName ? displayProps[i].displayName : "",
+                displayProps[i].physicalDimensions.width,
+                displayProps[i].physicalDimensions.height,
+                displayProps[i].physicalResolution.width,
+                displayProps[i].physicalResolution.height,
+                modesStr);
+
+            Jim_ListAppendElement(interp, allDisplaysList, displayDict);
+        }
+    }
+
+    vkDestroyInstance(instance, NULL);
+
+    return allDisplaysList;
 }
 
 set displayLib [$cc compile]
 
-When the GPU physical device is /physicalDevice/ {
-    set idx 0
-    foreach display [$displayLib enumerateDisplaysForPhysicalDevice $physicalDevice] {
-        set modes [$displayLib enumerateDisplayModesForDisplay $display]
-        Claim $::thisNode has display $idx with modes $modes
-        incr idx
-    }
+set idx 0
+foreach display [$displayLib enumerateDisplays] {
+    Claim $::thisNode has display $idx with info $display
+    incr idx
 }

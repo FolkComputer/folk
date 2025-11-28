@@ -13,9 +13,15 @@ const folk = new FolkWS();
 
 <h1>Folk setup</h1>
 
-<div>LIST IF SYSTEMD SERVICE EXISTS</div>
+<div>
+  <h2>Start Folk service on boot</h2>
+  LIST IF SYSTEMD SERVICE EXISTS
+</div>
 
-<div>LIST IF PART OF ALL GROUPS</div>
+<div>
+  <h2>Configure Folk user permissions</h2>
+  LIST IF PART OF ALL GROUPS
+</div>
 
 <div>LIST ALL ERRORS</div>
 
@@ -36,22 +42,24 @@ const folk = new FolkWS();
     </label>
 
     <h3>Available displays:</h3>
-    [lmap disp [Query! $::thisNode has display /display/ with /...opts/] { dict with opts {
-      set calibrated [expr {[dict exists $opts intrinsics] ? "✓ CALIBRATED" : ""}]
+    [join [lmap disp [Query! $::thisNode has display /display/ with /...opts/] {
+      set display $disp(display)
+      set info [dict get $disp(opts) info]
+      # set calibrated [expr {[dict exists $opts intrinsics] ? "✓ CALIBRATED" : ""}]
       subst {
         <div style="margin: 10px 0;">
-          <strong>Display $display</strong> $calibrated
+          <strong>Display $display</strong> ($info(name))
           <div style="margin-left: 20px;">
-            [lmap mode $modes { subst {
+            [join [lmap mode $info(modes) { subst {
               <label>
                 <input type="radio" name="display-mode-$display" value="$mode">
                 Mode: $mode
               </label><br>
-            } }]
+            } }] \n]
           </div>
         </div>
       }
-    } }]
+    }] \n]
   </div>
 </form>
 
@@ -69,14 +77,70 @@ displayRadios.forEach(radio => {
 
 <div>
 <h2>Camera</h2>
-[lmap camera [Query! $::thisNode has camera /camera/ with modes /modes/] {
-    - check box for camera; Hold! -save wish to use camera with selcted mode when checked
-    [lmap mode $modes [subst {
-      - radio button for mode
-    }]]
-    - display camera image live when checked; crop camera by dragging
-    - has intrinsics? (IS CALIBRATED?)
-}]
+<form id="camera-form">
+  [join [lmap cameraData [Query! $::thisNode has camera /camera/ with /...opts/] { dict with cameraData {
+    set camera [dict get $cameraData camera]
+    set modes [dict get $cameraData(opts)(modes)]
+    set calibrated [expr {[dict exists $opts intrinsics] ? "✓ CALIBRATED" : ""}]
+    set cameraId [string map {/ _} $camera]
+    subst {
+      <div style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
+        <label>
+          <input type="checkbox" name="camera-enabled" value="$camera" data-camera-id="$cameraId">
+          <strong>$camera</strong> ([llength $modes]) $calibrated
+        </label>
+
+        <div id="camera-modes-$cameraId" style="margin-left: 20px; margin-top: 10px; display: none;">
+          <h4>Select mode:</h4>
+          [lmap mode $modes { subst {
+            <label style="display: block; margin: 5px 0;">
+              <input type="radio" name="camera-mode-$cameraId" value="$mode" data-camera="$camera">
+              $mode
+            </label>
+          } }]
+
+          <div id="camera-preview-$cameraId" style="margin-top: 10px; display: none;">
+            <img src="/camera-frame?camera=[string map {/ %2F} $camera]"
+                 style="max-width: 320px; border: 1px solid #999;"
+                 alt="Camera preview">
+          </div>
+        </div>
+      </div>
+    }
+  } }] \n]
+</form>
+
+<script>
+// Handle camera enable/disable
+document.querySelectorAll('input\[name="camera-enabled"\]').forEach(checkbox => {
+  checkbox.addEventListener('change', async function() {
+    const cameraId = this.dataset.cameraId;
+    const modesDiv = document.getElementById(`camera-modes-\${cameraId}`);
+    const previewDiv = document.getElementById(`camera-preview-\${cameraId}`);
+
+    if (this.checked) {
+      modesDiv.style.display = 'block';
+      previewDiv.style.display = 'block';
+    } else {
+      modesDiv.style.display = 'none';
+      previewDiv.style.display = 'none';
+      // TODO: Remove the wish when unchecked
+    }
+  });
+});
+
+// Handle camera mode selection
+document.querySelectorAll('input\[type="radio"\]\[name^="camera-mode-"\]').forEach(radio => {
+  radio.addEventListener('change', async function() {
+    if (this.checked) {
+      const camera = this.dataset.camera;
+      const mode = this.value;
+      // TODO: Parse mode dict and extract width/height, then create wish
+      await folk.evaluate(`Hold! -save -key camera-\${camera} Wish $::thisNode uses camera "\${camera}" with \${mode}`);
+    }
+  });
+});
+</script>
 </div>
 
 <div>
