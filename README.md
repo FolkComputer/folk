@@ -64,7 +64,7 @@ if flashing from a Mac] -- Ubuntu doesn't have a good kernel for Pi 5)
    `folk@folk-WHATEVER.local` by name, `sudo apt install avahi-daemon`
    and then on your laptop: `ssh-copy-id folk@folk-WHATEVER.local`
 
-1. Install dependencies: `sudo apt install rsync git libjpeg-dev libpng-dev libdrm-dev pkg-config v4l-utils vulkan-tools libvulkan-dev libvulkan1 meson libgbm-dev glslc vulkan-validationlayers ghostscript console-data kbd psmisc zlib1g-dev libssl-dev automake libtool autoconf-archive`
+1. Install dependencies: `sudo apt install rsync git libturbojpeg0-dev libpng-dev libdrm-dev pkg-config v4l-utils vulkan-tools libvulkan-dev libvulkan1 meson libgbm-dev glslc vulkan-validationlayers ghostscript console-data kbd psmisc zlib1g-dev libssl-dev automake libtool autoconf-archive`
 
    (When prompted while installing `console-data` for `Policy for
    handling keymaps` type `3` (meaning `3. Keep kernel keymap`) and

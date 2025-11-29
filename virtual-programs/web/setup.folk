@@ -146,7 +146,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
               ${resolution(width)}x${resolution(height)}
               [join [lmap framerate $resolution(framerates) { subst {
                 <label>
-                  <input type="radio">
+                  <input type="radio" name="camera-framerate-$cameraId-${resolution(width)}x${resolution(height)}">
                   [format "%.3g" $framerate] Hz
                 </label>
               } }] \n]
@@ -164,7 +164,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
   } }] \n]
 
   <script>
-  // Handle camera enable/disable
+  // Handle camera enable/disable.
   document.querySelectorAll('input\[name="camera-enabled"\]').forEach(checkbox => {
     checkbox.addEventListener('change', async function() {
       const cameraId = this.dataset.cameraId;
@@ -179,7 +179,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
     });
   });
 
-  // Handle camera format selection
+  // Handle camera format selection.
   document.querySelectorAll('input\[type="radio"\]\[name^="camera-format-"\]').forEach(radio => {
     radio.addEventListener('change', async function() {
       if (this.checked) {

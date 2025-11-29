@@ -22,7 +22,7 @@ $camc include <unistd.h>
 $camc include <stdint.h>
 $camc include <stdlib.h>
 
-$camc include <jpeglib.h>
+$camc include <turbojpeg.h>
 
 $camc struct CameraBuffer {
     uint8_t* start;
@@ -240,45 +240,34 @@ $camc proc setExposureAuto {Camera* camera} void {
 }
 
 $camc proc cameraDecompressRgb {Camera* camera Image dest} void {
-    struct jpeg_decompress_struct cinfo;
-    struct jpeg_error_mgr jerr;
-    cinfo.err = jpeg_std_error(&jerr);
-    jpeg_create_decompress(&cinfo);
-    jpeg_mem_src(&cinfo, camera->head.start, camera->head.length);
-    if (jpeg_read_header(&cinfo, TRUE) != 1) {
-        fprintf(stderr, "cameraDecompressRgb: Fail\n");
-        exit(1);
+    tjhandle handle = tjInitDecompress();
+    if (handle == NULL) {
+        FOLK_ERROR("cameraDecompressRgb: Failed to initialize decompressor\n");
     }
-    jpeg_start_decompress(&cinfo);
 
-    while (cinfo.output_scanline < cinfo.output_height) {
-        unsigned char *buffer_array[1];
-        buffer_array[0] = dest.data + (cinfo.output_scanline) * dest.width * cinfo.output_components;
-        jpeg_read_scanlines(&cinfo, buffer_array, 1);
+    int ret = tjDecompress2(handle, camera->head.start, camera->head.length,
+                            dest.data, dest.width, 0, dest.height, TJPF_RGB, 0);
+    if (ret != 0) {
+        tjDestroy(handle);
+        FOLK_ERROR("cameraDecompressRgb: Decompression failed: %s\n", tjGetErrorStr());
     }
-    jpeg_finish_decompress(&cinfo);
-    jpeg_destroy_decompress(&cinfo);
+
+    tjDestroy(handle);
 }
 $camc proc cameraDecompressGray {Camera* camera Image dest} void {
-    struct jpeg_decompress_struct cinfo;
-    struct jpeg_error_mgr jerr;
-    cinfo.err = jpeg_std_error(&jerr);
-    jpeg_create_decompress(&cinfo);
-    jpeg_mem_src(&cinfo, camera->head.start, camera->head.length);
-    if (jpeg_read_header(&cinfo, TRUE) != 1) {
-        fprintf(stderr, "cameraDecompressGray: Fail\n");
-        exit(1);
+    tjhandle handle = tjInitDecompress();
+    if (handle == NULL) {
+        FOLK_ERROR("cameraDecompressGray: Failed to initialize decompressor\n");
     }
-    cinfo.out_color_space = JCS_GRAYSCALE;
-    jpeg_start_decompress(&cinfo);
 
-    while (cinfo.output_scanline < cinfo.output_height) {
-        unsigned char *buffer_array[1];
-        buffer_array[0] = dest.data + (cinfo.output_scanline) * dest.width * cinfo.output_components;
-        jpeg_read_scanlines(&cinfo, buffer_array, 1);
+    int ret = tjDecompress2(handle, camera->head.start, camera->head.length,
+                            dest.data, dest.width, 0, dest.height, TJPF_GRAY, 0);
+    if (ret != 0) {
+        tjDestroy(handle);
+        FOLK_ERROR("cameraDecompressGray: Decompression failed: %s\n", tjGetErrorStr());
     }
-    jpeg_finish_decompress(&cinfo);
-    jpeg_destroy_decompress(&cinfo);
+
+    tjDestroy(handle);
 }
 $camc proc rgbToGray {Image rgb} Image {
     uint8_t* gray = calloc(rgb.width * rgb.height, sizeof (uint8_t));
@@ -321,7 +310,7 @@ $camc proc freeImage {Image image} void {
 # c loadlib [expr {$::tcl_platform(os) eq "Darwin" ?
 #                  "/opt/homebrew/lib/libjpeg.dylib" :
 #                  [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]}]
-$camc endcflags -ljpeg
+$camc endcflags -lturbojpeg
 $camc cflags -Wall -Werror
 set camLib [$camc compile]
 
