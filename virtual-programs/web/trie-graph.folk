@@ -66,18 +66,20 @@ void tfree(void *ptr) {
     }
     $cc proc jimObjToClause {Jim_Obj* clauseObj} Clause* {
         int nTerms = Jim_ListLength(interp, clauseObj);
-        Clause* clause = malloc(SIZEOF_CLAUSE(nTerms));
-        clause->nTerms = nTerms;
+        Clause* clause = clauseNew(nTerms);
         for (int i = 0; i < nTerms; i++) {
             Jim_Obj* termObj = Jim_ListGetIndex(interp, clauseObj, i);
-            clause->terms[i] = strdup(Jim_GetString(termObj, NULL));
+            int termLen;
+            const char* termStr = Jim_GetString(termObj, &termLen);
+            clause->terms[i] = termNew(termStr, termLen);
         }
         return clause;
     }
     $cc proc clauseToJimObj {Clause* clause} Jim_Obj* {
         Jim_Obj* termObjs[clause->nTerms];
         for (int i = 0; i < clause->nTerms; i++) {
-            termObjs[i] = Jim_NewStringObj(interp, clause->terms[i], -1);
+            termObjs[i] = Jim_NewStringObj(interp, termPtr(clause->terms[i]), 
+                                           termLen(clause->terms[i]));
         }
         return Jim_NewListObj(interp, termObjs, clause->nTerms);
     }
@@ -109,24 +111,6 @@ void tfree(void *ptr) {
                                   pattern, results, 50, &resultCount);
         free(pattern);
         return trie;
-    }
-    $cc code {
-        Clause* clause(char* first, ...) {
-            Clause* c = calloc(sizeof(Clause) + sizeof(char*)*100, 1);
-            va_list argp;
-            va_start(argp, first);
-            c->terms[0] = first;
-            int i = 1;
-            for (;;) {
-                if (i >= 100) abort();
-                c->terms[i] = va_arg(argp, char*);
-                if (c->terms[i] == 0) break;
-                i++;
-            }
-            va_end(argp);
-            c->nTerms = i;
-            return c;
-        }
     }
 
     return [$cc compile]

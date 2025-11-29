@@ -27,7 +27,7 @@ Term* termDup(void *(*alloc)(size_t), const Term* t) {
 int termLen(const Term* t) {
     return t->len;
 }
-char* termPtr(const Term* t) {
+const char* termPtr(const Term* t) {
     return t->buf;
 }
 bool termEq(const Term* t1, const Term* t2) {

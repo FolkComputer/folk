@@ -8,7 +8,7 @@
 typedef struct Term Term;
 Term* termNew(const char* s, int len);
 int termLen(const Term* t);
-char* termPtr(const Term* t);
+const char* termPtr(const Term* t);
 bool termEq(const Term* t1, const Term* t2);
 bool termEqString(const Term* t, const char* s);
 

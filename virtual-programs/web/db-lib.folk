@@ -36,7 +36,8 @@ Claim the db library is [apply {{} {
     $cc proc clauseToJimObj {Clause* clause} Jim_Obj* {
         Jim_Obj* termObjs[clause->nTerms];
         for (int i = 0; i < clause->nTerms; i++) {
-            termObjs[i] = Jim_NewStringObj(interp, clause->terms[i], -1);
+            termObjs[i] = Jim_NewStringObj(interp, termPtr(clause->terms[i]), 
+                                           termLen(clause->terms[i]));
         }
         return Jim_NewListObj(interp, termObjs, clause->nTerms);
     }
