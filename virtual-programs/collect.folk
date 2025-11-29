@@ -15,7 +15,7 @@ $cc include "trie.h"
 $cc include "db.h"
 $cc code {
     extern Db* db;
-    extern Clause* jimObjToClauseWithCaching(Jim_Interp* interp, Jim_Obj* obj);
+    extern Clause* jimObjToClause(Jim_Interp* interp, Jim_Obj* obj);
     extern Statement* HoldStatementGlobally(const char *key, double version,
                                             Clause *clause, long keepMs,
                                             const char *destructorCode,
@@ -65,6 +65,12 @@ $cc code {
         return collectKey;
     }
 
+    Term* jimObjToTerm(Jim_Obj* obj) {
+        int len; const char* s;
+        s = Jim_GetString(obj, &len);
+        return termNew(s, len);
+    }
+
     int _Atomic version = 0;
 }
 
@@ -73,29 +79,27 @@ $cc proc init {} void {
 }
 $cc proc Recollect! {Jim_Obj* patternObj bool isAtomically} void {
     // First, query for collect patterns.
-    Clause* collectorPattern = malloc(SIZEOF_CLAUSE(10));
-    collectorPattern->nTerms = 10;
-    collectorPattern->terms[0] = strdup("/someone/");
-    collectorPattern->terms[1] = strdup("wishes");
-    collectorPattern->terms[2] = strdup("to");
-    collectorPattern->terms[3] = strdup("collect");
-    collectorPattern->terms[4] = strdup("results");
-    collectorPattern->terms[5] = strdup("for");
-    collectorPattern->terms[6] = strdup(Jim_String(patternObj));
-    collectorPattern->terms[7] = strdup("with");
-    collectorPattern->terms[8] = strdup("settle");
-    collectorPattern->terms[9] = strdup("/settle/");
+    Clause* collectorPattern = clauseNew(10);
+    collectorPattern->terms[0] = termNew("/someone/", -1);
+    collectorPattern->terms[1] = termNew("wishes", -1);
+    collectorPattern->terms[2] = termNew("to", -1);
+    collectorPattern->terms[3] = termNew("collect", -1);
+    collectorPattern->terms[4] = termNew("results", -1);
+    collectorPattern->terms[5] = termNew("for", -1);
+    collectorPattern->terms[6] = jimObjToTerm(patternObj);
+    collectorPattern->terms[7] = termNew("with", -1);
+    collectorPattern->terms[8] = termNew("settle", -1);
+    collectorPattern->terms[9] = termNew("/settle/", -1);
 
     char* collectKey = makeCollectKey(patternObj);
 
     ResultSet* collectorsSet = dbQuery(db, collectorPattern);
     if (collectorsSet->nResults == 0) {
-        Clause* emptyClause = malloc(SIZEOF_CLAUSE(0));
-        emptyClause->nTerms = 0;
+        Clause* emptyClause = clauseNew(0);
         HoldStatementGlobally(collectKey, version++,
                               emptyClause, 0, NULL, NULL, 0);
     } else {
-        Clause* pattern = jimObjToClauseWithCaching(interp, patternObj);
+        Clause* pattern = jimObjToClause(interp, patternObj);
 
         ResultSet* rs = dbQuery(db, pattern);
         size_t unclaimizedNResults = rs->nResults;
@@ -162,17 +166,16 @@ $cc proc Recollect! {Jim_Obj* patternObj bool isAtomically} void {
         // statements in rs. We need to hang onto them to inherit
         // their destructors.
 
-        Clause* collectedClause = malloc(SIZEOF_CLAUSE(9));
-        collectedClause->nTerms = 9;
-        collectedClause->terms[0] = strdup("virtual-programs/collect.folk");
-        collectedClause->terms[1] = strdup("claims");
-        collectedClause->terms[2] = strdup("the");
-        collectedClause->terms[3] = strdup("collected");
-        collectedClause->terms[4] = strdup("results");
-        collectedClause->terms[5] = strdup("for");
-        collectedClause->terms[6] = strdup(Jim_String(patternObj));
-        collectedClause->terms[7] = strdup("are");
-        collectedClause->terms[8] = strdup(Jim_String(resultsObj));
+        Clause* collectedClause = clauseNew(9);
+        collectedClause->terms[0] = termNew("virtual-programs/collect.folk", -1);
+        collectedClause->terms[1] = termNew("claims", -1);
+        collectedClause->terms[2] = termNew("the", -1);
+        collectedClause->terms[3] = termNew("collected", -1);
+        collectedClause->terms[4] = termNew("results", -1);
+        collectedClause->terms[5] = termNew("for", -1);
+        collectedClause->terms[6] = jimObjToTerm(patternObj);
+        collectedClause->terms[7] = termNew("are", -1);
+        collectedClause->terms[8] = jimObjToTerm(resultsObj);
         Jim_DecrRefCount(interp, resultsObj);
 
         Statement* stmt =

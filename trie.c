@@ -201,7 +201,12 @@ bool trieScanVariable(Term* term, char* outVarName, int sizeOutVarName) {
     int varLen = term->len - 2;
     if (varLen < 1 || varLen > sizeOutVarName) { return false; }
 
-    memcpy(outVarName, &term->buf[1], varLen);
+    for (int i = 0; i < varLen; i++) {
+        if (term->buf[1 + i] == ' ') {
+            return false;
+        }
+        outVarName[i] = term->buf[1 + i];
+    }
     outVarName[varLen] = '\0';
     return true;
 }
