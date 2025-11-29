@@ -164,17 +164,17 @@ void sysmon() {
     int64_t timeNs = timestamp_get(CLOCK_REALTIME);
 
     // sysmon.c claims the internal time is <TIME> (used internally)
-    Clause* internalTimeClause = malloc(SIZEOF_CLAUSE(7));
-    internalTimeClause->nTerms = 7;
-    internalTimeClause->terms[0] = strdup("sysmon.c");
-    internalTimeClause->terms[1] = strdup("claims");
-    internalTimeClause->terms[2] = strdup("the");
-    internalTimeClause->terms[3] = strdup("internal");
-    internalTimeClause->terms[4] = strdup("time");
-    internalTimeClause->terms[5] = strdup("is");
-    internalTimeClause->terms[6] = malloc(100);
-    snprintf(internalTimeClause->terms[6], 100, "%f",
+    Clause* internalTimeClause = clauseNew(7);
+    internalTimeClause->terms[0] = termNew("sysmon.c", -1);
+    internalTimeClause->terms[1] = termNew("claims", -1);
+    internalTimeClause->terms[2] = termNew("the", -1);
+    internalTimeClause->terms[3] = termNew("internal", -1);
+    internalTimeClause->terms[4] = termNew("time", -1);
+    internalTimeClause->terms[5] = termNew("is", -1);
+    char internalTime[100];
+    snprintf(internalTime, 100, "%f",
              (double)timeNs / 1000000000.0);
+    internalTimeClause->terms[6] = termNew(internalTime, -1);
 
     HoldStatementGlobally("internal-time", currentTick,
                           internalTimeClause, 0, NULL,
@@ -182,17 +182,17 @@ void sysmon() {
 
     // sysmon.c claims the clock time is <TIME>
     if (currentTick % 3 == 0) {
-        Clause* clockTimeClause = malloc(SIZEOF_CLAUSE(7));
-        clockTimeClause->nTerms = 7;
-        clockTimeClause->terms[0] = strdup("sysmon.c");
-        clockTimeClause->terms[1] = strdup("claims");
-        clockTimeClause->terms[2] = strdup("the");
-        clockTimeClause->terms[3] = strdup("clock");
-        clockTimeClause->terms[4] = strdup("time");
-        clockTimeClause->terms[5] = strdup("is");
-        clockTimeClause->terms[6] = malloc(100);
-        snprintf(clockTimeClause->terms[6], 100, "%f",
+        Clause* clockTimeClause = clauseNew(7);
+        clockTimeClause->terms[0] = termNew("sysmon.c", -1);
+        clockTimeClause->terms[1] = termNew("claims", -1);
+        clockTimeClause->terms[2] = termNew("the", -1);
+        clockTimeClause->terms[3] = termNew("clock", -1);
+        clockTimeClause->terms[4] = termNew("time", -1);
+        clockTimeClause->terms[5] = termNew("is", -1);
+        char clockTime[100];
+        snprintf(clockTime, 100, "%f",
                  (double)timeNs / 1000000000.0);
+        clockTimeClause->terms[6] = termNew(clockTime, -1);
 
         HoldStatementGlobally("clock-time", currentTick,
                               clockTimeClause, 0, NULL,

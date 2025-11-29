@@ -23,7 +23,6 @@
 #include "db.h"
 #include "common.h"
 #include "sysmon.h"
-#include "cache.h"
 
 ThreadControlBlock threads[THREADS_MAX];
 int _Atomic threadCount;
@@ -91,53 +90,36 @@ __thread jmp_buf __onError;
 // wrapper directly), you shouldn't.
 __thread bool __onErrorIsSet;
 
-__thread Cache* cache = NULL;
-
 Db* db;
 
 static Clause* jimObjsToClause(int objc, Jim_Obj *const *objv) {
-    Clause* clause = malloc(SIZEOF_CLAUSE(objc));
-    clause->nTerms = objc;
+    Clause* clause = clauseNew(objc);
 
     const char* str;
-    char* newStr;
     int len;
     for (int i = 0; i < objc; i++) {
-        // Jim "strings" are not guaranteed to be null terminated,
-        // as they're effectively byte arrays. We'll go ahead and
-        // terminate it ourselves in the case that this object is
-        // not terminated.
-        
         str = Jim_GetString(objv[i], &len);
-        newStr = malloc(len + 1); // +1 for null cap
-        memcpy(newStr, str, len);
-        newStr[len] = 0x00;
-        
-        clause->terms[i] = newStr;
+        clause->terms[i] = termNew(str, len);
     }
     return clause;
 }
-static Clause* jimObjsToClauseWithCaching(int objc, Jim_Obj *const *objv) {
-    for (int i = 0; i < objc; i++) {
-        cacheInsert(cache, interp, objv[i]);
-    }
-    return jimObjsToClause(objc, objv);
-}
-Clause* jimObjToClauseWithCaching(Jim_Interp* interp, Jim_Obj* obj) {
+Clause* jimObjToClause(Jim_Interp* interp, Jim_Obj* obj) {
     int objc = Jim_ListLength(interp, obj);
-    Clause* clause = malloc(SIZEOF_CLAUSE(objc));
-    clause->nTerms = objc;
+    Clause* clause = clauseNew(objc);
     for (int i = 0; i < objc; i++) {
         Jim_Obj* termObj = Jim_ListGetIndex(interp, obj, i);
-        cacheInsert(cache, interp, termObj);
-        clause->terms[i] = strdup(Jim_GetString(termObj, NULL));
+        int len; const char* s = Jim_GetString(termObj, &len);
+        clause->terms[i] = termNew(s, len);
     }
     return clause;
 }
-static Jim_Obj* termsToJimObj(Jim_Interp* interp, int nTerms, char* terms[]) {
+static Jim_Obj* termToJimObj(Jim_Interp* interp, const Term* term) {
+    return Jim_NewStringObj(interp, termPtr(term), termLen(term));
+}
+static Jim_Obj* termsToJimObj(Jim_Interp* interp, int nTerms, Term* terms[]) {
     Jim_Obj* termObjs[nTerms];
     for (int i = 0; i < nTerms; i++) {
-        termObjs[i] = cacheGetOrInsert(cache, interp, terms[i]);
+        termObjs[i] = termToJimObj(interp, terms[i]);
     }
     return Jim_NewListObj(interp, termObjs, nTerms);
 }
@@ -182,7 +164,7 @@ Environment* clauseUnify(Jim_Interp* interp, Clause* a, Clause* b) {
             } else if (!trieVariableNameIsNonCapturing(aVarName)) {
                 EnvironmentBinding* binding = &env->bindings[env->nBindings++];
                 memcpy(binding->name, aVarName, sizeof(binding->name));
-                binding->value = cacheGetOrInsert(cache, interp, b->terms[i]);
+                binding->value = termToJimObj(interp, b->terms[i]);
             }
         } else if (trieScanVariable(b->terms[i], bVarName, sizeof(bVarName))) {
             if (bVarName[0] == '.' && bVarName[1] == '.' && bVarName[2] == '.') {
@@ -192,10 +174,9 @@ Environment* clauseUnify(Jim_Interp* interp, Clause* a, Clause* b) {
             } else if (!trieVariableNameIsNonCapturing(bVarName)) {
                 EnvironmentBinding* binding = &env->bindings[env->nBindings++];
                 memcpy(binding->name, bVarName, sizeof(binding->name));
-                binding->value = cacheGetOrInsert(cache, interp, a->terms[i]);
+                binding->value = termToJimObj(interp, a->terms[i]);
             }
-        } else if (!(a->terms[i] == b->terms[i] ||
-                     strcmp(a->terms[i], b->terms[i]) == 0)) {
+        } else if (!termEq(a->terms[i], b->terms[i])) {
             free(env);
             fprintf(stderr, "clauseUnify: Unification of (%s) (%s) failed\n",
                     clauseToString(a), clauseToString(b));
@@ -207,7 +188,7 @@ Environment* clauseUnify(Jim_Interp* interp, Clause* a, Clause* b) {
 
 // Assert! the time is 3
 static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    Clause* clause = jimObjsToClauseWithCaching(argc - 1, argv + 1);
+    Clause* clause = jimObjsToClause(argc - 1, argv + 1);
 
     Jim_Obj* scriptObj = interp->evalFrame->scriptObj;
     const char* sourceFileName;
@@ -314,7 +295,7 @@ static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *cons
 
     const char *key = Jim_GetString(argv[1], NULL);
     double version; Jim_GetDouble(interp, argv[2], &version);
-    Clause *clause = jimObjToClauseWithCaching(interp, argv[3]);
+    Clause *clause = jimObjToClause(interp, argv[3]);
     long keepMs; Jim_GetLong(interp, argv[4], &keepMs);
     int destructorCodeLen;
     const char* destructorCode = Jim_GetString(argv[5], &destructorCodeLen);
@@ -379,7 +360,7 @@ static StatementRef Say(Clause* clause, long keepMs, const char *destructorCode,
 
 static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc >= 6);
-    Clause* clause = jimObjsToClauseWithCaching(argc - 5, argv + 5);
+    Clause* clause = jimObjsToClause(argc - 5, argv + 5);
 
     const char* sourceFileName;
     long sourceLineNumber;
@@ -431,7 +412,7 @@ static void Notify(Clause* toNotify);
 static int NotifyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc >= 2);
 
-    Clause* toNotify = jimObjsToClauseWithCaching(argc - 1, argv + 1);
+    Clause* toNotify = jimObjsToClause(argc - 1, argv + 1);
     Notify(toNotify);
 
     clauseFree(toNotify);
@@ -490,7 +471,7 @@ static int QuerySimpleFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
         return JIM_ERR;
     }
 
-    Clause* pattern = jimObjsToClauseWithCaching(argc - 2, argv + 2);
+    Clause* pattern = jimObjsToClause(argc - 2, argv + 2);
 /* #ifdef TRACY_ENABLE */
 /*     char *s = clauseToString(pattern); */
 /*     TracyCMessageFmt("query: %.200s", s); free(s); */
@@ -528,11 +509,14 @@ static int StatementReleaseFunc(Jim_Interp *interp, int argc, Jim_Obj *const *ar
 static int __scanVariableFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
     char varName[100];
-    if (trieScanVariable(Jim_String(argv[1]), varName, 100)) {
+    int len; const char* s = Jim_GetString(argv[1], &len);
+    Term* potentialVarTerm = termNew(s, len);
+    if (trieScanVariable(potentialVarTerm, varName, 100)) {
         Jim_SetResultString(interp, varName, strlen(varName));
     } else {
         Jim_SetResultBool(interp, false);
     }
+    free(potentialVarTerm);
     return JIM_OK;
 }
 static int __variableNameIsNonCapturingFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
@@ -658,7 +642,6 @@ static int exitFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 
 static void interpBoot() {
     interp = Jim_CreateInterp();
-    cache = cacheNew(interp);
     Jim_RegisterCoreCommands(interp);
     Jim_InitStaticExtensions(interp);
 
@@ -717,10 +700,10 @@ void eval(const char* code) {
 
 void workerExit();
 
-static int runBlock(Clause* bodyPattern, Clause* toUnifyWith, const char* body,
+static int runBlock(Clause* bodyPattern, Clause* toUnifyWith, const Term* body,
                     const char *sourceFileName, int sourceLineNumber,
                     Jim_Obj *envStackObj) {
-    Jim_Obj *bodyObj = cacheGetOrInsert(cache, interp, body);
+    Jim_Obj *bodyObj = termToJimObj(interp, body);
     // Set the source info for the bodyObj:
     const char *ptr;
     if (Jim_ScriptGetSourceFileName(interp, bodyObj, &ptr) == JIM_ERR) {
@@ -868,9 +851,9 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     assert(whenClause->nTerms >= 5);
 
     // when the time is /t/ /body/ with environment /capturedEnvStack/
-    const char* body = whenClause->terms[whenClause->nTerms - 4];
-    const char* capturedEnvStack = whenClause->terms[whenClause->nTerms - 1];
-    Jim_Obj *envStackObj = Jim_NewStringObj(interp, capturedEnvStack, -1);
+    const Term* body = whenClause->terms[whenClause->nTerms - 4];
+    const Term* capturedEnvStack = whenClause->terms[whenClause->nTerms - 1];
+    Jim_Obj *envStackObj = termToJimObj(interp, capturedEnvStack);
 
     int error = runBlock(whenPattern, stmtClause, body,
                          statementSourceFileName(when),
@@ -891,8 +874,10 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     if (error == JIM_ERR) {
         Jim_MakeErrorMessage(interp);
         const char *errorMessage = Jim_GetString(Jim_GetResult(interp), NULL);
-        fprintf(stderr, "Fatal (uncaught) error running When (%.100s):\n  %s\n",
-                body, errorMessage);
+        int bodyLen = termLen(body);
+        if (bodyLen > 100) bodyLen = 100;
+        fprintf(stderr, "Fatal (uncaught) error running When (%.*s):\n  %s\n",
+                bodyLen, termPtr(body), errorMessage);
         Jim_FreeInterp(interp);
         exit(EXIT_FAILURE);
 
@@ -918,9 +903,9 @@ static void runSubscribeBlock(StatementRef subscribeRef, Clause* subscribePatter
 
     // key x was pressed
     // -> subscribe key x was pressed /lambda/ with environment /capturedEnvStack/
-    const char* body = subscribeClause->terms[subscribeClause->nTerms - 4];
-    const char* capturedEnvStack = subscribeClause->terms[subscribeClause->nTerms - 1];
-    Jim_Obj *envStackObj = Jim_NewStringObj(interp, capturedEnvStack, -1);
+    const Term* body = subscribeClause->terms[subscribeClause->nTerms - 4];
+    const Term* capturedEnvStack = subscribeClause->terms[subscribeClause->nTerms - 1];
+    Jim_Obj *envStackObj = termToJimObj(interp, capturedEnvStack);
 
     int error = runBlock(subscribePattern, notifyClause, body,
                          statementSourceFileName(subscribeStmt),
@@ -936,8 +921,10 @@ static void runSubscribeBlock(StatementRef subscribeRef, Clause* subscribePatter
     if (error == JIM_ERR) {
         Jim_MakeErrorMessage(interp);
         const char *errorMessage = Jim_GetString(Jim_GetResult(interp), NULL);
-        fprintf(stderr, "Fatal (uncaught) error running When (%.100s):\n  %s\n",
-                body, errorMessage);
+        int bodyLen = termLen(body);
+        if (bodyLen > 100) bodyLen = 100;
+        fprintf(stderr, "Fatal (uncaught) error running When (%.*s):\n  %s\n",
+                bodyLen, termPtr(body), errorMessage);
         Jim_FreeInterp(interp);
         exit(EXIT_FAILURE);
 
@@ -988,20 +975,26 @@ static void pushRunSubscriptionBlock(StatementRef subscribeRef, Clause* subscrib
     });
 }
 
+#define TERM_STATIC(str) ({ \
+    static struct { int32_t len; char buf[sizeof(str)]; } _term = { \
+        .len = sizeof(str) - 1, .buf = str \
+    }; \
+    (Term*)&_term; \
+})
+
 // Prepends `/someone/ claims` to `clause`. Returns NULL if `clause`
 // shouldn't be claimized. Returns a new heap-allocated Clause* that
 // must be freed by the caller.
 Clause* claimizeClause(Clause* clause) {
     if (clause->nTerms >= 2 &&
-        (strcmp(clause->terms[1], "claims") == 0 ||
-         strcmp(clause->terms[1], "wishes") == 0)) {
+        (termEqString(clause->terms[1], "claims") ||
+         termEqString(clause->terms[1], "wishes"))) {
         return NULL;
     }
 
     // the time is /t/ -> /someone/ claims the time is /t/
-    Clause* ret = malloc(SIZEOF_CLAUSE(2 + clause->nTerms));
-    ret->nTerms = 2 + clause->nTerms;
-    ret->terms[0] = "/someone/"; ret->terms[1] = "claims";
+    Clause* ret = clauseNew(2 + clause->nTerms);
+    ret->terms[0] = TERM_STATIC("/someone/"); ret->terms[1] = TERM_STATIC("claims");
     for (int i = 0; i < clause->nTerms; i++) {
         ret->terms[2 + i] = clause->terms[i];
     }
@@ -1010,61 +1003,56 @@ Clause* claimizeClause(Clause* clause) {
 static Clause* unclaimizeClause(Clause* clause) {
     // Omar claims the time is 3
     //   -> the time is 3
-    Clause* ret = malloc(SIZEOF_CLAUSE(clause->nTerms - 2));
-    ret->nTerms = 0;
+    Clause* ret = clauseNew(clause->nTerms - 2);
     for (int i = 2; i < clause->nTerms; i++) {
-        ret->terms[ret->nTerms++] = clause->terms[i];
+        ret->terms[i - 2] = clause->terms[i];
     }
     return ret;
 }
 static Clause* whenizeClause(Clause* clause) {
     // the time is /t/
     //   -> when the time is /t/ /__lambda/ with environment /__env/
-    Clause* ret = malloc(SIZEOF_CLAUSE(clause->nTerms + 5));
-    ret->nTerms = clause->nTerms + 5;
-    ret->terms[0] = "when";
+    Clause* ret = clauseNew(clause->nTerms + 5);
+    ret->terms[0] = TERM_STATIC("when");
     for (int i = 0; i < clause->nTerms; i++) {
         ret->terms[1 + i] = clause->terms[i];
     }
-    ret->terms[1 + clause->nTerms] = "/__lambda/";
-    ret->terms[2 + clause->nTerms] = "with";
-    ret->terms[3 + clause->nTerms] = "environment";
-    ret->terms[4 + clause->nTerms] = "/__env/";
+    ret->terms[1 + clause->nTerms] = TERM_STATIC("/__lambda/");
+    ret->terms[2 + clause->nTerms] = TERM_STATIC("with");
+    ret->terms[3 + clause->nTerms] = TERM_STATIC("environment");
+    ret->terms[4 + clause->nTerms] = TERM_STATIC("/__env/");
     return ret;
 }
 static Clause* unwhenizeClause(Clause* whenClause) {
     // when the time is /t/ /lambda/ with environment /env/
     //   -> the time is /t/
-    Clause* ret = malloc(SIZEOF_CLAUSE(whenClause->nTerms - 5));
-    ret->nTerms = 0;
+    Clause* ret = clauseNew(whenClause->nTerms - 5);
     for (int i = 1; i < whenClause->nTerms - 4; i++) {
-        ret->terms[ret->nTerms++] = whenClause->terms[i];
+        ret->terms[i - 1] = whenClause->terms[i];
     }
     return ret;
 }
 static Clause* subscriptionizeClause(Clause* notifyClause) {
     // key x was pressed
     // -> subscribe key x was pressed /lambda/ with environment /__env/
-    Clause* ret = malloc(SIZEOF_CLAUSE(notifyClause->nTerms + 5));
-    ret->nTerms = notifyClause->nTerms + 5;
-    ret->terms[0] = "subscribe";
+    Clause* ret = clauseNew(notifyClause->nTerms + 5);
+    ret->terms[0] = TERM_STATIC("subscribe");
     for (int i = 0; i < notifyClause->nTerms; i++) {
         ret->terms[1 + i] = notifyClause->terms[i];
     }
-    ret->terms[1 + notifyClause->nTerms] = "/__lambda/";
-    ret->terms[2 + notifyClause->nTerms] = "with";
-    ret->terms[3 + notifyClause->nTerms] = "environment";
-    ret->terms[4 + notifyClause->nTerms] = "/__env/";
+    ret->terms[1 + notifyClause->nTerms] = TERM_STATIC("/__lambda/");
+    ret->terms[2 + notifyClause->nTerms] = TERM_STATIC("with");
+    ret->terms[3 + notifyClause->nTerms] = TERM_STATIC("environment");
+    ret->terms[4 + notifyClause->nTerms] = TERM_STATIC("/__env/");
     return ret;
 }
 // currently the same as unwhenizeClause, but semantically different
 static Clause* unsubscriptionizeClause(Clause* subscribeClause) {
     // subscribe the time is /t/ /lambda/ with environment /env/
     //        -> the time is /t/
-    Clause* ret = malloc(SIZEOF_CLAUSE(subscribeClause->nTerms - 5));
-    ret->nTerms = 0;
+    Clause* ret = clauseNew(subscribeClause->nTerms - 5);
     for (int i = 1; i < subscribeClause->nTerms - 4; i++) {
-        ret->terms[ret->nTerms++] = subscribeClause->terms[i];
+        ret->terms[i - 1] = subscribeClause->terms[i];
     }
     return ret;
 }
@@ -1080,14 +1068,14 @@ static void reactToNewStatement(StatementRef ref) {
     Clause* clause = statementClause(stmt);
     assert(clause != NULL);
 
-    if (strcmp(clause->terms[0], "subscribe") == 0) {
+    if (termEqString(clause->terms[0], "subscribe")) {
         // nothing to do, as subscribe is handled when events are
         // fired
         statementRelease(db, stmt);
         return;
     }
 
-    if (strcmp(clause->terms[0], "when") == 0) {
+    if (termEqString(clause->terms[0], "when")) {
         // Find the query pattern of the when:
         Clause* pattern = unwhenizeClause(clause);
         if (pattern->nTerms == 0) {
@@ -1167,7 +1155,7 @@ static void reactToNewStatement(StatementRef ref) {
 
         clauseFreeBorrowed(whenizedClause); // doesn't own any terms.
     }
-    if (clause->nTerms >= 2 && strcmp(clause->terms[1], "claims") == 0) {
+    if (clause->nTerms >= 2 && termEqString(clause->terms[1], "claims")) {
         // Cut off `/x/ claims` from start of clause:
         //
         // /x/ claims the time is 3

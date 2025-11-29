@@ -5,12 +5,18 @@
 #include <stdbool.h>
 #include <stdlib.h>
 
+typedef struct Term Term;
+Term* termNew(const char* s, int len);
+int termLen(const Term* t);
+char* termPtr(const Term* t);
+bool termEq(const Term* t1, const Term* t2);
+bool termEqString(const Term* t, const char* s);
+
 typedef struct Clause {
     int32_t nTerms;
-    char* terms[];
+    Term* terms[];
 } Clause;
-#define SIZEOF_CLAUSE(NTERMS) (sizeof(Clause) + (NTERMS)*sizeof(char*))
-
+Clause* clauseNew(int32_t nTerms);
 Clause* clauseDup(Clause* c);
 void clauseFree(Clause* c);
 void clauseFreeBorrowed(Clause* c);
@@ -23,7 +29,7 @@ bool clauseIsEqual(Clause* a, Clause* b);
 typedef struct Trie Trie;
 struct Trie {
     // This term string is owned by the trie.
-    char* key;
+    Term* key;
 
     // In practice, we store a statement ref in this slot.
     bool hasValue;
@@ -76,8 +82,7 @@ int trieLookup(const Trie* trie, Clause* pattern,
 int trieLookupLiteral(const Trie* trie, Clause* literal,
                       uint64_t* results, size_t maxResults);
 
-bool trieScanVariable(const char* term,
-                      char* outVarName, size_t sizeOutVarName);
+bool trieScanVariable(Term* term, char* outVarName, int sizeOutVarName);
 bool trieVariableNameIsNonCapturing(const char* varName);
 
 #endif

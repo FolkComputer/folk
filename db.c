@@ -1578,22 +1578,3 @@ Statement* dbHoldStatement(Db* db,
         return NULL;
     }
 }
-
-// Test:
-Clause* clause(char* first, ...) {
-    Clause* c = calloc(sizeof(Clause) + sizeof(char*)*100, 1);
-    va_list argp;
-    va_start(argp, first);
-    c->terms[0] = first;
-    int i = 1;
-    for (;;) {
-        if (i >= 100) abort();
-        c->terms[i] = va_arg(argp, char*);
-        if (c->terms[i] == 0) break;
-        i++;
-    }
-    va_end(argp);
-    c->nTerms = i;
-    return c;
-}
-

@@ -1,16 +1,10 @@
 When the image library is /imageLib/ {
     Wish the web server handles route {/camera-frame(?:\?.*)?} with handler {
-        ForEach! camera /any/ has frame /im/ at timestamp /any/ {
-            set filename "/tmp/web-image-frame.jpg"
-            $imageLib saveAsJpeg $im $filename
-            set fsize [file size $filename]
-            set fd [open $filename r]
-            fconfigure $fd -translation binary
-            set body [read $fd $fsize]
-            close $fd
+        ForEach! camera /any/ has jpeg frame /jpeg/ at timestamp /any/ {
+            set fsize [string bytelength $jpeg]
             break
         }
         if {![info exists body]} { error "camera-frame: No valid camera frame found" }
-        dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: image/jpeg\nContent-Length: $fsize\n\n" body $body
+        dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: image/jpeg\nContent-Length: $fsize\n\n" body $jpeg
     }
 }
