@@ -38,20 +38,32 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
 </div>
 
 <style>
-  .mode-select label input\[type=radio] {
+  .mode-select input\[type=radio] {
       display: none;
   }
+  .mode-select .resolution:hover, 
+  .mode-select label:has(input\[type=radio]):hover {
+      background-color: #a8e6a3;
+  }
   .mode-select .mode:has(input:checked) {
-      background-color: green;
+      background-color: #ccc;
   }
   .mode-select .mode:has(input:checked) .resolution,
   .mode-select label:has(input:checked) {
-      background-color: red;
+      background-color: #27ae60;
+  }
+  .mode-select .resolution {
+      width: 100px;
+  }
+  .mode {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
   }
 </style>
 
 <div class="mode-select">
-  <h2>Display</h2>
+  <h2>Displays</h2>
   [join [lmap disp [Query! $::thisNode has display /displayIdx/ with /...opts/] {
     set displayIdx $disp(displayIdx)
     set info [dict get $disp(opts) info]
@@ -108,7 +120,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
 </div>
 
 <div class="mode-select">
-  <h2>Camera</h2>
+  <h2>Cameras</h2>
   [join [lmap cameraData [Query! $::thisNode has camera /camera/ with /...opts/] { dict with cameraData {
     set camera [dict get $cameraData camera]
 
