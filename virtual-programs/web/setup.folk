@@ -40,25 +40,12 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
 <div>
   <h2>Display</h2>
   <div>
-    <label>
-      <input type="radio" name="display-type" value="glfw">
-      GLFW (windowed)
-    </label>
-  </div>
-
-  <div>
-    <label>
-      <input type="radio" name="display-type" value="direct">
-      Direct to display
-    </label>
-
-    <h3>Available displays:</h3>
     [join [lmap disp [Query! $::thisNode has display /displayIdx/ with /...opts/] {
       set displayIdx $disp(displayIdx)
       set info [dict get $disp(opts) info]
 
       set modesByRegion [dict create]
-      foreach mode $info(modes) {
+      foreach mode [dict getdef $info modes [list]] {
         dict lappend modesByRegion $mode(visibleRegion) $mode
       }
       set regions [lsort -decreasing -integer -index 0 [dict keys $modesByRegion]]
@@ -66,8 +53,11 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
       subst {
         <div style="margin: 10px 0;">
           <strong>Display $displayIdx</strong>: <code>$info(name)</code><br>
-          (Physical resolution: [join $info(physicalResolution) x])
+          [if {[dict exists $info physicalResolution]} { subst {
+              (Physical resolution: [join $info(physicalResolution) x])
+          } } else { list }]
 
+          [if {[llength $regions] > 0} { subst {
           <fieldset style="margin-left: 20px;">
             <legend>Select mode:</legend>
             [join [lmap region $regions {
@@ -89,6 +79,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
               }
             }] \n]
           </fieldset>
+          } } else { list }]
         </div>
       }
     }] \n]
@@ -160,8 +151,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
 
         <div id="camera-preview-$cameraId" style="margin-top: 10px; display: none;">
           <img src="/camera-frame?camera=[string map {/ %2F} $camera]"
-            style="max-width: 320px; border: 1px solid #999;"
-            alt="Camera preview">
+            style="max-width: 320px; border: 1px solid #999;">
         </div>
       </div>
       }

@@ -1,8 +1,8 @@
 # camera/usb.folk --
 #
-#     Hardware interface with USB webcams (v4l2).
+#     Hardware interface with USB webcams on Linux (v4l2).
 
-if {$::tcl_platform(os) eq "darwin"} { return }
+if {$::tcl_platform(os) ne "linux"} { return }
 
 When the image library is /imageLib/ {
 

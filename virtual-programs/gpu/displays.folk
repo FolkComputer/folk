@@ -101,6 +101,10 @@ $cc proc enumerateDisplays {} Jim_Obj* {
 
 set displayLib [$cc compile]
 
+if {![catch {exec pkg-config --exists glfw3}]} {
+    Claim $::thisNode has display glfw with info {name "GLFW (windowed)"}
+}
+
 set idx 0
 foreach display [$displayLib enumerateDisplays] {
     Claim $::thisNode has display $idx with info $display

@@ -1,3 +1,5 @@
+if {$::tcl_platform(os) ne "linux"} { return }
+
 set cc [C]
 $cc include <fcntl.h>
 $cc include <unistd.h>
