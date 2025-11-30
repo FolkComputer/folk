@@ -1,4 +1,4 @@
-# camera-usb.folk --
+# camera/usb.folk --
 #
 #     Hardware interface with USB webcams (v4l2).
 
@@ -42,7 +42,7 @@ $camc struct Camera {
 
 $camc code {
     void quit(const char* msg) {
-        FOLK_ERROR("camera-usb: Quitting: [%s] %d: %s\n",
+        FOLK_ERROR("camera/usb: Quitting: [%s] %d: %s\n",
                    msg, errno, strerror(errno));
     }
 
@@ -50,7 +50,7 @@ $camc code {
         for (int i = 0; i < 100; i++) {
             int r = ioctl(fd, request, arg);
             if (r != -1 || errno != EINTR) return r;
-            printf("camera-usb: Retrying: [%x][%d] %s\n",
+            printf("camera/usb: Retrying: [%x][%d] %s\n",
                    request, i, strerror(errno));
         }
         return -1;
@@ -58,7 +58,7 @@ $camc code {
 }
 
 $camc proc cameraOpen {char* device int width int height} Camera* {
-    printf("camera-usb: Loading '%s'\n", device);
+    printf("camera/usb: Loading '%s'\n", device);
     // O_CLOEXEC is necessary so long-running child processes (like
     // fswatch) don't keep the camera open past the death of folk
     // itself, which causes EBUSY for the next Folk process.
@@ -110,7 +110,7 @@ $camc proc cameraInit {Camera* camera uint32_t requested_buffer_count} void {
     int ret;
     do {
         ret = xioctl(camera->fd, VIDIOC_S_FMT, &format);
-        fprintf(stderr, "camera-usb: VIDIOC_S_FMT: ret = %d (%d) (%s)\n",
+        fprintf(stderr, "camera/usb: VIDIOC_S_FMT: ret = %d (%d) (%s)\n",
                 ret, errno, strerror(errno));
         usleep(100000);
     } while (ret == -1 && errno == EBUSY);
@@ -340,7 +340,7 @@ When the image library is /imageLib/ &\
                 set camera [file tail [lindex [lsort -dict $videoDevices] 0]]
                 set camera "/dev/$camera"
             } else {
-                error "camera-usb: Unable to find video device for $devicePath"
+                error "camera/usb: Unable to find video device for $devicePath"
             }
 
             Hold! -key [list retry $devicePath] \
@@ -348,7 +348,7 @@ When the image library is /imageLib/ &\
         }
 
         When camera $camera failed with error /e/ {
-            puts stderr "camera-usb: Restarting after failure with $e"
+            puts stderr "camera/usb: Restarting after failure with $e"
             retryDevice
         }
         retryDevice
@@ -367,7 +367,7 @@ When the image library is /imageLib/ &\
     }
     
     set camObj [$camLib cameraOpen $camera $width $height]
-    puts "camera-usb: Loaded $camera -> $camObj"
+    puts "camera/usb: Loaded $camera -> $camObj"
     $camLib cameraInit $camObj $bufferCount
     $camLib cameraStart $camObj
     # skip 5 frames for booting a cam
@@ -408,7 +408,7 @@ When the image library is /imageLib/ &\
                 set croppedJpeg $jpeg
             }
             set timestamp [expr {$ms / 1000.0}]
-            tracy zoneName "camera-usb: $timestamp"
+            tracy zoneName "camera/usb: $timestamp"
             Hold! -key camera \
                 Claim camera $camera has jpeg frame $croppedJpeg at timestamp $timestamp \
                 -destructor [list $camLib freeJpeg $jpeg]
@@ -416,103 +416,15 @@ When the image library is /imageLib/ &\
             tracy zoneEnd
         }
     } on error e {
-        puts stderr "camera-usb: Error $e"
+        puts stderr "camera/usb: Error $e"
         Hold! -key [list camera-error $camera] \
             Claim camera $camera failed with error $e
     } on signal sig {
-        puts stderr "camera-usb: Signal $sig"
+        puts stderr "camera/usb: Signal $sig"
     } finally {
-        puts "camera-usb: Close $camObj"
+        puts "camera/usb: Close $camObj"
         $camLib cameraClose $camObj
     }
 }
 
-}
-
-set cc [C]
-$cc include <fcntl.h>
-$cc include <unistd.h>
-$cc include <sys/ioctl.h>
-$cc include <linux/videodev2.h>
-$cc proc enumerateFormatsForCamera {char* camera} Jim_Obj* {
-    int fd = open(camera, O_RDWR);
-    FOLK_ENSURE(fd >= 0);
-
-    Jim_Obj *formatsList = Jim_NewListObj(interp, NULL, 0);
-
-    // Enumerate pixel formats
-    struct v4l2_fmtdesc fmt_desc = {0};
-    fmt_desc.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-
-    while (ioctl(fd, VIDIOC_ENUM_FMT, &fmt_desc) == 0) {
-        char fourcc_str[5];
-        fourcc_str[0] = fmt_desc.pixelformat & 0xFF;
-        fourcc_str[1] = (fmt_desc.pixelformat >> 8) & 0xFF;
-        fourcc_str[2] = (fmt_desc.pixelformat >> 16) & 0xFF;
-        fourcc_str[3] = (fmt_desc.pixelformat >> 24) & 0xFF;
-        fourcc_str[4] = '\0';
-
-        Jim_Obj *resolutionsList = Jim_NewListObj(interp, NULL, 0);
-
-        struct v4l2_frmsizeenum frm_size = {0};
-        frm_size.pixel_format = fmt_desc.pixelformat;
-
-        while (ioctl(fd, VIDIOC_ENUM_FRAMESIZES, &frm_size) == 0) {
-            if (frm_size.type == V4L2_FRMSIZE_TYPE_DISCRETE) {
-                Jim_Obj *frameratesList = Jim_NewListObj(interp, NULL, 0);
-
-                struct v4l2_frmivalenum frm_interval = {0};
-                frm_interval.pixel_format = fmt_desc.pixelformat;
-                frm_interval.width = frm_size.discrete.width;
-                frm_interval.height = frm_size.discrete.height;
-
-                while (ioctl(fd, VIDIOC_ENUM_FRAMEINTERVALS, &frm_interval) == 0) {
-                    if (frm_interval.type == V4L2_FRMIVAL_TYPE_DISCRETE) {
-                        double fps = (double)frm_interval.discrete.denominator /
-                                    frm_interval.discrete.numerator;
-                        Jim_ListAppendElement(interp, frameratesList, Jim_NewDoubleObj(interp, fps));
-                    } else if (frm_interval.type == V4L2_FRMIVAL_TYPE_STEPWISE) {
-                        double min_fps = (double)frm_interval.stepwise.max.denominator /
-                                        frm_interval.stepwise.max.numerator;
-                        double max_fps = (double)frm_interval.stepwise.min.denominator /
-                                        frm_interval.stepwise.min.numerator;
-
-                        Jim_Obj *rangeDict = Jim_ObjPrintf("min %f max %f", min_fps, max_fps);
-                        Jim_ListAppendElement(interp, frameratesList, rangeDict);
-                    }
-                    frm_interval.index++;
-                }
-
-                int frameratesLen;
-                const char *frameratesStr = Jim_GetString(frameratesList, &frameratesLen);
-                Jim_Obj *resDict = Jim_ObjPrintf("width %u height %u framerates {%s}",
-                    frm_size.discrete.width,
-                    frm_size.discrete.height,
-                    frameratesStr);
-
-                Jim_ListAppendElement(interp, resolutionsList, resDict);
-            }
-            frm_size.index++;
-        }
-
-        int resolutionsLen;
-        const char *resolutionsStr = Jim_GetString(resolutionsList, &resolutionsLen);
-        Jim_Obj *formatDict = Jim_ObjPrintf("fourcc {%s} description {%s} resolutions {%s}",
-            fourcc_str,
-            (char*)fmt_desc.description,
-            resolutionsStr);
-
-        Jim_ListAppendElement(interp, formatsList, formatDict);
-
-        fmt_desc.index++;
-    }
-
-    close(fd);
-    return formatsList;
-}
-set formatsLib [$cc compile]
-
-foreach camera [glob -nocomplain "/dev/v4l/by-id/*"] {
-    set formats [$formatsLib enumerateFormatsForCamera $camera]
-    Claim $::thisNode has camera $camera with formats $formats
 }

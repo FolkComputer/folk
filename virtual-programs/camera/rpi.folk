@@ -1,4 +1,4 @@
-# camera-rpi.folk --
+# camera/rpi.folk --
 #
 #     Hardware interface with Pi webcams (libcamera).
 
@@ -44,7 +44,7 @@ set makeCamera {
         cm = std::make_unique<CameraManager>();
         cm->start();
 
-        std::cout << "camera-rpi: cameras:" << std::endl;
+        std::cout << "camera/rpi: cameras:" << std::endl;
 	for (auto const &camera : cm->cameras()) {
             std::cout << " - " << camera->id() << std::endl;
         }
@@ -74,10 +74,10 @@ set makeCamera {
             }
 
             size_t allocated = allocator->buffers(cfg.stream()).size();
-            std::cout << "camera-rpi: Allocated " << allocated << " buffers for stream" << std::endl;
+            std::cout << "camera/rpi: Allocated " << allocated << " buffers for stream" << std::endl;
 
             // for (PixelFormat &format : cfg.formats().pixelformats()) {
-                // std::cout << "camera-rpi: Stream supports format " << format << std::endl;
+                // std::cout << "camera/rpi: Stream supports format " << format << std::endl;
                 // for (Size &size : cfg.formats().sizes(format)) {
                 //     std::cout << "  -> supports size " << size << std::endl;
                 // }
@@ -91,13 +91,13 @@ set makeCamera {
 	for (unsigned int i = 0; i < buffers.size(); ++i) {
 		std::unique_ptr<Request> request = camera->createRequest();
 		if (!request) {
-                    FOLK_ERROR("camera-rpi: Can't create request");
+                    FOLK_ERROR("camera/rpi: Can't create request");
 		}
 
 		const std::unique_ptr<FrameBuffer> &buffer = buffers[i];
 		int ret = request->addBuffer(stream, buffer.get());
 		if (ret < 0) {
-                    FOLK_ERROR("camera-rpi: Can't set buffer for request");
+                    FOLK_ERROR("camera/rpi: Can't set buffer for request");
 		}
 
                 ControlList &controls = request->controls();
@@ -148,7 +148,7 @@ set makeCamera {
 
                     void *addr = mmap64(NULL, plane.length, PROT_READ, MAP_PRIVATE, fd, 0);
                     if (addr == MAP_FAILED) {
-                        FOLK_ERROR("camera-rpi: MAP_FAILED");
+                        FOLK_ERROR("camera/rpi: MAP_FAILED");
                     }
                     void *planeData = (uint8_t *)addr + plane.offset;
                     memcpy(im.data, planeData, frameHeight * frameBytesPerRow);
@@ -215,7 +215,7 @@ When the image library is /imageLib/ &\
      /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
     if {![string match "/base*" $cameraPath]} { return }
 
-    puts "camera-rpi: Running."
+    puts "camera/rpi: Running."
 
     set width [dict get $options width]
     set height [dict get $options height]
@@ -226,7 +226,7 @@ When the image library is /imageLib/ &\
     # TODO: report actual width and height from libcamera
     Claim camera $cameraPath has width $width height $height
 
-    puts "camera-rpi: $cameraPath ($options) booted at [clock milliseconds]"
+    puts "camera/rpi: $cameraPath ($options) booted at [clock milliseconds]"
 
     set oldFrames [list]
     while true {
@@ -241,7 +241,7 @@ When the image library is /imageLib/ &\
         }
 
         set timestamp [expr {[clock milliseconds] / 1000.0}]
-        tracy zoneName "camera-rpi: $timestamp"
+        tracy zoneName "camera/rpi: $timestamp"
         Hold! camera [list $this claims camera $cameraPath has frame $frame at timestamp $timestamp]
 
         lappend oldFrames $frame
