@@ -1,5 +1,5 @@
 When the image library is /imageLib/ {
-    Wish the web server handles route {/apriltag-frame(?:\?.*)?} with handler {
+    Wish the web server handles route {/apriltag-frame} with handler {
         set frames [Query! camera /cam/ has frame /im/ at timestamp /ts/]
         set frame [lindex $frames end]
         dict with frame {

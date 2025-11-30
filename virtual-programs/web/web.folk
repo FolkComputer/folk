@@ -40,12 +40,6 @@ proc handlePage {path httpStatusVar contentTypeVar} {
             set contentType "text/css"
             readFile "assets/style.css" contentType
         }
-        "/statementClauseToId.pdf" {
-            getDotAsPdf [trie dot [Statements::statementClauseToIdTrie]] contentType
-        }
-        "/statements.pdf" {
-            getDotAsPdf [Statements::dot] contentType
-        }
         "/lib/folk.js" {
             set contentType "text/javascript"
             readFile "lib/folk.js" contentType
@@ -60,6 +54,28 @@ proc handlePage {path httpStatusVar contentTypeVar} {
             }
         }
     }
+}
+
+proc parseQueryString {queryString} {
+    set QUERY [dict create]
+    if {$queryString eq ""} { return $QUERY }
+
+    set queryString [string range $queryString 1 end]
+    foreach pair [split $queryString &] {
+        if {[regexp {^([^=]*)=(.*)$} $pair -> key value]} {
+            # URL decode key and value
+            regsub -all {\+} $key { } key
+            regsub -all {%([0-9A-Fa-f]{2})} $key {[format %c 0x\1]} key
+            set key [subst $key]
+            
+            regsub -all {\+} $value { } value
+            regsub -all {%([0-9A-Fa-f]{2})} $value {[format %c 0x\1]} value
+            set value [subst $value]
+            
+            dict set QUERY $key $value
+        }
+    }
+    return $QUERY
 }
 
 proc handleRead {chan addr} {
@@ -88,12 +104,28 @@ proc handleRead {chan addr} {
         try {
             ForEach! /someone/ wishes the web server handles route /route/ with /...options/ {
                 set handler [dict get $options handler]
-                set vars [regexp -inline ^$route$ $path]
+                set vars [regexp -inline ^${route}(\\?.*)?$ $path]
                 if {[llength $vars] > 0} {
+                    set queryString [lindex $vars end]
+                    set QUERY [parseQueryString $queryString]
+
                     set ^html [proc html {body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: text/html; charset=utf-8\n\n" body $body}]
                     set ^json [proc json {body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: application/json; charset=utf-8\n\n" body $body}]
-                    set response [apply [list [lseq [llength $vars]] $handler] \
-                                      {*}$vars]
+
+                    if {[lindex $handler 0] eq "applyBlock"} {
+                        set env [dict create QUERY $QUERY]
+                        loop i [llength $vars] {
+                            dict set env $i [lindex $vars $i]
+                        }
+                        lset handler 2 [linsert [lindex $handler 2] end $env]
+                        set response [{*}$handler]
+                    } else {
+                        set varNames [lseq [llength $vars]]
+                        lappend varNames QUERY
+                        set response [apply [list $varNames $handler] \
+                                          {*}$vars $QUERY]
+                    }
+                    break
                 }
             }
             if {$response eq ""} {

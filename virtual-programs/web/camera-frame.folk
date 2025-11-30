@@ -1,12 +1,13 @@
 When the image library is /imageLib/ {
-    Wish the web server handles route {/camera-frame(?:\?.*)?} with handler {
-        ForEach! camera /any/ has jpeg frame /jpeg/ at timestamp /any/ {
+    Wish the web server handles route {/camera-frame} with handler {
+        set camera [dict getdef $QUERY camera /any/]
+        ForEach! camera $camera has jpeg frame /jpeg/ at timestamp /any/ {
             set data [$imageLib jpegData $jpeg]
             set fsize [string bytelength $data]
             break
         }
         if {![info exists data]} {
-            error "camera-frame: No valid camera frame found"
+            error "camera-frame: No valid camera frame found (for $camera)"
         }
 
         dict create statusAndHeaders "HTTP/1.1 200 OK
