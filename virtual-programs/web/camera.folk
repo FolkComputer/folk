@@ -3,7 +3,7 @@ Wish the web server handles route {/camera} with handler {
     html {
 <html>
   <body>
-    <img id="cameraFrame" src="/camera-frame">
+    <img id="cameraFrame" src="/camera-frame" style="max-width: 100%">
     <script>
       function advanceCamera() {
         cameraFrame.src = '/camera-frame?uniq=' + Math.random()

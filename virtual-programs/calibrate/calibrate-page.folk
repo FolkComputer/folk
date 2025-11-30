@@ -252,10 +252,6 @@ Wish the web server handles route "/calibrate" with handler {
                   {*}[set HoldDefaultModel!] \${scale}
                 `);
               });
-
-              function advanceCamera() {
-                cameraFrame.src = '/camera-frame?' + Math.random()
-              }
             </script>
 
             <p>Adjust this slider to choose how many calibration poses you want to record:
@@ -270,29 +266,34 @@ Claim the calibration poses max is \${calibrationPosesMax}
               });
             </script>
 
-            <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position): <button id="refreshButton" onclick="advanceCamera()">Refresh Preview</button> <input type="checkbox" value="true" id="auto-refresh-checkbox" checked>
-  <label for="auto-refresh-checkbox">Automatically refresh preview</label> </p><br> <img src="/camera-frame" id="cameraFrame" style="max-width: 100%"> 
-
+            <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position): <button id="refreshButton">Refresh Preview</button> <input type="checkbox" value="true" id="autoRefreshCheckbox" checked>
+  <label for="autoRefreshCheckbox">Automatically refresh preview</label> </p><br> <span id="cameraPreview"></span>
             <script>
-                const refreshButton = document.getElementById('refreshButton');
-                const autoRefreshCheckbox = document.getElementById('auto-refresh-checkbox');
-                cameraFrame.addEventListener('load', () => {
-                  if (autoRefreshCheckbox.checked) {
-                    advanceCamera();
-                  } 
-                });
-                autoRefreshCheckbox.addEventListener('change', () => {
-                  if (autoRefreshCheckbox.checked) {
-                    advanceCamera();
-                  }
-                });
+              refreshButton.onclick = function() {
+                if (typeof cameraFrame !== 'undefined') {
+                  cameraFrame.src = '/camera-frame?uniq=' + Math.random();
+                } else if (typeof cameraView !== 'undefined') {
+                  cameraView.src = cameraView.src;
+                }
+              };
+              function setupCameraPreview() {
+                if (autoRefreshCheckbox.checked) {
+                  cameraPreview.innerHTML = `<iframe id="cameraView" src="/camera" width="600" height="338">`;
+                } else {
+                  cameraPreview.innerHTML = `<img id="cameraFrame" src="/camera-frame" style="max-width: 100%">`;
+                }
+              }
+              setupCameraPreview();
+              autoRefreshCheckbox.addEventListener('change', () => {
+                setupCameraPreview();
+              });
             </script>
 
 
             <p><strong>Is the projection too bright and washing out the camera?</strong>
             <br/>
             Adjust camera exposure:
-                <input type="range" min="10" max="32" value="15" class="slider" id="camera-exposure-slider">
+                <input type="range" min="10" max="48" value="15" class="slider" id="camera-exposure-slider">
                 <input type="number" min="1000" max="320000" step="100" value="1500" id="camera-exposure-number">μs
             </p>
 
@@ -310,11 +311,6 @@ Claim the calibration poses max is \${calibrationPosesMax}
                 ws.hold('exposure', tcl`
                     Wish camera $camera uses exposure time \${valueInMicroseconds} us
                 `, 'virtual-programs/calibrate/calibrate.folk');
-                
-                if (lastRefreshTimeout != null) {
-                    window.clearTimeout(lastRefreshTimeout);
-                }
-                lastRefreshTimeout = setTimeout(() => { advanceCamera() }, 500);
             }
             
             slider.addEventListener('input', (e) => {
