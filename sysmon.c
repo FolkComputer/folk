@@ -57,6 +57,7 @@ void sysmon() {
 
     // First: check that we have a reasonable amount of free RAM.
 #ifdef __linux__
+    // TODO: move this check to userspace.
     if (currentTick % 1000 == 0) {
         // assuming that ticks happen every 2ms, this should happen
         // every 2s.
@@ -66,10 +67,11 @@ void sysmon() {
         // detect leaks (I think system RAM is good for killing but
         // process RAM use is better for leak diagnosis).
         struct rusage ru; getrusage(RUSAGE_SELF, &ru);
-        fprintf(stderr, "Check avail system RAM: %d MB / %d MB\n"
-                "Check self RAM usage: %ld MB\n",
-                freeRamMb, totalRamMb,
-                ru.ru_maxrss / 1024);
+        /* fprintf(stderr, "Check avail system RAM: %d MB / %d MB\n" */
+        /*         "Check self RAM usage: %ld MB\n", */
+        /*         freeRamMb, totalRamMb, */
+        /*         ru.ru_maxrss / 1024); */
+        // TODO: Report this result as a statement.
         if (freeRamMb < 200) {
             // Hard die if we are likely to run out of RAM, because
             // that will lock the system (making it hard to ssh in,
