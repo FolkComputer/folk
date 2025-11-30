@@ -37,53 +37,63 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
   LIST ALL ERRORS
 </div>
 
-<div>
+<style>
+  .mode-select label input\[type=radio] {
+      display: none;
+  }
+  .mode-select .mode:has(input:checked) {
+      background-color: green;
+  }
+  .mode-select .mode:has(input:checked) .resolution,
+  .mode-select label:has(input:checked) {
+      background-color: red;
+  }
+</style>
+
+<div class="mode-select">
   <h2>Display</h2>
-  <div>
-    [join [lmap disp [Query! $::thisNode has display /displayIdx/ with /...opts/] {
-      set displayIdx $disp(displayIdx)
-      set info [dict get $disp(opts) info]
+  [join [lmap disp [Query! $::thisNode has display /displayIdx/ with /...opts/] {
+    set displayIdx $disp(displayIdx)
+    set info [dict get $disp(opts) info]
 
-      set modesByRegion [dict create]
-      foreach mode [dict getdef $info modes [list]] {
-        dict lappend modesByRegion $mode(visibleRegion) $mode
-      }
-      set regions [lsort -decreasing -integer -index 0 [dict keys $modesByRegion]]
+    set modesByRegion [dict create]
+    foreach mode [dict getdef $info modes [list]] {
+      dict lappend modesByRegion $mode(visibleRegion) $mode
+    }
+    set regions [lsort -decreasing -integer -index 0 [dict keys $modesByRegion]]
 
-      subst {
-        <div style="margin: 10px 0;">
-          <strong>Display $displayIdx</strong>: <code>$info(name)</code><br>
-          [if {[dict exists $info physicalResolution]} { subst {
-              (Physical resolution: [join $info(physicalResolution) x])
-          } } else { list }]
+    subst {
+      <div style="margin: 10px 0;">
+        <strong>Display $displayIdx</strong> (<code>$info(name)</code>)<br>
+        [if {[dict exists $info physicalResolution]} { subst {
+            (Physical resolution: [join $info(physicalResolution) x])
+        } } else { list }]
 
-          [if {[llength $regions] > 0} { subst {
-          <fieldset style="margin-left: 20px;">
-            <legend>Select mode:</legend>
-            [join [lmap region $regions {
-              lassign $region width height
-              set refreshRates [lmap mode [dict get $modesByRegion $region] \
-                                     {dict get $mode refreshRate}]
-              set refreshRates [lsort -decreasing -integer $refreshRates]
-              subst {
-                <label style="display: block;">
-                  <input type="radio" name="display-mode-$displayIdx" value="$mode">
-                  ${width}x${height}
-                  [join [lmap refreshRate $refreshRates { subst {
-                    <label>
-                      <input type="radio" name="display-refreshrate-$displayIdx-${width}x${height}">
-                      [format "%.3g" [/ $refreshRate 1000]] Hz
-                    </label>
-                  } }] \n]
-                </label>
-              }
-            }] \n]
-          </fieldset>
-          } } else { list }]
-        </div>
-      }
-    }] \n]
-  </div>
+        [if {[llength $regions] > 0} { subst {
+        <fieldset style="margin-left: 20px;">
+          <legend>Select mode:</legend>
+          [join [lmap region $regions {
+            lassign $region width height
+            set refreshRates [lmap mode [dict get $modesByRegion $region] \
+                                   {dict get $mode refreshRate}]
+            set refreshRates [lsort -decreasing -integer $refreshRates]
+            subst {
+              <div class="mode">
+                <span class="resolution">${width}x${height}</span>
+                [join [lmap refreshRate $refreshRates { subst {
+                  <label>
+                    <input type="radio" name="display-refreshRate-$displayIdx">
+                    [format "%.3g" [/ $refreshRate 1000]] Hz
+                  </label>
+                } }] \n]
+              </div>
+            }
+          }] \n]
+        </fieldset>
+        } } else { list }]
+      </div>
+    }
+  }] \n]
 
   <script>
   const displayRadios = document.querySelectorAll('input\[name="display-type"\]');
@@ -97,7 +107,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
   </script>
 </div>
 
-<div>
+<div class="mode-select">
   <h2>Camera</h2>
   [join [lmap cameraData [Query! $::thisNode has camera /camera/ with /...opts/] { dict with cameraData {
     set camera [dict get $cameraData camera]
@@ -136,16 +146,15 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
         <fieldset style="margin-left: 20px; margin-top: 10px">
           <legend>Select resolution:</legend>
           [join [lmap resolution $resolutions { subst {
-            <label style="display: block;">
-              <input type="radio" name="camera-format-$cameraId" value="$resolution" data-camera="$camera">
-              ${resolution(width)}x${resolution(height)}
+            <div class="mode">
+              <span class="resolution">${resolution(width)}x${resolution(height)}</span>
               [join [lmap framerate $resolution(framerates) { subst {
                 <label>
-                  <input type="radio" name="camera-framerate-$cameraId-${resolution(width)}x${resolution(height)}">
+                  <input type="radio" name="camera-framerate-$cameraId">
                   [format "%.3g" $framerate] Hz
                 </label>
               } }] \n]
-            </label>
+            </div>
           } }] \n]
         </fieldset>
 
