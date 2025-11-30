@@ -2,7 +2,7 @@ Wish the web server handles route {/camera} with handler {
     set camera [dict getdef $QUERY camera /any/]
     html {
 <html>
-  <body>
+  <body style="margin: 0 0">
     <img id="cameraFrame" src="/camera-frame" style="max-width: 100%">
     <script>
       function advanceCamera() {
