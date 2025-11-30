@@ -59,7 +59,7 @@ function updateProgramCode() {
     programCode = currentCode;
 
     const id = page + kbPath;
-    ws.evaluate(tcl`
+    ws.run(tcl`
         Hold (non-capturing) (on virtual-programs/editor.folk) ${"cursor" + kbPath} {
             Claim the ${kbPath} cursor is [list ${cursorPosition[0]} ${cursorPosition[1]}]
             Hold (on virtual-programs/editor.folk) ${"code" + kbPath} {
@@ -87,7 +87,7 @@ function updateCursorAndCode(ev) {
     cursorPosition = [x, y];
 
     const id = page + kbPath;
-    ws.evaluate(tcl`
+    ws.run(tcl`
         Hold (non-capturing) (on virtual-programs/editor.folk) ${"cursor" + kbPath} {
             Claim the ${kbPath} cursor is [list ${x} ${y}]
             Hold (on virtual-programs/editor.folk) ${"code" + kbPath} {

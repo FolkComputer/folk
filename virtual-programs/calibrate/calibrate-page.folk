@@ -191,7 +191,7 @@ Wish the web server handles route "/calibrate" with handler {
               document.getElementById('board-print-through-folk').addEventListener('click', (e) => {
                 const boardSrc = document.getElementById('board-iframe').src.replace(/^data:application.pdf;base64,/, "");
 
-                ws.evaluate(`
+                ws.run(`
                   set boardPdf [binary decode base64 {\${boardSrc}}]
                   set fd [open /tmp/folk-calibration-board.pdf wb]
                   puts \$fd \$boardPdf; close \$fd
@@ -247,7 +247,7 @@ Wish the web server handles route "/calibrate" with handler {
             <script>
               document.getElementById('projected-tag-slider').addEventListener('input', (e) => {
                 const scale = e.target.value / 100.0;
-                ws.evaluate(tcl`
+                ws.run(tcl`
                   set HoldDefaultModel! [dict get [lindex [Query! /someone/ claims the calibration HoldDefaultModel! is /hdm/] 0] hdm]
                   {*}[set HoldDefaultModel!] \${scale}
                 `);
@@ -454,7 +454,7 @@ Camera Controls
                  top: geomTopMm.value + 'mm',
                  bottom: geomBottomMm.value + 'mm'
                };
-               ws.evaluate(tcl`
+               ws.run(tcl`
 Hold! -save -on calibration -key default-program-geometry \
   Claim the default program geometry is \$geom
 `);

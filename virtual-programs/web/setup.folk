@@ -112,7 +112,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
   displayRadios.forEach(radio => {
     radio.addEventListener('change', async function() {
       if (this.value === 'glfw' && this.checked) {
-        await folk.evaluate('Hold! -save -key display-type Wish $::thisNode uses display glfw with width 640 height 480');
+        await folk.run('Hold! -save -key display-type Wish $::thisNode uses display glfw with width 640 height 480');
       }
     });
   });
@@ -202,7 +202,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
         const camera = this.dataset.camera;
         const format = this.value;
         // TODO: Parse format dict and extract width/height, then create wish
-        await folk.evaluate(`Hold! -save -key camera-\${camera} Wish $::thisNode uses camera "\${camera}" with \${format}`);
+        await folk.run(`Hold! -save -key camera-\${camera} Wish $::thisNode uses camera "\${camera}" with \${format}`);
       }
     });
   });
