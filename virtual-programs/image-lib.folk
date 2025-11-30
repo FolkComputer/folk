@@ -4,6 +4,11 @@ Claim the image library is [apply {{} {
     $cc include <stdlib.h>
     $cc include <string.h>
 
+    $cc struct Jpeg {
+        uint8_t* start;
+        size_t length;
+    }
+
     $cc code {
         #undef EXTERN
         #include <turbojpeg.h>
@@ -99,6 +104,10 @@ Claim the image library is [apply {{} {
         free(row_pointers);
     }
 
+    }
+
+    $cc proc jpegData {Jpeg jpeg} Jim_Obj* {
+        return Jim_NewStringObj(interp, (char *)jpeg.start, jpeg.length);
     }
 
     $cc struct Image {

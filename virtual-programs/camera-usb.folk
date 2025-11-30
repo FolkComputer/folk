@@ -22,6 +22,9 @@ $camc include <unistd.h>
 $camc include <stdint.h>
 $camc include <stdlib.h>
 
+# We use TurboJPEG instead of the libjpeg API so we can do transforms
+# on JPEG data (which is what we get from webcams) without having to
+# decompress first.
 $camc include <turbojpeg.h>
 
 $camc struct CameraBuffer {
@@ -204,7 +207,7 @@ $camc code {
     }
 }
 
-$camc proc cameraFrame {Camera* camera} int {
+$camc proc cameraFrameJpeg {Camera* camera} CameraBuffer {
     struct timeval timeout;
     timeout.tv_sec = 1;
     timeout.tv_usec = 0;
@@ -215,10 +218,22 @@ $camc proc cameraFrame {Camera* camera} int {
     // printf("r: %d\n", r);
     if (r == -1) quit("select");
     if (r == 0) {
-        fprintf(stderr, "selection failed of fd %d\n", camera->fd);
-        return 0;
+        FOLK_ERROR("selection failed of fd %d\n", camera->fd);
     }
-    return camera_capture(camera);
+
+    FOLK_ENSURE(camera_capture(camera) != 0);
+
+    // Clone the head buffer into a new independent buffer that can be
+    // owned by the caller.
+    CameraBuffer buf = {
+        .start = malloc(camera->head.length),
+        .length = camera->head.length
+    };
+    memcpy(buf.start, camera->head.start, buf.length);
+    return buf;
+}
+$camc proc freeJpeg {CameraBuffer jpeg} void {
+    free(jpeg.start);
 }
 
 $camc proc setExposure {Camera* camera int value} void {
@@ -350,48 +365,15 @@ When the image library is /imageLib/ &\
     if {[dict exists $options crop]} {
         set crop [dict get $options crop]
     }
-
-    namespace eval Camera {
-        variable camLib [uplevel {set camLib}]
-        proc unknown {procName args} {
-            variable camLib; ::unknown $camLib $procName {*}$args
-        }
-        proc new {device width height bufferCount} {
-            set camera [cameraOpen $device $width $height]
-            puts "camera-usb: Loaded $device -> $camera"
-            cameraInit $camera $bufferCount
-            cameraStart $camera
-            # skip 5 frames for booting a cam
-            for {set i 0} {$i < 5} {incr i} {
-                cameraFrame $camera
-            }
-            return $camera
-        }
-        proc frame {camera {uniq 0}} {
-            if {![cameraFrame $camera]} {
-                error "Failed to capture from camera"
-            }
-            set image [newImage $camera 3 $uniq]
-            cameraDecompressRgb $camera $image
-            return $image
-        }
-        proc grayFrame {camera {uniq 0}} {
-            if {![cameraFrame $camera]} {
-                error "Failed to capture from camera"
-            }
-            set image [newImage $camera 1 $uniq]
-            cameraDecompressGray $camera $image
-            return $image
-        }
-        proc close {camera} {
-            cameraClose $camera
-        }
+    
+    set camObj [$camLib cameraOpen $camera $width $height]
+    puts "camera-usb: Loaded $camera -> $camObj"
+    $camLib cameraInit $camObj $bufferCount
+    $camLib cameraStart $camObj
+    # skip 5 frames for booting a cam
+    for {set i 0} {$i < 5} {incr i} {
+        $camLib cameraFrameJpeg $camObj
     }
-
-    set width [dict get $options width]
-    set height [dict get $options height]
-    set bufferCount [dict getdef $options bufferCount 4]
-    set camObj [Camera::new $camera $width $height $bufferCount]
 
     try -signal {
         if {[info exists crop]} {
@@ -412,20 +394,24 @@ When the image library is /imageLib/ &\
             tracy zoneBegin
 
             set ms [clock milliseconds]
-            set frame [Camera::grayFrame $camObj $ms]
+            set jpeg [$camLib cameraFrameJpeg $camObj]
+
+            # TODO: Do the crop.
 
             if {[info exists crop]} {
+                error "FIXME: Do the jpeg crop"
                 dict with crop {
-                    set cropped [$imageLib subimage $frame $x $y $width $height]
+                    set croppedJpeg [$camLib subimageJpeg $jpeg \
+                                         $x $y $width $height]
                 }
             } else {
-                set cropped $frame
+                set croppedJpeg $jpeg
             }
             set timestamp [expr {$ms / 1000.0}]
             tracy zoneName "camera-usb: $timestamp"
             Hold! -key camera \
-                Claim camera $camera has frame $cropped at timestamp $timestamp \
-                -destructor [list $camLib freeImage $frame]
+                Claim camera $camera has jpeg frame $croppedJpeg at timestamp $timestamp \
+                -destructor [list $camLib freeJpeg $jpeg]
 
             tracy zoneEnd
         }
@@ -437,7 +423,7 @@ When the image library is /imageLib/ &\
         puts stderr "camera-usb: Signal $sig"
     } finally {
         puts "camera-usb: Close $camObj"
-        Camera::close $camObj
+        $camLib cameraClose $camObj
     }
 }
 
