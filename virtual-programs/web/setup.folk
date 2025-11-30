@@ -65,8 +65,9 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
 
       subst {
         <div style="margin: 10px 0;">
-          <strong>Display $displayIdx</strong>: <code>$info(name)</code>
-          <p>Physical resolution: [join $info(physicalResolution) x]</p>
+          <strong>Display $displayIdx</strong>: <code>$info(name)</code><br>
+          (Physical resolution: [join $info(physicalResolution) x])
+
           <fieldset style="margin-left: 20px;">
             <legend>Select mode:</legend>
             [join [lmap region $regions {
@@ -125,13 +126,16 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
 
     if {[llength $resolutions] == 0} {
       # Cameras often have extra camera devices with no formats (or no
-      # MJPG, at least) for some reason. Not very useful for us, so
-      # leave 'em out.
-      continue
-    }
+      # MJPG, at least) for some reason. Not very useful for us.
+      subst {
+      <div style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
+        <strong>$camera</strong> (no supported formats)
+      </div>
+      }
 
-    set cameraId [string map {/ _} $camera]
-    subst {
+    } else {
+      set cameraId [string map {/ _} $camera]
+      subst {
       <div style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
         <label>
           <input type="checkbox" name="camera-enabled" value="$camera" data-camera-id="$cameraId">
@@ -160,6 +164,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
             alt="Camera preview">
         </div>
       </div>
+      }
     }
   } }] \n]
 
@@ -180,7 +185,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
   });
 
   // Handle camera format selection.
-  document.querySelectorAll('input\[type="radio"\]\[name^="camera-format-"\]').forEach(radio => {
+  document.querySelectorAll('input\[type="radio"\]\[name^="camera-framerate-"\]').forEach(radio => {
     radio.addEventListener('change', async function() {
       if (this.checked) {
         const camera = this.dataset.camera;
