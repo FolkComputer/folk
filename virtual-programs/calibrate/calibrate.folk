@@ -641,10 +641,13 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             }
         }
 
-        # Save the pose / camera image to a jpeg (for debugging purposes)
-        exec mkdir -p "$::env(HOME)/folk-calibration-poses"
-        set imageName "pose-$calibrationId-[llength $calibrationPoses].jpeg"
-        $imageLib saveAsJpeg $frame "$::env(HOME)/folk-calibration-poses/$imageName"
+        # Asynchronously save the pose / camera image to a jpeg (for
+        # debugging purposes).
+        When {
+            exec mkdir -p "$::env(HOME)/folk-calibration-poses"
+            set imageName "pose-$calibrationId-[llength $calibrationPoses].jpeg"
+            $imageLib saveAsJpeg $frame "$::env(HOME)/folk-calibration-poses/$imageName"
+        }
         dict set pose imageName $imageName
 
         # OK, let's save this calibration pose.
