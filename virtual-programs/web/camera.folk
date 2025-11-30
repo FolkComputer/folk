@@ -1,0 +1,18 @@
+Wish the web server handles route {/camera} with handler {
+    set camera [dict getdef $QUERY camera /any/]
+    html {
+<html>
+  <body>
+    <img id="cameraFrame" src="/camera-frame">
+    <script>
+      function advanceCamera() {
+        cameraFrame.src = '/camera-frame?uniq=' + Math.random()
+      }
+      cameraFrame.addEventListener('load', () => {
+        advanceCamera();
+      });
+    </script>
+  </body>
+</html>
+    }
+}
