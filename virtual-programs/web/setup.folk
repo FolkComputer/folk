@@ -42,7 +42,8 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
       display: none;
   }
   .mode-select .resolution:hover, 
-  .mode-select label:has(input\[type=radio]):hover {
+  .mode-select label:has(input\[type=radio]):hover,
+  .mode-select .resolution:has(~ label input\[type=radio]:hover) {
       background-color: #a8e6a3;
   }
   .mode-select .mode:has(input:checked) {
@@ -75,7 +76,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
                      [dict keys $modesByRegion]]
 
     subst {
-      <div style="margin: 10px 0;">
+      <div style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
         <strong>Display $displayIdx</strong> (<code>$info(name)</code>)<br>
         [if {[dict exists $info physicalResolution]} { subst {
             (Physical resolution: [join $info(physicalResolution) x])
@@ -140,7 +141,8 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
       # MJPG, at least) for some reason. Not very useful for us.
       subst {
       <div style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
-        <strong>$camera</strong> (no supported formats)
+        <strong>$camera</strong> (<code>[dict getdef $opts card ""]</code>)<br>
+        (no supported formats)
       </div>
       }
 
