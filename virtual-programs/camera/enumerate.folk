@@ -95,9 +95,23 @@ $cc proc getInfoForCamera {char* camera} Jim_Obj* {
 }
 set formatsLib [$cc compile]
 
+set camerasByCanonicalName [dict create]
 foreach camera [glob -nocomplain "/dev/v4l/by-path/*"] {
     # I would prefer to use by-id, but not all cameras show up in
     # by-id (webcam on my Dell laptop does not, for instance).
+    try {
+        set canonicalName [file readlink $camera]
+    } on error e {
+        set canonicalName $camera
+    }
+    if {[dict exists $camerasByCanonicalName $canonicalName]} {
+        # Skip cameras that we already have by another name, so there
+        # aren't dupes in the enumeration (in particular, by-path
+        # often has both -usb- and -usbv2- copies of a camera).
+        continue
+    }
+    dict set camerasByCanonicalName $canonicalName $camera
+
     set info [$formatsLib getInfoForCamera $camera]
     Claim $::thisNode has camera $camera with {*}$info
 }
