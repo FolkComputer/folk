@@ -96,7 +96,11 @@ $cc proc getInfoForCamera {char* camera} Jim_Obj* {
 set formatsLib [$cc compile]
 
 set camerasByCanonicalName [dict create]
-foreach camera [glob -nocomplain "/dev/v4l/by-path/*"] {
+set cameras [glob -nocomplain "/dev/v4l/by-path/*"]
+# sort first so the order (and therefore which dedupe wins) is
+# consistent across boots.
+set cameras [lsort $cameras]
+foreach camera $cameras {
     # I would prefer to use by-id, but not all cameras show up in
     # by-id (webcam on my Dell laptop does not, for instance).
     try {
