@@ -278,7 +278,7 @@ Claim the calibration poses max is \${calibrationPosesMax}
               };
               function setupCameraPreview() {
                 if (autoRefreshCheckbox.checked) {
-                  cameraPreview.innerHTML = `<iframe id="cameraView" src="/camera" width="600" height="338">`;
+                  cameraPreview.innerHTML = `<iframe id="cameraView" src="/camera" width="600" height="338"></iframe>`;
                 } else {
                   cameraPreview.innerHTML = `<img id="cameraFrame" src="/camera-frame" style="max-width: 100%">`;
                 }

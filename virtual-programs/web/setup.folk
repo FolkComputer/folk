@@ -162,7 +162,9 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
               <span class="resolution">${resolution(width)}x${resolution(height)}</span>
               [join [lmap framerate $resolution(framerates) { subst {
                 <label>
-                  <input type="radio" name="camera-framerate-$cameraId">
+                  <input type="radio" name="camera-framerate-$cameraId"
+                         data-camera="$camera"
+                         value="width ${resolution(width)} height ${resolution(height)} framerate $framerate">
                   [format "%.3g" $framerate] Hz
                 </label>
               } }] \n]
@@ -171,8 +173,9 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
         </fieldset>
 
         <div id="camera-preview-$cameraId" style="margin-top: 10px; display: none;">
-          <img src="/camera-frame?camera=[string map {/ %2F} $camera]"
-            style="max-width: 320px; border: 1px solid #999;">
+          <iframe src="/camera?camera=[string map {/ %2F} $camera]"
+            width="600" height="338"
+            style="border: 1px solid #999;"></iframe>
         </div>
       </div>
       }
@@ -201,7 +204,6 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
       if (this.checked) {
         const camera = this.dataset.camera;
         const format = this.value;
-        // TODO: Parse format dict and extract width/height, then create wish
         await folk.run(`Hold! -save -key camera-\${camera} Wish $::thisNode uses camera "\${camera}" with \${format}`);
       }
     });
