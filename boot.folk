@@ -44,8 +44,14 @@ foreach programFilename [list {*}[glob -nocomplain virtual-programs/*.folk] \
                              {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"] \
                              {*}[glob -nocomplain "$::env(HOME)/folk-live/*.folk"] \
                              {*}[glob -nocomplain "$::env(HOME)/folk-live/*/*.folk"]] {
+    if {[string match "$::env(HOME)/folk-live/setup.folk" $programFilename]} {
+        puts stderr "boot: WARNING: skipping $programFilename because setup.folk has been removed in folk2."
+        puts stderr "boot: Use the /setup Web page to do setup."
+    }
     if {[string match "*/_archive/*" $programFilename] ||
-        [string match "*/folk-printed-programs/*" $programFilename]} { continue }
+        [string match "*/folk-printed-programs/*" $programFilename]} {
+        continue
+    }
 
     LoadProgram! $programFilename
 }
