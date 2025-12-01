@@ -441,7 +441,11 @@ Jim_Obj* QuerySimple(bool isAtomically, Clause* pattern) {
         }
 
         Environment* env = clauseUnify(interp, pattern, statementClause(result));
-        assert(env != NULL);
+        if (env == NULL) {
+            statementRelease(db, result);
+            continue;
+        }
+
         Jim_Obj* envDict[(env->nBindings + 1) * 2];
         envDict[0] = Jim_NewStringObj(interp, "__ref", -1);
         char buf[100]; snprintf(buf, 100,  "s%d:%d", rs->results[i].idx, rs->results[i].gen);
@@ -720,12 +724,17 @@ static int runBlock(Clause* bodyPattern, Clause* toUnifyWith, const Term* body,
         // Figure out all the bound match variables by unifying when &
         // stmt:
         Environment* env = clauseUnify(interp, bodyPattern, toUnifyWith);
-        assert(env != NULL);
+        if (env == NULL) {
+            Jim_DecrRefCount(interp, bodyObj);
+            return JIM_ERR;
+        }
 
         if (env->nBindings > 50) {
             fprintf(stderr, "runBlock: Too many bindings in env: %d\n",
                     env->nBindings);
-            return JIM_OK;
+            Jim_DecrRefCount(interp, bodyObj);
+            free(env);
+            return JIM_ERR;
         }
 
         Jim_Obj *objs[env->nBindings*2];
@@ -876,10 +885,10 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
         const char *errorMessage = Jim_GetString(Jim_GetResult(interp), NULL);
         int bodyLen = termLen(body);
         if (bodyLen > 100) bodyLen = 100;
-        fprintf(stderr, "Fatal (uncaught) error running When (%.*s):\n  %s\n",
+        fprintf(stderr, "Uncaught error running When (%.*s):\n  %s\n",
                 bodyLen, termPtr(body), errorMessage);
-        Jim_FreeInterp(interp);
-        exit(EXIT_FAILURE);
+        /* Jim_FreeInterp(interp); */
+        /* exit(EXIT_FAILURE); */
 
     } else if (error == JIM_SIGNAL) {
         // FIXME: I think this is the only signal handler path that
