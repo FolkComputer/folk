@@ -47,6 +47,7 @@ foreach programFilename [list {*}[glob -nocomplain virtual-programs/*.folk] \
     if {[string match "$::env(HOME)/folk-live/setup.folk" $programFilename]} {
         puts stderr "boot: WARNING: skipping $programFilename because setup.folk has been removed in folk2."
         puts stderr "boot: Use the /setup Web page to do setup."
+        continue
     }
     if {[string match "*/_archive/*" $programFilename] ||
         [string match "*/folk-printed-programs/*" $programFilename]} {
