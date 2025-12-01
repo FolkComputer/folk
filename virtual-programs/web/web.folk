@@ -78,6 +78,38 @@ proc parseQueryString {queryString} {
     return $QUERY
 }
 
+proc HtmlWhen args {
+    set body [lindex $args end]
+    set pattern [lreplace $args end end]
+    set envStack [uplevel captureEnvStack]
+    When -noncapturing the collected results for $pattern are /results/ \
+        [list apply {{pattern body envStack} {
+            proc htmlEscape {s} { string map {& "&amp;" < "&lt;" > "&gt;" "\"" "&quot;"} $s }
+
+            upvar results results
+            lappend envStack {}
+
+            set htmls [list]
+            foreach result $results {
+                lset envStack end $result
+                lappend htmls [applyBlock $body $envStack]
+            }
+            Notify: the html for $pattern is [join $htmls \n]
+        }} $pattern $body $envStack]
+
+    return [subst {
+        <div style="display: contents;"></div>
+        <script>
+        const el = document.currentScript.previousElementSibling;
+        folk.subscribe(`the html for {$pattern} is /html/`, ({html}) => {
+            console.log(html);
+            // TODO: use morph algorithm.
+            el.innerHTML = html;
+        });
+        </script>
+    }]
+}
+
 proc handleRead {chan addr} {
     $chan buffering none
 

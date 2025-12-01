@@ -1,5 +1,5 @@
 Wish the web server handles route "/programs" with handler {
-    proc emitHTMLForProgramList {programList label} {
+    fn emitHtmlForProgramList {programList label} {
         set prettyLabel [string map {- " "} $label]
         set prettyLabel [string totitle $prettyLabel]:
         set returnList [list "<details data-label='$label' data-count='[llength $programList]'><summary>$prettyLabel ([llength $programList])</summary>"]
@@ -12,28 +12,39 @@ Wish the web server handles route "/programs" with handler {
         join $returnList
     }
 
-    set programs [Query! /someone/ claims /programName/ has program code /programCode/]
-    set vp [list]; # virtual programs
-    set cp [list]; # core programs
-    set wp [list]; # web programs
-    set rp [list]; # real programs
+    fn emitHtmlForPrograms {programs} {
+        set vp [list]; # virtual programs
+        set cp [list]; # core programs
+        set wp [list]; # web programs
+        set rp [list]; # real programs
 
-    foreach match $programs {
-        set programName [dict get $match programName]
-        switch -glob $programName {
-            "virtual-programs/*" {
-                lappend vp $match
-            }
-            "/home/*" {
-                lappend cp $match
-            }
-            "web-program-*" {
-                lappend wp $match
-            }
-            default {
-                lappend rp $match
+        foreach match $programs {
+            set programName [dict get $match programName]
+            switch -glob $programName {
+                "virtual-programs/*" {
+                    lappend vp $match
+                }
+                "/home/*" {
+                    lappend cp $match
+                }
+                "web-program-*" {
+                    lappend wp $match
+                }
+                default {
+                    lappend rp $match
+                }
             }
         }
+
+        return [join [list \
+            [emitHtmlForProgramList $rp "real-programs"] \
+            [emitHtmlForProgramList $wp "web-programs"] \
+            [emitHtmlForProgramList $vp "virtual-programs"] \
+            [emitHtmlForProgramList $cp "core-programs"] \
+            [expr {[llength $rp] ?
+                   "<h2>[llength $rp] [expr {[llength $rp] == 1 ? {program is} : {programs are}}] out.</h2>" :
+                      "No real programs are out."}] \
+            ] "\n"]
     }
 
     html [subst {
@@ -52,17 +63,14 @@ Wish the web server handles route "/programs" with handler {
             </style>
             <script src="/lib/folk.js"></script>
             <script>
-            /* TODO:
-                (  ) Add a ws.watch() for /someone/ claims /programName/ has program /program/
-            */
+              const folk = new FolkWS();
             </script>
         </head>
         <body>
-            [emitHTMLForProgramList $rp "real-programs"]
-            [emitHTMLForProgramList $wp "web-programs"]
-            [emitHTMLForProgramList $vp "virtual-programs"]
-            [emitHTMLForProgramList $cp "core-programs"]
-            [expr {[llength $rp] ?  "<h2>[llength $rp] [expr {[llength $rp] == 1 ? "program is" : "programs are"}] out.</h2>" : "No real programs are out."}]
+        [HtmlWhen the collected results for [list /programName/ has program code /programCode/] \
+                  are /programs/ {
+            emitHtmlForPrograms $programs
+        }]
         </body>
         </html>
     }]
