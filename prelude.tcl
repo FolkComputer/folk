@@ -563,6 +563,7 @@ proc Query! {args} {
 
     set pattern [list]
     set varNamesWillBeBound [list]
+    set isNegated false
     for {set i 0} {$i < [llength $args]} {incr i} {
         set term [lindex $args $i]
         if {$term eq "&"} {
@@ -583,8 +584,8 @@ proc Query! {args} {
         } elseif {[set varName [__scanVariable $term]] != 0} {
             if {[__variableNameIsNonCapturing $varName]} {
             } elseif {$varName eq "nobody" || $varName eq "nothing"} {
-                error "Query!: negation is not supported"
-
+                set isNegated true
+                lset args $i "/any/"
             } else {
                 # Rewrite subsequent instances of this variable name /x/
                 # (in joined clauses) to be bound $x.
@@ -612,6 +613,14 @@ proc Query! {args} {
         # version of the pattern as well.
         set results0 [concat [QuerySimple! $isAtomically {*}$pattern] \
                           [QuerySimple! $isAtomically /someone/ claims {*}$pattern]]
+    }
+
+    if {$isNegated} {
+        if {[llength $results0] > 0} {
+            set results0 {}
+        } else {
+            set results0 {{}}
+        }
     }
 
     if {![info exists remainingPattern]} {
@@ -645,11 +654,13 @@ proc ForEach! {args} {
     set results [Query! {*}$pattern]
     upvar __result result
     foreach result $results {
-        set ref [dict get $result __ref]
-        try {
-            StatementAcquire! $ref
-        } on error e {
-            continue
+        if {[dict exists $result __ref]} {
+            set ref [dict get $result __ref]
+            try {
+                StatementAcquire! $ref
+            } on error e {
+                continue
+            }
         }
 
         # This is so that the filename/linenum information in $body is
@@ -657,17 +668,20 @@ proc ForEach! {args} {
         upvar __body __body; set __body $body
 
         set code [catch {uplevel {dict with __result $__body}} \
-                      result opts]
-        StatementRelease! $ref
+                      ret opts]
+
+        if {[dict exists $result __ref]} {
+            StatementRelease! $ref
+        }
 
         if {$code == 2} {
             # TCL_RETURN: the body did an early return; propagate it
             # to the caller of ForEach!
-            return -code return $result
+            return -code return $ret
         } elseif {$code == 1} {
             # TCL_ERROR: an error occurred; preserve the original
             # stack trace.
-            return -code error -errorinfo [dict get $opts -errorinfo] $result
+            return -code error -errorinfo [dict get $opts -errorinfo] $ret
         }
         # code == 0: normal completion; continue to next iteration.
     }
