@@ -108,11 +108,13 @@ proc HtmlWhen args {
     return [subst {
         <div style="display: contents;">[join $htmls \n]</div>
         <script>
-        const el = document.currentScript.previousElementSibling;
-        folk.subscribe(`the html for {$pattern} is /html/`, ({html}) => {
+        (function() {
+          const el = document.currentScript.previousElementSibling;
+          folk.subscribe(`the html for {$pattern} is /html/`, ({html}) => {
             // TODO: use morph algorithm.
             el.innerHTML = html;
-        });
+          });
+        })();
         </script>
     }]
 }
