@@ -121,11 +121,9 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
 
 <div class="mode-select">
   <h2>Cameras</h2>
-  [join [lmap cameraData [Query! $::thisNode has camera /camera/ with /...opts/] { dict with cameraData {
-    set camera [dict get $cameraData camera]
-
+  [HtmlWhen $::thisNode has camera /camera/ with /...opts/ {
     set resolutions [list]
-    foreach format [dict get $cameraData(opts) formats] {
+    foreach format [dict get $opts formats] {
         # For now, we only support MJPG. The more raw formats are
         # rarely used by cameras at even medium resolutions and
         # framerates, anyway, so it's only worth supporting MJPG.
@@ -177,7 +175,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
       </div>
       }
     }
-  } }] \n]
+  }]
 
   <script>
   // Handle camera enable/disable.
