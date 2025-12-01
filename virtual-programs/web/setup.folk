@@ -150,7 +150,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
       <div style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
         <label>
           <input type="checkbox" name="camera-enabled" value="$camera" data-camera-id="$cameraId">
-          <strong>$camera</strong>
+          <strong>$camera</strong> (<code>[dict getdef $opts card ""]</code>)
         </label>
 
         <fieldset style="margin-left: 20px; margin-top: 10px">
