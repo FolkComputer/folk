@@ -43,8 +43,10 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
   }
   .mode-select .resolution:hover, 
   .mode-select label:has(input\[type=radio]):hover,
+  .mode-select .resolution:hover + label,
   .mode-select .resolution:has(~ label input\[type=radio]:hover) {
       background-color: #a8e6a3;
+      cursor: pointer;
   }
   .mode-select .mode:has(input:checked) {
       background-color: #ccc;
@@ -189,12 +191,8 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
       const cameraId = this.dataset.cameraId;
       const previewDiv = document.getElementById(`camera-preview-\${cameraId}`);
 
-      if (this.checked) {
-        previewDiv.style.display = 'block';
-      } else {
-        previewDiv.style.display = 'none';
-        // TODO: Remove the wish when unchecked
-      }
+      previewDiv.style.display = this.checked ? 'block' : 'none';
+      // TODO: Remove the wish when unchecked
     });
   });
 
