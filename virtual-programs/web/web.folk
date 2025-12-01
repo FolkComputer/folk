@@ -82,6 +82,7 @@ proc HtmlWhen args {
     set body [lindex $args end]
     set pattern [lreplace $args end end]
     set envStack [uplevel captureEnvStack]
+    # TODO: Retract this when the page is closed.
     When -noncapturing the collected results for $pattern are /results/ \
         [list apply {{pattern body envStack} {
             proc htmlEscape {s} { string map {& "&amp;" < "&lt;" > "&gt;" "\"" "&quot;"} $s }
@@ -97,12 +98,18 @@ proc HtmlWhen args {
             Notify: the html for $pattern is [join $htmls \n]
         }} $pattern $body $envStack]
 
+    set htmls [list]
+    lappend envStack {}
+    ForEach! {*}$pattern {
+        lset envStack end $__result
+        lappend htmls [applyBlock $body $envStack]
+    }
+
     return [subst {
-        <div style="display: contents;"></div>
+        <div style="display: contents;">[join $htmls \n]</div>
         <script>
         const el = document.currentScript.previousElementSibling;
         folk.subscribe(`the html for {$pattern} is /html/`, ({html}) => {
-            console.log(html);
             // TODO: use morph algorithm.
             el.innerHTML = html;
         });
