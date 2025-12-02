@@ -173,7 +173,11 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
           <legend>Select resolution:</legend>
           [join [lmap resolution $resolutions { subst {
             <div class="mode">
-              <span class="resolution">${resolution(width)}x${resolution(height)}</span>
+              <span class="resolution" data-camera="$camera"
+                    data-resolution="width ${resolution(width)} height ${resolution(height)}"
+                    onclick="cameraResolutionClicked.call(this, event)">
+                ${resolution(width)}x${resolution(height)}
+              </span>
               [join [lmap framerate $resolution(framerates) { subst {
                 <label>
                   <input type="radio" name="camera-framerate-$cameraId"
@@ -215,6 +219,16 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
       } else {
         folk.run(`Hold! -save -key {camera \${camera}} {}`);
       }
+      event.preventDefault();
+    }
+    function cameraResolutionClicked(event) {
+      const camera = this.dataset.camera;
+      const firstFramerateRadio = document.querySelector(
+        `input\[type="radio"\]\[name^="camera-framerate-"\]\[data-camera="\${camera}"]` +
+        `\[value^="\${this.dataset.resolution}"]`
+      );
+      firstFramerateRadio.checked = true;
+      firstFramerateRadio.dispatchEvent(new Event('change'));
       event.preventDefault();
     }
     function cameraFramerateChange(event) {
