@@ -22,24 +22,24 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
 </script>
 
 <h1>Folk setup</h1>
+<!-- 
+     <div>
+     <h2>Start service on boot</h2>
+     LIST IF SYSTEMD SERVICE EXISTS
+     </div>
 
-<div>
-  <h2>Start service on boot</h2>
-  LIST IF SYSTEMD SERVICE EXISTS
-</div>
+     <div>
+     <h2>Configure user permissions</h2>
+     LIST IF PART OF ALL GROUPS
+     </div>
 
-<div>
-  <h2>Configure user permissions</h2>
-  LIST IF PART OF ALL GROUPS
-</div>
-
-<div>
-  <h2>Errors</h2>
-  LIST ALL ERRORS
-</div>
-
+     <div>
+     <h2>Errors</h2>
+     LIST ALL ERRORS
+     </div>
+-->
 <style>
-  .mode-select input\[type=radio] {
+  .mode-select .mode input\[type=radio] {
       display: none;
   }
   .mode-select .resolution:hover, 
@@ -68,8 +68,26 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
 
 <div class="mode-select">
   <h2>Displays</h2>
-  [HtmlWhen $::thisNode has display /displayIdx/ with /...opts/ {
+  <div style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
+    <label>
+      <input type="radio" name="display-enabled"
+             value=""
+             onchange="cameraEnabledChange.call(this, event)">
+      <strong>Don't use a display</strong>
+    </label>
+  </div>
+
+  [HtmlWhen $::thisNode has display /display/ with /...opts/ {
+   HtmlWhen the collected results for \
+            [list /someone/ wishes $::thisNode uses display $display with /...usingOpts/] \
+            are /results/ {
+    set isUsingDisplay $([llength $results] >= 1)
+    if {$isUsingDisplay} {
+      set usingOpts [dict get [lindex $results 0] usingOpts]
+    }
+
     set info [dict get $opts info]
+    set displayName [dict get $info name]
 
     set modesByRegion [dict create]
     foreach mode [dict getdef $info modes [list]] {
@@ -78,12 +96,19 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
     set regions [lsort -decreasing -integer -index 0 \
                      [dict keys $modesByRegion]]
 
+    set displayId [string map {/ _} $display]
     subst {
       <div style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
-        <strong>Display $displayIdx</strong> (<code>$info(name)</code>)<br>
-        [if {[dict exists $info physicalResolution]} { subst {
-            (Physical resolution: [join $info(physicalResolution) x])
-        } } else { list }]
+        <label>
+          <input type="radio" name="display-enabled"
+                 $($isUsingDisplay ? "checked" : "")
+                 value="$display"
+                 onchange="displayEnabledChange.call(this, event)">
+          <strong>$displayName</strong><br>
+          [if {[dict exists $info physicalResolution]} { subst {
+              (Physical resolution: [join $info(physicalResolution) x])
+          } }]
+        </label>
 
         [if {[llength $regions] > 0} { subst {
         <fieldset style="margin-left: 20px;">
@@ -98,7 +123,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
                 <span class="resolution">${width}x${height}</span>
                 [join [lmap refreshRate $refreshRates { subst {
                   <label>
-                    <input type="radio" name="display-refreshRate-$displayIdx">
+                    <input type="radio" name="display-refreshRate-$displayId">
                     [format "%.3g" [/ $refreshRate 1000]] Hz
                   </label>
                 } }] \n]
@@ -106,12 +131,18 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
             }
           }] \n]
         </fieldset>
-        } } else { list }]
+        } }]
       </div>
     }
-  }]
-
+  }}]
   <script>
+   function displayEnabledChange(event) {
+     const displayName = this.value;
+     if (this.checked) {
+       
+     }
+   }
+
   const displayRadios = document.querySelectorAll('input\[name="display-type"\]');
   displayRadios.forEach(radio => {
     radio.addEventListener('change', async function() {
