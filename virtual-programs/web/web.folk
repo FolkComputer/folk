@@ -78,10 +78,11 @@ proc parseQueryString {queryString} {
     return $QUERY
 }
 
-proc HtmlWhen args {
+fn HtmlWhen args {
     set body [lindex $args end]
     set pattern [lreplace $args end end]
     set envStack [uplevel captureEnvStack]
+    lappend envStack [list ^HtmlWhen ${^HtmlWhen}]
     # TODO: Retract this when the page is closed.
     When -noncapturing the collected results for $pattern are /results/ \
         [list apply {{pattern body envStack} {

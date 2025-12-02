@@ -1,5 +1,6 @@
 Wish the web server handles route "/setup" with handler {
     html [subst {
+<!DOCTYPE html>
 <html>
 <head>
 <title>Folk setup</title>
@@ -153,7 +154,11 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
       subst {
       <div style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
         <label>
-          <input type="checkbox" name="camera-enabled" value="$camera" data-camera-id="$cameraId">
+          [HtmlWhen the collected results for [list /someone/ wishes $::thisNode uses camera $camera with /...any/] are /results/ {
+              subst {<input type="checkbox" name="camera-enabled"
+                            $([llength $results] >= 1 ? "checked" : "")
+                            value="$camera">}
+          }]
           <strong>$camera</strong> (<code>[dict getdef $opts card ""]</code>)
         </label>
 
@@ -174,38 +179,52 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
           } }] \n]
         </fieldset>
 
-        <div id="camera-preview-$cameraId" style="margin-top: 10px; display: none;">
-          <iframe src="/camera?camera=[string map {/ %2F} $camera]"
-            width="600" height="338"
-            style="border: 1px solid #999;"></iframe>
-        </div>
+        [HtmlWhen /someone/ wishes $::thisNode uses camera $camera with /...any/ {
+          subst {
+            <div style="margin-top: 10px;">
+              <iframe src="/camera?camera=[string map {/ %2F} $camera]"
+                      width="600" height="338"
+                      style="border: 1px solid #999;"></iframe>
+            </div>
+          }
+        }]
       </div>
       }
     }
   }]
 
   <script>
-  // Handle camera enable/disable.
-  document.querySelectorAll('input\[name="camera-enabled"\]').forEach(checkbox => {
-    checkbox.addEventListener('change', async function() {
-      const cameraId = this.dataset.cameraId;
-      const previewDiv = document.getElementById(`camera-preview-\${cameraId}`);
+   // Handle camera enable/disable.
+   // TODO: Doesn't deal with changes in the camera set.
+   document.querySelectorAll('input\[name="camera-enabled"\]').forEach(checkbox => {
+     checkbox.addEventListener('change', async function(event) {
+       const camera = this.value;
+       if (this.checked) {
+         const firstFramerateRadio = document.querySelector(
+           `input\[type="radio"\]\[name^="camera-framerate-"\]\[data-camera="\${camera}"]`
+         );
+         firstFramerateRadio.checked = true;
+         firstFramerateRadio.dispatchEvent(new Event('change'));
+       } else {
+         await folk.run(`Hold! -save -key {camera \${camera}} {}`);
+       }
+       event.preventDefault();
+     });
+   });
 
-      previewDiv.style.display = this.checked ? 'block' : 'none';
-      // TODO: Remove the wish when unchecked
-    });
-  });
-
-  // Handle camera format selection.
-  document.querySelectorAll('input\[type="radio"\]\[name^="camera-framerate-"\]').forEach(radio => {
-    radio.addEventListener('change', async function() {
-      if (this.checked) {
-        const camera = this.dataset.camera;
-        const format = this.value;
-        await folk.run(`Hold! -save -key camera-\${camera} Wish $::thisNode uses camera "\${camera}" with \${format}`);
-      }
-    });
-  });
+   // Handle camera format selection.
+   // TODO: Doesn't deal with changes in the framerate set.
+   document.querySelectorAll('input\[type="radio"\]\[name^="camera-framerate-"\]').forEach(radio => {
+     radio.addEventListener('change', async function(event) {
+       if (this.checked) {
+         const camera = this.dataset.camera;
+         const format = this.value;
+         await folk.run(`Hold! -save -key {camera \${camera}} \
+Wish $::thisNode uses camera "\${camera}" with \${format}`);
+       }
+       event.preventDefault();
+     });
+   });
   </script>
 </div>
 
