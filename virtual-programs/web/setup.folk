@@ -126,6 +126,14 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
 <div class="mode-select">
   <h2>Cameras</h2>
   [HtmlWhen $::thisNode has camera /camera/ with /...opts/ {
+   HtmlWhen the collected results for \
+            [list /someone/ wishes $::thisNode uses camera $camera with /...usingOpts/] \
+            are /results/ {
+    set isUsingCamera $([llength $results] >= 1)
+    if {$isUsingCamera} {
+      set usingOpts [dict get [lindex $results 0] usingOpts]
+    }
+
     set resolutions [list]
     foreach format [dict get $opts formats] {
         # For now, we only support MJPG. The more raw formats are
@@ -154,11 +162,9 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
       subst {
       <div style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
         <label>
-          [HtmlWhen the collected results for [list /someone/ wishes $::thisNode uses camera $camera with /...any/] are /results/ {
-              subst {<input type="checkbox" name="camera-enabled"
-                            $([llength $results] >= 1 ? "checked" : "")
-                            value="$camera">}
-          }]
+          <input type="checkbox" name="camera-enabled"
+                 $($isUsingCamera ? "checked" : "")
+                 value="$camera">
           <strong>$camera</strong> (<code>[dict getdef $opts card ""]</code>)
         </label>
 
@@ -170,6 +176,11 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
               [join [lmap framerate $resolution(framerates) { subst {
                 <label>
                   <input type="radio" name="camera-framerate-$cameraId"
+                         $([info exists usingOpts] && 
+                           $resolution(width) == $usingOpts(width) &&
+                           $resolution(height) == $usingOpts(height) &&
+                           $framerate == $usingOpts(framerate) ?
+                           "checked" : "")
                          data-camera="$camera"
                          value="width ${resolution(width)} height ${resolution(height)} framerate $framerate">
                   [format "%.3g" $framerate] Hz
@@ -178,20 +189,18 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
             </div>
           } }] \n]
         </fieldset>
-
-        [HtmlWhen /someone/ wishes $::thisNode uses camera $camera with /...any/ {
-          subst {
-            <div style="margin-top: 10px;">
-              <iframe src="/camera?camera=[string map {/ %2F} $camera]"
-                      width="600" height="338"
-                      style="border: 1px solid #999;"></iframe>
-            </div>
-          }
-        }]
+        
+        [if {$isUsingCamera} { subst {
+          <div style="margin-top: 10px;">
+            <iframe src="/camera?camera=[string map {/ %2F} $camera]"
+                    width="600" height="338"
+                    style="border: 1px solid #999;"></iframe>
+          </div>
+        } }]
       </div>
       }
     }
-  }]
+  }}]
 
   <script>
    // Handle camera enable/disable.
