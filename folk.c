@@ -178,7 +178,7 @@ Environment* clauseUnify(Jim_Interp* interp, Clause* a, Clause* b) {
             }
         } else if (!termEq(a->terms[i], b->terms[i])) {
             free(env);
-            fprintf(stderr, "clauseUnify: Unification of (%s) (%s) failed\n",
+            fprintf(stderr, "clauseUnify: Warning: Unification of (%s) (%s) failed.\n",
                     clauseToString(a), clauseToString(b));
             return NULL;
         }
@@ -725,8 +725,9 @@ static int runBlock(Clause* bodyPattern, Clause* toUnifyWith, const Term* body,
         // stmt:
         Environment* env = clauseUnify(interp, bodyPattern, toUnifyWith);
         if (env == NULL) {
+            // Unification failed.
             Jim_DecrRefCount(interp, bodyObj);
-            return JIM_ERR;
+            return JIM_OK;
         }
 
         if (env->nBindings > 50) {

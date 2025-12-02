@@ -101,9 +101,18 @@ fn HtmlWhen args {
 
     set htmls [list]
     lappend envStack {}
-    ForEach! {*}$pattern {
-        lset envStack end $__result
+    # HACK: ForEach! won't work on collection since the When when ->
+    # creating wish doesn't exist.
+    if {[lrange $pattern 0 3] eq "the collected results for"} {
+        set results [Query! {*}[lindex $pattern 4]]
+        set resultsVar [__scanVariable [lindex $pattern 6]]
+        lset envStack end [list $resultsVar $results]
         lappend htmls [applyBlock $body $envStack]
+    } else {
+        ForEach! {*}$pattern {
+            lset envStack end $__result
+            lappend htmls [applyBlock $body $envStack]
+        }
     }
 
     return [subst {
