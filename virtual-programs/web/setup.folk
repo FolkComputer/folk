@@ -164,7 +164,8 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
         <label>
           <input type="checkbox" name="camera-enabled"
                  $($isUsingCamera ? "checked" : "")
-                 value="$camera">
+                 value="$camera"
+                 onchange="cameraEnabledChange.call(this, event)">
           <strong>$camera</strong> (<code>[dict getdef $opts card ""]</code>)
         </label>
 
@@ -182,7 +183,8 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
                            $framerate == $usingOpts(framerate) ?
                            "checked" : "")
                          data-camera="$camera"
-                         value="width ${resolution(width)} height ${resolution(height)} framerate $framerate">
+                         value="width ${resolution(width)} height ${resolution(height)} framerate $framerate"
+                         onchange="cameraFramerateChange.call(this, event)">
                   [format "%.3g" $framerate] Hz
                 </label>
               } }] \n]
@@ -201,39 +203,29 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
       }
     }
   }}]
-
   <script>
-   // Handle camera enable/disable.
-   // TODO: Doesn't deal with changes in the camera set.
-   document.querySelectorAll('input\[name="camera-enabled"\]').forEach(checkbox => {
-     checkbox.addEventListener('change', async function(event) {
-       const camera = this.value;
-       if (this.checked) {
-         const firstFramerateRadio = document.querySelector(
-           `input\[type="radio"\]\[name^="camera-framerate-"\]\[data-camera="\${camera}"]`
-         );
-         firstFramerateRadio.checked = true;
-         firstFramerateRadio.dispatchEvent(new Event('change'));
-       } else {
-         await folk.run(`Hold! -save -key {camera \${camera}} {}`);
-       }
-       event.preventDefault();
-     });
-   });
-
-   // Handle camera format selection.
-   // TODO: Doesn't deal with changes in the framerate set.
-   document.querySelectorAll('input\[type="radio"\]\[name^="camera-framerate-"\]').forEach(radio => {
-     radio.addEventListener('change', async function(event) {
-       if (this.checked) {
-         const camera = this.dataset.camera;
-         const format = this.value;
-         await folk.run(`Hold! -save -key {camera \${camera}} \
+    function cameraEnabledChange(event) {
+      const camera = this.value;
+      if (this.checked) {
+        const firstFramerateRadio = document.querySelector(
+          `input\[type="radio"\]\[name^="camera-framerate-"\]\[data-camera="\${camera}"]`
+        );
+        firstFramerateRadio.checked = true;
+        firstFramerateRadio.dispatchEvent(new Event('change'));
+      } else {
+        folk.run(`Hold! -save -key {camera \${camera}} {}`);
+      }
+      event.preventDefault();
+    }
+    function cameraFramerateChange(event) {
+      if (this.checked) {
+        const camera = this.dataset.camera;
+        const format = this.value;
+        folk.run(`Hold! -save -key {camera \${camera}} \
 Wish $::thisNode uses camera "\${camera}" with \${format}`);
-       }
-       event.preventDefault();
-     });
-   });
+      }
+      event.preventDefault();
+    }
   </script>
 </div>
 
