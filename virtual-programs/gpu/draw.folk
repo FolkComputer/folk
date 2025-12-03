@@ -11,10 +11,10 @@ if {[info exists this] && $::tcl_platform(os) eq "darwin"} {
 
 When the GPU library is /gpuLib/ &\
      the GPU Vulkan handle type definer is /defineVulkanHandleType/ &\
-     /someone/ wishes $::thisNode uses display /displayIdx/ with /...opts/ {
+     /someone/ wishes $::thisNode uses display /display/ with /...displayOpts/ {
 
 fn defineVulkanHandleType
-set useGlfw $($displayIdx eq "glfw")
+set useGlfw $($display eq "glfw")
 
 set cc [C]
 $cc cflags -I./vendor
@@ -93,7 +93,7 @@ $cc proc getCommandBuffer {} VkCommandBuffer {
     return _commandBuffer;
 }
 
-$cc proc initDraw {int displayIdx} void {
+$cc proc initDraw {char* display uint32_t width uint32_t height uint32_t refreshRate} void {
     $[vktry volkInitialize()]
     volkLoadInstanceOnly(*instance_ptr());
 
@@ -107,22 +107,47 @@ $cc proc initDraw {int displayIdx} void {
     $[expr { $useGlfw ? {
         GLFWwindow* window;
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        window = glfwCreateWindow(640, 480, "Folk", NULL, NULL);
+        window = glfwCreateWindow(width, height, "Folk", NULL, NULL);
         if (glfwCreateWindowSurface(*instance_ptr(), window, NULL, &surface) != VK_SUCCESS) {
             FOLK_ERROR("Failed to create GLFW window surface");
         }
     } : [csubst {
+        // Search through displays to find the one matching display name
+        uint32_t displayCount;
+        vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, NULL);
+        VkDisplayPropertiesKHR displayProps[displayCount];
+        vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, displayProps);
 
-        int chosenMode = 0;
-        // HACK: On Nvidia GPU, for some reason 60Hz is not mode 0, so
-        // we manually find it.
-        if (modeProps[chosenMode].parameters.refreshRate < 60000) {
-            for (int i = 0; i < modeCount; i++) {
-                if (modeProps[i].parameters.refreshRate == 60000) {
-                    chosenMode = i;
-                    break;
-                }
+        VkDisplayKHR chosenDisplay = VK_NULL_HANDLE;
+        for (uint32_t i = 0; i < displayCount; i++) {
+            if (displayProps[i].displayName && strcmp(displayProps[i].displayName, display) == 0) {
+                chosenDisplay = displayProps[i].display;
+                break;
             }
+        }
+        if (chosenDisplay == VK_NULL_HANDLE) {
+            FOLK_ERROR("Failed to find display '%s'\n", display);
+        }
+
+        // Search through modes to find one matching width, height, and refreshRate
+        uint32_t modeCount;
+        vkGetDisplayModePropertiesKHR(physicalDevice, chosenDisplay, &modeCount, NULL);
+        VkDisplayModePropertiesKHR modeProps[modeCount];
+        vkGetDisplayModePropertiesKHR(physicalDevice, chosenDisplay, &modeCount, modeProps);
+
+        int chosenMode = -1;
+        for (uint32_t i = 0; i < modeCount; i++) {
+            if (modeProps[i].parameters.visibleRegion.width == width &&
+                modeProps[i].parameters.visibleRegion.height == height &&
+                modeProps[i].parameters.refreshRate == refreshRate) {
+                chosenMode = i;
+                break;
+            }
+        }
+        if (chosenMode == -1) {
+            FOLK_ERROR("Failed to find display mode on display '%s' "
+                       "with width=%u height=%u refreshRate=%u\n",
+                       display, width, height, refreshRate);
         }
 
         VkDisplaySurfaceCreateInfoKHR createInfo = {0};
@@ -1045,14 +1070,15 @@ Claim the GPU draw library is $drawLib
 set gpu [makeGpu $gpuLib $drawLib]
 
 When the GPU texture library is /gpuTextureLib/ {
-    if {$displayIdx eq "glfw"} { set displayIdx -1 }
-
     tracy setThreadName "gpu"
 
-    $gpu initDraw $displayIdx
+    $gpu initDraw $display \
+        $displayOpts(width) $displayOpts(height) \
+        $displayOpts(refreshRate)
+
     $gpuTextureLib textureManagerInit
 
-    Claim display $displayIdx has width [$gpu getWidth] height [$gpu getHeight]
+    Claim display $display has width [$gpu getWidth] height [$gpu getHeight]
 
     set kGpu [tracy makeString "gpu"]
     set kLatency [tracy makeString "latency"]
