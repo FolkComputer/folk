@@ -8,9 +8,9 @@ if {[info exists this] && $::tcl_platform(os) eq "darwin"} {
     return
 }
 
-When /someone/ wishes $::thisNode uses display /displayIdx/ with /...any/ {
+When /someone/ wishes $::thisNode uses display /display/ with /...any/ {
 
-set useGlfw $($displayIdx eq "glfw")
+set useGlfw $($display eq "glfw")
 
 # First, we build the C GPU library, which can make direct calls into
 # Vulkan -- this library then exposes functions that we can call from

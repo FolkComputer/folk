@@ -72,7 +72,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
     <label>
       <input type="radio" name="display-enabled"
              value=""
-             onchange="cameraEnabledChange.call(this, event)">
+             onchange="displayEnabledChange.call(this, event)">
       <strong>Don't use a display</strong>
     </label>
   </div>
@@ -153,8 +153,11 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
      if (this.checked) {
        if (display === "glfw") {
          // glfw doesn't have any mode settings (for now).
-         folk.run(`Hold! -save -key \[list display {\${display}}] \
+         folk.run(`Hold! -save -key display \
 Wish $::thisNode uses display "\${display}" with width 640 height 480 refreshRate -1`);
+
+       } else if (display === "") {
+         folk.run(`Hold! -save -key display {}`);
 
        } else {
          const firstRefreshRateRadio = document.querySelector(
@@ -164,7 +167,7 @@ Wish $::thisNode uses display "\${display}" with width 640 height 480 refreshRat
          firstRefreshRateRadio.dispatchEvent(new Event('change'));
        }
      } else {
-       folk.run(`Hold! -save -key \[list display {\${display}}] {}`);
+       // I think this never fires?
      }
    }
    function displayResolutionClicked(event) {
@@ -181,7 +184,7 @@ Wish $::thisNode uses display "\${display}" with width 640 height 480 refreshRat
      if (this.checked) {
        const display = this.dataset.display;
        const mode = this.value;
-       folk.run(`Hold! -save -key \[list display {\${display}}] \
+       folk.run(`Hold! -save -key display \
 Wish $::thisNode uses display "\${display}" with \${mode}`);
      }
      event.preventDefault();
