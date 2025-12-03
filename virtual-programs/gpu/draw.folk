@@ -1069,7 +1069,7 @@ Claim the GPU draw library is $drawLib
 
 set gpu [makeGpu $gpuLib $drawLib]
 
-When the GPU texture library is /gpuTextureLib/ {
+When the GPU texture library for $drawLib is /gpuTextureLib/ {
     tracy setThreadName "gpu"
 
     $gpu initDraw $display \

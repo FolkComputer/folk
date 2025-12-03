@@ -1,6 +1,6 @@
 When the GPU library is /gpuLib/ & the GPU draw library is /drawLib/ &\
      the image library is /imageLib/ &\
-     the GPU texture library is /gpuTextureLib/ {
+     the GPU texture library for /drawLib/ is /gpuTextureLib/ {
     set gpuc [C]
     $gpuc include <pthread.h>
     $gpuc cflags -I./vendor
@@ -265,7 +265,7 @@ When the GPU library is /gpuLib/ & the GPU draw library is /drawLib/ &\
     }
 
     set gpuCanvasLib [$gpuc compile]
-    Claim the GPU canvas library is $gpuCanvasLib
+    Claim the GPU canvas library for $drawLib is $gpuCanvasLib
 
     # We need to wait until the GPU is online and registered the
     # display before we set up the canvas subsystem.

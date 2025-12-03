@@ -1,5 +1,6 @@
 When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
-     the GPU texture library is /gpuTextureLib/ &\
+     the GPU draw library is /drawLib/ &\
+     the GPU texture library for /drawLib/ is /gpuTextureLib/ &\
      display /any/ has width /any/ height /any/ {
     set cc [C]
     $cc endcflags -lpng

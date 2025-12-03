@@ -662,7 +662,7 @@ $gpuc proc initPlaceholderTexture {} void {
 }
 
 set gpuTextureLib [$gpuc compile]
-Claim the GPU texture library is $gpuTextureLib
+Claim the GPU texture library for $drawLib is $gpuTextureLib
 
 # Wait until the library has been initialized by gpu.folk.
 When display /any/ has width /any/ height /any/ {

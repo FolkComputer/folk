@@ -72,7 +72,7 @@ if {$::tcl_platform(os) eq "darwin"} {
                 sleep 0.1
             }
 
-            if {$pattern eq {the GPU texture library is /gpuTextureLib/}} {
+            if {[lrange $pattern 0 3] eq {the GPU texture library}} {
                 # HACK: We want Whens inside this block to be normal
                 # Whens and run off-thread/async.
                 rename When {}
