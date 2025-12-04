@@ -1,4 +1,4 @@
-Wish the web server handles route "/setup" with handler {
+Wish the web server handles route "/setup" with nav "<button>Setup</button>" handler {
     html [subst {
 <!DOCTYPE html>
 <html>
