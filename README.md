@@ -717,6 +717,7 @@ isn't meeting timing
 - stereo calibration
 - run segmentation model
 - **editor cutoff bug**
+  - editor 132 keyboard stops responding?
 - recsale camera slice to have correct aspect ratio
 - debug memory leaks
   - are we ever freeing AtomicallyVersion? -- no, but this isn't the
@@ -724,10 +725,9 @@ isn't meeting timing
   - not destructors
   - also not camera images
   - also not jim allocations
-  - could it be clauses?
-    - it's clauses -- specifically clause strings
 - bug where camera slices halt / slow down animation
-- make web handlers inherit lexical scope
+  - animation blinky
+- ~~make web handlers inherit lexical scope~~
 - gadget-platinum outline blink
 - remaining blink on clock time
 - slowdown where sysmon starts taking forever bc of endless chains of

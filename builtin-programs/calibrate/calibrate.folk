@@ -547,6 +547,21 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         set nextVersion [+ $version 1]
         set nextModel [versionizeTags $baseModel $nextVersion]
         set nextModelTimestamp [expr {[clock milliseconds] / 1000.0}]
+
+        # Check if any tag corners will be outside display bounds.
+        foreach tagId [dict keys $nextModel] {
+            set tag [dict get $nextModel $tagId]
+            set corners [dict get $tag p]
+            foreach corner $corners {
+                lassign [$matLib applyHomography $nextH_modelToDisplay $corner] x y
+                if {$x < 0 || $x > $displayWidth || $y < 0 || $y > $displayHeight} {
+                    # Tag corner is outside display bounds; skip this
+                    # update.
+                    return
+                }
+            }
+        }
+
         Hold! -key H_modelToDisplay \
             -version $nextModelFrameTimestamp \
             Claim the calibration model-to-display homography \
