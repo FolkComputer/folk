@@ -23,7 +23,9 @@ objects are physical objects in the real world, and you can program
 them inside the system itself. Folk is [written in a mix of C and
 Tcl](https://github.com/FolkComputer/folk/blob/main/docs/design.md).
 
-## Hardware
+## Installation
+
+### Hardware
 
 You'll need to set up a dedicated PC to run Folk and connect to
 webcam+projector+printer+etc.
@@ -32,7 +34,7 @@ We tend to recommend a Beelink mini-PC (or _maybe_ a Pi 5).
 
 See <https://folk.computer/pilot/>
 
-## Manual Linux tabletop installation
+### Manual Linux tabletop installation
 
 On an Intel/AMD PC, set up [Ubuntu **Server** 24.04 LTS (Noble
 Numbat)](https://ubuntu.com/download/server#releases).
@@ -143,47 +145,8 @@ or (if remote machine):
 $ make remote FOLK_REMOTE_NODE=<your-remote-hostname-here>
 ```
 
-### Address Sanitizer
-
-Address Sanitizer (ASan) support can be enabled by setting the `ASAN_ENABLE` environment variable:
-
-```
-make ASAN_ENABLE=1
-```
-
-Then when running:
-
-```
-ASAN_ENABLE=1 make start
-```
-
-### Tracy profiling
-
-To use Tracy, first do `git submodule update --init` here.
-
-Pass `CFLAGS=-DTRACY_ENABLE` to `make` when compiling Folk (you might
-need to clean first if you already built Folk).
-
-Ideally, run Folk as root with `sudo ./folk` or `make sudo-remote`.
-
-Build the profiler client on your laptop/other PC:
-
-```
-$ cmake -B vendor/tracy/profiler/build -S vendor/tracy/profiler -DCMAKE_BUILD_TYPE=Release
-$ make -C vendor/tracy/profiler/build
-```
-
-Run the profiler client on your laptop/other PC and connect to a running Folk:
-
-```
-$ make run-tracy
-```
-
-### How to control tabletop Folk from your laptop
-
-On your laptop Web browser, go to http://folk-WHATEVER.local:4273 --
-click New Program, hit Save, drag it around. You should see the
-program move on your table as you drag it around on your laptop.
+On your laptop Web browser, go to http://<your-remote-hostname>.local:4273 --
+you should see the Folk web page with the live statement set.
 
 ### Printer support
 
@@ -221,23 +184,32 @@ You can also test printing again with `lpr
 ~/folk-data/program/SOMETHING.pdf` (you have to print the PDF and
 not the PS for it to work, probably)
 
-### Projector-camera calibration
 
-1. Position the camera. Make sure Folk is running (ssh in, `make &&
-   ./folk`). Go to your Folk server's Web page
-   http://whatever.local:4273/camera-frame to see a preview of what
-   the camera sees. Reposition your camera to cover your table.
+### Projector-camera setup and calibration
 
-1. Go to the Folk calibration page at
-   http://whatever.local:4273/calibrate and follow the instructions
-   (print calibration board & run calibration process).
+1. Make sure Folk is running. Go to your Folk server's Web page
+   http://whatever.local:4273/setup . Select your camera and
+   projector, using as high framerate and resolution as you're
+   comfortable with.
+
+1. You should see a live preview of the camera. Reposition your camera
+   to cover your table closely (try not to waste too much of the
+   camera viewport on pixels that the projector won't be able to hit)
+
+1. Select your camera and projector at the bottom and then click
+   Calibrate. Follow the calibration instructions.
+
+After calibrating, on http://whatever.local:4273/ : click New Program,
+hit Save, drag it around. You should see the program move on your
+table as you drag it around on your laptop.
+
 
 ### Connect a keyboard
 
 Follow [the instructions on this Folk wiki page](https://folk.computer/guides/keyboard)
 to connect a new keyboard to your system.
 
-### Bluetooth keyboards
+#### Bluetooth keyboards
 
 Install `bluetoothctl`. Follow the instructions in
 https://wiki.archlinux.org/title/bluetooth_keyboard to pair and trust
@@ -246,6 +218,45 @@ and connect.
 (FIXME: Write down the Bluetooth MAC address of your keyboard. We'll
 proceed as though it's "f4:73:35:93:7f:9d" (it's important that you
 turn it into lowercase).)
+
+
+## Development tools
+
+### Address Sanitizer
+
+Address Sanitizer (ASan) support can be enabled by setting the `ASAN_ENABLE` environment variable:
+
+```
+make ASAN_ENABLE=1
+```
+
+Then when running:
+
+```
+ASAN_ENABLE=1 make start
+```
+
+### Tracy profiling
+
+To use Tracy, first do `git submodule update --init` here.
+
+Pass `CFLAGS=-DTRACY_ENABLE` to `make` when compiling Folk (you might
+need to clean first if you already built Folk).
+
+Ideally, run Folk as root with `sudo ./folk` or `make sudo-remote`.
+
+Build the profiler client on your laptop/other PC:
+
+```
+$ cmake -B vendor/tracy/profiler/build -S vendor/tracy/profiler -DCMAKE_BUILD_TYPE=Release
+$ make -C vendor/tracy/profiler/build
+```
+
+Run the profiler client on your laptop/other PC and connect to a running Folk:
+
+```
+$ make run-tracy
+```
 
 ### Potentially useful
 
@@ -266,6 +277,8 @@ Potentially useful: `journalctl -f -u folk` to see log of folk service
 For audio:
 https://askubuntu.com/questions/1349221/which-packages-should-be-installed-to-have-sound-output-working-on-minimal-ubunt
 
+## Troubleshooting
+
 ### HDMI No signal on Pi 4
 
 Edit /boot/cmdline.txt https://github.com/raspberrypi/firmware/issues/1647#issuecomment-971500256
@@ -275,8 +288,6 @@ Edit /boot/cmdline.txt https://github.com/raspberrypi/firmware/issues/1647#issue
 
 https://askubuntu.com/questions/1321443/very-long-startup-time-on-ubuntu-server-network-configuration
 (add `optional: true` to all netplan interfaces)
-
-## Troubleshooting
 
 ### Why is my camera slow (why is tracking janky or laggy, why is camera time high)
 
