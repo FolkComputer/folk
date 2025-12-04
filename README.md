@@ -455,7 +455,7 @@ different keys
 You can overwrite another program's Hold! with the `on` parameter, like
 `Hold! (on 852) { ... }` (if the Hold! is from page 852) or `Hold! (on
 builtin-programs/example.folk) { ... }` (if the Hold! is from the
-example.folk virtual program)
+example.folk builtin program)
 
 ### Subscribe: and Notify:
 
@@ -579,7 +579,7 @@ puts [add {*}$numbers]
 
 ## Style guide
 
-### Tcl code vs. virtual programs vs. printed programs
+### Tcl code vs. builtin programs vs. printed programs
 
 In general, avoid adding new .tcl files to the Git repo. Pure Tcl
 libraries are an antipattern; we should only need them for the hard
