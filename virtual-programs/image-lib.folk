@@ -1,267 +1,299 @@
-Claim the image library is [apply {{} {
-    set cc [C]
-    $cc endcflags -lturbojpeg -lpng
-    $cc include <stdlib.h>
-    $cc include <string.h>
+set cc [C]
+$cc endcflags -lturbojpeg -lpng
+$cc include <stdlib.h>
+$cc include <string.h>
 
-    $cc struct Jpeg {
-        uint8_t* start;
-        size_t length;
+$cc struct Jpeg {
+    uint8_t* start;
+    size_t length;
+}
+
+$cc code {
+    #undef EXTERN
+    #include <turbojpeg.h>
+    #include <png.h>
+    #include <stdint.h>
+    #include <unistd.h>
+
+    void
+jpeg(FILE* dest, uint8_t* data, uint32_t components, uint32_t bytesPerRow, uint32_t width, uint32_t height, int quality)
+{
+    tjhandle handle = tjInitCompress();
+    if (handle == NULL) {
+        FOLK_ERROR("jpeg: Failed to initialize compressor\n");
     }
 
-    $cc code {
-        #undef EXTERN
-        #include <turbojpeg.h>
-        #include <png.h>
-        #include <stdint.h>
-        #include <unistd.h>
+    unsigned char* jpegBuf = NULL;
+    unsigned long jpegSize = 0;
+    int pixelFormat;
+    uint8_t* srcData;
+    int pitch;
 
-        void
-    jpeg(FILE* dest, uint8_t* data, uint32_t components, uint32_t bytesPerRow, uint32_t width, uint32_t height, int quality)
-    {
-        tjhandle handle = tjInitCompress();
-        if (handle == NULL) {
-            FOLK_ERROR("jpeg: Failed to initialize compressor\n");
+    if (components == 1) {
+        // Convert grayscale to RGB to maintain original behavior
+        srcData = malloc(width * height * 3);
+        for (size_t i = 0; i < height; i++) {
+            for (size_t j = 0; j < width; j++) {
+                uint8_t gray = data[i * bytesPerRow + j];
+                srcData[(i * width + j) * 3 + 0] = gray;
+                srcData[(i * width + j) * 3 + 1] = gray;
+                srcData[(i * width + j) * 3 + 2] = gray;
+            }
         }
-
-        unsigned char* jpegBuf = NULL;
-        unsigned long jpegSize = 0;
-        int pixelFormat;
-        uint8_t* srcData;
-        int pitch;
-
-        if (components == 1) {
-            // Convert grayscale to RGB to maintain original behavior
+        pixelFormat = TJPF_RGB;
+        pitch = width * 3;
+    } else if (components == 3) {
+        if (bytesPerRow == width * 3) {
+            // Data is contiguous, use directly
+            srcData = data;
+        } else {
+            // Need to copy to contiguous buffer
             srcData = malloc(width * height * 3);
             for (size_t i = 0; i < height; i++) {
-                for (size_t j = 0; j < width; j++) {
-                    uint8_t gray = data[i * bytesPerRow + j];
-                    srcData[(i * width + j) * 3 + 0] = gray;
-                    srcData[(i * width + j) * 3 + 1] = gray;
-                    srcData[(i * width + j) * 3 + 2] = gray;
-                }
+                memcpy(srcData + i * width * 3, data + i * bytesPerRow, width * 3);
             }
-            pixelFormat = TJPF_RGB;
-            pitch = width * 3;
-        } else if (components == 3) {
-            if (bytesPerRow == width * 3) {
-                // Data is contiguous, use directly
-                srcData = data;
-            } else {
-                // Need to copy to contiguous buffer
-                srcData = malloc(width * height * 3);
-                for (size_t i = 0; i < height; i++) {
-                    memcpy(srcData + i * width * 3, data + i * bytesPerRow, width * 3);
-                }
-            }
-            pixelFormat = TJPF_RGB;
-            pitch = width * 3;
-        } else {
-            tjDestroy(handle);
-            FOLK_ERROR("jpeg: Unsupported number of components: %d\n", components);
         }
-
-        int ret = tjCompress2(handle, srcData, width, pitch, height, pixelFormat,
-                              &jpegBuf, &jpegSize, TJSAMP_444, quality, TJFLAG_FASTDCT);
-
-        if (components == 1 || (components == 3 && bytesPerRow != width * 3)) {
-            free(srcData);
-        }
-
-        if (ret != 0) {
-            tjDestroy(handle);
-            FOLK_ERROR("jpeg: Compression failed: %s\n", tjGetErrorStr());
-        }
-
-        fwrite(jpegBuf, 1, jpegSize, dest);
-        tjFree(jpegBuf);
+        pixelFormat = TJPF_RGB;
+        pitch = width * 3;
+    } else {
         tjDestroy(handle);
+        FOLK_ERROR("jpeg: Unsupported number of components: %d\n", components);
     }
 
-    void png(FILE* dest, uint8_t* data, uint32_t components, uint32_t bytesPerRow, uint32_t width, uint32_t height) {
-        png_structp png_w = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-        png_infop info_w = png_create_info_struct(png_w);
+    int ret = tjCompress2(handle, srcData, width, pitch, height, pixelFormat,
+                          &jpegBuf, &jpegSize, TJSAMP_444, quality, TJFLAG_FASTDCT);
 
-        if (components == 3)
-            png_set_IHDR(png_w, info_w, width, height, 8, PNG_COLOR_TYPE_RGB,
-                PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
-                PNG_FILTER_TYPE_DEFAULT);
-        else if (components == 1)
-            png_set_IHDR(png_w, info_w, width, height, 8, PNG_COLOR_TYPE_GRAY,
-                PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
-                PNG_FILTER_TYPE_DEFAULT);
-        else FOLK_ERROR("Unsupported number of components");
-
-        png_bytep* row_pointers = (png_bytep *)malloc(sizeof(png_bytep) * height);
-        for (int i = 0; i < height; i++) {
-            row_pointers[i] = data + i * bytesPerRow;
-        }
-
-        png_init_io(png_w, dest);
-        png_set_rows(png_w, info_w, row_pointers);
-        png_write_png(png_w, info_w, PNG_TRANSFORM_IDENTITY, NULL);
-
-        free(row_pointers);
+    if (components == 1 || (components == 3 && bytesPerRow != width * 3)) {
+        free(srcData);
     }
 
+    if (ret != 0) {
+        tjDestroy(handle);
+        FOLK_ERROR("jpeg: Compression failed: %s\n", tjGetErrorStr());
     }
 
-    $cc proc jpegData {Jpeg jpeg} Jim_Obj* {
-        return Jim_NewStringObj(interp, (char *)jpeg.start, jpeg.length);
+    fwrite(jpegBuf, 1, jpegSize, dest);
+    tjFree(jpegBuf);
+    tjDestroy(handle);
+}
+
+void png(FILE* dest, uint8_t* data, uint32_t components, uint32_t bytesPerRow, uint32_t width, uint32_t height) {
+    png_structp png_w = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+    png_infop info_w = png_create_info_struct(png_w);
+
+    if (components == 3)
+        png_set_IHDR(png_w, info_w, width, height, 8, PNG_COLOR_TYPE_RGB,
+            PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
+            PNG_FILTER_TYPE_DEFAULT);
+    else if (components == 1)
+        png_set_IHDR(png_w, info_w, width, height, 8, PNG_COLOR_TYPE_GRAY,
+            PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
+            PNG_FILTER_TYPE_DEFAULT);
+    else FOLK_ERROR("Unsupported number of components");
+
+    png_bytep* row_pointers = (png_bytep *)malloc(sizeof(png_bytep) * height);
+    for (int i = 0; i < height; i++) {
+        row_pointers[i] = data + i * bytesPerRow;
     }
 
-    $cc struct Image {
-        uint32_t width;
-        uint32_t height;
-        int components;
-        uint32_t bytesPerRow;
+    png_init_io(png_w, dest);
+    png_set_rows(png_w, info_w, row_pointers);
+    png_write_png(png_w, info_w, PNG_TRANSFORM_IDENTITY, NULL);
 
-        // Weird: this can be mutated if you want the image to be
-        // reloaded into the GPU.
-        uint64_t uniq;
+    free(row_pointers);
+}
 
-        uint8_t* data;
+}
+
+$cc proc jpegData {Jpeg jpeg} Jim_Obj* {
+    return Jim_NewStringObj(interp, (char *)jpeg.start, jpeg.length);
+}
+
+$cc struct Image {
+    uint32_t width;
+    uint32_t height;
+    int components;
+    uint32_t bytesPerRow;
+
+    // Weird: this can be mutated if you want the image to be
+    // reloaded into the GPU.
+    uint64_t uniq;
+
+    uint8_t* data;
+}
+
+$cc proc saveAsJpeg {Image im char* filename} void {
+    FILE* out = fopen(filename, "w");
+    FOLK_ENSURE(out != NULL);
+    jpeg(out, im.data, im.components, im.bytesPerRow, im.width, im.height, 100);
+    fclose(out);
+}
+$cc proc saveAsPng {Image im char* filename} void {
+    FILE* out = fopen(filename, "wb");
+    FOLK_ENSURE(out != NULL);
+    png(out, im.data, im.components, im.bytesPerRow, im.width, im.height);
+    fclose(out);
+}
+
+$cc proc loadJpeg {char* filename} Image {
+    FILE* file = fopen(filename, "rb");
+    if (!file) {
+        FOLK_ERROR("Error opening file: %s\n", filename);
     }
 
-    $cc proc saveAsJpeg {Image im char* filename} void {
-        FILE* out = fopen(filename, "w");
-        FOLK_ENSURE(out != NULL);
-        jpeg(out, im.data, im.components, im.bytesPerRow, im.width, im.height, 100);
-        fclose(out);
-    }
-    $cc proc saveAsPng {Image im char* filename} void {
-        FILE* out = fopen(filename, "wb");
-        FOLK_ENSURE(out != NULL);
-        png(out, im.data, im.components, im.bytesPerRow, im.width, im.height);
-        fclose(out);
-    }
+    // Read entire file into buffer
+    fseek(file, 0, SEEK_END);
+    long fileSize = ftell(file);
+    fseek(file, 0, SEEK_SET);
 
-    $cc proc loadJpeg {char* filename} Image {
-        FILE* file = fopen(filename, "rb");
-        if (!file) {
-            FOLK_ERROR("Error opening file: %s\n", filename);
-        }
-
-        // Read entire file into buffer
-        fseek(file, 0, SEEK_END);
-        long fileSize = ftell(file);
-        fseek(file, 0, SEEK_SET);
-
-        unsigned char* jpegBuf = malloc(fileSize);
-        if (fread(jpegBuf, 1, fileSize, file) != fileSize) {
-            fclose(file);
-            FOLK_ERROR("Error reading file: %s\n", filename);
-        }
+    unsigned char* jpegBuf = malloc(fileSize);
+    if (fread(jpegBuf, 1, fileSize, file) != fileSize) {
         fclose(file);
+        FOLK_ERROR("Error reading file: %s\n", filename);
+    }
+    fclose(file);
 
-        tjhandle handle = tjInitDecompress();
-        if (handle == NULL) {
-            free(jpegBuf);
-            FOLK_ERROR("loadJpeg: Failed to initialize decompressor\n");
-        }
+    tjhandle handle = tjInitDecompress();
+    if (handle == NULL) {
+        free(jpegBuf);
+        FOLK_ERROR("loadJpeg: Failed to initialize decompressor\n");
+    }
 
-        int width, height, jpegSubsamp, jpegColorspace;
-        if (tjDecompressHeader3(handle, jpegBuf, fileSize, &width, &height,
-                                &jpegSubsamp, &jpegColorspace) != 0) {
-            free(jpegBuf);
-            tjDestroy(handle);
-            FOLK_ERROR("loadJpeg: Failed to read header: %s\n", tjGetErrorStr());
-        }
-
-        // Determine output format based on colorspace
-        int pixelFormat = (jpegColorspace == TJCS_GRAY) ? TJPF_GRAY : TJPF_RGB;
-        int components = (jpegColorspace == TJCS_GRAY) ? 1 : 3;
-
-        Image ret;
-        ret.width = width;
-        ret.height = height;
-        ret.components = components;
-        ret.bytesPerRow = ret.width * ret.components;
-        ret.data = malloc(ret.bytesPerRow * ret.height);
-
-        if (tjDecompress2(handle, jpegBuf, fileSize, ret.data, width, 0, height,
-                          pixelFormat, 0) != 0) {
-            free(jpegBuf);
-            free(ret.data);
-            tjDestroy(handle);
-            FOLK_ERROR("loadJpeg: Decompression failed: %s\n", tjGetErrorStr());
-        }
-
+    int width, height, jpegSubsamp, jpegColorspace;
+    if (tjDecompressHeader3(handle, jpegBuf, fileSize, &width, &height,
+                            &jpegSubsamp, &jpegColorspace) != 0) {
         free(jpegBuf);
         tjDestroy(handle);
-
-        return ret;
+        FOLK_ERROR("loadJpeg: Failed to read header: %s\n", tjGetErrorStr());
     }
 
-    $cc proc loadPng {char* filename} Image {
-        FILE* file = fopen(filename, "rb");
-        if (!file) {
-            FOLK_ERROR("Error opening file: %s\n", filename);
-        }
+    // Determine output format based on colorspace
+    int pixelFormat = (jpegColorspace == TJCS_GRAY) ? TJPF_GRAY : TJPF_RGB;
+    int components = (jpegColorspace == TJCS_GRAY) ? 1 : 3;
 
-        png_structp png = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-        if (!png) {
-            FOLK_ERROR("Error reading png from file: %s it's not a png\n", filename);
-        }
+    Image ret;
+    ret.width = width;
+    ret.height = height;
+    ret.components = components;
+    ret.bytesPerRow = ret.width * ret.components;
+    ret.data = malloc(ret.bytesPerRow * ret.height);
 
-        png_infop info = png_create_info_struct(png);
-        if(!info) {
-            FOLK_ERROR("Error reading png from file: %s no info?\n", filename);
-        }
-
-        if(setjmp(png_jmpbuf(png))) {
-            FOLK_ERROR("Error reading png from file: %s setjmp error?\n", filename);
-        }
-
-        png_init_io(png, file);
-        png_read_info(png, info);
-
-        Image ret;
-        ret.width = png_get_image_width(png, info);
-        ret.height = png_get_image_height(png, info);
-        int bytes_per_pixel =  png_get_channels(png, info);
-        ret.components = png_get_channels(png, info);
-        ret.bytesPerRow = ret.width * bytes_per_pixel;
-        ret.data = malloc(ret.bytesPerRow * ret.height);
-
-        // Iterate over the rows and read the image data into the buffer.
-        for (int i = 0; i < ret.height; i++) {
-            png_read_row(png, ret.data + (i * ret.bytesPerRow), NULL);
-        }
-
-        // Close the PNG file.
-        png_destroy_read_struct(&png, &info, NULL);
-
-        if (ret.components == 4) {
-            // Transcode from RGBA to RGB (we don't support RGBA yet.)
-            for(int i=0; i < ret.width*ret.height; i++) {
-                int r = ret.data[i*4+0],
-                    g = ret.data[i*4+1], 
-                    b = ret.data[i*4+2], 
-                    a = ret.data[i*4+3];
-
-                ret.data[i*3+0] = r * a / 255;
-                ret.data[i*3+1] = g * a / 255;
-                ret.data[i*3+2] = b * a / 255;
-            }
-            ret.components = 3;
-            ret.bytesPerRow = ret.width * ret.components;
-        }
-
-        return ret;
+    if (tjDecompress2(handle, jpegBuf, fileSize, ret.data, width, 0, height,
+                      pixelFormat, 0) != 0) {
+        free(jpegBuf);
+        free(ret.data);
+        tjDestroy(handle);
+        FOLK_ERROR("loadJpeg: Decompression failed: %s\n", tjGetErrorStr());
     }
 
-    $cc proc subimage {Image im double x double y double subwidth double subheight} Image {
-        uint8_t *subdata = im.data + (int)y*im.bytesPerRow + (int)x*im.components;
-        return (Image) {
-            .width = (uint32_t)subwidth,
-            .height = (uint32_t)subheight,
-            .components = im.components,
-            .bytesPerRow = im.bytesPerRow,
-            .data = subdata,
-            .uniq = im.uniq
-        };
+    free(jpegBuf);
+    tjDestroy(handle);
+
+    return ret;
+}
+
+$cc proc loadPng {char* filename} Image {
+    FILE* file = fopen(filename, "rb");
+    if (!file) {
+        FOLK_ERROR("Error opening file: %s\n", filename);
     }
 
-    return [$cc compile]
-}}]
+    png_structp png = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+    if (!png) {
+        FOLK_ERROR("Error reading png from file: %s it's not a png\n", filename);
+    }
+
+    png_infop info = png_create_info_struct(png);
+    if(!info) {
+        FOLK_ERROR("Error reading png from file: %s no info?\n", filename);
+    }
+
+    if(setjmp(png_jmpbuf(png))) {
+        FOLK_ERROR("Error reading png from file: %s setjmp error?\n", filename);
+    }
+
+    png_init_io(png, file);
+    png_read_info(png, info);
+
+    Image ret;
+    ret.width = png_get_image_width(png, info);
+    ret.height = png_get_image_height(png, info);
+    int bytes_per_pixel =  png_get_channels(png, info);
+    ret.components = png_get_channels(png, info);
+    ret.bytesPerRow = ret.width * bytes_per_pixel;
+    ret.data = malloc(ret.bytesPerRow * ret.height);
+
+    // Iterate over the rows and read the image data into the buffer.
+    for (int i = 0; i < ret.height; i++) {
+        png_read_row(png, ret.data + (i * ret.bytesPerRow), NULL);
+    }
+
+    // Close the PNG file.
+    png_destroy_read_struct(&png, &info, NULL);
+
+    if (ret.components == 4) {
+        // Transcode from RGBA to RGB (we don't support RGBA yet.)
+        for(int i=0; i < ret.width*ret.height; i++) {
+            int r = ret.data[i*4+0],
+                g = ret.data[i*4+1], 
+                b = ret.data[i*4+2], 
+                a = ret.data[i*4+3];
+
+            ret.data[i*3+0] = r * a / 255;
+            ret.data[i*3+1] = g * a / 255;
+            ret.data[i*3+2] = b * a / 255;
+        }
+        ret.components = 3;
+        ret.bytesPerRow = ret.width * ret.components;
+    }
+
+    return ret;
+}
+
+$cc proc subimage {Image im double x double y double subwidth double subheight} Image {
+    uint8_t *subdata = im.data + (int)y*im.bytesPerRow + (int)x*im.components;
+    return (Image) {
+        .width = (uint32_t)subwidth,
+        .height = (uint32_t)subheight,
+        .components = im.components,
+        .bytesPerRow = im.bytesPerRow,
+        .data = subdata,
+        .uniq = im.uniq
+    };
+}
+
+
+$cc proc imageNew {int width int height int components int uniq} Image {
+    uint8_t* data = malloc(width*components*height);
+    return (Image) {
+        .width = width,
+        .height = height,
+        .components = components,
+        .bytesPerRow = width*components,
+        .data = data,
+        .uniq = uniq
+    };
+}
+$cc proc imageFree {Image image} void {
+    free(image.data);
+}
+
+$cc proc jpegDecompressGray {Jpeg jpeg int width int height int uniq} Image {
+    tjhandle handle = tjInitDecompress();
+    if (handle == NULL) {
+        FOLK_ERROR("cameraDecompressGray: Failed to initialize decompressor\n");
+    }
+
+    Image dest = imageNew(width, height, 1, uniq);
+    int ret = tjDecompress2(handle, jpeg.start, jpeg.length,
+                            dest.data, width, 0, height, TJPF_GRAY, 0);
+    if (ret != 0) {
+        tjDestroy(handle);
+        FOLK_ERROR("cameraDecompressGray: Decompression failed: %s\n", tjGetErrorStr());
+    }
+
+    tjDestroy(handle);
+    return dest;
+}
+
+Claim the image library is [$cc compile]
