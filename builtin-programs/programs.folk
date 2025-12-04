@@ -1,6 +1,6 @@
 When tag /tag/ has detection /any/ on camera /any/ at timestamp /any/ {
     # Setting aside this tag space (48600 to 48713) for calibration.
-    if {$tag >= 45000} { return }
+    if {$tag >= 48600} { return }
 
     Claim -keep 100ms tag $tag has a program
     Claim -keep 100ms tag $tag is a tag
@@ -61,7 +61,11 @@ When -noncapturing the program save directory is /saveDir/ {
                 apply [list {this} $metacode] $obj
             }
         } on error err {
-            puts stderr "No code for $type $obj ($err):\n  [errorInfo $err [info stacktrace]]"
+            if {![catch {QueryOne! $obj has demo code /demoCode/} res]} {
+                Claim $obj has program code $res(demoCode)
+            } else {
+                puts stderr "No code for $type $obj ($err):\n  [errorInfo $err [info stacktrace]]"
+            }
         }
     }
 }
