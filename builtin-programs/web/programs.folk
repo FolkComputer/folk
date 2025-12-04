@@ -14,7 +14,7 @@ Wish the web server handles route "/programs" with handler {
 
     fn emitHtmlForPrograms {programs} {
         set vp [list]; # builtin programs
-        set cp [list]; # core programs
+        set cp [list]; # local programs
         set wp [list]; # web programs
         set rp [list]; # real programs
 
@@ -40,7 +40,7 @@ Wish the web server handles route "/programs" with handler {
             [emitHtmlForProgramList $rp "real-programs"] \
             [emitHtmlForProgramList $wp "web-programs"] \
             [emitHtmlForProgramList $vp "builtin-programs"] \
-            [emitHtmlForProgramList $cp "core-programs"] \
+            [emitHtmlForProgramList $cp "local-programs"] \
             [expr {[llength $rp] ?
                    "<h2>[llength $rp] [expr {[llength $rp] == 1 ? {program is} : {programs are}}] out.</h2>" :
                       "No real programs are out."}] \
