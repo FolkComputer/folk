@@ -5,7 +5,7 @@ Wish the web server handles route {/page/(.*)$} with handler {
         "$programDir/$program_id.folk" \
         "$::env(HOME)/folk-live/$program_id.folk" \
         "user-programs/[info hostname]/$program_id.folk" \
-        "virtual-programs/$program_id.folk" \
+        "builtin-programs/$program_id.folk" \
     ]
 
     foreach filename $filenames {

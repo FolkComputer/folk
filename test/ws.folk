@@ -1,5 +1,5 @@
 When {
-    source "virtual-programs/web/web.folk"
+    source "builtin-programs/web/web.folk"
 }
 
 # Wait for the Web server to boot.

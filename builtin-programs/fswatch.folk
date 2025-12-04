@@ -1,12 +1,12 @@
-# Watch for virtual-programs/ changes.
+# Watch for builtin-programs/ changes.
 try {
-    set fd [open "|fswatch --recursive --event Updated --event Created virtual-programs" r]
+    set fd [open "|fswatch --recursive --event Updated --event Created builtin-programs" r]
     fconfigure $fd -buffering line
     while true {
         if {[gets $fd line] < 0} {
             error "fswatch: fswatch failed."
         }
-        if {![regexp {virtual-programs\/.*$} $line changedPath]} {
+        if {![regexp {builtin-programs\/.*$} $line changedPath]} {
             set changedPath $line
         }
 
@@ -26,5 +26,5 @@ try {
     }
 } on error err {
     puts stderr "fswatch: Warning: could not invoke `fswatch` ($err)."
-    puts stderr "fswatch: Will not watch virtual-programs for changes."
+    puts stderr "fswatch: Will not watch builtin-programs for changes."
 }

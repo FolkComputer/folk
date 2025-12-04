@@ -229,7 +229,7 @@ Wish the web server handles route "/calibrate" with handler {
                 ws.hold('start calibration', tcl`
                   Claim the printed calibration tag size is \${mm} mm
                   Wish to calibrate
-                `, 'virtual-programs/calibrate/calibrate.folk');
+                `, 'builtin-programs/calibrate/calibrate.folk');
               });
             </script>
 
@@ -262,7 +262,7 @@ Wish the web server handles route "/calibrate" with handler {
                 const calibrationPosesMax = parseInt(e.target.value);
                 ws.hold(`calibration poses max`, tcl`
 Claim the calibration poses max is \${calibrationPosesMax}
-                `, 'virtual-programs/calibrate/calibrate.folk');
+                `, 'builtin-programs/calibrate/calibrate.folk');
               });
             </script>
 
@@ -310,7 +310,7 @@ Claim the calibration poses max is \${calibrationPosesMax}
                 
                 ws.hold('exposure', tcl`
                     Wish camera $camera uses exposure time \${valueInMicroseconds} us
-                `, 'virtual-programs/calibrate/calibrate.folk');
+                `, 'builtin-programs/calibrate/calibrate.folk');
             }
             
             slider.addEventListener('input', (e) => {

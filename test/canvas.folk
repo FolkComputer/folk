@@ -85,13 +85,13 @@ local proc LoadProgram! {programFilename} {
 }
 
 apply {{} {
-    LoadProgram! virtual-programs/gpu/textures.folk
-    LoadProgram! virtual-programs/gpu/canvases.folk
-    LoadProgram! virtual-programs/draw/color-map.folk
-    LoadProgram! virtual-programs/draw/dashed-line.folk
-    LoadProgram! virtual-programs/draw/fill.folk
-    LoadProgram! virtual-programs/draw/image.folk
-    LoadProgram! virtual-programs/gpu/gpu-fns.folk
-    source virtual-programs/gpu/gpu.folk
+    LoadProgram! builtin-programs/gpu/textures.folk
+    LoadProgram! builtin-programs/gpu/canvases.folk
+    LoadProgram! builtin-programs/draw/color-map.folk
+    LoadProgram! builtin-programs/draw/dashed-line.folk
+    LoadProgram! builtin-programs/draw/fill.folk
+    LoadProgram! builtin-programs/draw/image.folk
+    LoadProgram! builtin-programs/gpu/gpu-fns.folk
+    source builtin-programs/gpu/gpu.folk
 }}
 

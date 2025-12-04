@@ -165,9 +165,9 @@ When the hold save directory is /holdDirectory/ {
         set tclEscaped [list $on]
         set escapedFilename ""
 
-        # does it match virtual-programs/**/*.folk? If so,
-        # chop off virtual-programs/
-        if {![regexp {^virtual-programs/(.*\.folk)} $canonical -> escapedFilename]} {
+        # does it match builtin-programs/**/*.folk? If so,
+        # chop off builtin-programs/
+        if {![regexp {^builtin-programs/(.*\.folk)} $canonical -> escapedFilename]} {
             set escapedFilename $canonical
         }
 

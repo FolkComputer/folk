@@ -73,7 +73,7 @@ When /someone/ wishes region /r/ has highlight /highlighted/ with /...options/ {
 
 Claim $this has demo {
   # How to use
-  # When virtual-programs/shapes/region.folk has demo /code/ & \
+  # When builtin-programs/shapes/region.folk has demo /code/ & \
   #     $this has region /r/ {
   #     Claim $this has program code $code
   #     set angle [region angle $r]

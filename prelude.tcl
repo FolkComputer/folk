@@ -309,7 +309,7 @@ proc Hold! {args} {
             } else {
                 error "Hold!: invalid keep value: $keep"
             }
-        } elseif {$arg eq "-source"} { # e.g., -source {virtual-programs/cool.folk 3}
+        } elseif {$arg eq "-source"} { # e.g., -source {builtin-programs/cool.folk 3}
             incr i; lassign [lindex $args $i] filename lineno
         } elseif {$arg eq "-destructor"} {
             incr i; set destructorCode [lindex $args $i]

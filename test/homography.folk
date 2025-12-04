@@ -1,4 +1,4 @@
-source virtual-programs/calibrate/matlib.folk
+source builtin-programs/calibrate/matlib.folk
 
 set projectedPointPairs {
     {904.372559 591.458679 587.514251943 745.602632357}

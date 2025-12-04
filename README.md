@@ -454,7 +454,7 @@ different keys
 
 You can overwrite another program's Hold! with the `on` parameter, like
 `Hold! (on 852) { ... }` (if the Hold! is from page 852) or `Hold! (on
-virtual-programs/example.folk) { ... }` (if the Hold! is from the
+builtin-programs/example.folk) { ... }` (if the Hold! is from the
 example.folk virtual program)
 
 ### Subscribe: and Notify:
@@ -586,7 +586,7 @@ libraries are an antipattern; we should only need them for the hard
 core of the system.
 
 Most new code (both libraries and applications) should be virtual
-programs (which ilve as .folk files in the virtual-programs/
+programs (which ilve as .folk files in the builtin-programs/
 subfolder) or printed programs.
 
 ### Folk 

@@ -6,12 +6,12 @@ Assert! when {
     }
 
     When {
-        source "virtual-programs/web/web.folk"
+        source "builtin-programs/web/web.folk"
     }
     When {
-        source "virtual-programs/web/db-lib.folk"
-        source "virtual-programs/web/index.folk"
-        # source "virtual-programs/web/threads.folk"
+        source "builtin-programs/web/db-lib.folk"
+        source "builtin-programs/web/index.folk"
+        # source "builtin-programs/web/threads.folk"
     }
 
 

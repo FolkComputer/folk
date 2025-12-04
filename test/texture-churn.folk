@@ -78,12 +78,12 @@ When the GPU library is /gpuLib/ &\
 
 
 
-When { source virtual-programs/web/web.folk }
-When { source virtual-programs/web/textures.folk }
+When { source builtin-programs/web/web.folk }
+When { source builtin-programs/web/textures.folk }
 
-When { source virtual-programs/image-lib.folk }
-When { source virtual-programs/gpu/textures.folk }
-When { source virtual-programs/gpu/writable-textures.folk }
-When { source virtual-programs/draw/image.folk }
-When { source virtual-programs/gpu/gpu-fns.folk }
-apply {{} { source virtual-programs/gpu/gpu.folk }}
+When { source builtin-programs/image-lib.folk }
+When { source builtin-programs/gpu/textures.folk }
+When { source builtin-programs/gpu/writable-textures.folk }
+When { source builtin-programs/draw/image.folk }
+When { source builtin-programs/gpu/gpu-fns.folk }
+apply {{} { source builtin-programs/gpu/gpu.folk }}

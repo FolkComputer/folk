@@ -39,7 +39,7 @@ When -noncapturing the program save directory is /saveDir/ {
                 close $fd
 
                 set editedTime [file mtime "$saveDir/$obj.folk.edited"]
-                Hold! -on virtual-programs/programs.folk -key new-code-for:$obj \
+                Hold! -on builtin-programs/programs.folk -key new-code-for:$obj \
                     Wish program $obj is replaced with \
                     code $editedCode editedTime $editedTime
             }

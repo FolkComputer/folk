@@ -48,7 +48,7 @@ When the hold save directory is /holdDirectory/ &\
     # also grab next id
     set nextId [tryReadFile "$::env(HOME)/folk-data/program/next-id.txt"]
     if {$nextId != ""} {
-        Hold! -save -on virtual-programs/print.folk -key next-id \
+        Hold! -save -on builtin-programs/print.folk -key next-id \
             the next program id is [string trim $nextId]
     }
     tryRm "$::env(HOME)/folk-data/program/next-id.txt"

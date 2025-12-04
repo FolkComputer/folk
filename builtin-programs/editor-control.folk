@@ -60,9 +60,9 @@ function updateProgramCode() {
 
     const id = page + kbPath;
     ws.run(tcl`
-        Hold (non-capturing) (on virtual-programs/editor.folk) ${"cursor" + kbPath} {
+        Hold (non-capturing) (on builtin-programs/editor.folk) ${"cursor" + kbPath} {
             Claim the ${kbPath} cursor is [list ${cursorPosition[0]} ${cursorPosition[1]}]
-            Hold (on virtual-programs/editor.folk) ${"code" + kbPath} {
+            Hold (on builtin-programs/editor.folk) ${"code" + kbPath} {
                 Claim ${id} has program code [binary decode base64 ${btoa(currentCode)}]
                 Claim ${id} has editor code [binary decode base64 ${btoa(currentCode)}]
             }
@@ -88,9 +88,9 @@ function updateCursorAndCode(ev) {
 
     const id = page + kbPath;
     ws.run(tcl`
-        Hold (non-capturing) (on virtual-programs/editor.folk) ${"cursor" + kbPath} {
+        Hold (non-capturing) (on builtin-programs/editor.folk) ${"cursor" + kbPath} {
             Claim the ${kbPath} cursor is [list ${x} ${y}]
-            Hold (on virtual-programs/editor.folk) ${"code" + kbPath} {
+            Hold (on builtin-programs/editor.folk) ${"code" + kbPath} {
                 Claim ${id} has program code [binary decode base64 ${btoa(programCode)}]
                 Claim ${id} has editor code [binary decode base64 ${btoa(newCode)}]
             }

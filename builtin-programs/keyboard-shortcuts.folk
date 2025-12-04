@@ -1,5 +1,5 @@
 # When sudo is removed in the exec commands below you get:
-# Error in virtual-programs/keyboard-shortcuts.folk, match m10029:6: Failed to restart folk.service: Interactive authentication required.
+# Error in builtin-programs/keyboard-shortcuts.folk, match m10029:6: Failed to restart folk.service: Interactive authentication required.
 #
 # TODO: Figure out how to do this with less powerful permissions than `sudo`. (@cwervo)
 

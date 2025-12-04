@@ -13,7 +13,7 @@ Wish the web server handles route "/programs" with handler {
     }
 
     fn emitHtmlForPrograms {programs} {
-        set vp [list]; # virtual programs
+        set vp [list]; # builtin programs
         set cp [list]; # core programs
         set wp [list]; # web programs
         set rp [list]; # real programs
@@ -21,7 +21,7 @@ Wish the web server handles route "/programs" with handler {
         foreach match $programs {
             set programName [dict get $match programName]
             switch -glob $programName {
-                "virtual-programs/*" {
+                "builtin-programs/*" {
                     lappend vp $match
                 }
                 "/home/*" {
@@ -39,7 +39,7 @@ Wish the web server handles route "/programs" with handler {
         return [join [list \
             [emitHtmlForProgramList $rp "real-programs"] \
             [emitHtmlForProgramList $wp "web-programs"] \
-            [emitHtmlForProgramList $vp "virtual-programs"] \
+            [emitHtmlForProgramList $vp "builtin-programs"] \
             [emitHtmlForProgramList $cp "core-programs"] \
             [expr {[llength $rp] ?
                    "<h2>[llength $rp] [expr {[llength $rp] == 1 ? {program is} : {programs are}}] out.</h2>" :

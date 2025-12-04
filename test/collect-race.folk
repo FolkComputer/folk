@@ -1,4 +1,4 @@
-When { source virtual-programs/collect.folk }
+When { source builtin-programs/collect.folk }
 
 Claim an item is A
 Claim an item is B

@@ -24,10 +24,10 @@ Assert! when we are on {
         puts stderr "counter: ($results)"
 
         When {
-            source virtual-programs/web/trace.folk
-            source virtual-programs/web/dep-graph.folk
-            source virtual-programs/web/index.folk
-            source virtual-programs/web/web.folk
+            source builtin-programs/web/trace.folk
+            source builtin-programs/web/dep-graph.folk
+            source builtin-programs/web/index.folk
+            source builtin-programs/web/web.folk
         }
 
         if {[dict get [lindex $results end] t] == 89} {

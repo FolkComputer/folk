@@ -167,7 +167,7 @@ $cc proc Recollect! {Jim_Obj* patternObj bool isAtomically} void {
         // their destructors.
 
         Clause* collectedClause = clauseNew(9);
-        collectedClause->terms[0] = termNew("virtual-programs/collect.folk", -1);
+        collectedClause->terms[0] = termNew("builtin-programs/collect.folk", -1);
         collectedClause->terms[1] = termNew("claims", -1);
         collectedClause->terms[2] = termNew("the", -1);
         collectedClause->terms[3] = termNew("collected", -1);

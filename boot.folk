@@ -39,8 +39,8 @@ local proc LoadProgram! {programFilename} {
         Claim $programFilename has program code [read $fp]
     close $fp
 }
-foreach programFilename [list {*}[glob -nocomplain virtual-programs/*.folk] \
-                             {*}[glob -nocomplain virtual-programs/*/*.folk] \
+foreach programFilename [list {*}[glob -nocomplain builtin-programs/*.folk] \
+                             {*}[glob -nocomplain builtin-programs/*/*.folk] \
                              {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"] \
                              {*}[glob -nocomplain "$::env(HOME)/folk-live/*.folk"] \
                              {*}[glob -nocomplain "$::env(HOME)/folk-live/*/*.folk"]] {
@@ -87,6 +87,6 @@ if {$::tcl_platform(os) eq "darwin"} {
         rename When {}
         rename When' When
     }
-    fake "virtual-programs/gpu/gpu.folk"
-    fake "virtual-programs/gpu/draw.folk"
+    fake "builtin-programs/gpu/gpu.folk"
+    fake "builtin-programs/gpu/draw.folk"
 }
