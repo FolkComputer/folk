@@ -154,7 +154,7 @@ Wish the web server handles route "/calibrate" with handler {
     set defaultGeom [dict get [lindex [Query! /someone/ claims the default program geometry is /defaultGeom/] 0] defaultGeom]
     fn defaultGeomGet {key} { return [string map {mm ""} [dict get $defaultGeom $key]] }
 
-    set camera [dict get [lindex [Query! camera /camera/ has width /cameraWidth/ height /cameraHeight/] 0] camera]
+    set camera $QUERY(camera)
 
     upvar ^html ^html
     html [csubst {

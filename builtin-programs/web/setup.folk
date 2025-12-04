@@ -153,10 +153,12 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
      if (this.checked) {
        if (display === "glfw") {
          // glfw doesn't have any mode settings (for now).
-         folk.hold('display', `Wish \$::thisNode uses display "\${display}" with width 640 height 480 refreshRate -1`, 'builtin-programs/web/setup.folk', true);
+         folk.hold('display', `Wish \$::thisNode uses display "\${display}" with width 640 height 480 refreshRate -1`,
+                   'builtin-programs/web/setup.folk', true);
 
        } else if (display === "") {
-         folk.hold('display', '', 'builtin-programs/web/setup.folk', true);
+         folk.hold('display', '',
+                   'builtin-programs/web/setup.folk', true);
 
        } else {
          const firstRefreshRateRadio = document.querySelector(
@@ -183,7 +185,8 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
      if (this.checked) {
        const display = this.dataset.display;
        const mode = this.value;
-       folk.hold('display', `Wish \$::thisNode uses display "\${display}" with \${mode}`, 'builtin-programs/web/setup.folk', true);
+       folk.hold('display', `Wish \$::thisNode uses display "\${display}" with \${mode}`,
+                 'builtin-programs/web/setup.folk', true);
      }
      event.preventDefault();
    }
@@ -284,7 +287,8 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
         firstFramerateRadio.checked = true;
         firstFramerateRadio.dispatchEvent(new Event('change'));
       } else {
-        folk.hold(`camera \${camera}`, '', 'builtin-programs/web/setup.folk', true);
+        folk.hold(`camera \${camera}`, '',
+                  'builtin-programs/web/setup.folk', true);
       }
       event.preventDefault();
     }
@@ -302,7 +306,8 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
       if (this.checked) {
         const camera = this.dataset.camera;
         const format = this.value;
-        folk.hold(`camera \${camera}`, `Wish \$::thisNode uses camera "\${camera}" with \${format}`, 'builtin-programs/web/setup.folk', true);
+        folk.hold(`camera \${camera}`, `Wish \$::thisNode uses camera "\${camera}" with \${format}`,
+                  'builtin-programs/web/setup.folk', true);
       }
       event.preventDefault();
     }
@@ -311,9 +316,63 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
 
 <div>
   <h2>Projector-camera calibration</h2>
-  - radio buttons for projectors
-  - check boxes for cameras
-<button>Calibrate</button>
+  <p>Select one display and one or more cameras to calibrate:</p>
+
+  <fieldset style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
+    <legend><strong>Display (projector)</strong></legend>
+    [HtmlWhen /someone/ wishes $::thisNode uses display /display/ with /...opts/ {
+      subst {
+        <div style="margin: 5px 0;">
+          <label>
+            <input type="radio" name="calibration-display"
+                   value="$display"
+                   onchange="calibrationSelectionChange()">
+            $display
+          </label>
+        </div>
+      }
+    }]
+  </fieldset>
+
+  <fieldset style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
+    <legend><strong>Cameras</strong></legend>
+    [HtmlWhen /someone/ wishes $::thisNode uses camera /camera/ with /...opts/ {
+      subst {
+        <div style="margin: 5px 0;">
+          <label>
+            <input type="checkbox" name="calibration-camera"
+                   value="$camera"
+                   onchange="calibrationSelectionChange()">
+            $camera
+          </label>
+        </div>
+      }
+    }]
+  </fieldset>
+
+  <button id="calibrate-button" disabled onclick="startCalibration()">Calibrate</button>
+
+  <script>
+    function calibrationSelectionChange() {
+      const display = document.querySelector('input\[name="calibration-display"]:checked');
+      const cameras = document.querySelectorAll('input\[name="calibration-camera"]:checked');
+      const button = document.getElementById('calibrate-button');
+      button.disabled = !display || cameras.length === 0;
+    }
+
+    function startCalibration() {
+      const display = document.querySelector('input\[name="calibration-display"]:checked');
+      const cameras = Array.from(document.querySelectorAll('input\[name="calibration-camera"]:checked'));
+
+      if (!display || cameras.length === 0) return;
+
+      const params = new URLSearchParams();
+      params.append('display', display.value);
+      cameras.forEach(camera => params.append('camera', camera.value));
+
+      window.location.href = `/calibrate?\${params.toString()}`;
+    }
+  </script>
 </div>
 
 </body>
