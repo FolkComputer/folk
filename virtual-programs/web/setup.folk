@@ -153,11 +153,10 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
      if (this.checked) {
        if (display === "glfw") {
          // glfw doesn't have any mode settings (for now).
-         folk.run(`Hold! -save -key display \
-Wish $::thisNode uses display "\${display}" with width 640 height 480 refreshRate -1`);
+         folk.hold('display', `Wish \$::thisNode uses display "\${display}" with width 640 height 480 refreshRate -1`, 'virtual-programs/web/setup.folk', true);
 
        } else if (display === "") {
-         folk.run(`Hold! -save -key display {}`);
+         folk.hold('display', '', 'virtual-programs/web/setup.folk', true);
 
        } else {
          const firstRefreshRateRadio = document.querySelector(
@@ -184,8 +183,7 @@ Wish $::thisNode uses display "\${display}" with width 640 height 480 refreshRat
      if (this.checked) {
        const display = this.dataset.display;
        const mode = this.value;
-       folk.run(`Hold! -save -key display \
-Wish $::thisNode uses display "\${display}" with \${mode}`);
+       folk.hold('display', `Wish \$::thisNode uses display "\${display}" with \${mode}`, 'virtual-programs/web/setup.folk', true);
      }
      event.preventDefault();
    }
@@ -286,7 +284,7 @@ Wish $::thisNode uses display "\${display}" with \${mode}`);
         firstFramerateRadio.checked = true;
         firstFramerateRadio.dispatchEvent(new Event('change'));
       } else {
-        folk.run(`Hold! -save -key {camera \${camera}} {}`);
+        folk.hold(`camera \${camera}`, '', 'virtual-programs/web/setup.folk', true);
       }
       event.preventDefault();
     }
@@ -304,8 +302,7 @@ Wish $::thisNode uses display "\${display}" with \${mode}`);
       if (this.checked) {
         const camera = this.dataset.camera;
         const format = this.value;
-        folk.run(`Hold! -save -key {camera \${camera}} \
-Wish $::thisNode uses camera "\${camera}" with \${format}`);
+        folk.hold(`camera \${camera}`, `Wish \$::thisNode uses camera "\${camera}" with \${format}`, 'virtual-programs/web/setup.folk', true);
       }
       event.preventDefault();
     }
