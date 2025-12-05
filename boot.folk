@@ -42,15 +42,9 @@ local proc LoadProgram! {programFilename} {
 foreach programFilename [list {*}[glob -nocomplain builtin-programs/*.folk] \
                              {*}[glob -nocomplain builtin-programs/*/*.folk] \
                              {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"] \
-                             {*}[glob -nocomplain "$::env(HOME)/folk-live/*.folk"] \
-                             {*}[glob -nocomplain "$::env(HOME)/folk-live/*/*.folk"]] {
-    if {[string match "$::env(HOME)/folk-live/setup.folk" $programFilename]} {
-        puts stderr "boot: WARNING: skipping $programFilename because setup.folk has been removed in folk2."
-        puts stderr "boot: Use the /setup Web page to do setup."
-        continue
-    }
-    if {[string match "*/_archive/*" $programFilename] ||
-        [string match "*/folk-printed-programs/*" $programFilename]} {
+                             {*}[glob -nocomplain "$::env(HOME)/folk-data/local-program/*.folk"] \
+                             {*}[glob -nocomplain "$::env(HOME)/folk-data/local-program/*/*.folk"]] {
+    if {[string match "*/_archive/*" $programFilename]} {
         continue
     }
 
