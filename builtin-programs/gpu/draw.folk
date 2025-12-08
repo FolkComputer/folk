@@ -19,6 +19,7 @@ set useGlfw $($display eq "glfw")
 set cc [C]
 $cc cflags -I./vendor
 $cc include <stdlib.h>
+$cc include <unistd.h>
 $cc include <pthread.h>
 $cc code {
     #define VOLK_IMPLEMENTATION
@@ -113,20 +114,32 @@ $cc proc initDraw {char* display uint32_t width uint32_t height uint32_t refresh
         }
     } : [csubst {
         // Search through displays to find the one matching display name
-        uint32_t displayCount;
-        vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, NULL);
-        VkDisplayPropertiesKHR displayProps[displayCount];
-        vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, displayProps);
-
+        int retries = 0;
         VkDisplayKHR chosenDisplay = VK_NULL_HANDLE;
-        for (uint32_t i = 0; i < displayCount; i++) {
-            if (displayProps[i].displayName && strcmp(displayProps[i].displayName, display) == 0) {
-                chosenDisplay = displayProps[i].display;
+        while (true) {
+            uint32_t displayCount;
+            vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, NULL);
+            VkDisplayPropertiesKHR displayProps[displayCount];
+            vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, displayProps);
+
+            for (uint32_t i = 0; i < displayCount; i++) {
+                if (displayProps[i].displayName && strcmp(displayProps[i].displayName, display) == 0) {
+                    chosenDisplay = displayProps[i].display;
+                    break;
+                }
+            }
+            if (chosenDisplay != VK_NULL_HANDLE) {
                 break;
             }
-        }
-        if (chosenDisplay == VK_NULL_HANDLE) {
-            FOLK_ERROR("Failed to find display '%s'\n", display);
+
+            retries++;
+            if (retries > 10) {
+                FOLK_ERROR("Failed to find display '%s'\n", display);
+            } else {
+                fprintf(stderr, "gpu/draw: Failed to find display '%s'; retrying (retry %d).\n",
+                        display, retries);
+                usleep(1000000);
+            }
         }
 
         // Search through modes to find one matching width, height, and refreshRate
