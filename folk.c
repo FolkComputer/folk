@@ -1155,9 +1155,10 @@ static void reactToNewStatement(StatementRef ref) {
             Statement* when = statementAcquire(db, whenRef);
             if (when) {
                 Clause* whenPattern = unwhenizeClause(statementClause(when));
-                statementRelease(db, when);
 
                 pushRunWhenBlock(whenRef, whenPattern, ref);
+
+                statementRelease(db, when);
                 clauseFreeBorrowed(whenPattern); // doesn't own any terms.
             }
         }
@@ -1185,9 +1186,10 @@ static void reactToNewStatement(StatementRef ref) {
             if (when) {
                 Clause* unwhenizedWhenPattern = unwhenizeClause(statementClause(when));
                 Clause* claimizedUnwhenizedWhenPattern = claimizeClause(unwhenizedWhenPattern);
-                statementRelease(db, when);
 
                 pushRunWhenBlock(whenRef, claimizedUnwhenizedWhenPattern, ref);
+
+                statementRelease(db, when);
                 clauseFreeBorrowed(unwhenizedWhenPattern);
                 clauseFreeBorrowed(claimizedUnwhenizedWhenPattern);
             }
