@@ -311,7 +311,9 @@ static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *cons
 }
 
 
-static StatementRef Say(Clause* clause, long keepMs, const char *destructorCode,
+static StatementRef Say(Clause* clause, long keepMs,
+                        AtomicallyVersion* atomicallyVersion,
+                        const char *destructorCode,
                         const char *sourceFileName, int sourceLineNumber) {
     MatchRef parent;
     if (self->currentMatch) {
@@ -327,7 +329,7 @@ static StatementRef Say(Clause* clause, long keepMs, const char *destructorCode,
 
     Statement* stmt;
     stmt = dbInsertOrReuseStatement(db, clause,
-                                    keepMs, self->currentAtomicallyVersion,
+                                    keepMs, atomicallyVersion,
                                     sourceFileName, sourceLineNumber,
                                     parent, NULL);
 
@@ -359,8 +361,8 @@ static StatementRef Say(Clause* clause, long keepMs, const char *destructorCode,
 }
 
 static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    assert(argc >= 6);
-    Clause* clause = jimObjsToClause(argc - 5, argv + 5);
+    assert(argc >= 7);
+    Clause* clause = jimObjsToClause(argc - 6, argv + 6);
 
     const char* sourceFileName;
     long sourceLineNumber;
@@ -375,8 +377,14 @@ static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         goto err;
     }
 
+    AtomicallyVersion* atomicallyVersion = NULL;
+    const char* atomicallyVersionStr = Jim_String(argv[4]);
+    if (atomicallyVersionStr && strlen(atomicallyVersionStr) > 0) {
+        sscanf(atomicallyVersionStr, "(AtomicallyVersion*) %p", &atomicallyVersion);
+    }
+
     int destructorCodeLen;
-    const char* destructorCode = Jim_GetString(argv[4], &destructorCodeLen);
+    const char* destructorCode = Jim_GetString(argv[5], &destructorCodeLen);
     if (destructorCodeLen == 0) {
         destructorCode = NULL;
     }
@@ -386,7 +394,8 @@ static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         goto err;
     }
 
-    Say(clause, keepMs, destructorCode,
+    Say(clause, keepMs, atomicallyVersion,
+        destructorCode,
         sourceFileName, (int) sourceLineNumber);
     return JIM_OK;
 
@@ -419,6 +428,7 @@ static int NotifyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return JIM_OK;
 }
 
+extern int statementParentCount(Statement* stmt);
 Jim_Obj* QuerySimple(bool isAtomically, Clause* pattern) {
     ResultSet* rs = dbQuery(db, pattern);
 
@@ -591,22 +601,27 @@ static int __threadIdFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return JIM_OK;
 }
 
-static int __setFreshAtomicallyVersionOnKeyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+static int __makeFreshAtomicallyVersionOnKeyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
     const char* key = Jim_String(argv[1]);
-    self->currentAtomicallyVersion = dbFreshAtomicallyVersionOnKey(db, key);
+
+    AtomicallyVersion *atomicallyVersion = dbFreshAtomicallyVersionOnKey(db, key);
+    char ret[100]; snprintf(ret, 100, "(AtomicallyVersion*) %p", atomicallyVersion);
+    Jim_SetResultString(interp, ret, strlen(ret));
     return JIM_OK;
 }
-
-static int __unsetAtomicallyVersionFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+static int __currentAtomicallyVersionFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 1);
-    if (self->currentAtomicallyVersion != NULL) {
-        dbAtomicallyVersionInflightDecr(db, self->currentAtomicallyVersion);
+    if (self->currentAtomicallyVersion == NULL) {
+        Jim_SetResultString(interp, "", -1);
+    } else {
+        char ret[100];
+        snprintf(ret, 100, "(AtomicallyVersion*) %p",
+                 self->currentAtomicallyVersion);
+        Jim_SetResultString(interp, ret, strlen(ret));
     }
-    self->currentAtomicallyVersion = NULL;
     return JIM_OK;
 }
-
 
 static int setpgrpFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     int ret = setpgrp();
@@ -674,8 +689,9 @@ static void interpBoot() {
 
     Jim_CreateCommand(interp, "__db", __dbFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__threadId", __threadIdFunc, NULL, NULL);
-    Jim_CreateCommand(interp, "__setFreshAtomicallyVersionOnKey", __setFreshAtomicallyVersionOnKeyFunc, NULL, NULL);
-    Jim_CreateCommand(interp, "__unsetAtomicallyVersion", __unsetAtomicallyVersionFunc, NULL, NULL);
+
+    Jim_CreateCommand(interp, "__makeFreshAtomicallyVersionOnKey", __makeFreshAtomicallyVersionOnKeyFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__currentAtomicallyVersion", __currentAtomicallyVersionFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "setpgrp", setpgrpFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Exit!", exitFunc, NULL, NULL);

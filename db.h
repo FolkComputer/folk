@@ -119,6 +119,7 @@ AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key);
 
 bool dbAtomicallyVersionHasConverged(AtomicallyVersion* atomicallyVersion);
 int dbAtomicallyVersionInflightCount(AtomicallyVersion* atomicallyVersion);
+int dbAtomicallyVersionNumber(AtomicallyVersion* atomicallyVersion);
 void* dbAtomicallyVersionStatementList(AtomicallyVersion* atomicallyVersion);
 const char* dbAtomicallyVersionKey(AtomicallyVersion* atomicallyVersion);
 

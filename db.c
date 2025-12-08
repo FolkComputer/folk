@@ -489,7 +489,20 @@ static StatementRef statementNew(Db* db, Clause* clause,
     if (atomicallyVersion != NULL &&
         atomicallyVersionAddToStatementList(atomicallyVersion, db,
                                             statementRef(db, stmt))) {
-        atomicallyVersion->inflightCount++;
+
+        int oldInflightCount;
+        int newInflightCount;
+        do {
+            oldInflightCount = atomicallyVersion->inflightCount;
+            if (oldInflightCount == -1) {
+                newInflightCount = 1;
+            } else {
+                newInflightCount = oldInflightCount + 1;
+            }
+        } while (!atomic_compare_exchange_weak(&atomicallyVersion->inflightCount,
+                                               &oldInflightCount,
+                                               newInflightCount));
+
         stmt->parentCount = 2;
         stmt->atomicallyVersion = atomicallyVersion;
     } else {
@@ -989,7 +1002,7 @@ AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key) {
     mutexLock(&db->atomicallysMutex);
 
     Atomically* atomically = NULL;
-    for (int i = 0; i < sizeof(db->atomicallys)/sizeof(db->atomicallys[0]); i++) {
+    for (unsigned long i = 0; i < sizeof(db->atomicallys)/sizeof(db->atomicallys[0]); i++) {
         if (db->atomicallys[i].key != NULL &&
             strcmp(db->atomicallys[i].key, key) == 0) {
 
@@ -998,7 +1011,7 @@ AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key) {
         }
     }
     if (atomically == NULL) {
-        for (int i = 0; i < sizeof(db->atomicallys)/sizeof(db->atomicallys[0]); i++) {
+        for (unsigned long i = 0; i < sizeof(db->atomicallys)/sizeof(db->atomicallys[0]); i++) {
             if (db->atomicallys[i].key == NULL) {
                 atomically = &db->atomicallys[i];
                 atomically->key = strdup(key);
@@ -1022,10 +1035,10 @@ AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key) {
     // FIXME: assert old values are bad, do something with refcount
 
     atomicallyVersion->number = atomically->nextNumber++;
-    // An AtomicallyVersion should start unconverged, assuming that it
-    // always gets set into a currently running (incomplete) match
-    // that can mark it as converged when done.
-    atomicallyVersion->inflightCount = 1;
+    // An AtomicallyVersion starts with negative inflight count
+    // because we want it to be invalid / not count as converged until
+    // a statement actually goes out under it.
+    atomicallyVersion->inflightCount = -1;
     atomicallyVersion->statementList = NULL;
 
     // Add this version to atomically->allVersions list
@@ -1118,6 +1131,9 @@ int dbAtomicallyVersionInflightCount(AtomicallyVersion* atomicallyVersion) {
     /* printf("%p -- inflight count %d\n", atomicallyVersion, atomicallyVersion->inflightCount); */
     return atomicallyVersion->inflightCount;
 }
+int dbAtomicallyVersionNumber(AtomicallyVersion* atomicallyVersion) {
+    return atomicallyVersion->number;
+}
 void* dbAtomicallyVersionStatementList(AtomicallyVersion* atomicallyVersion) {
     return (void*)atomicallyVersion->statementList;
 }
@@ -1134,8 +1150,9 @@ void dbInflightIncr(Statement* stmt) {
 }
 void dbInflightDecr(Db* db, Statement* stmt) {
     if (stmt != NULL && stmt->atomicallyVersion != NULL) {
-        /* printf("dbInflightDecr (%s) %p\n", clauseToString(stmt->clause), */
-        /*        stmt->atomicallyVersion); */
+        /* printf("dbInflightDecr (%s) %p -> %d\n", clauseToString(stmt->clause), */
+        /*        stmt->atomicallyVersion, */
+        /*        stmt->atomicallyVersion->inflightCount - 1); */
         dbAtomicallyVersionInflightDecr(db, stmt->atomicallyVersion);
     }
 }

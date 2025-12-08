@@ -404,6 +404,7 @@ proc Say {args} {
     }
     tailcall SayWithSource $sourceFileName $sourceLineNumber \
         $keepMs \
+        [__currentAtomicallyVersion] \
         $destructorCode \
         {*}$pattern
 }
@@ -466,32 +467,50 @@ proc When {args} {
 
     set args [lreplace $args end end]
 
+    set isAfterAmpersand false
     set isNonCapturing false
     set isSerially false
-    set isAtomically false
-    set isNonatomically false
+    set atomicallyVersion "default"
+
     set pattern [list]
     foreach term $args {
-        if {$term eq "-noncapturing"} {
+        if {$isAfterAmpersand} {
+            # Let the nested When handle arguments in the rest of the
+            # patterns later.
+            lappend pattern $term
+        } elseif {$term eq "&"} {
+            set isAfterAmpersand true
+            lappend pattern $term
+        } elseif {$term eq "-noncapturing"} {
             set isNonCapturing true
         } elseif {$term eq "-serially"} {
             set isSerially true
         } elseif {$term eq "-atomically"} {
-            set isAtomically true
+            set key [list [uplevel set this] $sourceInfo $pattern]
+            set atomicallyVersion [__makeFreshAtomicallyVersionOnKey $key]
         } elseif {$term eq "-nonatomically"} {
-            set isNonatomically true
+            # FIXME: leak: need to destroy atomicallyVersion if non-null
+            set atomicallyVersion {}
         } else {
             lappend pattern $term
         }
     }
-    # HACK: Force atomically on certain patterns:
-    if {!$isAtomically && !$isNonatomically} {
-        if {[lrange $pattern 1 end-1] eq {has camera slice}} {
-            set isAtomically true
-            # puts "Atomic camera slice"
-        } elseif {[lrange $pattern 0 end-1] eq {the clock time is}} {
-            set isAtomically true
-            # puts "Atomic clock time"
+
+    if {$atomicallyVersion eq "default"} {
+        set inheritAtomicallyVersion [__currentAtomicallyVersion]
+
+        if {$inheritAtomicallyVersion eq {}} {
+            # HACK: Default atomically on certain patterns:
+            if {([lrange $pattern 1 end-1] eq {has camera slice} ||
+                 [lrange $pattern 0 end-1] eq {the clock time is})} {
+
+                set key [list [uplevel set this] $sourceInfo $pattern]
+                set atomicallyVersion [__makeFreshAtomicallyVersionOnKey $key]
+            } else {
+                set atomicallyVersion {}
+            }
+        } else {
+            set atomicallyVersion {}
         }
     }
 
@@ -513,19 +532,12 @@ proc When {args} {
         set body "$prologue\n$body"
     }
 
-    if {$isAtomically} {
-        set key [list [uplevel set this] $sourceInfo $pattern]
-        set prologue [list __setFreshAtomicallyVersionOnKey $key]
-        set body "$prologue;$body"
-    }
-    if {$isNonatomically} {
-        set body "__unsetAtomicallyVersion;$body"
-    }
-
     lassign [desugarWhen $pattern $body] statement boundVars
     lappend statement $envStack
 
-    tailcall SayWithSource {*}$sourceInfo 0 {} {*}$statement
+    tailcall SayWithSource {*}$sourceInfo \
+        0 $atomicallyVersion {} \
+        {*}$statement
 }
 proc Subscribe: {args} {
     set pattern [lrange $args 0 end-1]
@@ -534,7 +546,8 @@ proc Subscribe: {args} {
     set sourceInfo [info source $body]
     set envStack [uplevel captureEnvStack]
 
-    tailcall SayWithSource {*}$sourceInfo 0 {} \
+    tailcall SayWithSource {*}$sourceInfo \
+        0 {} {} \
         subscribe {*}$pattern $body with environment $envStack
 }
 proc Notify: {args} {
