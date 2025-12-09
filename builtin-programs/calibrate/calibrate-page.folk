@@ -144,7 +144,7 @@ fn makeExampleProgramPng {} {
     return $png
 }
 
-Wish the web server handles route "/calibrate" with handler {
+Wish the web server handles route "/calibrate" with hidden true handler {
     package require base64
 
     set calibrationBoardPdf [makeCalibrationBoardPdf $UNIT_MODEL 70]
@@ -552,8 +552,7 @@ Stereo RMSE [dict getdef $calibration rmse (unavailable)]
 }
 
 Wish the web server handles route {/calibration-poses/([^/]+)$} with handler {
-    regexp {/calibration-poses/([^/]+)$} $path -> filename
-    set filename "$::env(HOME)/folk-calibration-poses/$filename"
+    set filename "$::env(HOME)/folk-calibration-poses/$1"
 
     set fsize [file size $filename]
     set fd [open $filename r]
