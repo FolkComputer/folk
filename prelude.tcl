@@ -370,6 +370,7 @@ proc Say {args} {
     set sourceLineNumber [dict get $callerInfo line]
 
     set keepMs 0
+    set atomicallyVersion [__currentAtomicallyVersion]
     set destructorCode {}
 
     set pattern [list]
@@ -384,6 +385,8 @@ proc Say {args} {
             } else {
                 error "Say: invalid keep value [string range $keep 0 end]"
             }
+        } elseif {$term eq "-nonatomically"} {
+            set atomicallyVersion {}
         } elseif {$term eq "-destructor"} {
             incr i
             set destructorCode [lindex $args $i]
@@ -404,7 +407,7 @@ proc Say {args} {
     }
     tailcall SayWithSource $sourceFileName $sourceLineNumber \
         $keepMs \
-        [__currentAtomicallyVersion] \
+        $atomicallyVersion \
         $destructorCode \
         {*}$pattern
 }
@@ -473,7 +476,8 @@ proc When {args} {
     set atomicallyVersion "default"
 
     set pattern [list]
-    foreach term $args {
+    for {set i 0} {$i < [llength $args]} {incr i} {
+        set term [lindex $args $i]
         if {$isAfterAmpersand} {
             # Let the nested When handle arguments in the rest of the
             # patterns later.
@@ -486,7 +490,14 @@ proc When {args} {
         } elseif {$term eq "-serially"} {
             set isSerially true
         } elseif {$term eq "-atomically"} {
-            set atomicallyVersion "fresh"
+            set key [list [uplevel set this] $sourceInfo $pattern]
+            set atomicallyVersion [list "fresh" $key]
+        } elseif {$term eq "-atomicallyInherit"} {
+            set atomicallyVersion [__currentAtomicallyVersion]
+        } elseif {$term eq "-atomicallyWithKey"} {
+            incr i
+            set key [lindex $args $i]
+            set atomicallyVersion [list "fresh" $key]
         } elseif {$term eq "-nonatomically"} {
             set atomicallyVersion {}
         } else {
@@ -501,7 +512,8 @@ proc When {args} {
             if {([lrange $pattern 1 end-1] eq {has camera slice} ||
                  [lrange $pattern 0 end-1] eq {the clock time is})} {
 
-                set atomicallyVersion "fresh"
+                set key [list [uplevel set this] $sourceInfo $pattern]
+                set atomicallyVersion [list "fresh" $key]
             } else {
                 set atomicallyVersion {}
             }
@@ -528,10 +540,11 @@ proc When {args} {
         set body "$prologue\n$body"
     }
 
-    if {$atomicallyVersion eq "fresh"} {
+    if {[llength $atomicallyVersion] == 2 &&
+        [lindex $atomicallyVersion 0] eq "fresh"} {
         # The AtomicallyVersion should be set _inside_ the When body,
         # uniquely for each execution.
-        set key [list [uplevel set this] $sourceInfo $pattern]
+        set key [lindex $atomicallyVersion 1]
         set prologue [list __setFreshAtomicallyVersionOnKey $key]
         set body "$prologue;$body"
 
