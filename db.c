@@ -224,15 +224,17 @@ typedef struct Match {
 
     // Immutable match properties:
     // -----
-
-    // Will be NULL if not running in an Atomically
-    // convergence-tracking subgraph.
-    AtomicallyVersion* atomicallyVersion;
-
     int workerThreadIndex;
 
     // Mutable match properties:
     // -----
+
+    // Will be NULL if not running in an Atomically
+    // convergence-tracking subgraph.
+    AtomicallyVersion* _Atomic atomicallyVersion;
+    // Set to true if ANY parent statement was removed but we kept the
+    // Match alive.
+    _Atomic bool parentWasRemoved;
 
     // isCompleted is set to true once the Tcl evaluation that builds
     // the match is completed. As long as isCompleted is false,
@@ -259,11 +261,6 @@ typedef struct Hold {
     StatementRef statement;
 } Hold;
 
-typedef struct StatementRefList {
-    StatementRef ref;
-    struct StatementRefList* next;
-} StatementRefList;
-
 typedef struct AtomicallyVersion {
     int number;
 
@@ -276,12 +273,18 @@ typedef struct AtomicallyVersion {
     // negative.
     int _Atomic inflightCount;
 
-    // This is used as new statements are created within the
-    // version. When a newer version converges (or when the Atomically
-    // times out), we walk all older versions' statementLists and, on
-    // each statement in the older version's statementList, decr its
-    // parentCount and wipe away its version pointer.
-    StatementRefList* _Atomic statementList;
+    // When you do When -atomically, every time its body executes, it
+    // produces a Match and a fresh AtomicallyVersion. That Match is
+    // the rootMatch of the AtomicallyVersion. The rootMatch (and
+    // therefore all descendant statements) is artificially kept alive
+    // as long as the AtomicallyVersion hasn't been
+    // invalidated. (matchRemoveSelf won't go through if
+    // match->atomicallyVersion->rootMatch is match.)
+    //
+    // Invalidation: When a newer version converges (or when the
+    // Atomically times out), we walk all older versions' rootMatches
+    // and NULL them out.
+    Match* _Atomic rootMatch;
 } AtomicallyVersion;
 
 typedef struct AtomicallyVersionList {
@@ -445,9 +448,6 @@ StatementRef statementRef(Db* db, Statement* stmt) {
     };
 }
 
-static void atomicallyVersionClearStatementList(Db* db, AtomicallyVersion* atomicallyVersion);
-static bool atomicallyVersionAddToStatementList(AtomicallyVersion* atomicallyVersion,
-                                                Db* db, StatementRef stmt);
 // Creates a new statement. Internal helper for the DB, not callable
 // from the outside (they need to insert into the DB as a complete
 // operation). Note: clause ownership transfers to the DB, which then
@@ -486,29 +486,13 @@ static StatementRef statementNew(Db* db, Clause* clause,
     // inflightCount must start incremented so that this
     // atomicallyVersion never reports convergence (inflightCount = 0)
     // before the first reaction is dispatched.
-    if (atomicallyVersion != NULL &&
-        atomicallyVersionAddToStatementList(atomicallyVersion, db,
-                                            statementRef(db, stmt))) {
-
-        int oldInflightCount;
-        int newInflightCount;
-        do {
-            oldInflightCount = atomicallyVersion->inflightCount;
-            if (oldInflightCount == -1) {
-                newInflightCount = 1;
-            } else {
-                newInflightCount = oldInflightCount + 1;
-            }
-        } while (!atomic_compare_exchange_weak(&atomicallyVersion->inflightCount,
-                                               &oldInflightCount,
-                                               newInflightCount));
-
-        stmt->parentCount = 2;
+    if (atomicallyVersion != NULL) {
+        atomicallyVersion->inflightCount++;
         stmt->atomicallyVersion = atomicallyVersion;
     } else {
-        stmt->parentCount = 1;
         stmt->atomicallyVersion = NULL;
     }
+    stmt->parentCount = 1;
 
     destructorSetInit(&stmt->destructorSet);
     pthread_mutex_init(&stmt->destructorSetMutex, NULL);
@@ -627,60 +611,6 @@ bool statementTryIncrParentCount(Statement* stmt) {
     } while (!atomic_compare_exchange_weak(&stmt->parentCount, &oldParentCount,
                                            newParentCount));
     return true;
-}
-
-
-static bool atomicallyVersionAddToStatementList(AtomicallyVersion* atomicallyVersion,
-                                                Db* db, StatementRef stmtRef) {
-    if (atomicallyVersion == NULL) return false;
-
-    /* printf("atomicallyVersionAddToRemoveList(%p)\n", atomicallyVersion); */
-    StatementRefList* newNode = malloc(sizeof(StatementRefList));
-    newNode->ref = stmtRef;
-    newNode->next = NULL;
-
-    StatementRefList* oldList;
-    do {
-        oldList = atomicallyVersion->statementList;
-        if (oldList == (StatementRefList *)-1) return false;
-        newNode->next = oldList;
-    } while (!atomic_compare_exchange_weak(&atomicallyVersion->statementList,
-                                           &oldList,
-                                           newNode));
-
-    return true;
-}
-static void atomicallyVersionClearStatementList(Db* db, AtomicallyVersion* atomicallyVersion) {
-    // Atomically swap out the entire list to get exclusive ownership.
-    // This prevents races where multiple threads try to clear the same version.
-    StatementRefList* current;
-    do {
-        current = atomicallyVersion->statementList;
-        if (current == NULL) {
-            // List already cleared, nothing to do
-            return;
-        }
-    } while (!atomic_compare_exchange_weak(&atomicallyVersion->statementList,
-                                           &current,
-                                           (StatementRefList *)-1));
-
-    /* printf("atomicallyVersionDoRemoveList(%p)\n", atomicallyVersion); */
-    // Now we have exclusive ownership of the list
-    while (current != NULL) {
-        StatementRefList* next = current->next;
-
-        Statement* stmt = statementAcquire(db, current->ref);
-        /* printf("  stmt %p\n", stmt); */
-        if (stmt != NULL) {
-            if (--stmt->parentCount == 0) {
-                statementRemoveSelf(db, stmt, true);
-            }
-            stmt->atomicallyVersion = NULL;
-            statementRelease(db, stmt);
-        }
-        free(current);
-        current = next;
-    }
 }
 
 void statementDecrParentCountAndMaybeRemoveSelf(Db* db, Statement* stmt) {
@@ -841,6 +771,7 @@ static MatchRef matchNew(Db* db,
     // We should have exclusive access to match right now.
 
     match->childStatements = listOfEdgeToNew(8);
+    match->parentWasRemoved = false;
 
     pthread_mutexattr_t mta;
     pthread_mutexattr_init(&mta);
@@ -870,6 +801,9 @@ static void matchDestroy(Match* match) {
 AtomicallyVersion* matchAtomicallyVersion(Match* m) {
     return m->atomicallyVersion;
 }
+void matchSetAtomicallyVersion(Match* m, AtomicallyVersion* a) {
+    m->atomicallyVersion = a;
+}
 
 static bool statementChecker(void* db, uint64_t ref) {
     return statementCheck((Db*) db, (StatementRef) { .val = ref });
@@ -897,6 +831,16 @@ extern ThreadControlBlock threads[];
 extern void traceItem(char* buf, size_t bufsz, WorkQueueItem item);
 void matchRemoveSelf(Db* db, Match* match) {
     /* assert(match > &db->matchPool[0] && match < &db->matchPool[65536]); */
+    if (match->atomicallyVersion != NULL &&
+        match->atomicallyVersion->rootMatch == match &&
+        ((match->atomicallyVersion->atomically->latestConvergedVersion == NULL) ||
+         match->atomicallyVersion->number <
+         match->atomicallyVersion->atomically->latestConvergedVersion->number)) {
+        // Skip this removal; this is a root match owned by an
+        // AtomicallyVersion; leave it to the atomically reaper.
+        match->parentWasRemoved = true;
+        return;
+    }
 
     // Walk through each child statement and remove this match as a
     // parent of that statement.
@@ -998,7 +942,8 @@ ResultSet* dbQuery(Db* db, Clause* pattern) {
     return resultSet;
 }
 
-AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key) {
+AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key,
+                                                 MatchRef rootMatchRef) {
     mutexLock(&db->atomicallysMutex);
 
     Atomically* atomically = NULL;
@@ -1035,11 +980,12 @@ AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key) {
     // FIXME: assert old values are bad, do something with refcount
 
     atomicallyVersion->number = atomically->nextNumber++;
-    // An AtomicallyVersion starts with negative inflight count
-    // because we want it to be invalid / not count as converged until
-    // a statement actually goes out under it.
-    atomicallyVersion->inflightCount = -1;
-    atomicallyVersion->statementList = NULL;
+    // An AtomicallyVersion should start unconverged, assuming that it
+    // always gets set into a currently running (incomplete) match
+    // that can mark it as converged when done.
+    atomicallyVersion->inflightCount = 1;
+    atomicallyVersion->rootMatch = matchAcquire(db, rootMatchRef);
+    assert(atomicallyVersion->rootMatch != NULL);
 
     // Add this version to atomically->allVersions list
     AtomicallyVersionList* newNode = malloc(sizeof(AtomicallyVersionList));
@@ -1070,22 +1016,26 @@ static void dbAtomicallyReapAllVersions(Db* db, Atomically* atomically,
     // Now we have exclusive ownership of allVersions. Process it to
     // separate old versions.
     AtomicallyVersionList* newList = NULL;
-    AtomicallyVersionList* current = allVersions;
-    while (current != NULL) {
-        AtomicallyVersionList* next = current->next;
-        if (current->version != NULL &&
+    AtomicallyVersionList* x = allVersions;
+    while (x != NULL) {
+        AtomicallyVersionList* next = x->next;
+        if (x->version != NULL &&
             (newlyConvergedVersion == NULL ||
-             current->version->number < newlyConvergedVersion->number) &&
-            (!onlyReapConvergedVersions || current->version->inflightCount == 0)) {
+             x->version->number < newlyConvergedVersion->number) &&
+            (!onlyReapConvergedVersions || x->version->inflightCount == 0)) {
             // Old version - clear and free it
-            atomicallyVersionClearStatementList(db, current->version);
-            free(current);
+            Match* rootMatch = x->version->rootMatch;
+            x->version->rootMatch = NULL;
+            if (rootMatch->parentWasRemoved) {
+                matchRemoveSelf(db, rootMatch);
+            }
+            free(x);
         } else {
             // Keep this version - add to new list
-            current->next = newList;
-            newList = current;
+            x->next = newList;
+            newList = x;
         }
-        current = next;
+        x = next;
     }
 
     // Write back the filtered list. We need to handle
@@ -1133,9 +1083,6 @@ int dbAtomicallyVersionInflightCount(AtomicallyVersion* atomicallyVersion) {
 }
 int dbAtomicallyVersionNumber(AtomicallyVersion* atomicallyVersion) {
     return atomicallyVersion->number;
-}
-void* dbAtomicallyVersionStatementList(AtomicallyVersion* atomicallyVersion) {
-    return (void*)atomicallyVersion->statementList;
 }
 const char* dbAtomicallyVersionKey(AtomicallyVersion* atomicallyVersion) {
     return atomicallyVersion->atomically->key;
@@ -1237,6 +1184,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
         if (parentMatch == NULL) {
             setReusedStatementRef(STATEMENT_REF_NULL);
 
+            /* fprintf(stderr, "parentMatch == NULL; aborted Say (%s)\n", clauseToString(clause)); */
             clauseFree(clause);
             return NULL; // Abort!
         }
@@ -1248,6 +1196,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
 
             setReusedStatementRef(STATEMENT_REF_NULL);
 
+            /* fprintf(stderr, "parentMatch->childStatements == NULL; aborted Say (%s)\n", clauseToString(clause)); */
             clauseFree(clause);
             return NULL; // Abort!
         }
@@ -1304,17 +1253,6 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
                         pthread_mutex_unlock(&stmt->destructorSetMutex);
                         pthread_mutex_unlock(&parentMatch->destructorSetMutex);
                     }
-
-                    // When reusing a statement, check if we need to adopt it into
-                    // a new atomically version
-                    if (stmt->atomicallyVersion == NULL && atomicallyVersion != NULL) {
-                        if (atomicallyVersionAddToStatementList(atomicallyVersion, db,
-                                                                statementRef(db, stmt))) {
-                            stmt->atomicallyVersion = atomicallyVersion;
-                            stmt->parentCount++;  // Increment for the new version ownership
-                        }
-                    }
-                    // Don't switch between non-NULL versions to avoid double-decrements
 
                     statementRelease(db, stmt);
 

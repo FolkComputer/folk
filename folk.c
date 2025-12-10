@@ -601,13 +601,13 @@ static int __threadIdFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return JIM_OK;
 }
 
-static int __makeFreshAtomicallyVersionOnKeyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+static int __setFreshAtomicallyVersionOnKeyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
     const char* key = Jim_String(argv[1]);
-
-    AtomicallyVersion *atomicallyVersion = dbFreshAtomicallyVersionOnKey(db, key);
-    char ret[100]; snprintf(ret, 100, "(AtomicallyVersion*) %p", atomicallyVersion);
-    Jim_SetResultString(interp, ret, strlen(ret));
+    self->currentAtomicallyVersion =
+        dbFreshAtomicallyVersionOnKey(db, key,
+                                      matchRef(db, self->currentMatch));
+    matchSetAtomicallyVersion(self->currentMatch, self->currentAtomicallyVersion);
     return JIM_OK;
 }
 static int __currentAtomicallyVersionFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
@@ -690,7 +690,7 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "__db", __dbFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__threadId", __threadIdFunc, NULL, NULL);
 
-    Jim_CreateCommand(interp, "__makeFreshAtomicallyVersionOnKey", __makeFreshAtomicallyVersionOnKeyFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__setFreshAtomicallyVersionOnKey", __setFreshAtomicallyVersionOnKeyFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__currentAtomicallyVersion", __currentAtomicallyVersionFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "setpgrp", setpgrpFunc, NULL, NULL);

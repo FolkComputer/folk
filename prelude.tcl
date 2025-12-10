@@ -486,10 +486,8 @@ proc When {args} {
         } elseif {$term eq "-serially"} {
             set isSerially true
         } elseif {$term eq "-atomically"} {
-            set key [list [uplevel set this] $sourceInfo $pattern]
-            set atomicallyVersion [__makeFreshAtomicallyVersionOnKey $key]
+            set atomicallyVersion "fresh"
         } elseif {$term eq "-nonatomically"} {
-            # FIXME: leak: need to destroy atomicallyVersion if non-null
             set atomicallyVersion {}
         } else {
             lappend pattern $term
@@ -498,19 +496,17 @@ proc When {args} {
 
     if {$atomicallyVersion eq "default"} {
         set inheritAtomicallyVersion [__currentAtomicallyVersion]
-
         if {$inheritAtomicallyVersion eq {}} {
             # HACK: Default atomically on certain patterns:
             if {([lrange $pattern 1 end-1] eq {has camera slice} ||
                  [lrange $pattern 0 end-1] eq {the clock time is})} {
 
-                set key [list [uplevel set this] $sourceInfo $pattern]
-                set atomicallyVersion [__makeFreshAtomicallyVersionOnKey $key]
+                set atomicallyVersion "fresh"
             } else {
                 set atomicallyVersion {}
             }
         } else {
-            set atomicallyVersion {}
+            set atomicallyVersion $inheritAtomicallyVersion
         }
     }
 
@@ -530,6 +526,16 @@ proc When {args} {
             }
         }
         set body "$prologue\n$body"
+    }
+
+    if {$atomicallyVersion eq "fresh"} {
+        # The AtomicallyVersion should be set _inside_ the When body,
+        # uniquely for each execution.
+        set key [list [uplevel set this] $sourceInfo $pattern]
+        set prologue [list __setFreshAtomicallyVersionOnKey $key]
+        set body "$prologue;$body"
+
+        set atomicallyVersion {}
     }
 
     lassign [desugarWhen $pattern $body] statement boundVars

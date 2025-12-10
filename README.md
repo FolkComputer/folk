@@ -730,6 +730,11 @@ isn't meeting timing
 - ~~make web handlers inherit lexical scope~~
 - gadget-platinum outline blink
 - remaining blink on clock time
+  - the problem is that the _root_ match has no atomic marker attached
+    in the db (the When the clock time is /t/), which means that any
+    direct child statements don't get made if they aren't made before
+    the root match is revoked.
+    - we need to also find a way to pin the root match
 - slowdown where sysmon starts taking forever bc of endless chains of
   destructors/atomicallyversions
   - warn if sysmon is too slow?

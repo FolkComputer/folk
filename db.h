@@ -80,6 +80,7 @@ void matchRelease(Db* db, Match* m);
 bool matchCheck(Db* db, MatchRef ref);
 
 AtomicallyVersion* matchAtomicallyVersion(Match* m);
+void matchSetAtomicallyVersion(Match* m, AtomicallyVersion* a);
 
 void matchAddDestructor(Match* m, Destructor* d);
 
@@ -115,12 +116,12 @@ ResultSet* dbQuery(Db* db, Clause* pattern);
 // afterward). The returned pointer can be passed to Match and
 // Statement insertion to attach them to that version. The
 // AtomicallyVersion is guaranteed not to ever be freed.
-AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key);
+AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key,
+                                                 MatchRef rootMatchRef);
 
 bool dbAtomicallyVersionHasConverged(AtomicallyVersion* atomicallyVersion);
 int dbAtomicallyVersionInflightCount(AtomicallyVersion* atomicallyVersion);
 int dbAtomicallyVersionNumber(AtomicallyVersion* atomicallyVersion);
-void* dbAtomicallyVersionStatementList(AtomicallyVersion* atomicallyVersion);
 const char* dbAtomicallyVersionKey(AtomicallyVersion* atomicallyVersion);
 
 void dbInflightIncr(Statement* stmt);
