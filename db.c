@@ -905,7 +905,7 @@ void matchRemoveSelf(Db* db, Match* match) {
     if (match->atomicallyVersion != NULL &&
         match->atomicallyVersion->rootMatch == match &&
         ((match->atomicallyVersion->atomically->latestConvergedVersion == NULL) ||
-         match->atomicallyVersion->number <
+         match->atomicallyVersion->number >=
          match->atomicallyVersion->atomically->latestConvergedVersion->number)) {
         // Skip this removal; this is a root match owned by an
         // AtomicallyVersion; leave it to the atomically reaper.
@@ -1276,7 +1276,9 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
 
             setReusedStatementRef(STATEMENT_REF_NULL);
 
-            /* fprintf(stderr, "parentMatch->childStatements == NULL; aborted Say (%s)\n", clauseToString(clause)); */
+            /* fprintf(stderr, "parentMatch->childStatements == NULL (%p); aborted Say (%s)\n", */
+            /*         parentMatch, */
+            /*         clauseToString(clause)); */
             clauseFree(clause);
             return NULL; // Abort!
         }
