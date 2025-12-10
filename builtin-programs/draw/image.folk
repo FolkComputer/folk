@@ -163,7 +163,11 @@ When the image library is /imageLib/ &\
     if {![info exists options]} { return }
 
     fn loadImage
-    set im [loadImage $im]
+    try {
+        set im [loadImage $im]
+    } on error {e opts} {
+        Say $p has error $e with info $opts
+    }
 
     set width [/ [dict getdef $geom left [dict get $geom width]] 1.5]
     set derivedHeight $(double([$imageLib Image_height $im])/[$imageLib Image_width $im] * $width)
