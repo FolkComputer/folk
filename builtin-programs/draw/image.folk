@@ -167,6 +167,7 @@ When the image library is /imageLib/ &\
         set im [loadImage $im]
     } on error {e opts} {
         Say $p has error $e with info $opts
+        return
     }
 
     set width [/ [dict getdef $geom left [dict get $geom width]] 1.5]
