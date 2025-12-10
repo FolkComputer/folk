@@ -67,10 +67,10 @@ void sysmon() {
         // detect leaks (I think system RAM is good for killing but
         // process RAM use is better for leak diagnosis).
         struct rusage ru; getrusage(RUSAGE_SELF, &ru);
-        /* fprintf(stderr, "Check avail system RAM: %d MB / %d MB\n" */
-        /*         "Check self RAM usage: %ld MB\n", */
-        /*         freeRamMb, totalRamMb, */
-        /*         ru.ru_maxrss / 1024); */
+        fprintf(stderr, "Check avail system RAM: %d MB / %d MB\n"
+                "Check self RAM usage: %ld MB\n",
+                freeRamMb, totalRamMb,
+                ru.ru_maxrss / 1024);
         // TODO: Report this result as a statement.
         if (freeRamMb < 200) {
             // Hard die if we are likely to run out of RAM, because

@@ -834,7 +834,7 @@ void matchRemoveSelf(Db* db, Match* match) {
     if (match->atomicallyVersion != NULL &&
         match->atomicallyVersion->rootMatch == match &&
         ((match->atomicallyVersion->atomically->latestConvergedVersion == NULL) ||
-         match->atomicallyVersion->number <
+         match->atomicallyVersion->number >=
          match->atomicallyVersion->atomically->latestConvergedVersion->number)) {
         // Skip this removal; this is a root match owned by an
         // AtomicallyVersion; leave it to the atomically reaper.
