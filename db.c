@@ -329,7 +329,7 @@ typedef struct Db {
     // overwrite out-of-date Holds for a key as soon as a newer one
     // comes in, without having to actually emit and react to the
     // statement.
-    Hold holds[256];
+    Hold holds[512];
     Mutex holdsMutex;
 
     // One for each `atomically` key.
