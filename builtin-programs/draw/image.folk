@@ -173,7 +173,7 @@ When the image library is /imageLib/ &\
     }
     Wish to draw an image onto $p with \
         image $im \
-        position [list 0 0] \
+        position [dict getdef $options position [list 0 0]] \
         anchor topleft width [dict getdef $options width $width]
 
 }
