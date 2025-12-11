@@ -109,10 +109,6 @@ $cc proc jpegData {Jpeg jpeg} Jim_Obj* {
     return Jim_NewStringObj(interp, (char *)jpeg.start, jpeg.length);
 }
 
-$cc proc freeJpeg {Jpeg jpeg} void {
-    if (jpeg.start) tjFree(jpeg.start);
-}
-
 $cc struct Image {
     uint32_t width;
     uint32_t height;
@@ -325,12 +321,17 @@ $cc proc jpegSubimage {Jpeg jpeg double x double y double subwidth double subhei
     transform.op = TJXOP_NONE;
     transform.options = TJXOPT_CROP;
 
-    unsigned char* outBuf = NULL;
-    unsigned long outSize = 0;
-
-    if (tjTransform(handle, jpeg.start, jpeg.length, 1, &outBuf, &outSize, &transform, 0) != 0) {
+    // Pre-allocate buffer with worst-case size
+    unsigned long outSize = tjBufSize(cropWidth, cropHeight, TJSAMP_444);
+    unsigned char* outBuf = malloc(outSize);
+    if (!outBuf) {
         tjDestroy(handle);
-        if (outBuf) tjFree(outBuf);
+        FOLK_ERROR("jpegSubimage: malloc failed\n");
+    }
+
+    if (tjTransform(handle, jpeg.start, jpeg.length, 1, &outBuf, &outSize, &transform, TJFLAG_NOREALLOC) != 0) {
+        tjDestroy(handle);
+        free(outBuf);
         FOLK_ERROR("jpegSubimage: Transform failed: %s\n", tjGetErrorStr());
     }
 

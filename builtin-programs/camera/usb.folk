@@ -320,7 +320,6 @@ When the image library is /imageLib/ &\
             set jpeg [$camLib cameraFrameJpeg $camObj]
 
             if {[info exists crop]} {
-                if 0 {error "FIXME: Do the jpeg crop"}
                 dict with crop {
                     set croppedJpeg [$imageLib jpegSubimage $jpeg \
                                          $x $y $width $height]
@@ -331,15 +330,10 @@ When the image library is /imageLib/ &\
             }
             set timestamp [expr {$ms / 1000.0}]
             tracy zoneName "camera/usb: $timestamp"
-            if {[info exists crop]} {
-                Hold! -key [list camera $camera jpeg] \
-                    Claim camera $camera has jpeg frame $croppedJpeg at timestamp $timestamp \
-                    -destructor [list $imageLib freeJpeg $croppedJpeg]
-            } else {
-                Hold! -key [list camera $camera jpeg] \
-                    Claim camera $camera has jpeg frame $croppedJpeg at timestamp $timestamp \
-                    -destructor [list $camLib jpegFree $croppedJpeg]
-            }
+
+            Hold! -key [list camera $camera jpeg] \
+                Claim camera $camera has jpeg frame $croppedJpeg at timestamp $timestamp \
+                -destructor [list $camLib jpegFree $croppedJpeg]
 
             tracy zoneEnd
 
