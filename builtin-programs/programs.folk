@@ -16,7 +16,7 @@ When -noncapturing the program save directory is /saveDir/ {
                 set fd [open "$saveDir/$obj.folk.temp" r]
             } else {
                 if {![file exists "$saveDir/$obj.folk"] &&
-                    ($::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial" || $::thisNode eq "gadget-platinum")} {
+                    ($::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial" || $::thisNode eq "gadget-platinum" || $::thisNode eq "gadget-pink")} {
                     # HACK: 'Page fault' to folk-hex, try getting page from
                     # there. Ideally we would have some general (Avahi?)
                     # way of finding the 'authoritative' node on the local
