@@ -1536,7 +1536,7 @@ static void workerInfo(int threadIndex) {
     printf("Elapsed time: %.3f us\n", elapsed);
 }
 
-void workerReactivateOrSpawn(int64_t msSinceBoot) {
+void workerReactivateOrSpawn(int64_t msSinceBoot, int targetNotBlockedWorkersCount) {
     int nLivingThreads = 0;
     for (int i = 0; i < THREADS_MAX; i++) {
         if (threads[i].tid != 0) {
@@ -1547,7 +1547,9 @@ void workerReactivateOrSpawn(int64_t msSinceBoot) {
             }
         }
     }
-    if (nLivingThreads > 20) {
+    // Arbitrarily picked: we don't want to have more than 15
+    // background threads hanging around.
+    if (nLivingThreads > targetNotBlockedWorkersCount + 15) {
         if (msSinceBoot > 10000) {
             // (Don't print a warning before 10 seconds have elapsed
             // since boot, because we expect to have to do a lot of
@@ -1639,21 +1641,6 @@ int main(int argc, char** argv) {
 
     globalWorkQueueInit();
 
-    {
-        // Spawn the sysmon thread, which isn't managed the same way
-        // as worker threads, and which doesn't run a Folk
-        // interpreter. It's just pure C. It's also guaranteed(?) to
-        // not run more than every few milliseconds, so it's ok to let
-        // it run on the free core.
-        sysmonInit();
-        pthread_t sysmonTh;
-        pthread_create(&sysmonTh, NULL, sysmonMain, NULL);
-    }
-
-    /* struct sched_param param; */
-    /* param.sched_priority = 1; */
-    /* pthread_setschedparam(pthread_self(), SCHED_FIFO, &param); */
-
 #ifdef __linux__
     // Count CPUs so we can set up the thread pool to align with the
     // available cores.
@@ -1663,15 +1650,29 @@ int main(int argc, char** argv) {
     printf("main: CPU_COUNT = %d\n", cpuCount);
     assert(cpuCount >= 2);
 
+    int cpuUsableCount = cpuCount - 1; // will exclude CPU 0 later.
+#else
+    // HACK: for macOS.
+    int cpuUsableCount = 8;
+#endif
+
+    {
+        // Spawn the sysmon thread, which isn't managed the same way
+        // as worker threads, and which doesn't run a Folk
+        // interpreter. It's just pure C. It's also guaranteed(?) to
+        // not run more than every few milliseconds, so it's ok to let
+        // it run on the free core.
+        sysmonInit(cpuUsableCount > 18 ? 18 : cpuUsableCount);
+        pthread_t sysmonTh;
+        pthread_create(&sysmonTh, NULL, sysmonMain, NULL);
+    }
+
+#ifdef __linux__
     // Disable CPU 0 entirely; we will leave it to Linux. Goal:
     // exclude one CPU from Folk, so that Linux can still accept ssh
     // connections and stuff like that if Folk goes off the rails.
     CPU_CLR(0, &cs);
     sched_setaffinity(0, sizeof(cs), &cs);
-    int cpuUsableCount = cpuCount - 1;
-#else
-    // HACK: for macOS.
-    int cpuUsableCount = 8;
 #endif
 
     threadCount = 1; // i.e., this current thread.

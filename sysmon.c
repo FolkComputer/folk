@@ -23,7 +23,7 @@ extern void trace(const char* format, ...);
 extern void HoldStatementGlobally(const char *key, double version,
                                   Clause *clause, long keepMs, const char *destructorCode,
                                   const char *sourceFileName, int sourceLineNumber);
-extern void workerReactivateOrSpawn(int64_t msSinceBoot);
+extern void workerReactivateOrSpawn(int64_t msSinceBoot, int targetNotBlockedWorkersCount);
 extern void dbGarbageCollectAtomicallys(Db* db, int64_t now);
 
 // How many ms are in each tick? You probably want this to be less
@@ -41,9 +41,11 @@ RemoveLater removeLater[REMOVE_LATER_MAX];
 int64_t _Atomic tick;
 
 int64_t timestampAtBoot;
+int targetNotBlockedWorkersCount;
 
-void sysmonInit() {
+void sysmonInit(int targetCount) {
     timestampAtBoot = timestamp_get(CLOCK_MONOTONIC);
+    targetNotBlockedWorkersCount = targetCount;
 }
 
 void sysmon() {
@@ -67,10 +69,10 @@ void sysmon() {
         // detect leaks (I think system RAM is good for killing but
         // process RAM use is better for leak diagnosis).
         struct rusage ru; getrusage(RUSAGE_SELF, &ru);
-        /* fprintf(stderr, "Check avail system RAM: %d MB / %d MB\n" */
-        /*         "Check self RAM usage: %ld MB\n", */
-        /*         freeRamMb, totalRamMb, */
-        /*         ru.ru_maxrss / 1024); */
+        fprintf(stderr, "Check avail system RAM: %d MB / %d MB\n"
+                "Check self RAM usage: %ld MB\n",
+                freeRamMb, totalRamMb,
+                ru.ru_maxrss / 1024);
         // TODO: Report this result as a statement.
         if (freeRamMb < 200) {
             // Hard die if we are likely to run out of RAM, because
@@ -154,11 +156,20 @@ void sysmon() {
             threads[i].wasObservedAsBlocked = true;
         }
     }
+
+    // Keep a log of the last 3 notBlockedWorkersCount values
+    static int notBlockedWorkersLog[3] = {100, 100, 100}; // Initialize high to avoid early spawns
+    notBlockedWorkersLog[0] = notBlockedWorkersLog[1];
+    notBlockedWorkersLog[1] = notBlockedWorkersLog[2];
+    notBlockedWorkersLog[2] = notBlockedWorkersCount;
+
     // TODO: Use NCPUS for this.
-    if (notBlockedWorkersCount < 3) {
-        // Too many threads are blocked on I/O. Let's pull in another
-        // one to occupy a CPU and do Folk work.
-        workerReactivateOrSpawn(currentMs);
+    if (notBlockedWorkersLog[0] < targetNotBlockedWorkersCount &&
+        notBlockedWorkersLog[1] < targetNotBlockedWorkersCount &&
+        notBlockedWorkersLog[2] < targetNotBlockedWorkersCount) {
+        // All 3 recent samples show too many threads blocked on I/O.
+        // Let's pull in another one to occupy a CPU and do Folk work.
+        workerReactivateOrSpawn(currentMs, targetNotBlockedWorkersCount);
     }
 #endif
 
