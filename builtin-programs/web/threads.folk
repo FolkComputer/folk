@@ -53,6 +53,10 @@ set threadMonitorLib [apply {{} {
                            workQueueObj);
 
         Jim_DictAddElement(interp, ret,
+                           Jim_NewStringObj(interp, "isDeactivated", -1),
+                           Jim_NewIntObj(interp, thread->isDeactivated));
+
+        Jim_DictAddElement(interp, ret,
                            Jim_NewStringObj(interp, "currentItemStartTimestamp", -1),
                            Jim_ObjPrintf("%" PRId64, thread->currentItemStartTimestamp));
 
@@ -166,7 +170,8 @@ Wish the web server handles route "/threads" with handler {
             set allocs [dict getdef $workerInfo _allocs -1]
             set frees [dict getdef $workerInfo _frees -1]
             subst {<li style="[expr {$workerInfo eq "" ? "color: gray" : ""}]">
-                $taskdir: [regexp -inline {State:[^\n]*\n} $status]<br>
+                $taskdir: [regexp -inline {State:[^\n]*\n} $status]
+                [expr {$workerInfo(isDeactivated) ? "(deactivated)" : "(active)"}]<br>
                   [if {$workerInfo eq ""} {subst {
                       (Not a Folk worker thread)<br>
                   }} else {
