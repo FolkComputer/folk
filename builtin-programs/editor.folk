@@ -182,6 +182,12 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                     }
                     Control_p {
                         Notify: print code $code
+
+                        # Give the user some feedback
+                        Hold! -key printed-alert:$view \
+                            Wish $view is labelled "Printed!"
+                        sleep 0.25
+                        Hold! -key printed-alert:$view {}
                     }
                     Control_t {
                         # remove the edited code to restore the program to its original code
