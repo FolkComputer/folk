@@ -322,7 +322,7 @@ When the image library is /imageLib/ &\
             if {[info exists crop]} {
                 if 0 {error "FIXME: Do the jpeg crop"}
                 dict with crop {
-                    set croppedJpeg [$imageLib subimageJpeg $jpeg \
+                    set croppedJpeg [$imageLib jpegSubimage $jpeg \
                                          $x $y $width $height]
                 }
                 $camLib jpegFree $jpeg

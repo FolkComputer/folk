@@ -266,16 +266,16 @@ $cc proc subimage {Image im double x double y double subwidth double subheight} 
     };
 }
 
-$cc proc subimageJpeg {Jpeg jpeg double x double y double subwidth double subheight} Jpeg {
+$cc proc jpegSubimage {Jpeg jpeg double x double y double subwidth double subheight} Jpeg {
     tjhandle handle = tjInitTransform();
     if (handle == NULL) {
-        FOLK_ERROR("subimageJpeg: Failed to init transform\n");
+        FOLK_ERROR("jpegSubimage: Failed to init transform\n");
     }
 
     int width, height, subsamp, colorspace;
     if (tjDecompressHeader3(handle, jpeg.start, jpeg.length, &width, &height, &subsamp, &colorspace) != 0) {
         tjDestroy(handle);
-        FOLK_ERROR("subimageJpeg: Failed to read header: %s\n", tjGetErrorStr());
+        FOLK_ERROR("jpegSubimage: Failed to read header: %s\n", tjGetErrorStr());
     }
 
     int mcuWidth, mcuHeight;
@@ -288,12 +288,12 @@ $cc proc subimageJpeg {Jpeg jpeg double x double y double subwidth double subhei
         case TJSAMP_411: mcuWidth = 32; mcuHeight = 8; break;
         default:
             tjDestroy(handle);
-            FOLK_ERROR("subimageJpeg: Unsupported subsampling: %d\n", subsamp);
+            FOLK_ERROR("jpegSubimage: Unsupported subsampling: %d\n", subsamp);
     }
 
     if ((int)x % mcuWidth != 0 || (int)y % mcuHeight != 0) {
         tjDestroy(handle);
-        FOLK_ERROR("subimageJpeg: Crop start not aligned to MCU: %d %d\n", (int)x, (int)y);
+        FOLK_ERROR("jpegSubimage: Crop start not aligned to MCU: %d %d\n", (int)x, (int)y);
     }
 
     int startX = ((int)x / mcuWidth) * mcuWidth;
@@ -301,7 +301,7 @@ $cc proc subimageJpeg {Jpeg jpeg double x double y double subwidth double subhei
 
     if ((int)subwidth % mcuWidth != 0 || (int)subheight % mcuHeight != 0) {
         tjDestroy(handle);
-        FOLK_ERROR("subimageJpeg: Crop size not aligned to MCU: %d %d\n", (int)subwidth, (int)subheight);
+        FOLK_ERROR("jpegSubimage: Crop size not aligned to MCU: %d %d\n", (int)subwidth, (int)subheight);
     }
 
     int endX = startX + (int)subwidth;
@@ -315,7 +315,7 @@ $cc proc subimageJpeg {Jpeg jpeg double x double y double subwidth double subhei
 
     if (cropWidth <= 0 || cropHeight <= 0) {
         tjDestroy(handle);
-        FOLK_ERROR("subimageJpeg: Invalid crop size after MCU alignment\n");
+        FOLK_ERROR("jpegSubimage: Invalid crop size after MCU alignment\n");
     }
 
     tjregion region = { .x = startX, .y = startY, .w = cropWidth, .h = cropHeight };
@@ -331,7 +331,7 @@ $cc proc subimageJpeg {Jpeg jpeg double x double y double subwidth double subhei
     if (tjTransform(handle, jpeg.start, jpeg.length, 1, &outBuf, &outSize, &transform, 0) != 0) {
         tjDestroy(handle);
         if (outBuf) tjFree(outBuf);
-        FOLK_ERROR("subimageJpeg: Transform failed: %s\n", tjGetErrorStr());
+        FOLK_ERROR("jpegSubimage: Transform failed: %s\n", tjGetErrorStr());
     }
 
     tjDestroy(handle);
