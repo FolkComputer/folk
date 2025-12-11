@@ -175,5 +175,42 @@ Claim the db library is [apply {{} {
         return retObj;
     }
 
+    $cc proc atomicallys {Db* db} Jim_Obj* {
+        Jim_Obj* retObj = Jim_NewListObj(interp, NULL, 0);
+
+        mutexLock(&db->atomicallysMutex);
+        for (int i = 0; i < sizeof(db->atomicallys)/sizeof(db->atomicallys[0]); i++) {
+            Atomically* atomically = &db->atomicallys[i];
+            if (atomically->key == NULL) { continue; }
+
+            // Count versions in allVersions list
+            int versionCount = 0;
+            AtomicallyVersionList* vl = atomically->allVersions;
+            while (vl != NULL) {
+                versionCount++;
+                vl = vl->next;
+            }
+
+            // Get latest converged version info
+            int latestConvergedNumber = -1;
+            if (atomically->latestConvergedVersion != NULL) {
+                latestConvergedNumber = atomically->latestConvergedVersion->number;
+            }
+
+            Jim_Obj* atomicallyObjv[] = {
+                Jim_NewStringObj(interp, atomically->key, -1),
+                Jim_NewIntObj(interp, latestConvergedNumber),
+                Jim_NewIntObj(interp, versionCount)
+            };
+
+            Jim_Obj* atomicallyObj = Jim_NewListObj(interp, atomicallyObjv,
+                                              sizeof(atomicallyObjv)/sizeof(atomicallyObjv[0]));
+            Jim_ListAppendElement(interp, retObj, atomicallyObj);
+        }
+        mutexUnlock(&db->atomicallysMutex);
+
+        return retObj;
+    }
+
     return [$cc compile]
 }}]
