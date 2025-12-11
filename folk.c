@@ -1554,8 +1554,8 @@ void workerReactivateOrSpawn(int64_t msSinceBoot, int targetNotBlockedWorkersCou
             // (Don't print a warning before 10 seconds have elapsed
             // since boot, because we expect to have to do a lot of
             // work at startup, and we don't want to spam stderr.)
-            fprintf(stderr, "folk: workerReactivateOrSpawn: "
-                    "Not spawning new thread; too many already\n");
+            /* fprintf(stderr, "folk: workerReactivateOrSpawn: " */
+            /*         "Not spawning new thread; too many already\n"); */
         }
 
         /* { */
@@ -1570,7 +1570,7 @@ void workerReactivateOrSpawn(int64_t msSinceBoot, int targetNotBlockedWorkersCou
 
         return;
     }
-    fprintf(stderr, "workerSpawn\n");
+    fprintf(stderr, "folk: workerReactivateOrSpawn: Worker spawn\n");
     workerSpawn();
 }
 
