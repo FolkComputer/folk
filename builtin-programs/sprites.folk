@@ -9,7 +9,10 @@
 # - path get prepended with ~/folk-images/
 When the image library is /imageLib/ &\
      the image loader is /loadImage/ &\
-     /anyone/ wishes /p/ draws sprite /path/ with /frameCount/ frames and /columns/ columns {
+     /anyone/ wishes /p/ draws sprite /path/ with /...options/ {
+
+  set frames [dict get $options frames]
+  set columns [dict get $options columns]
 
   fn loadImage
   set im [loadImage $path]
@@ -26,7 +29,7 @@ When the image library is /imageLib/ &\
       set y [expr {($frameNumber % $rows) * $spriteHeight}]
 
       set subimage [$imageLib subimage $im $x $y $spriteWidth $spriteHeight]
-      Wish $p displays image $subimage
+      Wish $p displays image $subimage with {*}$options
   }
 }
 
