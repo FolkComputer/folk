@@ -156,10 +156,19 @@ void sysmon() {
             threads[i].wasObservedAsBlocked = true;
         }
     }
+
+    // Keep a log of the last 3 notBlockedWorkersCount values
+    static int notBlockedWorkersLog[3] = {100, 100, 100}; // Initialize high to avoid early spawns
+    notBlockedWorkersLog[0] = notBlockedWorkersLog[1];
+    notBlockedWorkersLog[1] = notBlockedWorkersLog[2];
+    notBlockedWorkersLog[2] = notBlockedWorkersCount;
+
     // TODO: Use NCPUS for this.
-    if (notBlockedWorkersCount < targetNotBlockedWorkersCount) {
-        // Too many threads are blocked on I/O. Let's pull in another
-        // one to occupy a CPU and do Folk work.
+    if (notBlockedWorkersLog[0] < targetNotBlockedWorkersCount &&
+        notBlockedWorkersLog[1] < targetNotBlockedWorkersCount &&
+        notBlockedWorkersLog[2] < targetNotBlockedWorkersCount) {
+        // All 3 recent samples show too many threads blocked on I/O.
+        // Let's pull in another one to occupy a CPU and do Folk work.
         workerReactivateOrSpawn(currentMs, targetNotBlockedWorkersCount);
     }
 #endif
