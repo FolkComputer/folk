@@ -114,9 +114,9 @@ When /view/ is an editor with /...options/ {
             Hold! -save -key view-state-of:$view {
                 lassign [$codeViewLib viewCharacterSize $geom $options] widthInCharacters heightInCharacters
 
+                Claim $view has max cursor x 0
                 Claim $view has view dimensions [list 0 0 $widthInCharacters $heightInCharacters]
                 Claim $view has cursor 0
-                Claim $view has max cursor x 0
             }
         }
     }
@@ -256,9 +256,9 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
             }
 
             Hold! -save -key view-state-of:$view {
+                Claim $view has max cursor x $maxCursorX
                 Claim $view has view dimensions [list $vpX $vpY $vpWidth $vpHeight]
                 Claim $view has cursor $cursor
-                Claim $view has max cursor x $maxCursorX
             }
         }
     }
