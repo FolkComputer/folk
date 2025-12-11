@@ -23,7 +23,7 @@ extern void trace(const char* format, ...);
 extern void HoldStatementGlobally(const char *key, double version,
                                   Clause *clause, long keepMs, const char *destructorCode,
                                   const char *sourceFileName, int sourceLineNumber);
-extern void workerReactivateOrSpawn(int64_t msSinceBoot);
+extern void workerReactivateOrSpawn(int64_t msSinceBoot, int targetNotBlockedWorkersCount);
 extern void dbGarbageCollectAtomicallys(Db* db, int64_t now);
 
 // How many ms are in each tick? You probably want this to be less
@@ -41,9 +41,11 @@ RemoveLater removeLater[REMOVE_LATER_MAX];
 int64_t _Atomic tick;
 
 int64_t timestampAtBoot;
+int targetNotBlockedWorkersCount;
 
-void sysmonInit() {
+void sysmonInit(int targetCount) {
     timestampAtBoot = timestamp_get(CLOCK_MONOTONIC);
+    targetNotBlockedWorkersCount = targetCount;
 }
 
 void sysmon() {
@@ -155,10 +157,10 @@ void sysmon() {
         }
     }
     // TODO: Use NCPUS for this.
-    if (notBlockedWorkersCount < 3) {
+    if (notBlockedWorkersCount < targetNotBlockedWorkersCount) {
         // Too many threads are blocked on I/O. Let's pull in another
         // one to occupy a CPU and do Folk work.
-        workerReactivateOrSpawn(currentMs);
+        workerReactivateOrSpawn(currentMs, targetNotBlockedWorkersCount);
     }
 #endif
 
