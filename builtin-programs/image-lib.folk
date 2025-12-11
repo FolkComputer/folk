@@ -109,6 +109,10 @@ $cc proc jpegData {Jpeg jpeg} Jim_Obj* {
     return Jim_NewStringObj(interp, (char *)jpeg.start, jpeg.length);
 }
 
+$cc proc freeJpeg {Jpeg jpeg} void {
+    if (jpeg.start) tjFree(jpeg.start);
+}
+
 $cc struct Image {
     uint32_t width;
     uint32_t height;
@@ -259,6 +263,82 @@ $cc proc subimage {Image im double x double y double subwidth double subheight} 
         .bytesPerRow = im.bytesPerRow,
         .data = subdata,
         .uniq = im.uniq
+    };
+}
+
+$cc proc subimageJpeg {Jpeg jpeg double x double y double subwidth double subheight} Jpeg {
+    tjhandle handle = tjInitTransform();
+    if (handle == NULL) {
+        FOLK_ERROR("subimageJpeg: Failed to init transform\n");
+    }
+
+    int width, height, subsamp, colorspace;
+    if (tjDecompressHeader3(handle, jpeg.start, jpeg.length, &width, &height, &subsamp, &colorspace) != 0) {
+        tjDestroy(handle);
+        FOLK_ERROR("subimageJpeg: Failed to read header: %s\n", tjGetErrorStr());
+    }
+
+    int mcuWidth, mcuHeight;
+    switch (subsamp) {
+        case TJSAMP_GRAY: mcuWidth = 8; mcuHeight = 8; break;
+        case TJSAMP_444: mcuWidth = 8; mcuHeight = 8; break;
+        case TJSAMP_422: mcuWidth = 16; mcuHeight = 8; break;
+        case TJSAMP_420: mcuWidth = 16; mcuHeight = 16; break;
+        case TJSAMP_440: mcuWidth = 8; mcuHeight = 16; break;
+        case TJSAMP_411: mcuWidth = 32; mcuHeight = 8; break;
+        default:
+            tjDestroy(handle);
+            FOLK_ERROR("subimageJpeg: Unsupported subsampling: %d\n", subsamp);
+    }
+
+    if ((int)x % mcuWidth != 0 || (int)y % mcuHeight != 0) {
+        tjDestroy(handle);
+        FOLK_ERROR("subimageJpeg: Crop start not aligned to MCU: %d %d\n", (int)x, (int)y);
+    }
+
+    int startX = ((int)x / mcuWidth) * mcuWidth;
+    int startY = ((int)y / mcuHeight) * mcuHeight;
+
+    if ((int)subwidth % mcuWidth != 0 || (int)subheight % mcuHeight != 0) {
+        tjDestroy(handle);
+        FOLK_ERROR("subimageJpeg: Crop size not aligned to MCU: %d %d\n", (int)subwidth, (int)subheight);
+    }
+
+    int endX = startX + (int)subwidth;
+    int endY = startY + (int)subheight;
+
+    if (endX > width) endX = width;
+    if (endY > height) endY = height;
+
+    int cropWidth = ((endX - startX) / mcuWidth) * mcuWidth;
+    int cropHeight = ((endY - startY) / mcuHeight) * mcuHeight;
+
+    if (cropWidth <= 0 || cropHeight <= 0) {
+        tjDestroy(handle);
+        FOLK_ERROR("subimageJpeg: Invalid crop size after MCU alignment\n");
+    }
+
+    tjregion region = { .x = startX, .y = startY, .w = cropWidth, .h = cropHeight };
+    tjtransform transform;
+    memset(&transform, 0, sizeof(transform));
+    transform.r = region;
+    transform.op = TJXOP_NONE;
+    transform.options = TJXOPT_CROP;
+
+    unsigned char* outBuf = NULL;
+    unsigned long outSize = 0;
+
+    if (tjTransform(handle, jpeg.start, jpeg.length, 1, &outBuf, &outSize, &transform, 0) != 0) {
+        tjDestroy(handle);
+        if (outBuf) tjFree(outBuf);
+        FOLK_ERROR("subimageJpeg: Transform failed: %s\n", tjGetErrorStr());
+    }
+
+    tjDestroy(handle);
+
+    return (Jpeg) {
+        .start = outBuf,
+        .length = outSize
     };
 }
 
