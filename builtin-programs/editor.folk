@@ -111,7 +111,7 @@ When /view/ is an editor with /...options/ {
         # We then use its size to figure out how many characters we can fit in it,
         # width-wise and height-wise
         When $view has resolved geometry /geom/ {
-            Hold! -key view-state-of:$view {
+            Hold! -save -key view-state-of:$view {
                 lassign [$codeViewLib viewCharacterSize $geom $options] widthInCharacters heightInCharacters
 
                 Claim $view has view dimensions [list 0 0 $widthInCharacters $heightInCharacters]
@@ -255,7 +255,7 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                 set vpY [expr {$cursorY - $vpHeight + 1}]
             }
 
-            Hold! -key view-state-of:$view {
+            Hold! -save -key view-state-of:$view {
                 Claim $view has view dimensions [list $vpX $vpY $vpWidth $vpHeight]
                 Claim $view has cursor $cursor
                 Claim $view has max cursor x $maxCursorX
