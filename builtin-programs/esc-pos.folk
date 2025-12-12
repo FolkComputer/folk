@@ -84,7 +84,8 @@ namespace eval escpos {
         return $tagBits
     }
 
-    proc tag {id {scale 20}} {
+    # scale must be divisible by 4 so width will be divisible by 8
+    proc tag {id {scale 12}} {
         set tagImage [::tagImageForId $id]
         set tagBits [scaledAprilTag $id $scale]
 
