@@ -1,18 +1,22 @@
 When the GPU Vulkan handle type definer is /defineVulkanHandleType/ &\
      the GPU library is /gpuLib/ &\
-     the GPU VMA library is /vmaLib/ &\
      the GPU draw library is /drawLib/ &\
+     the GPU VMA DLL is /vmaDll/ &\
      the image library is /imageLib/ {
 
 fn defineVulkanHandleType
 
 set gpuc [C]
 $gpuc cflags -I./vendor
+$gpuc endcflags $vmaDll
 $gpuc code {
     #define VOLK_IMPLEMENTATION
     #include "volk/volk.h"
 
     #include "vk_mem_alloc.h"
+
+    void vmaInit(VkInstance instance, VkPhysicalDevice physicalDevice, VkDevice device);
+    VmaAllocator vmaGetAllocator();
 }
 $gpuc include <pthread.h>
 $gpuc include <stdatomic.h>
@@ -20,7 +24,6 @@ $gpuc typedef {struct PushConstantsEncoder} PushConstantsEncoder
 $gpuc typedef {struct Pipeline} Pipeline
 
 $gpuc extend $gpuLib
-$gpuc extend $vmaLib
 $gpuc extend $drawLib
 $gpuc extend $imageLib
 
@@ -158,6 +161,9 @@ $gpuc proc textureManagerInit {} void {
     }
     pthread_rwlock_init(textureDescriptorSetLock_ptr(), NULL);
 
+    // Initialize VMA allocator
+    vmaInit(*instance_ptr(), *physicalDevice_ptr(), device);
+
     initPlaceholderTexture();
 }
 
@@ -197,7 +203,7 @@ $gpuc proc createBuffer {VkDeviceSize size VkBufferUsageFlags usage VkMemoryProp
         allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
     }
 
-    VkResult res = vmaCreateBuffer(*vmaGetAllocator(), &bufferInfo, &allocInfo, buffer, allocation, NULL);
+    VkResult res = vmaCreateBuffer(vmaGetAllocator(), &bufferInfo, &allocInfo, buffer, allocation, NULL);
     if (res != VK_SUCCESS) {
         fprintf(stderr, "Failed to create buffer with VMA: %d\\n", res);
         exit(1);
@@ -205,7 +211,7 @@ $gpuc proc createBuffer {VkDeviceSize size VkBufferUsageFlags usage VkMemoryProp
 
 #ifdef TRACY_ENABLE
     VmaAllocationInfo vmaInfo;
-    vmaGetAllocationInfo(*vmaGetAllocator(), *allocation, &vmaInfo);
+    vmaGetAllocationInfo(vmaGetAllocator(), *allocation, &vmaInfo);
     TracyCAlloc(*allocation, vmaInfo.size);
 #endif
 }
@@ -240,7 +246,7 @@ $gpuc code [csubst {
             allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
         }
 
-        VkResult res = vmaCreateImage(*vmaGetAllocator(), &imageInfo, &allocInfo, image, allocation, NULL);
+        VkResult res = vmaCreateImage(vmaGetAllocator(), &imageInfo, &allocInfo, image, allocation, NULL);
         if (res != VK_SUCCESS) {
             fprintf(stderr, "Failed to create image with VMA: %d\\n", res);
             exit(1);
@@ -248,7 +254,7 @@ $gpuc code [csubst {
 
 #ifdef TRACY_ENABLE
         VmaAllocationInfo vmaInfo;
-        vmaGetAllocationInfo(*vmaGetAllocator(), *allocation, &vmaInfo);
+        vmaGetAllocationInfo(vmaGetAllocator(), *allocation, &vmaInfo);
         TracyCAlloc(*allocation, vmaInfo.size);
 #endif
     }
@@ -544,7 +550,7 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
 
     // Copy im to stagingBuffer:
     {
-        void* data; vmaMapMemory(*vmaGetAllocator(), stagingBufferAllocation, &data);
+        void* data; vmaMapMemory(vmaGetAllocator(), stagingBufferAllocation, &data);
         Image stagingIm = (Image) {
             .width = im.width, .height = im.height,
             .components = 4,
@@ -552,7 +558,7 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
             .data = data
         };
         copyImageToRgba(im, stagingIm);
-        vmaUnmapMemory(*vmaGetAllocator(), stagingBufferAllocation);
+        vmaUnmapMemory(vmaGetAllocator(), stagingBufferAllocation);
     }
 
     // Allocate a texture and texture block:
@@ -629,7 +635,7 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
 #ifdef TRACY_ENABLE
     TracyCFree(stagingBufferAllocation);
 #endif
-    vmaDestroyBuffer(*vmaGetAllocator(), stagingBuffer, stagingBufferAllocation);
+    vmaDestroyBuffer(vmaGetAllocator(), stagingBuffer, stagingBufferAllocation);
 
     return block->handle;
 }
@@ -664,7 +670,7 @@ $gpuc proc freeGpuTexture {GpuTextureHandle gim} void {
 #ifdef TRACY_ENABLE
     TracyCFree(block->textureImageAllocation);
 #endif
-    vmaDestroyImage(*vmaGetAllocator(), block->textureImage, block->textureImageAllocation);
+    vmaDestroyImage(vmaGetAllocator(), block->textureImage, block->textureImageAllocation);
     vkDestroySampler(device, block->textureSampler, NULL);
     vkDestroyImageView(device, block->textureImageView, NULL);
 

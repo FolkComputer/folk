@@ -597,7 +597,16 @@ C method proc {name arguments rtype body} {
 C method cflags {args} { lappend cflags {*}$args }
 C method endcflags {args} { lappend endcflags {*}$args }
 
-C method compile {{cid {}}} {
+C method compile {args} {
+    set noload false
+    set cid {}
+    foreach arg $args {
+        if {$arg eq "-noload"} {
+            set noload true
+        } else {
+            set cid $arg
+        }
+    }
     set cfile [file tempfile /tmp/cfileXXXXXX].c
 
     # A universally unique id that can be used as a global proc name
@@ -742,6 +751,11 @@ extern "C" \{
         sleep 0.01
         incr n
         if {$n > 10} { error "Failed! [string range $e 0 500]" }
+    }
+
+    if {$noload} {
+        # Return the name of the compiled file instead of loading it.
+        return /tmp/$cid.so
     }
 
     set cInfo [dict create]

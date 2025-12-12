@@ -13,7 +13,7 @@ $vmac code {
 
     #define VMA_IMPLEMENTATION
     #define VMA_STATIC_VULKAN_FUNCTIONS 0
-    #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
+    #define VMA_DYNAMIC_VULKAN_FUNCTIONS 0
     #include "vk_mem_alloc.h"
 
     VmaAllocator allocator = VK_NULL_HANDLE;
@@ -21,7 +21,9 @@ $vmac code {
 defineVulkanHandleType $vmac VkInstance
 defineVulkanHandleType $vmac VkPhysicalDevice
 defineVulkanHandleType $vmac VkDevice
-$vmac proc vmaInit {VkInstance instance VkPhysicalDevice physicalDevice VkDevice device} void {
+$vmac code { extern "C" {
+
+void vmaInit(VkInstance instance, VkPhysicalDevice physicalDevice, VkDevice device) {
     volkInitialize();
     volkLoadInstanceOnly(instance);
     volkLoadDevice(device);
@@ -46,10 +48,15 @@ $vmac proc vmaInit {VkInstance instance VkPhysicalDevice physicalDevice VkDevice
         exit(1);
     }
 }
-$vmac proc vmaGetAllocator {} VmaAllocator* {
-    return &allocator;
+
+VmaAllocator vmaGetAllocator() {
+    return allocator;
 }
 
-Claim the GPU VMA library is [$vmac compile]
+} }
+
+set vmaDll [$vmac compile -noload]
+puts $vmaDll
+Claim the GPU VMA DLL is $vmaDll
 
 }

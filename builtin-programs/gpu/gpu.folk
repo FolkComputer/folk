@@ -32,7 +32,6 @@ fn defineVulkanHandleType {cc type} {
 Claim the GPU Vulkan handle type definer is [fn defineVulkanHandleType]
 
 When $::thisNode has had displays enumerated &\
-     the GPU VMA library is /vmaLib/ &\
      /someone/ wishes $::thisNode uses display /display/ with /...any/ {
 
 set useGlfw $($display eq "glfw")
@@ -46,8 +45,6 @@ $gpuc include <pthread.h>
 $gpuc code {
     #define VOLK_IMPLEMENTATION
     #include "volk/volk.h"
-
-    #include "vk_mem_alloc.h"
 }
 if {$useGlfw} {
     $gpuc code {
@@ -116,19 +113,6 @@ local proc vktry {call} { string map {\n " "} [csubst {{
                 VkResultToString(res), res); exit(1);
     }
 }}] }
-
-$gpuc extend $vmaLib
-
-$gpuc typedef {struct VmaAllocation_T*} VmaAllocation
-$gpuc argtype VmaAllocation {
-    VmaAllocation $argname;
-    sscanf(Jim_String($obj), "(VmaAllocation) %p", &$argname);
-}
-$gpuc rtype VmaAllocation {
-    char buf[100];
-    snprintf(buf, 100, "(VmaAllocation) %p", $rvalue);
-    $robj = Jim_NewStringObj(buf, -1);
-}
 
 $gpuc define {
     VkInstance instance;
@@ -286,9 +270,6 @@ $gpuc proc init {bool useGlfw} void {
 
         $[vktry {vkCreateDevice(physicalDevice, &createInfo, NULL, &device)}]
     }
-
-    // Initialize VMA allocator
-    vmaInit(instance, physicalDevice, device);
 
     // Set up VkQueue graphicsQueue and VkQueue presentQueue and VkQueue computeQueue
     {
