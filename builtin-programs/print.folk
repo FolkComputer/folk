@@ -258,7 +258,6 @@ When $::thisNode claims printer /name/ is a cups printer with /...options/ {
     exec {*}$command
 }
 
-if {![info exists ::printjobs]} {set ::printjobs [dict create]}
 Subscribe: print code /code/ with /...options/ {
     if {$::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial"} {
         # HACK: Forward the print request to folk-hex.
@@ -269,6 +268,7 @@ Subscribe: print code /code/ with /...options/ {
     }
 
     set id [nextId]
+    if {![info exists options]} { set options [dict create]}
     Notify: print program $id with code $code {*}$options
 }
 Subscribe: print program /id/ with /...options/ {
