@@ -674,7 +674,7 @@ proc QueryOne! {args} {
     set results [Query! {*}$args]
 
     if {[llength $results] != 1} {
-        return -error "QueryOne! of ($args) had [llength $results] results. Should be one result!"
+        error "QueryOne! of ($args) had [llength $results] results. Should be one result!"
     }
 
     return [lindex $results 0]
