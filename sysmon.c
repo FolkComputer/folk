@@ -48,6 +48,7 @@ void sysmonInit(int targetCount) {
     targetNotBlockedWorkersCount = targetCount;
 }
 
+static void checkRam();
 void sysmon() {
     /* trace("%" PRId64 "ns: Sysmon Tick", */
     /*       timestamp_get(CLOCK_MONOTONIC) - timestampAtBoot); */
@@ -63,26 +64,7 @@ void sysmon() {
     if (currentTick % 1000 == 0) {
         // assuming that ticks happen every 2ms, this should happen
         // every 2s.
-        int freeRamMb = get_avphys_pages() * sysconf(_SC_PAGESIZE) / 1000000;
-        int totalRamMb = get_phys_pages() * sysconf(_SC_PAGESIZE) / 1000000;
-        // Check directly folk's own use of RAM, so we can
-        // detect leaks (I think system RAM is good for killing but
-        // process RAM use is better for leak diagnosis).
-        struct rusage ru; getrusage(RUSAGE_SELF, &ru);
-        fprintf(stderr, "Check avail system RAM: %d MB / %d MB\n"
-                "Check self RAM usage: %ld MB\n",
-                freeRamMb, totalRamMb,
-                ru.ru_maxrss / 1024);
-        // TODO: Report this result as a statement.
-        if (freeRamMb < 200) {
-            // Hard die if we are likely to run out of RAM, because
-            // that will lock the system (making it hard to ssh in,
-            // etc).
-            fprintf(stderr, "--------------------\n"
-                    "OUT OF RAM, EXITING.\n"
-                    "--------------------\n");
-            exit(1);
-        }
+        checkRam();
     }
 #endif
 
@@ -210,6 +192,47 @@ void sysmon() {
         HoldStatementGlobally("clock-time", currentTick,
                               clockTimeClause, 0, NULL,
                               "sysmon.c", __LINE__);
+    }
+}
+
+static void checkRam() {
+    // Read MemAvailable from /proc/meminfo (includes reclaimable buffers/cache)
+    int freeRamMb = 0;
+    FILE* meminfo = fopen("/proc/meminfo", "r");
+    if (meminfo) {
+        char line[256];
+        while (fgets(line, sizeof(line), meminfo)) {
+            long memAvailableKb;
+            if (sscanf(line, "MemAvailable: %ld kB", &memAvailableKb) == 1) {
+                freeRamMb = memAvailableKb / 1024;
+                break;
+            }
+        }
+        fclose(meminfo);
+    }
+    // Fallback to old method if /proc/meminfo reading failed
+    if (freeRamMb == 0) {
+        freeRamMb = get_avphys_pages() * sysconf(_SC_PAGESIZE) / 1000000;
+    }
+
+    int totalRamMb = get_phys_pages() * sysconf(_SC_PAGESIZE) / 1000000;
+    // Check directly folk's own use of RAM, so we can
+    // detect leaks (I think system RAM is good for killing but
+    // process RAM use is better for leak diagnosis).
+    struct rusage ru; getrusage(RUSAGE_SELF, &ru);
+    fprintf(stderr, "Check avail system RAM: %d MB / %d MB\n"
+            "Check self RAM usage: %ld MB\n",
+            freeRamMb, totalRamMb,
+            ru.ru_maxrss / 1024);
+    // TODO: Report this result as a statement.
+    if (freeRamMb < 200) {
+        // Hard die if we are likely to run out of RAM, because
+        // that will lock the system (making it hard to ssh in,
+        // etc).
+        fprintf(stderr, "--------------------\n"
+                "OUT OF RAM, EXITING.\n"
+                "--------------------\n");
+        exit(1);
     }
 }
 
