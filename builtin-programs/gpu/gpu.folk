@@ -8,7 +8,31 @@ if {[info exists this] && $::tcl_platform(os) eq "darwin"} {
     return
 }
 
+fn defineVulkanHandleType {cc type} {
+    $cc argtype $type [format {
+#ifdef VK_USE_64_BIT_PTR_DEFINES
+        %s $argname; sscanf(Jim_String($obj), "(%s) 0x%%p", &$argname);
+#else
+        %s $argname; sscanf(Jim_String($obj), "(%s) 0x%%llx", &$argname);
+#endif
+    } $type $type $type $type]
+    # Tcl_ObjPrintf doesn't work with %lld/%llx for some reason,
+    # so we do it by hand.
+    $cc rtype $type [format {
+#ifdef VK_USE_64_BIT_PTR_DEFINES
+        $robj = Jim_ObjPrintf("(%s) 0x%%" PRIxPTR, (uintptr_t) $rvalue);
+#else
+        {
+          char buf[100]; snprintf(buf, 100, "(%s) 0x%%llx", $rvalue);
+          $robj = Jim_NewStringObj(buf, -1);
+        }
+#endif
+    } $type $type]
+}
+Claim the GPU Vulkan handle type definer is [fn defineVulkanHandleType]
+
 When $::thisNode has had displays enumerated &\
+     the GPU VMA library is /vmaLib/ &\
      /someone/ wishes $::thisNode uses display /display/ with /...any/ {
 
 set useGlfw $($display eq "glfw")
@@ -47,29 +71,6 @@ Try doing `sudo chmod 666 $renderFile`."
         }
     }
 }
-
-fn defineVulkanHandleType {cc type} {
-    $cc argtype $type [format {
-#ifdef VK_USE_64_BIT_PTR_DEFINES
-        %s $argname; sscanf(Jim_String($obj), "(%s) 0x%%p", &$argname);
-#else
-        %s $argname; sscanf(Jim_String($obj), "(%s) 0x%%llx", &$argname);
-#endif
-    } $type $type $type $type]
-    # Tcl_ObjPrintf doesn't work with %lld/%llx for some reason,
-    # so we do it by hand.
-    $cc rtype $type [format {
-#ifdef VK_USE_64_BIT_PTR_DEFINES
-        $robj = Jim_ObjPrintf("(%s) 0x%%" PRIxPTR, (uintptr_t) $rvalue);
-#else
-        {
-          char buf[100]; snprintf(buf, 100, "(%s) 0x%%llx", $rvalue);
-          $robj = Jim_NewStringObj(buf, -1);
-        }
-#endif
-    } $type $type]
-}
-Claim the GPU Vulkan handle type definer is [fn defineVulkanHandleType]
 
 $gpuc argtype VkResult { long $argname; __ENSURE_OK(Jim_GetLong(interp, $obj, &$argname)); }
 $gpuc proc VkResultToString {VkResult res} char* {
@@ -116,55 +117,6 @@ local proc vktry {call} { string map {\n " "} [csubst {{
     }
 }}] }
 
-# VMA (Vulkan Memory Allocator) module:
-set vmac [C++]
-$vmac cflags -I./vendor \
-    -Wno-nullability-completeness -Wno-unused-private-field \
-    -Wno-unused-variable
-$vmac code {
-    #define VOLK_IMPLEMENTATION
-    #include "volk/volk.h"
-
-    #define VMA_IMPLEMENTATION
-    #define VMA_STATIC_VULKAN_FUNCTIONS 0
-    #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
-    #include "vk_mem_alloc.h"
-
-    VmaAllocator allocator = VK_NULL_HANDLE;
-}
-defineVulkanHandleType $vmac VkInstance
-defineVulkanHandleType $vmac VkPhysicalDevice
-defineVulkanHandleType $vmac VkDevice
-$vmac proc vmaInit {VkInstance instance VkPhysicalDevice physicalDevice VkDevice device} void {
-    volkInitialize();
-    volkLoadInstanceOnly(instance);
-    volkLoadDevice(device);
-
-    VmaAllocatorCreateInfo allocatorInfo = {0};
-    allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_0;
-    allocatorInfo.physicalDevice = physicalDevice;
-    allocatorInfo.device = device;
-    allocatorInfo.instance = instance;
-
-    VmaVulkanFunctions vulkanFunctions;
-    VkResult res = vmaImportVulkanFunctionsFromVolk(&allocatorInfo, &vulkanFunctions);
-    if (res != VK_SUCCESS) {
-        fprintf(stderr, "Failed to import Vulkan functions from volk: %d\\n", res);
-        exit(1);
-    }
-    allocatorInfo.pVulkanFunctions = &vulkanFunctions;
-
-    res = vmaCreateAllocator(&allocatorInfo, &allocator);
-    if (res != VK_SUCCESS) {
-        fprintf(stderr, "Failed to create VMA allocator: %d\\n", res);
-        exit(1);
-    }
-}
-$vmac proc vmaGetAllocator {} VmaAllocator* {
-    return &allocator;
-}
-
-set vmaLib [$vmac compile]
 $gpuc extend $vmaLib
 
 $gpuc typedef {struct VmaAllocation_T*} VmaAllocation

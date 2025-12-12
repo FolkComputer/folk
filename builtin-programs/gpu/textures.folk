@@ -1,5 +1,6 @@
 When the GPU Vulkan handle type definer is /defineVulkanHandleType/ &\
      the GPU library is /gpuLib/ &\
+     the GPU VMA library is /vmaLib/ &\
      the GPU draw library is /drawLib/ &\
      the image library is /imageLib/ {
 
@@ -10,6 +11,8 @@ $gpuc cflags -I./vendor
 $gpuc code {
     #define VOLK_IMPLEMENTATION
     #include "volk/volk.h"
+
+    #include "vk_mem_alloc.h"
 }
 $gpuc include <pthread.h>
 $gpuc include <stdatomic.h>
@@ -17,6 +20,7 @@ $gpuc typedef {struct PushConstantsEncoder} PushConstantsEncoder
 $gpuc typedef {struct Pipeline} Pipeline
 
 $gpuc extend $gpuLib
+$gpuc extend $vmaLib
 $gpuc extend $drawLib
 $gpuc extend $imageLib
 
@@ -30,7 +34,7 @@ $gpuc argtype VmaAllocation {
 $gpuc rtype VmaAllocation {
     char buf[100];
     snprintf(buf, 100, "(VmaAllocation) %p", $rvalue);
-    $robj = Jim_NewStringObj(buf, -1);
+    $robj = Jim_NewStringObj(interp, buf, -1);
 }
 
 local proc vktry {call} { string map {\n " "} [csubst {{
