@@ -8,7 +8,8 @@ if {[info exists this] && $::tcl_platform(os) eq "darwin"} {
     return
 }
 
-When /someone/ wishes $::thisNode uses display /display/ with /...any/ {
+When $::thisNode has had displays enumerated &\
+     /someone/ wishes $::thisNode uses display /display/ with /...any/ {
 
 set useGlfw $($display eq "glfw")
 
