@@ -241,19 +241,6 @@ fn nextId {} {
 
     set id
 }
-proc remotePrintRequest {remoteNode clause} {
-    ::websocket::open "ws://$remoteNode.local:4273/ws" [list apply {{clause sock type msg} {
-        if {$type eq "connect"} {
-            ::websocket::send $sock text [list apply {{clause} {
-                Assert {*}$clause
-                after 5000 [list Retract {*}$clause]
-                Step
-            }} $clause]
-            after 10000 [list ::websocket::close $sock]
-        }
-    }} $clause]
-}
-
 When $::thisNode claims printer /name/ is a cups printer with /...options/ {
     set command [list /usr/sbin/lpadmin -p $name -E]
     if {[dict exists $options url]} {
@@ -272,15 +259,17 @@ When $::thisNode claims printer /name/ is a cups printer with /...options/ {
 }
 
 if {![info exists ::printjobs]} {set ::printjobs [dict create]}
-Subscribe: print code /code/ {
+Subscribe: print code /code/ with /...options/ {
     if {$::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial"} {
-        # HACK: Forward the print request to folk0.
-        remotePrintRequest "folk0" [list $::thisNode wishes to print $code with {*}$options]
+        # HACK: Forward the print request to folk-hex.
+        exec curl -X POST "http://folk-hex.local:4273/" \
+                -H "Content-Type: text/plain" \
+                -d [list Notify: print code $code with printer Canon_LBP121_122]; # HACK Brian's printer for folk2 launch party
         return
     }
 
     set id [nextId]
-    Notify: print program $id with code $code
+    Notify: print program $id with code $code {*}$options
 }
 Subscribe: print program /id/ with /...options/ {
     set code [dict get $options code]
@@ -320,6 +309,11 @@ Subscribe: print program /id/ with /...options/ {
         set format letter
     }
 
+    # HACK: added for folk2 launch party printing
+    if {[dict exists $options printer]} {
+        set args [list -P [dict get $options printer]]
+    }
+
     set ps [programToPs $id $code $format]
 
     # save code and ps to disk
@@ -335,6 +329,8 @@ Subscribe: print program /id/ with /...options/ {
     close $fp
 
     exec ps2pdf $saveDir/$id.ps $saveDir/$id.pdf
+
+    puts "Printing program $id on $::thisNode"
     exec lpr {*}$args $saveDir/$id.pdf
 }
 
