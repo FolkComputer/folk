@@ -15,7 +15,11 @@ $gpuc code {
 
     #include "vk_mem_alloc.h"
 
-    void vmaInit(VkInstance instance, VkPhysicalDevice physicalDevice, VkDevice device);
+    void vmaInit(VkInstance instance, VkPhysicalDevice physicalDevice, VkDevice device,
+                 PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr,
+                 PFN_vkGetDeviceProcAddr vkGetDeviceProcAddr,
+                 PFN_vkGetPhysicalDeviceProperties vkGetPhysicalDeviceProperties,
+                 PFN_vkGetPhysicalDeviceMemoryProperties vkGetPhysicalDeviceMemoryProperties);
     VmaAllocator vmaGetAllocator();
 }
 $gpuc include <pthread.h>
@@ -162,7 +166,11 @@ $gpuc proc textureManagerInit {} void {
     pthread_rwlock_init(textureDescriptorSetLock_ptr(), NULL);
 
     // Initialize VMA allocator
-    vmaInit(*instance_ptr(), *physicalDevice_ptr(), device);
+    vmaInit(*instance_ptr(), *physicalDevice_ptr(), device,
+            vkGetInstanceProcAddr,
+            vkGetDeviceProcAddr,
+            vkGetPhysicalDeviceProperties,
+            vkGetPhysicalDeviceMemoryProperties);
 
     initPlaceholderTexture();
 }
