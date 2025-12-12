@@ -105,8 +105,11 @@ if {![catch {exec pkg-config --exists glfw3}]} {
     Claim $::thisNode has display glfw with info {name "GLFW (windowed)"}
 }
 
-foreach display [$displayLib enumerateDisplays] {
-    Claim $::thisNode has display $display(name) with info $display
+try {
+    foreach display [$displayLib enumerateDisplays] {
+        Claim $::thisNode has display $display(name) with info $display
+    }
+} finally {
+    Claim $::thisNode has had displays enumerated
 }
-Claim $::thisNode has had displays enumerated
 
