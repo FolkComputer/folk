@@ -23,7 +23,7 @@ When the image library is /imageLib/ &\
   set rows [/ $frames $columns]
   set spriteHeight [/ $sheetHeight $rows]
 
-  When the clock time is /t/ {
+  When -atomicallyWithKey [list sprite $p $path] the clock time is /t/ {
       set frameNumber [expr {round ($t * 60 / $columns) % $frames}]
       set x [expr {($frameNumber % $columns) * $spriteWidth}]
       set y [expr {($frameNumber % $rows) * $spriteHeight}]
