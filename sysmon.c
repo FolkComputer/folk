@@ -196,6 +196,7 @@ void sysmon() {
 }
 
 static void checkRam() {
+#ifdef __linux__
     // Read MemAvailable from /proc/meminfo (includes reclaimable buffers/cache)
     int freeRamMb = 0;
     FILE* meminfo = fopen("/proc/meminfo", "r");
@@ -234,6 +235,7 @@ static void checkRam() {
                 "--------------------\n");
         exit(1);
     }
+#endif
 }
 
 void *sysmonMain(void *ptr) {
