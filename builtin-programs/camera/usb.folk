@@ -337,11 +337,15 @@ When the image library is /imageLib/ &\
 
             tracy zoneEnd
 
-            set frameImage [$imageLib jpegDecompressGray $croppedJpeg \
-                                $width $height $ms]
-            Hold! -key [list camera $camera frame] \
-                Claim camera $camera has frame $frameImage at timestamp $timestamp \
-                -destructor [list $imageLib imageFree $frameImage]
+            try {
+                set frameImage [$imageLib jpegDecompressGray $croppedJpeg \
+                                    $width $height $ms]
+                Hold! -key [list camera $camera frame] \
+                    Claim camera $camera has frame $frameImage at timestamp $timestamp \
+                    -destructor [list $imageLib imageFree $frameImage]
+            } on error e {
+                puts stderr "camera/usb: Error $e"
+            }
         }
     } on error e {
         puts stderr "camera/usb: Error $e"
