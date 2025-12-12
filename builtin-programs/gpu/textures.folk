@@ -22,6 +22,16 @@ $gpuc extend $imageLib
 
 $gpuc include <pthread.h>
 
+$gpuc typedef {struct VmaAllocation_T*} VmaAllocation
+$gpuc argtype VmaAllocation {
+    VmaAllocation $argname;
+    sscanf(Jim_String($obj), "(VmaAllocation) %p", &$argname);
+}
+$gpuc rtype VmaAllocation {
+    char buf[100];
+    snprintf(buf, 100, "(VmaAllocation) %p", $rvalue);
+    $robj = Jim_NewStringObj(buf, -1);
+}
 
 local proc vktry {call} { string map {\n " "} [csubst {{
     VkResult res = $call;
@@ -70,7 +80,7 @@ $gpuc struct GpuTextureBlock {
     GpuTextureHandle handle;
 
     VkImage textureImage;
-    VkDeviceMemory textureImageMemory;
+    VmaAllocation textureImageAllocation;
     VkImageView textureImageView;
     VkSampler textureSampler;
 
@@ -167,32 +177,40 @@ $gpuc typedef size_t VkDeviceSize false
 $gpuc typedef uint32_t VkBufferUsageFlags false
 $gpuc typedef uint32_t VkMemoryPropertyFlags false
 $gpuc proc createBuffer {VkDeviceSize size VkBufferUsageFlags usage VkMemoryPropertyFlags properties
-                         VkBuffer* buffer VkDeviceMemory* bufferMemory} void {
+                         VkBuffer* buffer VmaAllocation* allocation} void {
     VkBufferCreateInfo bufferInfo = {0};
     bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     bufferInfo.size = size;
     bufferInfo.usage = usage;
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    $[vktry {vkCreateBuffer(device, &bufferInfo, NULL, buffer)}]
+    VmaAllocationCreateInfo allocInfo = {0};
+    allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+    if (properties & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {
+        allocInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    }
+    if (properties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
+        allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    }
 
-    VkMemoryRequirements memRequirements;
-    vkGetBufferMemoryRequirements(device, *buffer, &memRequirements);
+    VkResult res = vmaCreateBuffer(*vmaGetAllocator(), &bufferInfo, &allocInfo, buffer, allocation, NULL);
+    if (res != VK_SUCCESS) {
+        fprintf(stderr, "Failed to create buffer with VMA: %d\\n", res);
+        exit(1);
+    }
 
-    VkMemoryAllocateInfo allocInfo = {0};
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties);
-
-    $[vktry {vkAllocateMemory(device, &allocInfo, NULL, bufferMemory)}]
-    vkBindBufferMemory(device, *buffer, *bufferMemory, 0);
+#ifdef TRACY_ENABLE
+    VmaAllocationInfo vmaInfo;
+    vmaGetAllocationInfo(*vmaGetAllocator(), *allocation, &vmaInfo);
+    TracyCAlloc(*allocation, vmaInfo.size);
+#endif
 }
 
 # Texture allocation:
 $gpuc code [csubst {
     void createImage(uint32_t width, uint32_t height,
                      VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties,
-                     VkImage* image, VkDeviceMemory* imageMemory) {
+                     VkImage* image, VmaAllocation* allocation) {
         VkImageCreateInfo imageInfo = {0};
         imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         imageInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -209,19 +227,26 @@ $gpuc code [csubst {
         imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
         imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-        $[vktry {vkCreateImage(device, &imageInfo, NULL, image)}]
+        VmaAllocationCreateInfo allocInfo = {0};
+        allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+        if (properties & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {
+            allocInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+        }
+        if (properties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
+            allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+        }
 
-        VkMemoryRequirements memRequirements;
-        vkGetImageMemoryRequirements(device, *image, &memRequirements);
+        VkResult res = vmaCreateImage(*vmaGetAllocator(), &imageInfo, &allocInfo, image, allocation, NULL);
+        if (res != VK_SUCCESS) {
+            fprintf(stderr, "Failed to create image with VMA: %d\\n", res);
+            exit(1);
+        }
 
-        VkMemoryAllocateInfo allocInfo = {0};
-        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        allocInfo.allocationSize = memRequirements.size;
-        allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties);
-
-        $[vktry {vkAllocateMemory(device, &allocInfo, NULL, imageMemory)}]
-
-        vkBindImageMemory(device, *image, *imageMemory, 0);
+#ifdef TRACY_ENABLE
+        VmaAllocationInfo vmaInfo;
+        vmaGetAllocationInfo(*vmaGetAllocator(), *allocation, &vmaInfo);
+        TracyCAlloc(*allocation, vmaInfo.size);
+#endif
     }
 }]
 
@@ -459,7 +484,7 @@ $gpuc proc createGpuTexture {int width int height int format} GpuTextureBlock* {
                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
                 VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                &block->textureImage, &block->textureImageMemory);
+                &block->textureImage, &block->textureImageAllocation);
 
     // Set up block->textureImageView:
     {
@@ -508,14 +533,14 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
     FOLK_ENSURE(size > 0);
 
     VkBuffer stagingBuffer;
-    VkDeviceMemory stagingBufferMemory;
+    VmaAllocation stagingBufferAllocation;
     createBuffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                 &stagingBuffer, &stagingBufferMemory);
+                 &stagingBuffer, &stagingBufferAllocation);
 
     // Copy im to stagingBuffer:
     {
-        void* data; vkMapMemory(device, stagingBufferMemory, 0, size, 0, &data);
+        void* data; vmaMapMemory(*vmaGetAllocator(), stagingBufferAllocation, &data);
         Image stagingIm = (Image) {
             .width = im.width, .height = im.height,
             .components = 4,
@@ -523,7 +548,7 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
             .data = data
         };
         copyImageToRgba(im, stagingIm);
-        vkUnmapMemory(device, stagingBufferMemory);
+        vmaUnmapMemory(*vmaGetAllocator(), stagingBufferAllocation);
     }
 
     // Allocate a texture and texture block:
@@ -597,8 +622,10 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
     addToTextureDescriptorSet(block->handle);
 
     // TODO: Can we get rid of the staging buffer?
-    vkDestroyBuffer(device, stagingBuffer, NULL);
-    vkFreeMemory(device, stagingBufferMemory, NULL);
+#ifdef TRACY_ENABLE
+    TracyCFree(stagingBufferAllocation);
+#endif
+    vmaDestroyBuffer(*vmaGetAllocator(), stagingBuffer, stagingBufferAllocation);
 
     return block->handle;
 }
@@ -630,8 +657,10 @@ $gpuc proc freeGpuTexture {GpuTextureHandle gim} void {
 
     replaceInTextureDescriptorSet(gim, 0);
 
-    vkDestroyImage(device, block->textureImage, NULL);
-    vkFreeMemory(device, block->textureImageMemory, NULL);
+#ifdef TRACY_ENABLE
+    TracyCFree(block->textureImageAllocation);
+#endif
+    vmaDestroyImage(*vmaGetAllocator(), block->textureImage, block->textureImageAllocation);
     vkDestroySampler(device, block->textureSampler, NULL);
     vkDestroyImageView(device, block->textureImageView, NULL);
 

@@ -22,6 +22,8 @@ $gpuc include <pthread.h>
 $gpuc code {
     #define VOLK_IMPLEMENTATION
     #include "volk/volk.h"
+
+    #include "vk_mem_alloc.h"
 }
 if {$useGlfw} {
     $gpuc code {
@@ -114,6 +116,67 @@ local proc vktry {call} { string map {\n " "} [csubst {{
     }
 }}] }
 
+# VMA (Vulkan Memory Allocator) module:
+set vmac [C++]
+$vmac cflags -I./vendor \
+    -Wno-nullability-completeness -Wno-unused-private-field \
+    -Wno-unused-variable
+$vmac code {
+    #define VOLK_IMPLEMENTATION
+    #include "volk/volk.h"
+
+    #define VMA_IMPLEMENTATION
+    #define VMA_STATIC_VULKAN_FUNCTIONS 0
+    #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
+    #include "vk_mem_alloc.h"
+
+    VmaAllocator allocator = VK_NULL_HANDLE;
+}
+defineVulkanHandleType $vmac VkInstance
+defineVulkanHandleType $vmac VkPhysicalDevice
+defineVulkanHandleType $vmac VkDevice
+$vmac proc vmaInit {VkInstance instance VkPhysicalDevice physicalDevice VkDevice device} void {
+    volkInitialize();
+    volkLoadInstanceOnly(instance);
+    volkLoadDevice(device);
+
+    VmaAllocatorCreateInfo allocatorInfo = {0};
+    allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_0;
+    allocatorInfo.physicalDevice = physicalDevice;
+    allocatorInfo.device = device;
+    allocatorInfo.instance = instance;
+
+    VmaVulkanFunctions vulkanFunctions;
+    VkResult res = vmaImportVulkanFunctionsFromVolk(&allocatorInfo, &vulkanFunctions);
+    if (res != VK_SUCCESS) {
+        fprintf(stderr, "Failed to import Vulkan functions from volk: %d\\n", res);
+        exit(1);
+    }
+    allocatorInfo.pVulkanFunctions = &vulkanFunctions;
+
+    res = vmaCreateAllocator(&allocatorInfo, &allocator);
+    if (res != VK_SUCCESS) {
+        fprintf(stderr, "Failed to create VMA allocator: %d\\n", res);
+        exit(1);
+    }
+}
+$vmac proc vmaGetAllocator {} VmaAllocator* {
+    return &allocator;
+}
+
+set vmaLib [$vmac compile]
+$gpuc extend $vmaLib
+
+$gpuc typedef {struct VmaAllocation_T*} VmaAllocation
+$gpuc argtype VmaAllocation {
+    VmaAllocation $argname;
+    sscanf(Jim_String($obj), "(VmaAllocation) %p", &$argname);
+}
+$gpuc rtype VmaAllocation {
+    char buf[100];
+    snprintf(buf, 100, "(VmaAllocation) %p", $rvalue);
+    $robj = Jim_NewStringObj(buf, -1);
+}
 
 $gpuc define {
     VkInstance instance;
@@ -271,6 +334,9 @@ $gpuc proc init {bool useGlfw} void {
 
         $[vktry {vkCreateDevice(physicalDevice, &createInfo, NULL, &device)}]
     }
+
+    // Initialize VMA allocator
+    vmaInit(instance, physicalDevice, device);
 
     // Set up VkQueue graphicsQueue and VkQueue presentQueue and VkQueue computeQueue
     {

@@ -9,3 +9,4 @@ Some of these packages have been modified by us.
 - c11-queues is from
   <https://github.com/stv0g/c11-queues/tree/b602dcd2df5e835798581c46755487d1aca73e2d>
 - wslay is from <https://github.com/tatsuhiro-t/wslay/tree/0e7d106ff89ad6638090fd811a9b2e4c5dda8d40>
+- `vk_mem_alloc` is from <https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/blob/e722e57c891a8fbe3cc73ca56c19dd76be242759/include/vk_mem_alloc.h>
