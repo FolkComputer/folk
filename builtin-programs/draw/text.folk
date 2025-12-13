@@ -1,0 +1,275 @@
+When the image library is /imageLib/ {
+
+set cc [C]
+$cc extend $imageLib
+$cc include <math.h>
+
+$cc struct GlyphInfo {
+    float advance;
+    float planeBounds[4];
+    float atlasBounds[4];
+}
+$cc struct Font {
+    Image atlasImage;
+    int gpuAtlasImage;
+    // TODO: This only handles ASCII, obviously.
+    GlyphInfo glyphInfos[128];
+}
+
+$cc struct vec2f { float x; float y; }
+$cc proc vec2f_add {vec2f a vec2f b} vec2f {
+    return (vec2f) { a.x + b.x, a.y + b.y };
+}
+$cc proc vec2f_rotate {vec2f a float radians} vec2f {
+    return (vec2f) {
+        a.x*cosf(radians) + a.y*sinf(radians),
+        -a.x*sinf(radians) + a.y*cosf(radians)
+    };
+}
+$cc proc vec2f_toObj {vec2f a} Jim_Obj* {
+    Jim_Obj *v[] = { Jim_NewDoubleObj(interp, a.x), Jim_NewDoubleObj(interp, a.y) };
+    return Jim_NewListObj(interp, v, 2);
+}
+$cc proc textExtent {Font* font char* text float scale} vec2f {
+    float em = scale;
+    float x = 0; float y = 0;
+    float width = 0;
+    for (int i = 0; text[i] != 0; i++) {
+        int ch = text[i];
+        if (ch == '\n') {
+            y = y + em; x = 0; continue;
+        }
+        if (ch >= sizeof(font->glyphInfos)/sizeof(font->glyphInfos[0])) {
+            ch = '?';
+        }
+
+        x = x + font->glyphInfos[ch].advance * em;
+        if (x > width) { width = x; }
+    }
+    return (vec2f) { width, y };
+}
+$cc proc textShape {Jim_Obj* viewport Jim_Obj* surfaceToClip
+                    Font* font char* text
+                    float x0 float y0 float scale float anchorx float anchory float radians Jim_Obj* color} Jim_Obj* {
+    vec2f extent = textExtent(font, text, scale);
+    float em = scale;
+
+    // The anchor origin is the top left of the text
+    float x = anchorx * extent.x;
+    float y = anchory * extent.y;
+
+    // Text rendering starts from the baseline.
+    if (anchory == 0) { y = -em; }
+
+    vec2f offset = vec2f_rotate((vec2f){x, y}, radians);
+    vec2f p0 = (vec2f) { x0 - offset.x, y0 - offset.y };
+    vec2f p = p0;
+
+    int lineNum = 0;
+    Jim_Obj* instances = Jim_NewListObj(interp, NULL, 0);
+    for (int i = 0; text[i] != 0; i++) {
+        int ch = text[i];
+        if (ch == '\n') {
+            lineNum++;
+            p = vec2f_add(p0, vec2f_rotate((vec2f) {0, lineNum * em}, radians));
+            continue;
+        }
+        if (ch >= sizeof(font->glyphInfos)/sizeof(font->glyphInfos[0])) {
+            ch = '?';
+        }
+        GlyphInfo* glyphInfo = &font->glyphInfos[ch];
+        if (ch != ' ') {
+            // Append to list of instances.
+            
+            Jim_Obj* atlasv[] = {
+                // left
+                Jim_NewDoubleObj(interp, (glyphInfo->atlasBounds[0] / font->atlasImage.width)),
+                // bottom
+                Jim_NewDoubleObj(interp, (glyphInfo->atlasBounds[1] / font->atlasImage.height)),
+                // right
+                Jim_NewDoubleObj(interp, (glyphInfo->atlasBounds[2] / font->atlasImage.width)),
+                // top
+                Jim_NewDoubleObj(interp, (glyphInfo->atlasBounds[3] / font->atlasImage.height))
+            };
+
+            float left = glyphInfo->planeBounds[0] * em;
+            float bottom = glyphInfo->planeBounds[1] * em;
+            float right = glyphInfo->planeBounds[2] * em;
+            float top = glyphInfo->planeBounds[3] * em;
+
+            vec2f topLeft = vec2f_add(p, vec2f_rotate((vec2f) {left, -top}, radians));
+            vec2f topRight = vec2f_add(p, vec2f_rotate((vec2f) {right, -top}, radians));;
+            vec2f bottomRight = vec2f_add(p, vec2f_rotate((vec2f) {right, -bottom}, radians));;
+            vec2f bottomLeft =vec2f_add(p, vec2f_rotate((vec2f) {left, -bottom}, radians));;
+
+            Jim_Obj* args[] = {
+                surfaceToClip,
+
+                Jim_NewListObj(interp, atlasv, sizeof(atlasv)/sizeof(atlasv[0])),
+                color,
+                viewport,
+                vec2f_toObj(topLeft),
+                vec2f_toObj(topRight),
+                vec2f_toObj(bottomRight),
+                vec2f_toObj(bottomLeft),
+
+                Jim_NewIntObj(interp, font->gpuAtlasImage),
+            };
+            Jim_Obj* instance = Jim_NewListObj(interp, args, sizeof(args)/sizeof(args[0]));
+            Jim_ListAppendElement(interp, instances, instance);
+        }
+        p = vec2f_add(p, vec2f_rotate((vec2f) {glyphInfo->advance * em, 0}, radians));
+    }
+    return instances;
+}
+set fontLib [$cc compile]
+
+When the image loader is /loadImage/ {
+    fn loadImage
+    fn loadFont {name} {
+        set csvFd [open "vendor/fonts/$name.csv" r]; set csv [read $csvFd]; close $csvFd
+        set fields [list ]
+        # HACK: Create list of null glyphs to initialize.
+        set glyphInfos [list]
+        for {set i 0} {$i < 128} {incr i} {
+            lappend glyphInfos {}
+        }
+
+        foreach line [split $csv "\n"] {
+            set values [lassign [split $line ,] glyphIdx]
+            if {![string is integer -strict $glyphIdx]} { continue }
+
+            lassign $values advance \
+                planeLeft planeBottom planeRight planeTop \
+                atlasLeft atlasBottom atlasRight atlasTop
+            lset glyphInfos $glyphIdx \
+                [dict create advance $advance \
+                     planeBounds [list $planeLeft $planeBottom $planeRight $planeTop] \
+                     atlasBounds [list $atlasLeft $atlasBottom $atlasRight $atlasTop]]
+        }
+
+        set defaultGlyphInfo [lindex $glyphInfos 63] ;# '?'
+        for {set i 0} {$i < [llength $glyphInfos]} {incr i} {
+            if {[lindex $glyphInfos $i] eq {}} {
+                lset glyphInfos $i $defaultGlyphInfo
+            }
+        }
+
+        set im [{*}$loadImage "[pwd]/vendor/fonts/$name.png"]
+        Wish the GPU loads image $im as texture
+        When the GPU has loaded image $im as texture /gim/ {
+            puts "text: Loaded $name as GPU texture $gim"
+            Claim the GPU has font $name with data \
+                [dict create atlasImage $im gpuAtlasImage $gim glyphInfos $glyphInfos]
+        }
+    }
+
+    foreach fontPath [list {*}[glob vendor/fonts/*.png]] {
+        set fontName ""
+        regexp {vendor/fonts/(.*).png} $fontPath -> fontName
+        if {!($fontName eq "")} {
+            loadFont $fontName
+        }
+    }
+}
+
+Wish the GPU compiles function "glyphMsd" {
+    {sampler2D atlas vec4 atlasGlyphBounds vec2 glyphUv} vec4 {
+        vec2 atlasUv = mix(atlasGlyphBounds.xw, atlasGlyphBounds.zy, glyphUv);
+        return texture(atlas, vec2(atlasUv.x, 1.0-atlasUv.y));
+    }
+}
+Wish the GPU compiles function "median" {
+    {float r float g float b} float {
+        return max(min(r, g), min(max(r, g), b));
+    }
+}
+
+# HACK: (?) the push constant args are ordered to minimize padding so
+# that it fits into 128 bytes.
+Wish the GPU compiles pipeline "glyph" {
+    {mat3 surfaceToClip
+     vec4 atlasGlyphBounds
+     vec4 color
+     vec2 viewport
+     vec2 a vec2 b vec2 c vec2 d
+     sampler2D atlas
+     fn rotate} {
+
+     vec2 vertices[6] = vec2[6](a, b, c, a, c, d);
+     vec3 v = surfaceToClip * vec3(vertices[gl_VertexIndex], 1.0);
+     return vec4(v.xy/v.z, 0.0, 1.0);
+
+} {fn rotate fn invBilinear fn glyphMsd fn median} {
+    vec2 clipXy = (gl_FragCoord.xy / viewport) * 2.0 - 1.0;
+    vec3 surfaceXy = inverse(surfaceToClip) * vec3(clipXy, 1.0);
+    surfaceXy /= surfaceXy.z;
+
+    vec2 glyphUv = invBilinear(surfaceXy.xy, a, b, c, d);
+    if( max( abs(glyphUv.x-0.5), abs(glyphUv.y-0.5))>=0.5 ) {
+        return vec4(0, 0, 0, 0);
+    }
+    vec3 msd = glyphMsd(atlas, atlasGlyphBounds, glyphUv).rgb;
+    // https://blog.mapbox.com/drawing-text-with-signed-distance-fields-in-mapbox-gl-b0933af6f817
+    float sd = median(msd.r, msd.g, msd.b);
+    float uBuffer = 0.2;
+    float uGamma = 0.2;
+    float opacity = smoothstep(uBuffer - uGamma, uBuffer + uGamma, sd);
+    return vec4(color.rgb, opacity * color.a);
+}}
+
+When the color map is /colorMap/ &\
+     /someone/ wishes to draw text onto /p/ with /...options/ {
+    if {[dict exists $options position]} {
+        lassign [dict get $options position] x0 y0
+    } else {
+        set x0 [dict get $options x]
+        set y0 [dict get $options y]
+    }
+    set scale [dict getdef $options scale 0.01] ;# 1cm default scale
+    set font [dict getdef $options font "PTSans-Regular"]
+    set text [dict get $options text]
+    set anchor [dict getdef $options anchor "center"]
+    set radians [dict getdef $options radians 0]
+    set color [dict getdef $options color white]
+    set color [dict getdef $colorMap $color $color]
+    set layer [dict getdef $options layer 0]
+
+    if {$anchor == "topleft"} {
+        set anchor [list 0 0]
+    } elseif {$anchor == "top"} {
+        set anchor [list 0.5 0]
+    } elseif {$anchor == "topright"} {
+        set anchor [list 1.0 0]
+    } elseif {$anchor == "left"} {
+        set anchor [list 0 0.5]
+    } elseif {$anchor == "center"} {
+        set anchor [list 0.5 0.5]
+    } elseif {$anchor == "right"} {
+        set anchor [list 1.0 0.5]
+    } elseif {$anchor == "bottomleft"} {
+        set anchor [list 0 1]
+    } elseif {$anchor == "bottom"} {
+        set anchor [list 0.5 1]
+    } elseif {$anchor == "bottomright"} {
+        set anchor [list 1 1]
+    }
+
+    When $p has canvas /id/ with /...wiOptions/ &\
+         $p has canvas projection /surfaceToClip/ &\
+         the GPU has font $font with data /fontData/ {
+
+        set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
+        set instances [$fontLib textShape \
+                           $wiResolution $surfaceToClip \
+                           $fontData \
+                           $text $x0 $y0 $scale {*}$anchor $radians $color]
+
+        # We need to batch into one wish so we don't deal with n^2
+        # checks for existing statements for n glyphs.
+        Wish the GPU draws pipeline "glyph" onto canvas $id \
+            with instances $instances layer $layer
+    }
+}
+
+}

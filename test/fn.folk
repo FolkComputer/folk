@@ -1,0 +1,23 @@
+fn wow {} {
+    puts step2
+    error bad
+}
+fn hello {} {
+    puts step1
+    wow
+}
+
+When we are \
+    \
+    awake {
+        try {
+            hello
+        } on error e {
+            set st [info stacktrace]
+            assert {[lindex $st 2] == 3}
+            assert {[lindex $st 6] == 7}
+            Exit! 0
+        }
+    }
+Claim we are awake
+

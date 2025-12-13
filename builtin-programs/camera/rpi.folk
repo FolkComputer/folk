@@ -1,0 +1,255 @@
+# camera/rpi.folk --
+#
+#     Hardware interface with Pi webcams (libcamera).
+
+if {$::tcl_platform(os) eq "darwin"} { return }
+
+set makeCamera {
+    set cpp [C++]
+    $cpp extend $imageLib
+    $cpp include <iostream>
+    $cpp include <iomanip>
+    $cpp include <mutex>
+    $cpp include <condition_variable>
+    $cpp include <queue>
+    $cpp include <sys/mman.h>
+
+    $cpp include <libcamera/libcamera.h>
+    # osnr: HACK: just throwing any possible path in.
+    $cpp cflags -I/usr/local/include/libcamera -I/usr/include/libcamera
+    $cpp endcflags -lcamera
+
+    $cpp code {
+        using namespace libcamera;
+
+        std::unique_ptr<CameraManager> cm;
+        std::shared_ptr<Camera> camera;
+	std::unique_ptr<CameraConfiguration> config;
+	FrameBufferAllocator *allocator;
+
+        // This vector always owns all the request objects.
+	std::vector<std::unique_ptr<Request>> requests;
+
+        std::mutex completedRequestsMutex;
+        std::queue<Request *> completedRequests;
+        std::condition_variable completedRequestsCv;
+
+        uint32_t frameWidth;
+        uint32_t frameHeight;
+        uint32_t frameBytesPerRow;
+
+        static void requestComplete(Request *request);
+    }
+    $cpp proc cameraOpen {char* id int width int height} void {
+        cm = std::make_unique<CameraManager>();
+        cm->start();
+
+        std::cout << "camera/rpi: cameras:" << std::endl;
+	for (auto const &camera : cm->cameras()) {
+            std::cout << " - " << camera->id() << std::endl;
+        }
+
+        camera = cm->get(id);
+        FOLK_ENSURE(camera != nullptr);
+        camera->acquire();
+
+        config = camera->generateConfiguration({ StreamRole::Viewfinder });
+        StreamConfiguration &streamConfig = config->at(0);
+        streamConfig.size = Size(width, height);
+        streamConfig.pixelFormat = PixelFormat::fromString("YUV420");
+
+        config->validate();
+        frameWidth = streamConfig.size.width;
+        frameHeight = streamConfig.size.height;
+        frameBytesPerRow = streamConfig.stride;
+        std::cout << "frameWidth: " << frameWidth << " frameHeight: " << frameHeight << std::endl;
+
+	camera->configure(config.get());
+
+        allocator = new FrameBufferAllocator(camera);
+	for (StreamConfiguration &cfg : *config) {
+            int ret = allocator->allocate(cfg.stream());
+            if (ret < 0) {
+                FOLK_ERROR("Can't allocate buffers");
+            }
+
+            size_t allocated = allocator->buffers(cfg.stream()).size();
+            std::cout << "camera/rpi: Allocated " << allocated << " buffers for stream" << std::endl;
+
+            // for (PixelFormat &format : cfg.formats().pixelformats()) {
+                // std::cout << "camera/rpi: Stream supports format " << format << std::endl;
+                // for (Size &size : cfg.formats().sizes(format)) {
+                //     std::cout << "  -> supports size " << size << std::endl;
+                // }
+            // }
+	}
+
+        Stream *stream = streamConfig.stream();
+        assert(streamConfig.pixelFormat.toString() == "YUV420");
+
+        const std::vector<std::unique_ptr<FrameBuffer>> &buffers = allocator->buffers(stream);
+	for (unsigned int i = 0; i < buffers.size(); ++i) {
+		std::unique_ptr<Request> request = camera->createRequest();
+		if (!request) {
+                    FOLK_ERROR("camera/rpi: Can't create request");
+		}
+
+		const std::unique_ptr<FrameBuffer> &buffer = buffers[i];
+		int ret = request->addBuffer(stream, buffer.get());
+		if (ret < 0) {
+                    FOLK_ERROR("camera/rpi: Can't set buffer for request");
+		}
+
+                ControlList &controls = request->controls();
+
+                controls.set(controls::AeEnable, false);
+                controls.set(controls::ExposureTime, 35000);
+
+                controls.set(controls::AfMode, controls::AfModeManual);
+                // Focus 30cm away (0.3m -> 1/0.3 = 3.3).
+                controls.set(controls::LensPosition, 1.6);
+
+		requests.push_back(std::move(request));
+	}
+
+	camera->requestCompleted.connect(requestComplete);
+
+        camera->start();
+	for (std::unique_ptr<Request> &request : requests) {
+            camera->queueRequest(request.get());
+        }
+    }
+
+    $cpp code {
+        static void requestComplete(Request *request) {
+            if (request->status() == Request::RequestCancelled) {
+		return;
+            }
+
+            completedRequestsMutex.lock();
+            completedRequests.push(request);
+            completedRequestsMutex.unlock();
+            completedRequestsCv.notify_one();
+        }
+
+        static void processRequestAndCopyFrame(Request *request, Image im) {
+            const Request::BufferMap &buffers = request->buffers();
+            assert(buffers.size() == 1);
+            for (auto bufferPair : buffers) {
+                    // (Unused) Stream *stream = bufferPair.first;
+                    FrameBuffer *buffer = bufferPair.second;
+                    const FrameMetadata &metadata = buffer->metadata();
+
+                    assert(metadata.planes().size() == 3);
+                    assert(buffer->planes().size() == 3);
+
+                    auto &plane = buffer->planes()[0];
+                    int fd = plane.fd.get();
+
+                    void *addr = mmap64(NULL, plane.length, PROT_READ, MAP_PRIVATE, fd, 0);
+                    if (addr == MAP_FAILED) {
+                        FOLK_ERROR("camera/rpi: MAP_FAILED");
+                    }
+                    void *planeData = (uint8_t *)addr + plane.offset;
+                    memcpy(im.data, planeData, frameHeight * frameBytesPerRow);
+                    munmap(addr, plane.length);
+            }
+        }
+    }
+
+    $cpp proc newImage {} Image {
+        uint32_t width = frameWidth;
+        uint32_t height = frameHeight;
+        int components = 1;
+        uint8_t *data = (uint8_t *) malloc(width*components*height);
+        return (Image) {
+            .width = width,
+            .height = height,
+            .components = components,
+            .bytesPerRow = width*components,
+            .data = data
+        };
+    }
+    $cpp proc freeImage {Image image} void {
+        free(image.data);
+    }
+
+    $cpp proc grayFrame {} Image {
+        Request *latestRequest = nullptr;
+
+        // We want to drain the queue of completed requests.
+        std::unique_lock lk(completedRequestsMutex);
+        completedRequestsCv.wait(lk, []{
+            return !completedRequests.empty();
+        });
+        while (!completedRequests.empty()) {
+            if (latestRequest != nullptr) {
+                // We're skipping this request, because we have a
+                // newer one in the queue. Requeue it.
+                latestRequest->reuse(Request::ReuseBuffers);
+                camera->queueRequest(latestRequest);
+            }
+            latestRequest = completedRequests.front();
+            completedRequests.pop();
+        }
+        lk.unlock();
+
+        if (latestRequest == nullptr) {
+            FOLK_ERROR("No new frame yet");
+        }
+
+        Image im = newImage();
+        processRequestAndCopyFrame(latestRequest, im);
+
+        /* Re-queue the Request to the camera. */
+        latestRequest->reuse(Request::ReuseBuffers);
+        camera->queueRequest(latestRequest);
+
+        return im;
+    }
+
+    $cpp compile
+}
+
+When the image library is /imageLib/ &\
+     /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
+    if {![string match "/base*" $cameraPath]} { return }
+
+    puts "camera/rpi: Running."
+
+    set width [dict get $options width]
+    set height [dict get $options height]
+
+    set camLib [eval $makeCamera]
+    $camLib cameraOpen $cameraPath $width $height
+
+    # TODO: report actual width and height from libcamera
+    Claim camera $cameraPath has width $width height $height
+
+    puts "camera/rpi: $cameraPath ($options) booted at [clock milliseconds]"
+
+    set oldFrames [list]
+    while true {
+        tracy zoneBegin
+
+        try {
+            set frame [$camLib grayFrame]
+        } on error e {
+            tracy zoneName "err: $e"
+            tracy zoneEnd
+            continue
+        }
+
+        set timestamp [expr {[clock milliseconds] / 1000.0}]
+        tracy zoneName "camera/rpi: $timestamp"
+        Hold! camera [list $this claims camera $cameraPath has frame $frame at timestamp $timestamp]
+
+        lappend oldFrames $frame
+        if {[llength $oldFrames] >= 10} {
+            set oldFrames [lassign $oldFrames oldestFrame]
+            $camLib freeImage $oldestFrame
+        }
+
+        tracy zoneEnd
+    }
+}

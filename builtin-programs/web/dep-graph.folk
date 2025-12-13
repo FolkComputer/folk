@@ -1,0 +1,61 @@
+set dbDotify {{dbLib db} {
+    set dot [list]
+    set matchRefs [dict create]
+    foreach stmt [Query! /...anything/] {
+        set stmtRef [dict get $stmt __ref]
+        set label [$dbLib clause $db $stmtRef]
+        set label [join [lmap line [split $label "\n"] {
+            expr { [string length $line] > 80 ? "[string range $line 0 80]..." : $line }
+        }] "\n"]
+        set label [string map {"\"" "\\\""} [string map {"\\" "\\\\"} $label]]
+        set stmtParentCount [$dbLib statementParentCount $db $stmtRef]
+        set stmtPtrCount [$dbLib statementPtrCount $db $stmtRef]
+        lappend dot "<$stmtRef> \[label=\"$stmtRef ($stmtParentCount parents) ($stmtPtrCount ptrs): $label\"\];"
+
+        foreach childMatchRef [$dbLib childMatches $db $stmtRef] {
+            lappend dot "<$stmtRef> -> <$childMatchRef>;"
+            dict set matchRefs $childMatchRef true
+        }
+    }
+    foreach {matchRef _} $matchRefs {
+        set match [$dbLib matchAcq $db $matchRef]
+        if {$match eq "(Match*) 0x0"} { continue }
+
+        set matchPtrCount [$dbLib matchPtrCount $db $matchRef]
+        set matchIsAlive [$dbLib matchIsAlive $db $matchRef]
+        lappend dot "<$matchRef> \[label=\"$matchRef (alive? $matchIsAlive) ($matchPtrCount)\"\];"
+        foreach childStatementRef [$dbLib childStatements $db $matchRef] {
+            lappend dot "<$matchRef> -> <$childStatementRef>;"
+        }
+
+        $dbLib matchRel $db $match
+    }
+    return "digraph { rankdir=LR; [join $dot "\n"] }"
+}}
+
+set getDotAsPdf {{dot} {
+    set fd [open |[list dot -Tpdf <<$dot] r]
+    fconfigure $fd -translation binary
+    set response [read $fd]
+    try {
+        close $fd
+        return $response
+    } on error e {
+        if {[catch {exec which dot}]} {
+            error "graphviz not installed!"
+        }
+    }
+}}
+
+When the db library is /dbLib/ {
+    Wish the web server handles route {/dep-graph\.pdf} with handler {
+        set dot [apply $dbDotify $dbLib [__db]]
+
+        dict create statusAndHeaders "HTTP/1.1 200 OK
+Connection: close
+Content-Type: application/pdf
+
+" \
+            body [apply $getDotAsPdf $dot]
+    }
+}

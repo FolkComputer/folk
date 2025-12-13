@@ -1,0 +1,89 @@
+# FIXME: disable for now
+Exit! 0
+
+When the image library is /imageLib/ {
+    set cc [C]
+    $cc extend $imageLib
+    $cc include <math.h>
+    $cc code {
+        double lastMutatedT;
+        Image im;
+    }
+    $cc proc init {} void {
+        im.width = 640;
+        im.height = 480;
+        im.bytesPerRow = 640 * 4;
+        im.components = 4;
+        im.data = calloc(im.bytesPerRow, im.height);
+    }
+    $cc proc mutateImage {double t} void {
+        if (t - lastMutatedT < 1) {
+            return;
+        }
+        lastMutatedT = t;
+        for (int i = 0; i < im.bytesPerRow * im.height; i++) {
+            if (i % 4 != 3) {
+                im.data[i] = (((int)floor(t) % 10) / 10.0) * 255.0;
+            } else if (i % 4 == 3) {
+                im.data[i] = 255;
+            }
+            // if (im.data[i] == 0) { im.data[i] = 255; break; }
+        }
+        im.uniq++;
+        printf("Mut\n");
+    }
+    $cc proc getImage {} Image {
+        return im;
+    }
+    set lib [$cc compile]
+    $lib init
+    Claim the texture-churn library is $lib
+}
+
+Wish the GPU creates canvas TEST with width 1024 height 1024
+Claim $this has canvas projection {
+    {1 0 0}
+    {0 1 0}
+    {0 0 1}
+}
+Claim $this has canvas TEST with width 1024 height 1024
+Claim $this has resolved geometry {width 1 height 1 left 0.7}
+
+When the texture-churn library is /lib/ &\
+     the clock time is /t/ {
+    # Draw an image in C.
+    # Then push it to the screen.
+    $lib mutateImage $t
+
+    # Then copy it back and check that it's been filled?
+    Wish $this displays image [$lib getImage]
+}
+
+When the GPU library is /gpuLib/ &\
+     the GPU canvas library is /gpuWritableLib/ &\
+     the GPU creates canvas TEST as /surf/ {
+
+    set surfTex [$gpuWritableLib gpuTexture $surf]
+
+    set a [list -0.5 -0.5]
+    set b [list 0.5 -0.5]
+    set c [list 0.5 0.5]
+    set d [list -0.5 0.5]
+
+    Wish the GPU draws pipeline "image" with arguments \
+        [list [list [$gpuLib getWidth] [$gpuLib getHeight]] \
+             {{1 0 0} {0 1 0} {0 0 1}} \
+             $surfTex $a $b $c $d]
+}
+
+
+
+When { source builtin-programs/web/web.folk }
+When { source builtin-programs/web/textures.folk }
+
+When { source builtin-programs/image-lib.folk }
+When { source builtin-programs/gpu/textures.folk }
+When { source builtin-programs/gpu/writable-textures.folk }
+When { source builtin-programs/draw/image.folk }
+When { source builtin-programs/gpu/gpu-fns.folk }
+apply {{} { source builtin-programs/gpu/gpu.folk }}

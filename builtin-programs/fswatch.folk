@@ -1,0 +1,30 @@
+# Watch for builtin-programs/ changes.
+try {
+    set fd [open "|fswatch --recursive --event Updated --event Created builtin-programs" r]
+    fconfigure $fd -buffering line
+    while true {
+        if {[gets $fd line] < 0} {
+            error "fswatch: fswatch failed."
+        }
+        if {![regexp {builtin-programs\/.*$} $line changedPath]} {
+            set changedPath $line
+        }
+
+        set changedFilename [file tail $changedPath]
+        if {[string index $changedFilename 0] eq "." ||
+            [string index $changedFilename 0] eq "#" ||
+            [file extension $changedFilename] ne ".folk"} {
+            # puts "fswatch: $changedPath updated, ignoring."
+            continue
+        }
+
+        puts "fswatch: $changedPath updated, reloading."
+        set fp [open $changedPath r]; set programCode [read $fp]; close $fp
+
+        Hold! -keep 100ms -on boot.folk -key [list $changedPath code] \
+            Claim $changedPath has program code $programCode
+    }
+} on error err {
+    puts stderr "fswatch: Warning: could not invoke `fswatch` ($err)."
+    puts stderr "fswatch: Will not watch builtin-programs for changes."
+}

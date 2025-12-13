@@ -1,0 +1,337 @@
+# Configuring printers
+#
+# Start by adding a printer to CUPS. You can do this from the Web UI, or declare it using Folk:
+#
+#     Assert $::thisNode claims printer "printer-name" is a cups printer with url "http://url/ipp/print" driver "everywhere"
+#
+# Whether the printer was added via Folk or not, you need to let Folk know which formats your printer supports:
+#
+#     Claim printer my-printer can print double-sided a4 paper
+#     Claim printer alt-printer can print single-sided indexcard paper
+#
+# Use "double-sided" if the printer supports printing on both sides of the paper in a single printing operation.
+#
+# Lastly, you need to declare a default printer and default paper format:
+# (make sure that the default printer supports the default paper format)
+#
+#     Claim printer my-printer is the default printer
+#     Claim paper format a4 is the default paper format
+
+When the image library is /imageLib/ &\
+     the program save directory is /saveDir/ {
+
+set cc [C]
+$cc extend $imageLib
+$cc cflags -I./vendor/apriltag -Wall -Werror
+$cc endcflags ./vendor/apriltag/libapriltag.so
+
+$cc code {
+    #include <apriltag.h>
+    #include <tagStandard52h13.h>
+    apriltag_family_t *tf = NULL;
+}
+
+# HACK (osnr): This is used when someone wants to draw an AprilTag
+# (often for calibration/cnc preview purposes); I put it here because
+# we already have a whole AprilTag family and C compiler object setup
+# here. The returned image_t's data needs to be freed by the caller.
+$cc proc tagImageForId {int id} Image {
+    if (tf == NULL) tf = tagStandard52h13_create();
+
+    image_u8_t* image = apriltag_to_image(tf, id);
+    Image ret = {
+        .width = image->width, .height = image->height,
+        .components = 1, .bytesPerRow = image->stride,
+        .data = image->buf
+    };
+    free(image); // doesn't free data
+    return ret;
+}
+
+$cc proc tagPsForId {int id} char* {
+    if (tf == NULL) tf = tagStandard52h13_create();
+
+    image_u8_t* image = apriltag_to_image(tf, id);
+
+    char* ret = malloc(10000);
+#define emit(...) i += sprintf(&ret[i], __VA_ARGS__)
+    int i = 0;
+    emit("gsave\n");
+    emit("0 1 translate\n");
+    emit("%f %f scale\n", 1.0/image->width, -1.0/image->height);
+    for (int row = 0; row < image->height; row++) {
+        for (int col = 0; col < image->width; col++) {
+            uint8_t pixel = image->buf[(row * image->stride) + col];
+            emit("%d setgray ", pixel != 0);
+            emit("newpath ");
+            emit("%d %d moveto ", col, row); // bottom-left
+            emit("%d %d lineto ", col + 1, row); // bottom-right
+            emit("%d %d lineto ", col + 1, row + 1); // top-right
+            emit("%d %d lineto ", col, row + 1); // top-left
+            emit("closepath fill ");
+        }
+        emit("\n");
+    }
+    emit("grestore\n");
+#undef emit
+    ret[i++] = '\0';
+    image_u8_destroy(image);
+    return ret;
+}
+set printLib [$cc compile]
+Claim the print library is $printLib
+
+fn paginate {text maxlines linelen {linelenOverrides {}}} {
+    set lines [split $text "\n"]
+
+    for {set i 0} {$i < [llength $lines]} {incr i} {
+        # tag each line with its 1-indexed line number
+        lset lines $i [list [expr {$i+1}] [lindex $lines $i]]
+    }
+
+    set safeline 0
+    set firstline 0
+    set pages ""
+    for {set i 0} {$i < [llength $lines]} {incr i} { # hard-wrap lines
+        if {$i - $firstline > $maxlines - 1} {
+            set pagelines [lrange $lines $firstline $safeline-1]
+            lappend pagelines [list "..." ""]
+            lappend pages $pagelines
+            set firstline $safeline
+        }
+
+        lassign [lindex $lines $i] linenum line
+        set max [dict getdef $linelenOverrides $i $linelen]
+        if {$max == 0} {
+            lset lines $i [list "" ""]
+            set lines [linsert $lines $i+1 [list $linenum $line]]
+
+        } elseif {[string length $line] > $max} {
+            lset lines $i 1 [string range $line 0 $max]
+            set lines [linsert $lines $i+1 [list "" [string range $line $max+1 end]]]
+
+        } elseif {$linenum ne ""} {
+            set safeline $i
+        }
+    }
+
+    lappend pages [lrange $lines $firstline end]
+
+    return $pages
+}
+
+fn rangeDict {from to val} {
+    set res ""
+    for {set i $from} {$i < $to} {incr i} {
+        lappend res $i $val
+    }
+    return $res
+}
+
+fn programToPs {id text {format "letter"} {mixins {}}} {
+    set defaults {
+        margin 36
+        fontsize 12
+        tagsize {150 150}
+        maxcharsOverride {}
+    }
+    set formats [subst {
+        letter {
+            pagesize {612 792}
+            maxlines 40
+            maxchars 72
+            maxcharsOverride {[rangeDict 0 8 49]}
+        }
+        a4 {
+            pagesize {595 842}
+            maxlines 43
+            maxchars 68
+            maxcharsOverride {[rangeDict 0 8 46]}
+        }
+        indexcard {
+            fontsize 24
+            tagsize {300 300}
+            pagesize {612 792}
+            maxlines 22
+            maxchars 34
+            maxcharsOverride {[rangeDict 0 9 0]}
+        }
+    }]
+    # indexcard (really receipt) assumes fake letter/A4 size:
+    # https://github.com/NaitLee/Cat-Printer/discussions/8#discussioncomment-2557843
+
+    set params [dict merge $defaults [dict get $formats $format]]
+    dict with params {
+        lassign $pagesize PageWidth PageHeight
+        lassign $tagsize tagwidth tagheight
+        set lineheight [expr $fontsize*1.5]
+
+        set image [$printLib tagPsForId $id]
+
+        set pages [paginate $text $maxlines $maxchars $maxcharsOverride]
+
+        set out ""
+        set pageidx 0
+        foreach lines $pages {
+            set lineidx 0
+            append out [subst {
+                %!PS
+                << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
+
+                /settextcolor {0 setgray} def
+
+                /Courier findfont
+                $fontsize scalefont
+                setfont
+                newpath
+                [join [lmap lineinfo $lines {
+                    lassign $lineinfo linenum line
+                    set line [string map {"\\" "\\\\" ")" "\\)" "(" "\\("} $line]
+                    incr lineidx
+                    subst {
+                        $margin [expr $PageHeight-$margin-$lineidx*$lineheight] moveto
+                        0.4 setgray ([format "%- 3s" $linenum]) show settextcolor ($line) show
+                    }
+                }] "\n"]
+
+                [expr {$pageidx ? {} : [subst {
+                  gsave
+                  [expr $PageWidth-$tagwidth-$margin] [expr $PageHeight-$tagheight-$margin] translate
+                  $tagwidth $tagheight scale
+                  $image
+                  grestore
+
+                  /Helvetica-Narrow findfont
+                  [- $fontsize 2] scalefont
+                  setfont
+                  newpath
+                  [expr $PageWidth-$tagwidth-$margin] [expr $PageHeight-$tagheight-16-$margin] moveto
+                  ($id ([clock format [clock seconds] -format "%a, %d %b %Y, %r"])) show
+
+                  [join [lmap mixin $mixins {
+                      # We run mixins only on page 1 for now.  They
+                      # get access to everything in scope. Kind of
+                      # hacky, but OK for now.
+
+                      subst $mixin
+                  }] "\n"]
+                }] }]
+                showpage
+            }]
+            incr pageidx
+        }
+    }
+
+    return $out
+}
+Claim the programToPs is [fn programToPs]
+fn nextId {} {
+    set idResults [Query! the next program id is /id/]
+    if {[llength $idResults] == 0} {
+        set id 0
+    } else {
+        set id [dict get [lindex $idResults 0] id]
+    }
+
+    while {[file exists "$saveDir/$id.folk"]} {
+        incr id
+    }
+
+    Hold! -save -key next-id the next program id is $id
+
+    set id
+}
+When $::thisNode claims printer /name/ is a cups printer with /...options/ {
+    set command [list /usr/sbin/lpadmin -p $name -E]
+    if {[dict exists $options url]} {
+        lappend command -v [dict get $options url]
+    }
+
+    if {[dict exists $options driver]} {
+        lappend command -m [dict get $options driver]
+    }
+
+    if {[dict exists $options extra-args]} {
+        lappend command {*}[dict get $options extra-args]
+    }
+
+    exec {*}$command
+}
+
+Subscribe: print code /code/ with /...options/ {
+    if {$::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial"} {
+        # HACK: Forward the print request to folk-hex.
+        exec curl -X POST "http://folk-hex.local:4273/" \
+                -H "Content-Type: text/plain" \
+                -d [list Notify: print code $code with printer Canon_LBP121_122]; # HACK Brian's printer for folk2 launch party
+        return
+    }
+
+    set id [nextId]
+    if {![info exists options]} { set options [dict create]}
+    Notify: print program $id with code $code {*}$options
+}
+Subscribe: print program /id/ with /...options/ {
+    set code [dict get $options code]
+
+    ForEach! printer /printer/ is a receipt printer &\
+             printer /printer/ is the default printer {
+        escpos printProgram $printer $id $code
+        return
+    }
+
+    if {![dict exists $options printer]} {
+        set defaultPrinterMatches [Query! printer /printer/ is the default printer]
+        if {[llength $defaultPrinterMatches] > 0} {
+            dict set options printer [dict get [lindex $defaultPrinterMatches 0] printer]
+        }
+    }
+
+    if {![dict exists $options format]} {
+        set defaultFormatMatches [Query! paper format /format/ is the default paper format]
+        if {[llength $defaultFormatMatches] > 0} {
+            dict set options format [dict get [lindex $defaultFormatMatches 0] format]
+        }
+    }
+
+    set printer [dict getdef $options printer /printer/]
+    set format [dict getdef $options format /format/]
+    # TODO: we don't use /sided/ for anything right now.
+    set results [Query! printer $printer can print /sided/ $format paper]
+    if {[llength $results] > 0} {
+        set result [lindex $results 0]
+        dict with result {
+            set args [list -P $printer -o media=$format]
+        }
+    } else {
+        puts stderr "print.folk: Couldn't find a matching configured printer; using bare lpr command"
+        set args [list]
+        set format letter
+    }
+
+    # HACK: added for folk2 launch party printing
+    if {[dict exists $options printer]} {
+        set args [list -P [dict get $options printer]]
+    }
+
+    set ps [programToPs $id $code $format]
+
+    # save code and ps to disk
+    if {[file exists "$saveDir/$id.folk"]} {
+        error "Program $id already exists on disk. Aborting print."
+    }
+    set fp [open "$saveDir/$id.folk" w]
+    puts $fp $code
+    close $fp
+
+    set fp [open "$saveDir/$id.ps" w]
+    puts $fp $ps
+    close $fp
+
+    exec ps2pdf $saveDir/$id.ps $saveDir/$id.pdf
+
+    puts "Printing program $id on $::thisNode"
+    exec lpr {*}$args $saveDir/$id.pdf
+}
+
+}

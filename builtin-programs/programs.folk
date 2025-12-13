@@ -1,0 +1,71 @@
+When tag /tag/ has detection /any/ on camera /any/ at timestamp /any/ {
+    # Setting aside this tag space (48600 to 48713) for calibration.
+    if {$tag >= 48600} { return }
+
+    Claim -keep 100ms tag $tag has a program
+    Claim -keep 100ms tag $tag is a tag
+}
+
+When -noncapturing the program save directory is /saveDir/ {
+    When /type/ /obj/ has a program {
+        puts stderr "Added $type $obj"
+        On unmatch { puts "Removed $type $obj" }
+
+        try {
+            if {[file exists "$saveDir/$obj.folk.temp"]} {
+                set fd [open "$saveDir/$obj.folk.temp" r]
+            } else {
+                if {![file exists "$saveDir/$obj.folk"] &&
+                    ($::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial" || $::thisNode eq "gadget-platinum" || $::thisNode eq "gadget-pink")} {
+                    # HACK: 'Page fault' to folk-hex, try getting page from
+                    # there. Ideally we would have some general (Avahi?)
+                    # way of finding the 'authoritative' node on the local
+                    # network, or broadcasting out, and getting pages from
+                    # there.
+                    exec curl --output "$saveDir/$obj.folk" \
+                        "http://folk-hex.local:4273/printed-programs/$obj.folk" &
+                    exec curl --output "$saveDir/$obj.meta.folk" \
+                        "http://folk-hex.local:4273/printed-programs/$obj.meta.folk" &
+                    # HACK: It won't be reloaded until you redetect the tag.
+                }
+                set fd [open "$saveDir/$obj.folk" r]
+            }
+            set code [read $fd]
+            close $fd
+
+            if {[file exists "$saveDir/$obj.folk.edited"]} {
+                set fd [open "$saveDir/$obj.folk.edited" r]
+                set editedCode [read $fd]
+                close $fd
+
+                set editedTime [file mtime "$saveDir/$obj.folk.edited"]
+                Hold! -on builtin-programs/programs.folk -key new-code-for:$obj \
+                    Wish program $obj is replaced with \
+                    code $editedCode editedTime $editedTime
+            }
+
+            Claim $obj has original program code $code
+            When /nobody/ wishes program $obj is replaced with /...anything/ {
+                Claim $obj has program code $code
+            }
+
+            When /someone/ wishes program $obj is replaced with /...opts/ {
+                Claim $obj has program code [dict get $opts code]
+                set editedTime [dict get $opts editedTime]
+                Wish $obj is titled "(edited [clock format $editedTime -format "%a, %d %b %Y, %I:%M %p"])"
+            }
+
+            if {[file exists "$saveDir/$obj.meta.folk"]} {
+                set mfd [open "$saveDir/$obj.meta.folk" r]
+                set metacode [read $mfd]; close $mfd
+                apply [list {this} $metacode] $obj
+            }
+        } on error err {
+            if {![catch {QueryOne! $obj has demo code /demoCode/} res]} {
+                Claim $obj has program code $res(demoCode)
+            } else {
+                puts stderr "No code for $type $obj ($err):\n  [errorInfo $err [info stacktrace]]"
+            }
+        }
+    }
+}

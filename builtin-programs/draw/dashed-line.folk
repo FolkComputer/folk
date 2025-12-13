@@ -1,0 +1,63 @@
+Wish the GPU compiles pipeline "dashed-line" {
+    {vec2 viewport mat3 surfaceToClip
+     vec2 from vec2 to float thickness vec4 color
+     float dashlength float dashoffset} {
+        vec2 dir = normalize(to - from);
+        vec2 perp = vec2(-dir.y, dir.x) * thickness/2.0;
+
+        vec2 vertices[6] = vec2[6](
+            from + perp,
+            from - perp,
+            to - perp,
+
+            from + perp,
+            to - perp,
+            to + perp
+        );
+        vec3 v = surfaceToClip * vec3(vertices[gl_VertexIndex], 1.0);
+        return vec4(v.xy/v.z, 0.0, 1.0);
+    } {
+        vec2 clipXy = (gl_FragCoord.xy / viewport) * 2.0 - 1.0;
+        vec3 surfaceXy = inverse(surfaceToClip) * vec3(clipXy, 1.0);
+        surfaceXy /= surfaceXy.z;
+
+        float l = length(to - from);
+
+        // How far are we along the line? (in pixels)
+        float t = dot(surfaceXy.xy - from, to - from) / l + dashoffset;
+
+        vec2 d = (to - from) / l;
+        vec2 q = (surfaceXy.xy - (from + to)*0.5);
+        q = mat2(d.x, -d.y, d.y, d.x) * q;
+        q = abs(q) - vec2(l, thickness)*0.5;
+        float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+
+        return (dist < 0.0 && floor(mod(t / dashlength, 2)) == 0) ? color : vec4(0, 0, 0, 0);
+    }
+}
+
+When the color map is /colorMap/ &\
+     /p/ has canvas /id/ with /...wiOptions/ &\
+     /p/ has canvas projection /surfaceToClip/ &\
+     /someone/ wishes to draw a dashed line onto /p/ with /...options/ {
+
+    set points [dict get $options points]
+    set width [dict get $options width]
+    set color [dict get $options color]
+    set color [dict getdef $colorMap $color $color]
+    set dashlength [dict getdef $options dashlength 4]
+    set dashoffset [dict getdef $options dashoffset 0]
+
+    set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
+    set instances [list]
+    for {set i 0} {$i < [llength $points] - 1} {incr i} {
+        set from [lindex $points $i]
+        set to [lindex $points [expr {$i+1}]]
+        lappend instances [list $wiResolution $surfaceToClip \
+                               $from $to $width $color $dashlength $dashoffset]
+    }
+
+    set layer [dict getdef $options layer 0]
+    Wish the GPU draws pipeline "dashed-line" onto canvas $id \
+        with instances $instances layer $layer
+}

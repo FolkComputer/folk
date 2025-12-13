@@ -1,0 +1,33 @@
+When {
+    set n 0
+    while true {
+        sleep 0.01
+        Hold! -key boop \
+            -destructor [list apply {{n} {
+                Retract! the $n is present
+                if {$n > 200} {
+                    puts [Query! the /n/ is present]
+                    Exit! 0
+                }
+            }} $n] \
+            Claim the n is [incr n]
+        Assert! the $n is present
+    }
+}
+
+Claim the resolved geometry is 4
+When the n is /n/ {
+    Wish the aug n is $n
+}
+
+When /someone/ wishes the aug n is /n/ {
+    When the resolved geometry is /geom/ {
+    }
+}
+
+When {
+    while true {
+        sleep 1
+        puts [Query! the n is /n/]
+    }
+}

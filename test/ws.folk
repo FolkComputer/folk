@@ -1,0 +1,48 @@
+When {
+    source "builtin-programs/web/web.folk"
+}
+
+# Wait for the Web server to boot.
+while true {
+    try {
+        set script {puts "test/ws: server is online; continuing."}
+        exec websocat --one-message "ws://127.0.0.1:4273/ws" \
+            <<$script
+        break
+    } on error e {
+        # puts stderr $e
+        sleep 0.3
+    }
+}
+
+lassign [pipe] chRead chRead2
+lassign [pipe] chWrite2 chWrite
+# Hack to get around https://github.com/vi/websocat/issues/23
+set websocat [exec websocat --null-terminated "ws://127.0.0.1:4273/ws" <@$chWrite2 >@$chRead2 &]
+close $chRead2
+close $chWrite2
+
+fconfigure $chWrite -buffering none
+
+proc wsSend {code} {chRead chWrite} {
+    puts -nonewline $chWrite "$code\0"
+    flush $chWrite
+}
+
+wsSend {
+    # Copied from folk.js.
+    Assert! when websocket $chan is connected {
+        Claim there is a sent statement
+        puts stderr X
+    } with environment [list [list this $chan __ctx $ctx __seq 0]]
+}
+
+When there is a sent statement {
+    # Test to make sure this statement gets retracted on WS
+    # disconnect.
+    On unmatch {
+        Exit! 0
+    }
+
+    kill $websocat
+}

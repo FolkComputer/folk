@@ -1,0 +1,362 @@
+# camera/usb.folk --
+#
+#     Hardware interface with USB webcams on Linux (v4l2).
+
+if {$::tcl_platform(os) ne "linux"} { return }
+
+When the image library is /imageLib/ {
+
+set camc [C]
+$camc extend $imageLib
+$camc include <string.h>
+$camc include <math.h>
+
+$camc include <errno.h>
+$camc include <fcntl.h>
+$camc include <sys/ioctl.h>
+$camc include <sys/mman.h>
+$camc include <asm/types.h>
+$camc include <linux/videodev2.h>
+$camc include <unistd.h>
+
+$camc include <stdint.h>
+$camc include <stdlib.h>
+
+$camc struct CameraBuffer {
+    uint8_t* start;
+    size_t length;
+}
+$camc struct Camera {
+    int fd;
+    uint32_t width;
+    uint32_t height;
+    size_t buffer_count;
+    CameraBuffer* buffers;
+    CameraBuffer head;
+}
+
+$camc code {
+    void quit(const char* msg) {
+        FOLK_ERROR("camera/usb: Quitting: [%s] %d: %s\n",
+                   msg, errno, strerror(errno));
+    }
+
+    int xioctl(int fd, int request, void* arg) {
+        for (int i = 0; i < 100; i++) {
+            int r = ioctl(fd, request, arg);
+            if (r != -1 || errno != EINTR) return r;
+            printf("camera/usb: Retrying: [%x][%d] %s\n",
+                   request, i, strerror(errno));
+        }
+        return -1;
+    }
+}
+
+$camc proc cameraOpen {char* device int width int height} Camera* {
+    printf("camera/usb: Loading '%s'\n", device);
+    // O_CLOEXEC is necessary so long-running child processes (like
+    // fswatch) don't keep the camera open past the death of folk
+    // itself, which causes EBUSY for the next Folk process.
+    int fd = open(device, O_RDWR | O_NONBLOCK | O_CLOEXEC, 0);
+    if (fd == -1) quit("open");
+    Camera* camera = malloc(sizeof(Camera));
+    camera->fd = fd;
+    camera->width = width;
+    camera->height = height;
+    camera->buffer_count = 0;
+    camera->buffers = NULL;
+    camera->head.length = 0;
+    camera->head.start = NULL;
+    return camera;
+}
+$camc proc cameraClose {Camera* camera} void {
+    enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    if (xioctl(camera->fd, VIDIOC_STREAMOFF, &type) == -1) {
+        quit("VIDIOC_STREAMOFF");
+    }
+
+    struct v4l2_requestbuffers req = {0};
+    // A count value of zero frees all buffers, after aborting or
+    // finishing any DMA in progress, an implicit VIDIOC_STREAMOFF.
+    req.count = 0;
+    req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    req.memory = V4L2_MEMORY_MMAP;
+    if (xioctl(camera->fd, VIDIOC_REQBUFS, &req) == -1) {
+        quit("VIDIOC_REQBUFS");
+    }
+    if (close(camera->fd) != 0) {
+        quit("close");
+    }
+    free(camera);
+}
+
+$camc proc cameraInit {Camera* camera uint32_t requested_buffer_count} void {
+    struct v4l2_capability cap;
+    if (xioctl(camera->fd, VIDIOC_QUERYCAP, &cap) == -1) quit("VIDIOC_QUERYCAP");
+    if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)) quit("no capture");
+    if (!(cap.capabilities & V4L2_CAP_STREAMING)) quit("no streaming");
+
+    struct v4l2_format format = {0};
+    format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    format.fmt.pix.width = camera->width;
+    format.fmt.pix.height = camera->height;
+    format.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
+    format.fmt.pix.field = V4L2_FIELD_NONE;
+    int ret;
+    do {
+        ret = xioctl(camera->fd, VIDIOC_S_FMT, &format);
+        fprintf(stderr, "camera/usb: VIDIOC_S_FMT: ret = %d (%d) (%s)\n",
+                ret, errno, strerror(errno));
+        usleep(100000);
+    } while (ret == -1 && errno == EBUSY);
+    if (ret == -1) quit("VIDIOC_S_FMT");
+
+    struct v4l2_requestbuffers req = {0};
+    req.count = requested_buffer_count;
+    req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    req.memory = V4L2_MEMORY_MMAP;
+    if (xioctl(camera->fd, VIDIOC_REQBUFS, &req) == -1) quit("VIDIOC_REQBUFS");
+    camera->buffer_count = req.count;
+    camera->buffers = calloc(req.count, sizeof (CameraBuffer));
+
+    printf("LATENCY: Camera buffer count: %d\n", req.count);
+    fflush(stdout);
+
+    struct v4l2_streamparm streamparm = {0};
+    streamparm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    if (xioctl(camera->fd, VIDIOC_G_PARM, &streamparm) == -1) quit("VIDIOC_G_PARM");
+    if (streamparm.parm.capture.capability & V4L2_CAP_TIMEPERFRAME) {
+        int req_rate_numerator = 1;
+        int req_rate_denominator = 60;
+        streamparm.parm.capture.timeperframe.numerator = req_rate_numerator;
+        streamparm.parm.capture.timeperframe.denominator = req_rate_denominator;
+        if (xioctl(camera->fd, VIDIOC_S_PARM, &streamparm) == -1) { quit("VIDIOC_S_PARM"); }
+
+        if (streamparm.parm.capture.timeperframe.numerator != req_rate_numerator ||
+            streamparm.parm.capture.timeperframe.denominator != req_rate_denominator) {
+            fprintf(stderr,
+                    "the driver changed the time per frame from "
+                    "%d/%d to %d/%d\n",
+                    req_rate_numerator, req_rate_denominator,
+                    streamparm.parm.capture.timeperframe.numerator,
+                    streamparm.parm.capture.timeperframe.denominator);
+        }
+    }
+
+    size_t buf_max = 0;
+    for (size_t i = 0; i < camera->buffer_count; i++) {
+        struct v4l2_buffer buf;
+        memset(&buf, 0, sizeof buf);
+        buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        buf.memory = V4L2_MEMORY_MMAP;
+        buf.index = i;
+        if (xioctl(camera->fd, VIDIOC_QUERYBUF, &buf) == -1) {
+            quit("VIDIOC_QUERYBUF");
+        }
+        if (buf.length > buf_max) buf_max = buf.length;
+        camera->buffers[i].length = buf.length;
+        camera->buffers[i].start = 
+          mmap(NULL, buf.length, PROT_READ | PROT_WRITE, MAP_SHARED,
+             camera->fd, buf.m.offset);
+        if (camera->buffers[i].start == MAP_FAILED) quit("mmap");
+    }
+    camera->head.start = malloc(buf_max);
+
+    printf("camera %d; bufcount %zu\n", camera->fd, camera->buffer_count);
+}
+
+$camc proc cameraStart {Camera* camera} void {
+    for (size_t i = 0; i < camera->buffer_count; i++) {
+        struct v4l2_buffer buf;
+        memset(&buf, 0, sizeof buf);
+        buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        buf.memory = V4L2_MEMORY_MMAP;
+        buf.index = i;
+        if (xioctl(camera->fd, VIDIOC_QBUF, &buf) == -1) quit("VIDIOC_QBUF");
+        printf("camera_start(%zu): %s\n", i, strerror(errno));
+    }
+
+    enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    if (xioctl(camera->fd, VIDIOC_STREAMON, &type) == -1) {
+        quit("VIDIOC_STREAMON");
+    }
+}
+
+$camc code {
+    int camera_capture(Camera* camera) {
+        struct v4l2_buffer buf;
+        memset(&buf, 0, sizeof buf);
+        buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        buf.memory = V4L2_MEMORY_MMAP;
+        if (xioctl(camera->fd, VIDIOC_DQBUF, &buf) == -1) {
+            fprintf(stderr, "camera_capture: VIDIOC_DQBUF failed: %d: %s\n", errno, strerror(errno));
+            return 0;
+        }
+        memcpy(camera->head.start, camera->buffers[buf.index].start, buf.bytesused);
+        camera->head.length = buf.bytesused;
+        if (xioctl(camera->fd, VIDIOC_QBUF, &buf) == -1) {
+            fprintf(stderr, "camera_capture: VIDIOC_QBUF failed: %d: %s\n", errno, strerror(errno));
+            return 0;
+        }
+        return 1;
+    }
+}
+
+$camc proc cameraFrameJpeg {Camera* camera} CameraBuffer {
+    struct timeval timeout;
+    timeout.tv_sec = 1;
+    timeout.tv_usec = 0;
+    fd_set fds;
+    FD_ZERO(&fds);
+    FD_SET(camera->fd, &fds);
+    int r = select(camera->fd + 1, &fds, 0, 0, &timeout);
+    // printf("r: %d\n", r);
+    if (r == -1) quit("select");
+    if (r == 0) {
+        FOLK_ERROR("selection failed of fd %d\n", camera->fd);
+    }
+
+    FOLK_ENSURE(camera_capture(camera) != 0);
+
+    // Clone the head buffer into a new independent buffer that can be
+    // owned by the caller.
+    CameraBuffer buf = {
+        .start = malloc(camera->head.length),
+        .length = camera->head.length
+    };
+    memcpy(buf.start, camera->head.start, buf.length);
+    return buf;
+}
+$camc proc jpegFree {CameraBuffer jpeg} void {
+    free(jpeg.start);
+}
+
+$camc proc setExposure {Camera* camera int value} void {
+    struct v4l2_control c;
+
+    c.id = V4L2_CID_EXPOSURE_AUTO;
+    c.value = V4L2_EXPOSURE_MANUAL;
+    FOLK_ENSURE(xioctl(camera->fd, VIDIOC_S_CTRL, &c) == 0);
+
+    c.id = V4L2_CID_EXPOSURE_ABSOLUTE;
+    c.value = value;
+    FOLK_ENSURE(xioctl(camera->fd, VIDIOC_S_CTRL, &c) == 0);
+}
+$camc proc setExposureAuto {Camera* camera} void {
+    struct v4l2_control c;
+    c.id = V4L2_CID_EXPOSURE_AUTO;
+    c.value = V4L2_EXPOSURE_APERTURE_PRIORITY;
+    FOLK_ENSURE(xioctl(camera->fd, VIDIOC_S_CTRL, &c) == 0);
+}
+
+$camc cflags -Wall -Werror
+set camLib [$camc compile]
+
+When the image library is /imageLib/ &\
+     /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
+    if {[string match "/sys/bus/usb/devices/*" $camera]} {
+        set devicePath $camera
+
+        fn retryDevice {} {
+            set videoDevices [glob -nocomplain [file join $devicePath video4linux video*]]
+            if {[llength $videoDevices] > 0} {
+                set camera [file tail [lindex [lsort -dict $videoDevices] 0]]
+                set camera "/dev/$camera"
+            } else {
+                error "camera/usb: Unable to find video device for $devicePath"
+            }
+
+            Hold! -key [list retry $devicePath] \
+                Wish $::thisNode uses camera $camera with {*}$options
+        }
+
+        When camera $camera failed with error /e/ {
+            puts stderr "camera/usb: Restarting after failure with $e"
+            retryDevice
+        }
+        retryDevice
+
+        return
+    }
+
+    if {![string match "/dev/*" $camera]} { return }
+
+    set width [dict get $options width]
+    set height [dict get $options height]
+    set bufferCount [dict getdef $options bufferCount 2]
+
+    if {[dict exists $options crop]} {
+        set crop [dict get $options crop]
+    }
+    
+    set camObj [$camLib cameraOpen $camera $width $height]
+    puts "camera/usb: Loaded $camera -> $camObj"
+    $camLib cameraInit $camObj $bufferCount
+    $camLib cameraStart $camObj
+    # skip 5 frames for booting a cam
+    for {set i 0} {$i < 5} {incr i} {
+        $camLib cameraFrameJpeg $camObj
+    }
+
+    try -signal {
+        if {[info exists crop]} {
+            Claim camera $camera has width [dict get $crop width] height [dict get $crop height]
+        } else {
+            Claim camera $camera has width $width height $height
+        }
+
+        When /someone/ wishes camera $camera uses exposure time /exposureTimeUs/ us {
+            if {$exposureTimeUs eq "auto"} {
+                $camLib setExposureAuto $camObj
+            } else {
+                $camLib setExposure $camObj [expr {int($exposureTimeUs / 100)}]
+            }
+        }
+
+        while true {
+            tracy zoneBegin
+
+            set ms [clock milliseconds]
+            set jpeg [$camLib cameraFrameJpeg $camObj]
+
+            if {[info exists crop]} {
+                dict with crop {
+                    set croppedJpeg [$imageLib jpegSubimage $jpeg \
+                                         $x $y $width $height]
+                }
+                $camLib jpegFree $jpeg
+            } else {
+                set croppedJpeg $jpeg
+            }
+            set timestamp [expr {$ms / 1000.0}]
+            tracy zoneName "camera/usb: $timestamp"
+
+            Hold! -key [list camera $camera jpeg] \
+                Claim camera $camera has jpeg frame $croppedJpeg at timestamp $timestamp \
+                -destructor [list $camLib jpegFree $croppedJpeg]
+
+            tracy zoneEnd
+
+            try {
+                set frameImage [$imageLib jpegDecompressGray $croppedJpeg \
+                                    $width $height $ms]
+                Hold! -key [list camera $camera frame] \
+                    Claim camera $camera has frame $frameImage at timestamp $timestamp \
+                    -destructor [list $imageLib imageFree $frameImage]
+            } on error e {
+                puts stderr "camera/usb: Error $e"
+            }
+        }
+    } on error e {
+        puts stderr "camera/usb: Error $e"
+        Hold! -key [list camera-error $camera] \
+            Claim camera $camera failed with error $e
+    } on signal sig {
+        puts stderr "camera/usb: Signal $sig"
+    } finally {
+        puts "camera/usb: Close $camObj"
+        $camLib cameraClose $camObj
+    }
+}
+
+}

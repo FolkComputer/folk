@@ -1,0 +1,32 @@
+Assert! when {
+    puts "when: [__threadId]"
+
+    Assert! we are active
+    When we are active {
+        puts "we are active: [__threadId]"
+
+        fn ok {t} {
+            puts $t
+        }
+
+        When the clock time is /t/ {
+            puts "clock time $t: [__threadId]"
+
+            fn hello {t} {
+                puts "hello: [__threadId]"
+                ok $t
+                Exit! 0
+            }
+
+            Retract! we are active
+            Hold! {sleep 1; When {
+                Hold! {
+                    hello $t
+                }
+            }}
+        }
+        sleep 1
+    }
+    sleep 1
+ 
+} with environment {}

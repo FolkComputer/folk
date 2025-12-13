@@ -1,0 +1,78 @@
+# Title/footnote wish fulfillment
+# for wishes of the form:
+# "Wish $tag is titled "This is a tag"" or "Wish $tag is footnoted "This is a footnote""
+
+When /thing/ has quad /quad/ {
+    Claim -keep 50ms $thing has a quad
+}
+
+When the quad library is /quadLib/ &\
+     the pose library is /poseLib/ &\
+     the quad changer is /quadChange/ &\
+     display /disp/ has width /displayWidth/ height /displayHeight/ &\
+     display /disp/ has intrinsics /displayIntrinsics/ &\
+     /thing/ has a quad {
+
+    fn quadChange
+
+    When the collected results for [list /someone/ wishes $thing is titled /text/] are /results/ {
+        set text [join [lmap result $results {dict get $result text}] "\n"]
+        if {$text eq ""} { return }
+    
+        When -atomically $thing has quad /q/ {
+            # HACK: This is just direct working with pixels, like
+            # points-at, and it's ugly.
+
+            lassign [$quadLib vertices [quadChange $q "display $disp"]] \
+                topLeft topRight
+
+            set dispTopLeft [$poseLib project $displayIntrinsics \
+                                 $displayWidth $displayHeight $topLeft]
+            set dispTopRight [$poseLib project $displayIntrinsics \
+                                 $displayWidth $displayHeight $topRight]
+            set dispTopCenter [vec2 midpoint $dispTopLeft $dispTopRight]
+            set dispTop [vec2 sub $dispTopRight $dispTopLeft]
+            set dispRadians [expr {-atan2([lindex $dispTop 1], [lindex $dispTop 0])}]
+            Wish to draw text onto $disp with \
+                position $dispTopCenter \
+                scale 36.0 radians $dispRadians anchor bottom \
+                text $text
+        }
+    }
+
+    When the collected results for [list /someone/ wishes $thing is footnoted /text/] are /results/ {
+        set text [join [lmap result $results {dict get $result text}] "\n"]
+        if {$text eq ""} { return }
+
+        set radians [region angle $region]
+        When $thing has region /region/ {
+            set scale [dict getdef $result scale 0.75]
+            set pos [region bottomleft [region move $region down 20px]]
+            Wish to draw text with position $pos scale $scale text $text radians $radians anchor topleft
+        }
+    }
+    
+    When the collected results for [list /someone/ wishes $thing is right-margined /text/] are /results/ {
+        set text [join [lmap result $results {dict get $result text}] "\n"]
+        if {$text eq ""} { return }
+
+        set radians [region angle $region]
+        When $thing has region /region/ {
+            set scale [dict getdef $result scale 0.75]
+            set pos [region right [region move $region right 10px]]
+            Wish to draw text with position $pos scale $scale text $text radians $radians anchor left
+        }
+    }
+
+    When the collected results for [list /someone/ wishes $thing is left-margined /text/] are /results/ {
+        set text [join [lmap result $results {dict get $result text}] "\n"]
+        if {$text eq ""} { return }
+
+        set radians [region angle $region]
+        When $thing has region /region/ {
+            set scale [dict getdef $result scale 0.75]
+            set pos [region left [region move $region left 10px]]
+            Wish to draw text with position $pos scale $scale text $text radians $radians anchor right
+        }
+    }
+}

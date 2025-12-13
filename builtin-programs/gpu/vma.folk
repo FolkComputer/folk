@@ -1,0 +1,74 @@
+When the GPU Vulkan handle type definer is /defineVulkanHandleType/ {
+
+fn defineVulkanHandleType
+
+# VMA (Vulkan Memory Allocator) module:
+set vmac [C++]
+$vmac cflags -I./vendor \
+    -Wno-nullability-completeness -Wno-unused-private-field \
+    -Wno-unused-variable
+$vmac code {
+    #define VOLK_IMPLEMENTATION
+    #include "volk/volk.h"
+
+    #define VMA_IMPLEMENTATION
+    #define VMA_STATIC_VULKAN_FUNCTIONS 0
+    #define VMA_DYNAMIC_VULKAN_FUNCTIONS 0
+    #include "vk_mem_alloc.h"
+
+    VmaAllocator allocator = VK_NULL_HANDLE;
+}
+defineVulkanHandleType $vmac VkInstance
+defineVulkanHandleType $vmac VkPhysicalDevice
+defineVulkanHandleType $vmac VkDevice
+$vmac code { extern "C" {
+
+void vmaInit(VkInstance instance, VkPhysicalDevice physicalDevice, VkDevice device,
+             PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr,
+             PFN_vkGetDeviceProcAddr vkGetDeviceProcAddr,
+             PFN_vkGetPhysicalDeviceProperties vkGetPhysicalDeviceProperties,
+             PFN_vkGetPhysicalDeviceMemoryProperties vkGetPhysicalDeviceMemoryProperties) {
+    volkInitialize();
+    volkLoadInstanceOnly(instance);
+    volkLoadDevice(device);
+
+    VmaAllocatorCreateInfo allocatorInfo = {0};
+    allocatorInfo.physicalDevice = physicalDevice;
+    allocatorInfo.device = device;
+    allocatorInfo.instance = instance;
+
+    VmaVulkanFunctions vulkanFunctions;
+    VkResult res = vmaImportVulkanFunctionsFromVolk(&allocatorInfo, &vulkanFunctions);
+    if (res != VK_SUCCESS) {
+        fprintf(stderr, "Failed to import Vulkan functions from volk: %d\\n", res);
+        exit(1);
+    }
+
+    // HACK: We need the caller to get these from their namespace and
+    // pass them in; they're global and don't get bound properly by
+    // Volk if we get them from here.
+    vulkanFunctions.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
+    vulkanFunctions.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
+    vulkanFunctions.vkGetPhysicalDeviceProperties = vkGetPhysicalDeviceProperties;
+    vulkanFunctions.vkGetPhysicalDeviceMemoryProperties = vkGetPhysicalDeviceMemoryProperties;
+
+    allocatorInfo.pVulkanFunctions = &vulkanFunctions;
+
+    res = vmaCreateAllocator(&allocatorInfo, &allocator);
+    if (res != VK_SUCCESS) {
+        fprintf(stderr, "Failed to create VMA allocator: %d\\n", res);
+        exit(1);
+    }
+}
+
+VmaAllocator vmaGetAllocator() {
+    return allocator;
+}
+
+} }
+
+set vmaDll [$vmac compile -noload]
+puts $vmaDll
+Claim the GPU VMA DLL is $vmaDll
+
+}

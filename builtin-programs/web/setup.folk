@@ -1,0 +1,381 @@
+Wish the web server handles route "/setup" with nav "<button>Setup</button>" handler {
+    html [subst {
+<!DOCTYPE html>
+<html>
+<head>
+<title>Folk setup</title>
+<script src="/lib/folk.js"></script>
+</head>
+
+<body>
+<script>
+const folk = new FolkWS();
+
+let hasSeenHandlers = false;
+folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with handler /handler/`, handlers => {
+    if (hasSeenHandlers) {
+        window.location.reload();
+    } else {
+        hasSeenHandlers = true;
+    }
+});
+</script>
+
+<h1>Folk setup</h1>
+<!-- 
+     <div>
+     <h2>Start service on boot</h2>
+     LIST IF SYSTEMD SERVICE EXISTS
+     </div>
+
+     <div>
+     <h2>Configure user permissions</h2>
+     LIST IF PART OF ALL GROUPS
+     </div>
+
+     <div>
+     <h2>Errors</h2>
+     LIST ALL ERRORS
+     </div>
+-->
+<style>
+  .mode-select .mode input\[type=radio] {
+      display: none;
+  }
+  .mode-select .resolution:hover, 
+  .mode-select label:has(input\[type=radio]):hover,
+  .mode-select .resolution:hover + label,
+  .mode-select .resolution:has(~ label input\[type=radio]:hover) {
+      background-color: #a8e6a3;
+      cursor: pointer;
+  }
+  .mode-select .mode:has(input:checked) {
+      background-color: #ccc;
+  }
+  .mode-select .mode:has(input:checked) .resolution,
+  .mode-select label:has(input:checked) {
+      background-color: #27ae60;
+  }
+  .mode-select .resolution {
+      width: 100px;
+  }
+  .mode {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+  }
+</style>
+
+<div class="mode-select">
+  <h2>Displays</h2>
+  <div style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
+    <label>
+      <input type="radio" name="display-enabled"
+             value=""
+             onchange="displayEnabledChange.call(this, event)">
+      <strong>Don't use a display</strong>
+    </label>
+  </div>
+
+  [HtmlWhen $::thisNode has display /display/ with /...opts/ {
+   HtmlWhen the collected results for \
+            [list /someone/ wishes $::thisNode uses display $display with /...usingOpts/] \
+            are /results/ {
+    set isUsingDisplay $([llength $results] >= 1)
+    if {$isUsingDisplay} {
+      set usingOpts [dict get [lindex $results 0] usingOpts]
+    }
+
+    set info [dict get $opts info]
+    set displayName [dict get $info name]
+
+    set modesByRegion [dict create]
+    foreach mode [dict getdef $info modes [list]] {
+      dict lappend modesByRegion $mode(visibleRegion) $mode
+    }
+    set regions [lsort -decreasing -integer -index 0 \
+                     [dict keys $modesByRegion]]
+
+    set displayId [string map {/ _} $display]
+    subst {
+      <div style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
+        <label>
+          <input type="radio" name="display-enabled"
+                 $($isUsingDisplay ? "checked" : "")
+                 value="$display"
+                 onchange="displayEnabledChange.call(this, event)">
+          <strong>$displayName</strong><br>
+          [if {[dict exists $info physicalResolution]} { subst {
+              (Physical resolution: [join $info(physicalResolution) x])
+          } }]
+        </label>
+
+        [if {[llength $regions] > 0} { subst {
+        <fieldset style="margin-left: 20px;">
+          <legend>Select mode:</legend>
+          [join [lmap region $regions {
+            lassign $region width height
+            set refreshRates [lmap mode [dict get $modesByRegion $region] \
+                                   {dict get $mode refreshRate}]
+            set refreshRates [lsort -decreasing -integer $refreshRates]
+            subst {
+              <div class="mode">
+                <span class="resolution" data-display="$display"
+                      data-resolution="width $width height $height"
+                      onclick="displayResolutionClicked.call(this, event)">
+                  ${width}x${height}
+                </span>
+                [join [lmap refreshRate $refreshRates { subst {
+                  <label>
+                    <input type="radio" name="display-refreshRate-$displayId"
+                           $([info exists usingOpts] && 
+                             $width == $usingOpts(width) &&
+                             $height == $usingOpts(height) &&
+                             $refreshRate == $usingOpts(refreshRate) ?
+                             "checked" : "")
+                           data-display="$display"
+                           value="width $width height $height refreshRate $refreshRate"
+                           onchange="displayModeChange.call(this, event)">
+                    [format "%.3g" [/ $refreshRate 1000]] Hz
+                  </label>
+                } }] \n]
+              </div>
+            }
+          }] \n]
+        </fieldset>
+        } }]
+      </div>
+    }
+  }}]
+  <script>
+   function displayEnabledChange(event) {
+     const display = this.value;
+     if (this.checked) {
+       if (display === "glfw") {
+         // glfw doesn't have any mode settings (for now).
+         folk.hold('display', `Wish \$::thisNode uses display "\${display}" with width 640 height 480 refreshRate -1`,
+                   'builtin-programs/web/setup.folk', true);
+
+       } else if (display === "") {
+         folk.hold('display', '',
+                   'builtin-programs/web/setup.folk', true);
+
+       } else {
+         const firstRefreshRateRadio = document.querySelector(
+           `input\[type="radio"\]\[name^="display-refreshRate-"\]\[data-display="\${display}"]`
+         );
+         firstRefreshRateRadio.checked = true;
+         firstRefreshRateRadio.dispatchEvent(new Event('change'));
+       }
+     } else {
+       // I think this never fires?
+     }
+   }
+   function displayResolutionClicked(event) {
+     const display = this.dataset.display;
+     const firstRefreshRateRadio = document.querySelector(
+       `input\[type="radio"\]\[name^="display-refreshRate-"\]\[data-display="\${display}"]` +
+       `\[value^="\${this.dataset.resolution}"]`
+     );
+     firstRefreshRateRadio.checked = true;
+     firstRefreshRateRadio.dispatchEvent(new Event('change'));
+     event.preventDefault();
+   }
+   function displayModeChange(event) {
+     if (this.checked) {
+       const display = this.dataset.display;
+       const mode = this.value;
+       folk.hold('display', `Wish \$::thisNode uses display "\${display}" with \${mode}`,
+                 'builtin-programs/web/setup.folk', true);
+     }
+     event.preventDefault();
+   }
+  </script>
+</div>
+
+<div class="mode-select">
+  <h2>Cameras</h2>
+  [HtmlWhen $::thisNode has camera /camera/ with /...opts/ {
+   HtmlWhen the collected results for \
+            [list /someone/ wishes $::thisNode uses camera $camera with /...usingOpts/] \
+            are /results/ {
+    set isUsingCamera $([llength $results] >= 1)
+    if {$isUsingCamera} {
+      set usingOpts [dict get [lindex $results 0] usingOpts]
+    }
+
+    set resolutions [list]
+    foreach format [dict get $opts formats] {
+        # For now, we only support MJPG. The more raw formats are
+        # rarely used by cameras at even medium resolutions and
+        # framerates, anyway, so it's only worth supporting MJPG.
+        if {$format(fourcc) eq "MJPG"} {
+            lappend resolutions {*}$format(resolutions)
+        }
+    }
+    set resolutions [lsort -command {apply {{a b} {
+        expr {[dict get $b width] - [dict get $a width]}
+    }}} $resolutions]
+
+    if {[llength $resolutions] == 0} {
+      # Cameras often have extra camera devices with no formats (or no
+      # MJPG, at least) for some reason. Not very useful for us.
+      subst {
+      <div style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
+        <strong>$camera</strong> (<code>[dict getdef $opts card ""]</code>)<br>
+        (no supported formats)
+      </div>
+      }
+
+    } else {
+      set cameraId [string map {/ _} $camera]
+      subst {
+      <div style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
+        <label>
+          <input type="checkbox" name="camera-enabled"
+                 $($isUsingCamera ? "checked" : "")
+                 value="$camera"
+                 onchange="cameraEnabledChange.call(this, event)">
+          <strong>$camera</strong> (<code>[dict getdef $opts card ""]</code>)
+        </label>
+
+        <fieldset style="margin-left: 20px; margin-top: 10px">
+          <legend>Select resolution:</legend>
+          [join [lmap resolution $resolutions { subst {
+            <div class="mode">
+              <span class="resolution" data-camera="$camera"
+                    data-resolution="width ${resolution(width)} height ${resolution(height)}"
+                    onclick="cameraResolutionClicked.call(this, event)">
+                ${resolution(width)}x${resolution(height)}
+              </span>
+              [join [lmap framerate $resolution(framerates) { subst {
+                <label>
+                  <input type="radio" name="camera-framerate-$cameraId"
+                         $([info exists usingOpts] && 
+                           $resolution(width) == $usingOpts(width) &&
+                           $resolution(height) == $usingOpts(height) &&
+                           $framerate == $usingOpts(framerate) ?
+                           "checked" : "")
+                         data-camera="$camera"
+                         value="width ${resolution(width)} height ${resolution(height)} framerate $framerate"
+                         onchange="cameraFramerateChange.call(this, event)">
+                  [format "%.3g" $framerate] Hz
+                </label>
+              } }] \n]
+            </div>
+          } }] \n]
+        </fieldset>
+        
+        [if {$isUsingCamera} { subst {
+          <div style="margin-top: 10px;">
+            <iframe src="/camera?camera=[string map {/ %2F} $camera]"
+                    width="600" height="338"
+                    style="border: 1px solid #999;"></iframe>
+          </div>
+        } }]
+      </div>
+      }
+    }
+  }}]
+  <script>
+    function cameraEnabledChange(event) {
+      const camera = this.value;
+      if (this.checked) {
+        const firstFramerateRadio = document.querySelector(
+          `input\[type="radio"\]\[name^="camera-framerate-"\]\[data-camera="\${camera}"]`
+        );
+        firstFramerateRadio.checked = true;
+        firstFramerateRadio.dispatchEvent(new Event('change'));
+      } else {
+        folk.hold(`camera \${camera}`, '',
+                  'builtin-programs/web/setup.folk', true);
+      }
+      event.preventDefault();
+    }
+    function cameraResolutionClicked(event) {
+      const camera = this.dataset.camera;
+      const firstFramerateRadio = document.querySelector(
+        `input\[type="radio"\]\[name^="camera-framerate-"\]\[data-camera="\${camera}"]` +
+        `\[value^="\${this.dataset.resolution}"]`
+      );
+      firstFramerateRadio.checked = true;
+      firstFramerateRadio.dispatchEvent(new Event('change'));
+      event.preventDefault();
+    }
+    function cameraFramerateChange(event) {
+      if (this.checked) {
+        const camera = this.dataset.camera;
+        const format = this.value;
+        folk.hold(`camera \${camera}`, `Wish \$::thisNode uses camera "\${camera}" with \${format}`,
+                  'builtin-programs/web/setup.folk', true);
+      }
+      event.preventDefault();
+    }
+  </script>
+</div>
+
+<div>
+  <h2>Projector-camera calibration</h2>
+  <p>Select one display and one or more cameras to calibrate:</p>
+
+  <fieldset style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
+    <legend><strong>Display (projector)</strong></legend>
+    [HtmlWhen /someone/ wishes $::thisNode uses display /display/ with /...opts/ {
+      subst {
+        <div style="margin: 5px 0;">
+          <label>
+            <input type="radio" name="calibration-display"
+                   value="$display"
+                   onchange="calibrationSelectionChange()">
+            $display
+          </label>
+        </div>
+      }
+    }]
+  </fieldset>
+
+  <fieldset style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
+    <legend><strong>Cameras</strong></legend>
+    [HtmlWhen /someone/ wishes $::thisNode uses camera /camera/ with /...opts/ {
+      subst {
+        <div style="margin: 5px 0;">
+          <label>
+            <input type="checkbox" name="calibration-camera"
+                   value="$camera"
+                   onchange="calibrationSelectionChange()">
+            $camera
+          </label>
+        </div>
+      }
+    }]
+  </fieldset>
+
+  <button id="calibrate-button" disabled onclick="startCalibration()">Calibrate</button>
+
+  <script>
+    function calibrationSelectionChange() {
+      const display = document.querySelector('input\[name="calibration-display"]:checked');
+      const cameras = document.querySelectorAll('input\[name="calibration-camera"]:checked');
+      const button = document.getElementById('calibrate-button');
+      button.disabled = !display || cameras.length === 0;
+    }
+
+    function startCalibration() {
+      const display = document.querySelector('input\[name="calibration-display"]:checked');
+      const cameras = Array.from(document.querySelectorAll('input\[name="calibration-camera"]:checked'));
+
+      if (!display || cameras.length === 0) return;
+
+      const params = new URLSearchParams();
+      params.append('display', display.value);
+      cameras.forEach(camera => params.append('camera', camera.value));
+
+      window.location.href = `/calibrate?\${params.toString()}`;
+    }
+  </script>
+</div>
+
+</body>
+</html>
+}]
+}

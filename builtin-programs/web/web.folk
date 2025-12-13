@@ -1,0 +1,254 @@
+puts "web: [__threadId] (PID [pid])"
+
+# We need to handle SIGPIPE so closing a tab doesn't crash Folk, but
+# we don't want to block/ignore, because that will cause child
+# processes to also block/ignore and behave weirdly.
+signal handle SIGPIPE
+
+source "lib/ws.tcl"
+# We export wsLib so that other threads can emit messages onto
+# websockets.
+Claim the websocket library is $wsLib
+
+proc handleConnect {chan addr} {
+    $chan timeout 2000
+    fileevent $chan readable [list apply {{chan addr} {
+        try -signal {
+            handleRead $chan $addr
+        } on signal {sig} {
+            puts stderr "web: $sig on $chan $addr"
+        }
+    }} $chan $addr]
+}
+
+proc htmlEscape {s} { string map {& "&amp;" < "&lt;" > "&gt;" "\"" "&quot;"} $s }
+
+proc readFile {filename contentTypeVar} {
+    upvar $contentTypeVar contentType
+    set fd [open $filename rb]
+    set response [read $fd]; close $fd; return $response
+}
+
+proc handlePage {path httpStatusVar contentTypeVar} {
+    upvar $contentTypeVar contentType
+    switch -exact -- $path {
+        "/favicon.ico" {
+            set contentType "image/x-icon"
+            readFile "assets/favicon.ico" contentType
+        }
+        "/style.css" {
+            set contentType "text/css"
+            readFile "assets/style.css" contentType
+        }
+        "/lib/folk.js" {
+            set contentType "text/javascript"
+            readFile "lib/folk.js" contentType
+        }
+        default {
+            upvar $httpStatusVar httpStatus
+            set httpStatus "HTTP/1.1 404 Not Found"
+            subst {
+                <html>
+                <b>$path</b> Not found.
+                </html>
+            }
+        }
+    }
+}
+
+proc parseQueryString {queryString} {
+    set QUERY [dict create]
+    if {$queryString eq ""} { return $QUERY }
+
+    set queryString [string range $queryString 1 end]
+    foreach pair [split $queryString &] {
+        if {[regexp {^([^=]*)=(.*)$} $pair -> key value]} {
+            # URL decode key and value
+            regsub -all {\+} $key { } key
+            regsub -all {%([0-9A-Fa-f]{2})} $key {[format %c 0x\1]} key
+            set key [subst $key]
+            
+            regsub -all {\+} $value { } value
+            regsub -all {%([0-9A-Fa-f]{2})} $value {[format %c 0x\1]} value
+            set value [subst $value]
+            
+            dict set QUERY $key $value
+        }
+    }
+    return $QUERY
+}
+
+fn HtmlWhen args {
+    set body [lindex $args end]
+    set pattern [lreplace $args end end]
+    set envStack [uplevel captureEnvStack]
+    lappend envStack [list ^HtmlWhen ${^HtmlWhen}]
+    # TODO: Retract this when the page is closed.
+    When -noncapturing the collected results for $pattern are /results/ \
+        [list apply {{pattern body envStack} {
+            proc htmlEscape {s} { string map {& "&amp;" < "&lt;" > "&gt;" "\"" "&quot;"} $s }
+
+            upvar results results
+            lappend envStack {}
+
+            set htmls [list]
+            foreach result $results {
+                lset envStack end $result
+                lappend htmls [applyBlock $body $envStack]
+            }
+            Notify: the html for $pattern is [join $htmls \n]
+        }} $pattern $body $envStack]
+
+    set htmls [list]
+    lappend envStack {}
+    # HACK: ForEach! won't work on collection since the When when ->
+    # creating wish doesn't exist.
+    if {[lrange $pattern 0 3] eq "the collected results for"} {
+        set results [Query! {*}[lindex $pattern 4]]
+        set resultsVar [__scanVariable [lindex $pattern 6]]
+        lset envStack end [list $resultsVar $results]
+        lappend htmls [applyBlock $body $envStack]
+    } else {
+        ForEach! {*}$pattern {
+            lset envStack end $__result
+            lappend htmls [applyBlock $body $envStack]
+        }
+    }
+
+    return [subst {
+        <div style="display: contents;">[join $htmls \n]</div>
+        <script>
+        (function() {
+          const el = document.currentScript.previousElementSibling;
+          folk.subscribe(`the html for {$pattern} is /html/`, ({html}) => {
+            // TODO: use morph algorithm.
+            el.innerHTML = html;
+          });
+        })();
+        </script>
+    }]
+}
+
+proc handleRead {chan addr} {
+    $chan buffering none
+
+    gets $chan line; set line [string range $line 0 end-1]
+    set firstline $line
+
+    # puts "Http ([clock format [clock seconds] -format "%H:%M:%S"]): $chan $addr: $line"
+    set headers [list]
+    while true {
+        gets $chan line; set line [string range $line 0 end-1]
+        if {$line eq ""} { break }
+
+        # puts "  Http: ($line)"
+        if {[regexp {^([^\s:]+)\s*:\s*(.+)} $line -> k v]} {
+            lappend headers $k $v
+        } else {
+            # puts stderr "Http: Weird line: $line"
+            break
+        }
+    }
+
+    if {[regexp {GET ([^ ]*) HTTP/1.1} $firstline -> path] && $path ne "/ws"} {
+        set response {}
+        try {
+            ForEach! /someone/ wishes the web server handles route /route/ with /...options/ {
+                set handler [dict get $options handler]
+                set vars [regexp -inline ^${route}(\\?.*)?$ $path]
+                if {[llength $vars] > 0} {
+                    set queryString [lindex $vars end]
+                    set QUERY [parseQueryString $queryString]
+
+                    set ^html [proc html {body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: text/html; charset=utf-8\n\n" body $body}]
+                    set ^json [proc json {body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: application/json; charset=utf-8\n\n" body $body}]
+
+                    if {[lindex $handler 0] eq "applyBlock"} {
+                        set env [dict create QUERY $QUERY]
+                        loop i [llength $vars] {
+                            dict set env $i [lindex $vars $i]
+                        }
+                        lset handler 2 [linsert [lindex $handler 2] end $env]
+                        set response [{*}$handler]
+                    } else {
+                        set varNames [lseq [llength $vars]]
+                        lappend varNames QUERY
+                        set response [apply [list $varNames $handler] \
+                                          {*}$vars $QUERY]
+                    }
+                    break
+                }
+            }
+            if {$response eq ""} {
+                set httpStatus "HTTP/1.1 200 OK"
+                set contentType "text/html; charset=utf-8"
+                set body [handlePage $path httpStatus contentType]
+                set response [dict create statusAndHeaders "$httpStatus\nConnection: close\nContent-Type: $contentType\n\n" body $body]
+            }
+            if {![dict exists $response statusAndHeaders]} {
+                error "Response not generated"
+            }
+        } on error {err opts} {
+            set errorInfo [dict get $opts -errorinfo]
+            set src [lindex $errorInfo 1]
+            puts stderr "Web error in $src ($path): $err\n  [errorInfo $err $errorInfo]"
+
+            set contentType "text-html; charset=utf-8"
+            set body [subst {
+                <html>
+                <head>
+                <title>folk: 500 Internal Server Error</title>
+                </head>
+                <body>
+                <pre>[htmlEscape $err]:
+[htmlEscape [errorInfo $err $errorInfo]]</pre>
+                </body>
+                </html>
+            }]
+            set response [dict create statusAndHeaders "HTTP/1.1 500 Internal Server Error\nConnection: close\nContent-Type: $contentType\n\n" body $body]
+        }
+        puts -nonewline $chan [dict get $response statusAndHeaders]
+        if {[dict exists $response body]} {
+            puts -nonewline $chan [dict get $response body]
+        }
+        close $chan
+
+    } elseif {[regexp {POST ([^ ]*) HTTP/1.1} $firstline -> path]} {
+        set httpStatus "HTTP/1.1 200 OK"
+        set contentType "text/plain; charset=utf-8"
+        puts -nonewline $chan "$httpStatus\r\nConnection: close\r\nContent-Type: $contentType\r\n\r\n"
+
+        set body [$chan read [dict get $headers Content-Length]]
+        # puts "  ($body)"
+        try {
+            puts -nonewline $chan [eval $body]
+        } on error e {
+            puts "Error: $e"
+            puts -nonewline $chan "Error: $e"
+        }
+        close $chan
+
+    } elseif {[info exists path] && $path eq "/ws"} {
+        puts "web: Request for /ws ($headers)"
+        WsConnection upgrade $chan [dict get $headers Sec-WebSocket-Key] \
+            [list Retract! websocket $chan is connected]
+        Assert! websocket $chan is connected
+
+    } else { puts "Closing: $chan $addr $headers"; close $chan }
+}
+
+while true {
+    try {
+        set f [socket stream.server 4273]
+        $f readable [lambda {} {f} {
+            set client [$f accept addr]
+            handleConnect $client $addr
+        }]
+        break
+    } on error e {
+        # Handles failure to bind to :4273. We try again in a second.
+        puts stderr "web: $e"
+        sleep 1
+    }
+}
+vwait forever

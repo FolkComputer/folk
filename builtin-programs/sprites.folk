@@ -1,0 +1,38 @@
+########
+# Could extend this to draw from camera with:
+#   Wish $this has thumbnail grid with 8 frames and 4 columns
+#   When $this has thumbnail grid /thumbnails/ {
+#     Wish $this draws $thumbnails; # Would need to query $thumnails for its frameCount and columns
+#   }
+#######
+
+# - path get prepended with ~/folk-images/
+When the image library is /imageLib/ &\
+     the image loader is /loadImage/ &\
+     /anyone/ wishes /p/ draws sprite /path/ with /...options/ {
+
+  set frames [dict get $options frames]
+  set columns [dict get $options columns]
+
+  fn loadImage
+  set im [loadImage $path]
+
+  set sheetWidth [$imageLib Image_width $im]
+  set sheetHeight [$imageLib Image_height $im]
+  set spriteWidth [/ $sheetWidth $columns]
+  set rows [/ $frames $columns]
+  set spriteHeight [/ $sheetHeight $rows]
+
+  When -atomicallyWithKey [list sprite $p $path] the clock time is /t/ {
+      set frameNumber [expr {round ($t * 60 / $columns) % $frames}]
+      set x [expr {($frameNumber % $columns) * $spriteWidth}]
+      set y [expr {($frameNumber % $rows) * $spriteHeight}]
+
+      set subimage [$imageLib subimage $im $x $y $spriteWidth $spriteHeight]
+      Wish $p displays image $subimage with {*}$options
+  }
+}
+
+Claim $this has demo {
+  Wish $this draws sprite $path with 8 frames and 4 columns
+}

@@ -1,0 +1,96 @@
+Wish the web server handles route {/page/(.*)$} with handler {
+    set programDir [dict get [QueryOne! the program save directory is /saveDir/] saveDir]
+    set program_id $1
+    set filenames [list \
+        "$programDir/$program_id.folk" \
+        "$::env(HOME)/folk-live/$program_id.folk" \
+        "user-programs/[info hostname]/$program_id.folk" \
+        "builtin-programs/$program_id.folk" \
+    ]
+
+    foreach filename $filenames {
+        if [file exists $filename] {
+            set fp [open $filename r]
+            set file_data [read $fp]
+            close $fp
+            break
+        }
+    }
+
+    if {![info exists file_data]} {
+        set filename [lindex $filenames end]
+        set file_data "# (new file $filename)"
+    }
+
+    html [string map [list file_data [htmlEscape $file_data] program_id $program_id file_name $filename] {
+        <html>
+        <body>
+        <div>
+          <span id="status">Status</span>
+          <button onclick="handleSave()">Save</button>
+          <button id="print" onclick="handlePrint()">Print</button>
+        </div>
+        <textarea id="code" style="width: 100%;height: 95vh;">file_data</textarea>
+        <pre id="error"></pre>
+        <script src="/lib/folk.js"></script>
+        <script>
+          const isVirtualProgram = !'file_name'.includes('folk-printed-programs');
+
+          if (isVirtualProgram) {
+            document.getElementById("print").disabled = true;
+          }
+
+          const codeEle = document.getElementById("code");
+          const errorEle = document.getElementById("error");
+          function uuidv4() {
+            return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+              (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+            );
+          }
+
+          // Cmd + S || Ctrl + S => Save
+          document.addEventListener('keydown', function(e) {
+            if ((window.navigator.platform.match('Mac') ? e.metaKey : e.ctrlKey)  && e.keyCode == 83) {
+              e.preventDefault();
+              handleSave();
+            }
+          }, false);
+          // Cmd + P || Ctrl + P => Print
+          document.addEventListener('keydown', function(e) {
+            if ((window.navigator.platform.match('Mac') ? e.metaKey : e.ctrlKey)  && e.keyCode == 80) {
+              e.preventDefault();
+              handlePrint();
+            }
+          }, false);
+
+          const ws = new FolkWS(document.getElementById('status'));
+          ws.watchCollected(tcl`program_id has error /something/ with info /errorInfo/`, errors => {
+            errorEle.style.backgroundColor = errors.length ? "#f55" : "";
+            errorEle.innerText = errors.map(e => e.errorInfo).join('\n');
+          });
+
+          function handleSave() {
+            const code = document.getElementById("code").value;
+            ws.send(tcl`
+              set fp [open file_name w]
+              puts -nonewline $fp ${code}
+              close $fp
+              puts "Saved program_id.folk"
+            `);
+
+            if (isVirtualProgram) {
+              ws.send(tcl`EditVirtualProgram file_name ${code}`)
+            }
+          }
+
+          let jobid;
+          function handlePrint() {
+            const code = document.getElementById("code").value;
+            jobid = String(Math.random());
+            ws.send(tcl`Notify: print code ${code}`);
+          }
+        </script>
+        </body>
+        </html>
+    }]
+}

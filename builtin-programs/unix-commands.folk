@@ -1,0 +1,124 @@
+# Spawns a Unix command to stream output lines back to the Wisher.
+#
+# Wish $p runs Unix command "echo" with arguments [list "Hello" "World"]
+# Wish $this runs Unix command "journalctl" with arguments [list "-f" "-u" "folk"]
+When /someone/ wishes /p/ runs Unix command /command/ with arguments /args/ {
+	set outputKeyName [list unix-output $p]
+	set errorKeyName [list unix-error $p]
+	set maxLines 500
+	set maxLinesEndIndex [expr {$maxLines - 1}]
+	set accumulatedLines [list]
+
+	# Bound how many lines we drain per tick to avoid starvation under heavy output
+	set maxLinesPerTick 10
+
+	# Build argv as a flat list and form pipeline tokens
+	set flatArgs [concat {*}$args]
+	set argv [list $command {*}$flatArgs]
+	set pipeline [linsert $argv 0 |]
+
+	try {
+		# Start the process with STDERR merged into STDOUT
+		lappend pipeline 2>@1
+		set fd [open $pipeline r]
+
+		fconfigure $fd -blocking 0 -buffering none
+
+		set pids [pid $fd]
+		set pid [lindex $pids end]
+	} on error e {
+		puts "Failed to open '$command': $e"
+
+		Hold! -key $errorKeyName \
+			Claim $p has Unix error output $e
+
+		return
+	}
+
+	On unmatch [list apply {{fd pid} {
+		catch {close $fd}
+		catch {kill SIGTERM $pid}
+		after 500
+		catch {kill SIGKILL $pid}
+	} } $fd $pid]
+
+	while true {
+		set newLines [list]
+		set drained 0
+
+		while {$drained < $maxLinesPerTick} {
+			set num [gets $fd line]
+			if {$num < 0} { break }
+
+			lappend newLines $line
+			incr drained
+		}
+
+		if {[llength $newLines] > 0} {
+			set accumulatedLines [concat $accumulatedLines $newLines]
+			set length [llength $accumulatedLines]
+
+			if {$length > $maxLines} {
+				set accumulatedLines [lrange $accumulatedLines end-$maxLinesEndIndex end]
+			}
+
+			Hold! -key $outputKeyName \
+				Claim $p has Unix output lines $accumulatedLines
+		}
+
+		if {[eof $fd]} {
+			# Emit any last partial unterminated lines
+			set tail [read $fd]
+
+			if {$tail ne ""} {
+				set accumulatedLines [concat $accumulatedLines [list $tail]]
+
+				Hold! -key $outputKeyName \
+					Claim $p has Unix output lines $accumulatedLines
+			}
+
+			if {[catch {close $fd} err]} {
+				puts "Close error for '$command': $err"
+
+				Hold! -key $errorKeyName \
+					Claim $p has Unix error output $err
+			}
+
+			break
+		}
+
+		# Sleep for a bit to avoid starving under heavy output
+		after 100
+	}
+}
+
+# Convenience wrapper for commands without arguments
+When /wisher/ wishes /p/ runs Unix command /command/ {
+	Say $wisher wishes $p runs Unix command $command with arguments [list]
+}
+
+# When /someone/ wishes /p/ tests Unix commands {
+# 	# Wish $p runs Unix command "echo" with arguments [list "Hello" "World"]
+# 	# Wish $p runs Unix command "curl" with arguments [list "-fsS" "http://wttr.in/Baltimore?format='%l:+%C'"]
+# 	# Wish $p runs Unix command "ls" with arguments [list "-sSh" "/home/folk/folk2"]
+# 	# Wish $p runs Unix command "ping" with arguments [list "google.com"]
+# 	# Wish $p runs Unix command "sh" with arguments [list "-c" "while :; do date +%s.%3N; sleep 0.5; done"]
+
+# 	# Test error handling:
+# 	# Wish $p runs Unix command "ls" with arguments [list "/nonexistent/path"]
+# 	# Wish $p runs Unix command "exec" with arguments [list "/dev/null"]
+
+# 	When $p has Unix error output /errorSummary/ {
+# 		puts "errorSummary: $errorSummary"
+
+# 		Wish $p is labelled [join $errorSummary "\n"]
+# 		Wish $p is outlined red
+# 	}
+
+# 	When $p has Unix output lines /outputLines/ {
+# 		puts "outputLines: $outputLines"
+
+# 		Wish $p is labelled [join $outputLines "\n"]
+# 		Wish $p is outlined green
+# 	}
+# }

@@ -1,0 +1,82 @@
+When the db library is /dbLib/ {
+  set db [__db]
+  Wish the web server handles route "/" with handler {
+    set l [list]
+    # You need to use the Simple form so it doesn't auto-claimize it.
+    set results [QuerySimple! false /...terms/]
+    foreach result $results { dict with result {
+        set childMatchRefs [$dbLib childMatches $db $__ref]
+        set childMatchInfo [join [lmap childMatchRef $childMatchRefs {
+            set childStatementRefs [$dbLib childStatements $db $childMatchRef]
+            subst {
+                \[ $childMatchRef ($childStatementRefs) \]
+            }
+        }] " "]
+
+        lappend l [subst {
+            <li>
+            <details>
+            <summary style="[expr {
+              [lsearch -exact $terms error] != -1
+              ? "color: red"
+              : ""}]">
+            $__ref ([$dbLib statementParentCount $db $__ref]): <code>[htmlEscape [string range $terms 0 100]]</code> ($childMatchInfo)</summary>
+            <pre>[htmlEscape $terms]</pre>
+            </details>
+            </li>
+        }]
+    } }
+
+    # Generate navigation from all route handlers.
+    set handlers [Query! /someone/ wishes the web server handles route /route/ with /...options/]
+    set navLinks [list]
+    foreach handler $handlers {
+      set route $handler(route)
+      if {[dict getdef $handler(options) hidden false]} { continue }
+      if {$route eq "/"} { continue }
+
+      # Filter out routes with non-optional capture groups.
+      # Check if route has capturing groups (not non-capturing (?:...)).
+      set hasCapturingGroup [regexp {\([^?]} $route]
+      # Check if ANY group is non-optional (has ) not followed by ?).
+      set hasNonOptionalGroup [regexp {\)[^?]} $route]
+      if {$hasCapturingGroup && $hasNonOptionalGroup} { continue }
+
+      # Remove all regex patterns and capture groups for the href and
+      # display name.
+      set route [regsub -all {\([^)]*\)} $route ""]
+      set route [regsub -all {\[[^\]]*\]} $route ""]
+      # Convert escaped dots to plain dots first
+      set route [regsub -all {\\.} $route "."]
+      # Remove wildcard patterns like .* and .+
+      set route [regsub -all {\.\*} $route ""]
+      set route [regsub -all {\.\+} $route ""]
+      # Remove other regex metacharacters (but not .)
+      set route [regsub -all {[\\?*+^]} $route ""]
+      set route [regsub {\$$} $route ""]
+      set route [regsub {\$\s*$} $route ""]
+
+      # Create a nice display name from the route.
+      set displayName [string trim $route "/"]
+      set displayName [string map {"-" " " ".pdf" "" "_" " "} $displayName]
+      set displayName [string totitle $displayName]
+
+      set nav [dict getdef $handler(options) nav $displayName]
+      lappend navLinks "<a href=\"$route\">$nav</a>"
+    }
+
+    html [subst {
+        <html>
+        <head>
+        <link rel="stylesheet" href="/style.css">
+        <title>Statements</title>
+        </head>
+        <nav>
+          [join $navLinks "\n          "]
+        </nav>
+        <h1>Statements</h1>
+        <ul>[join $l "\n"]</ul>
+        </html>
+    }]
+  }
+}

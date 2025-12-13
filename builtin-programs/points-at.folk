@@ -1,0 +1,124 @@
+When when /rect/ points /direction/ with length /l/ at /someone/ /lambda/ with environment /e/ {
+  if {[string match "/*" $rect]} { return }
+  Wish $rect points $direction with length $l
+}
+
+When when /rect/ points /direction/ at /someone/ /lambda/ with environment /e/ {
+  if {[string match "/*" $rect]} { return }
+  Wish $rect points $direction with length 1
+}
+
+When the quad library is /quadLib/ &\
+     the pose library is /poseLib/ &\
+     the quad changer is /quadChange/ &\
+     display /disp/ has width /displayWidth/ height /displayHeight/ &\
+     display /disp/ has intrinsics /displayIntrinsics/ &\
+     /someone/ wishes /rect/ points /direction/ with length /l/ {
+
+When $rect has quad /quad/ {
+
+    package require linalg
+    namespace import \
+        ::math::linearalgebra::add \
+        ::math::linearalgebra::sub \
+        ::math::linearalgebra::scale
+
+    fn quadChange
+    set scale $l
+
+    set quad [quadChange $quad "display $disp"]
+    lassign [$quadLib vertices $quad] topLeft topRight bottomRight bottomLeft
+    if {$direction eq "up"} {
+        set topCenter [scale 0.5 [add $topLeft $topRight]]
+        set bottomCenter [scale 0.5 [add $bottomLeft $bottomRight]]
+        set up [scale $scale [sub $topCenter $bottomCenter]]
+
+        set from $topCenter
+        set to [add $topCenter $up]
+        set color blue
+
+    } elseif {$direction eq "left"} {
+        set leftCenter [scale 0.5 [add $topLeft $bottomLeft]]
+        set rightCenter [scale 0.5 [add $topRight $bottomRight]]
+        set left [scale $scale [sub $leftCenter $rightCenter]]
+
+        set from $leftCenter
+        set to [add $leftCenter $left]
+        set color gold
+
+    } elseif {$direction eq "right"} {
+        set leftCenter [scale 0.5 [add $topLeft $bottomLeft]]
+        set rightCenter [scale 0.5 [add $topRight $bottomRight]]
+        set right [scale $scale [sub $rightCenter $leftCenter]]
+
+        set from $rightCenter
+        set to [add $rightCenter $right]
+        set color red
+
+    } elseif {$direction eq "down"} {
+        set topCenter [scale 0.5 [add $topLeft $topRight]]
+        set bottomCenter [scale 0.5 [add $bottomLeft $bottomRight]]
+        set down [scale $scale [sub $bottomCenter $topCenter]]
+
+        set from $bottomCenter
+        set to [add $bottomCenter $down]
+        set color white
+
+    } else {
+        error "points-at: Invalid direction $direction"
+    }
+
+    # HACK: This implementation is sort of inelegant in that it
+    # happens entirely in screen-space, because we need to draw right
+    # to the screen right now, and we don't have a surface-to-clip for
+    # that.
+
+    # Downproject the whisker to screen-space.
+    set from [$poseLib project $displayIntrinsics \
+                  $displayWidth $displayHeight \
+                  $from]
+    set to [$poseLib project $displayIntrinsics \
+                $displayWidth $displayHeight \
+                $to]
+
+    When /target/ has quad /q2/ {
+        if {$target eq $rect} { return }
+
+        set displayVertices [lmap v [$quadLib vertices [quadChange $q2 "display $disp"]] {
+            $poseLib project $displayIntrinsics \
+                $displayWidth $displayHeight $v
+        }]
+
+        if {[::math::geometry::pointInsidePolygon $to $displayVertices]} {
+            Claim -keep 50ms $rect points $direction at $target
+            Claim -keep 50ms $rect points $direction with length $l at $target
+
+            set color green
+            Hold! -keep 16ms -key [list $rect pointer] {
+                Wish to draw a line onto $disp with \
+                    points [list $from $to] width 4 \
+                    color $color
+                Wish to draw a circle onto $disp with \
+                    center $to radius 10 thickness 5 \
+                    color $color filled true
+            }
+        }
+    }
+
+    When /nobody/ claims $rect points /anything/ at /anything/ {
+        Hold! -keep 16ms -key [list $rect pointer] {
+            Wish to draw a line onto $disp with \
+                points [list $from $to] width 4 \
+                color $color
+            Wish to draw a circle onto $disp with \
+                center $to radius 10 thickness 5 \
+                color $color filled false
+        }
+    }
+}
+
+On unmatch {
+    Hold! -key [list $rect pointer] {}
+}
+
+}

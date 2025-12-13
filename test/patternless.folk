@@ -1,0 +1,9 @@
+Assert! we are on
+Assert! when we are on {
+    puts hello
+
+    When {
+        puts inside
+        Exit! 0
+    }
+} with environment {}

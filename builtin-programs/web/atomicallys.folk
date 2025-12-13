@@ -1,0 +1,30 @@
+When the db library is /dbLib/ {
+  set db [__db]
+  Wish the web server handles route "/atomicallys" with handler {
+    set atomicallys [$dbLib atomicallys $db]
+
+    html [subst {
+      <html>
+      <head>
+        <link rel="stylesheet" href="/style.css">
+        <title>Atomicallys</title>
+      </head>
+      <nav>
+        <a href="/"><button>Statements</button></a>
+        <a href="/new"><button>New program</button></a>
+        <a href="/programs">Running programs</a>
+        <a href="/threads">Threads</a>
+        <a href="/trace">Trace</a>
+        <a href="/holds">Holds</a>
+      </nav>
+      <h1>Atomicallys</h1>
+      <ol>
+        [join [lmap atomicallyObj $atomicallys {
+            lassign $atomicallyObj key latestConvergedNumber versionCount
+            subst {<li><strong>$key</strong>: latest converged version=$latestConvergedNumber, allVersions length=$versionCount</li>}
+        }] "\n"]
+      </ol>
+      </html>
+    }]
+  }
+}

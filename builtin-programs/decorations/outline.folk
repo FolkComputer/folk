@@ -1,0 +1,13 @@
+When /someone/ wishes /thing/ is outlined /color/ &\
+     /thing/ has resolved geometry /geom/ {
+    dict with geom {
+        set points [list [list 0 0] \
+                        [list $width 0] \
+                        [list $width $height] \
+                        [list 0 $height] \
+                        [list 0 0]]
+    }
+
+    Wish to draw a line onto $thing with \
+        points $points width 0.01 color $color
+}

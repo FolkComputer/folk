@@ -1,6 +1,0 @@
-# Copy this file to ~/folk-live/setup.folk and edit it to make
-# changes.
-
-Assert $this wishes $::thisNode uses camera "/dev/video0" with width 1280 height 720
-
-Assert $this wishes $::thisNode uses display 0

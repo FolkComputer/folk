@@ -1,0 +1,187 @@
+When the image library is /imageLib/ {
+
+fn makeAprilTagDetector {TAG_FAMILY QUAD_DECIMATE NTHREADS} {
+    set cc [C]
+    $cc extend $imageLib
+
+    $cc cflags -I./vendor/apriltag
+    $cc endcflags ./vendor/apriltag/libapriltag.so
+    $cc include <apriltag.h>
+    $cc include <$TAG_FAMILY.h>
+    $cc include <math.h>
+    $cc include <assert.h>
+    $cc code {
+        static apriltag_detector_t *td;
+        static apriltag_family_t *tf;
+    }
+
+    $cc proc detectInit {} void {
+        td = apriltag_detector_create();
+        tf = ${TAG_FAMILY}_create();
+        apriltag_detector_add_family_bits(td, tf, 1);
+        td->quad_decimate = ${QUAD_DECIMATE};
+        td->nthreads = ${NTHREADS};
+    }
+    $cc proc detect {Image gray} Jim_Obj* {
+        assert(gray.components == 1);
+        image_u8_t im = (image_u8_t) { .width = gray.width, .height = gray.height, .stride = gray.bytesPerRow, .buf = gray.data };
+
+        zarray_t *detections = apriltag_detector_detect(td, &im);
+        int detectionCount = zarray_size(detections);
+
+        Jim_Obj* detectionObjs[detectionCount];
+        for (int i = 0; i < detectionCount; i++) {
+            apriltag_detection_t *det;
+            zarray_get(detections, i, &det);
+
+            int size = sqrt((det->p[0][0] - det->p[1][0])*(det->p[0][0] - det->p[1][0]) + (det->p[0][1] - det->p[1][1])*(det->p[0][1] - det->p[1][1]));
+            double angle = atan2(-1 * (det->p[1][1] - det->p[0][1]), det->p[1][0] - det->p[0][0]);
+            detectionObjs[i] = Jim_ObjPrintf("id %d c {%f %f} p {{%f %f} {%f %f} {%f %f} {%f %f}} size %d angle %f",
+                                             det->id,
+                                             det->c[0], det->c[1],
+                                             det->p[0][0], det->p[0][1],
+                                             det->p[1][0], det->p[1][1],
+                                             det->p[2][0], det->p[2][1],
+                                             det->p[3][0], det->p[3][1],
+                                             size, angle);
+        }
+
+        zarray_destroy(detections);
+
+        Jim_Obj* result = Jim_NewListObj(interp, detectionObjs, detectionCount);
+        return result;
+    }
+    $cc proc detectCleanup {} void {
+        ${TAG_FAMILY}_destroy(tf);
+        apriltag_detector_destroy(td);
+    }
+
+    set detector [$cc compile]
+    $detector detectInit
+    return $detector
+}
+Claim the AprilTag detector maker is [fn makeAprilTagDetector]
+
+set tagFamily "tagStandard52h13"
+set entireFrameDetector [makeAprilTagDetector $tagFamily 2.0 1]
+set incrementalDetector [makeAprilTagDetector $tagFamily 1.5 1]
+
+# Entire-frame tag detector:
+When /nobody/ wishes to calibrate &\
+     -serially camera /camera/ has frame /frame/ at timestamp /frameTs/ {
+    tracy zoneBegin
+    tracy zoneName "entireFrameDetect: $frameTs"
+
+    set aprilTime [time {
+        set tags [$entireFrameDetector detect $frame]
+    }]
+    Hold! -key [list $this entire-frame] \
+        Claim [list $this entire-frame] detects tags $tags on camera $camera \
+        at timestamp $frameTs in time $aprilTime
+
+    tracy zoneEnd
+}
+
+# Incremental tag detector (looks at regions where there were tags
+# seen recently):
+When /nobody/ wishes to calibrate &\
+     the image library is /imageLib/ &\
+     -serially camera /camera/ has frame /frame/ at timestamp /frameTs/ {
+    tracy zoneBegin
+    tracy zoneName "incrementalDetect: $frameTs"
+
+    # Query all the existing tag detections that are out there.
+    # Find the most recent detection of each tag; will use these to
+    # give us regions of interest to do partial scans on the new
+    # camera frame.
+    set dets [dict create]
+    ForEach! tag /id/ has detection /det/ on camera $camera at timestamp /timestamp/ {
+        # HACK: Setting aside this tag space (48600 to 48713) for
+        # calibration. We exclude them from incremental detection so
+        # it doesn't get hugely slow if you happen to leave a
+        # calibration board out. (but this carve-out feels like it
+        # weirdly cuts across an abstraction level)
+        if {$id >= 48600} { continue }
+
+        if {([dict exists $dets $id] && [dict get $dets $id timestamp] < $timestamp) ||
+            ![dict exists $dets $id]} {
+
+            dict set dets $id $det
+            dict set dets $id timestamp $timestamp
+        }
+    }
+
+    namespace import ::math::min ::math::max
+    set tags [list]
+    set frameWidth [dict get $frame width]
+    set frameHeight [dict get $frame height]
+    set aprilTime 0
+    dict for {id prevDet} $dets {
+        set corners [dict get $prevDet p]
+
+        set x $(floor([min {*}[lmap corner $corners {lindex $corner 0}]]))
+        set y $(floor([min {*}[lmap corner $corners {lindex $corner 1}]]))
+        set x1 $(ceil([max {*}[lmap corner $corners {lindex $corner 0}]]))
+        set y1 $(ceil([max {*}[lmap corner $corners {lindex $corner 1}]]))
+
+        set width [- $x1 $x]; set height [- $y1 $y]
+        set x [max [- $x $width] 0]
+        set y [max [- $y $height] 0]
+        set x1 [min [+ $x1 $width] $frameWidth]
+        set y1 [min [+ $y1 $height] $frameHeight]
+
+        set subimage [$imageLib subimage $frame $x $y [- $x1 $x] [- $y1 $y]]
+        set aprilTime [+ $aprilTime [baretime {
+            foreach tag [$incrementalDetector detect $subimage] {
+                dict with tag {
+                    set c [vec2 add $c [list $x $y]]
+                    set p [lmap corner $p {vec2 add $corner [list $x $y]}]
+                }
+                lappend tags $tag
+            }
+        }]]
+    }
+
+    Hold! -key [list $this incremental] \
+        Claim [list $this incremental] detects tags $tags on camera $camera \
+        at timestamp $frameTs in time $aprilTime
+
+    tracy zoneEnd
+}
+
+# Integrate all the tag detections.
+When the collected results for \
+    [list /someone/ detects tags /tags/ on camera /camera/ \
+         at timestamp /timestamp/ in time /aprilTime/] are /results/ {
+
+    set now [expr {[clock milliseconds] / 1000.0}]
+
+    set latestTagDets [dict create]
+    foreach result $results {
+        set timestamp [dict get $result timestamp]
+        set camera [dict get $result camera]
+        foreach tag [dict get $result tags] {
+            dict set tag timestamp $timestamp
+            dict set tag camera $camera
+            dict with tag {
+                if {![dict exists $latestTagDets $id] ||
+                    [dict get $latestTagDets $id timestamp] < $timestamp} {
+
+                    dict set latestTagDets $id $tag
+                }
+            }
+        }
+    }
+
+    dict for {id det} $latestTagDets {
+        # We want to not immediately destroy the entire drawlist /
+        # downstream statement set from the previous detection (give
+        # the new detection some time to converge first).
+        Claim -keep 8ms tag $id has detection $det on camera [dict get $det camera] \
+            at timestamp [dict get $det timestamp]
+    }
+    set aprilTime [lmap r $results {dict get $r aprilTime}]
+    Claim the AprilTag time is $aprilTime
+}
+
+}

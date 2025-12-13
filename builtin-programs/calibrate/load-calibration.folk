@@ -1,0 +1,38 @@
+When display /disp/ has width /displayWidth/ height /displayHeight/ &\
+     the calibration is /nothing/ {
+    set warning "WARNING: Folk hasn't been calibrated!"
+
+    puts stderr "calibrate: $warning"
+    set cx [/ $displayWidth 2.0]
+    Wish to draw text onto $disp with \
+        x $cx y [* $displayHeight 0.3] \
+        text $warning color red scale 40
+    Wish to draw text onto $disp with \
+        x $cx y [* $displayHeight 0.7] radians 3.14159 \
+        text $warning color red scale 40
+}
+
+When the calibration is /calibration/ {
+    puts "\n\n====NEW CALIBRATION ([string range $calibration 0 100])=====\n\n"
+    set camera [dict get $calibration camera name]
+    set display [dict get $calibration projector name]
+    Claim camera $camera has intrinsics \
+        [dict get $calibration camera intrinsics]
+    Claim display $display has intrinsics \
+        [dict get $calibration projector intrinsics]
+
+    set extrinsics [dict create \
+                        R [dict get $calibration R_cameraToProjector] \
+                        t [dict get $calibration t_cameraToProjector]]
+    Claim camera $camera to display $display has extrinsics $extrinsics
+}
+
+When the collected results for {/somebody/ claims the default program geometry is /geom/} are /results/ {
+    set defaultGeometry {tagSize 30mm top 28mm right 28mm left 157mm bottom 80mm}
+    set shouldClaim false
+
+    if {[llength $results] == 0 ||
+        [llength $results] == 1 && [dict get [lindex $results 0] geom] == $defaultGeometry} {
+        Claim the default program geometry is $defaultGeometry
+    }
+}

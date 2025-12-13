@@ -1,0 +1,86 @@
+puts "boot: Boot (PID [pid])"
+apply {{} {
+    # We setpgrp so that all subprocesses spawned by Folk, even ones
+    # that outlive Folk itself, can be killed later by their PGID (the
+    # PID in folk.pid).
+    catch { setpgrp }
+
+    catch {
+        set fp [open "folk.pid" r]
+        set oldPid [read $fp]; close $fp
+        try {
+            if {[string trim [exec ps -o state= -p $oldPid]] eq "Z"} {
+                error "Zombie Folk process exists (PID $oldPid)"
+            }
+            puts stderr "boot: ($::errorCode) ERROR: Another Folk (PID $oldPid) already running."
+            Exit! 1
+        } on error e {
+            if {$e ne ""} {
+                puts stderr "boot: $e; this is OK; continuing."
+            }
+        }
+    }
+
+    set fp [open "folk.pid" w]
+    puts -nonewline $fp [pid]; close $fp
+    # in case we're running as root:
+    catch { exec chown folk folk.pid }
+}}
+
+Assert! when /__this/ has program code /__programCode/ {
+    SayWithSource $__this 1 0 {} {} \
+        when $__programCode with environment [list [list this $__this]]
+} with environment {}
+
+local proc LoadProgram! {programFilename} {
+    set fp [open $programFilename r]
+    Hold! -on boot.folk -key [list $programFilename code] \
+        -keep 100ms \
+        Claim $programFilename has program code [read $fp]
+    close $fp
+}
+foreach programFilename [list {*}[glob -nocomplain builtin-programs/*.folk] \
+                             {*}[glob -nocomplain builtin-programs/*/*.folk] \
+                             {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"] \
+                             {*}[glob -nocomplain "$::env(HOME)/folk-data/local-program/*.folk"] \
+                             {*}[glob -nocomplain "$::env(HOME)/folk-data/local-program/*/*.folk"]] {
+    if {[string match "*/_archive/*" $programFilename]} {
+        continue
+    }
+
+    LoadProgram! $programFilename
+}
+
+if {$::tcl_platform(os) eq "darwin"} {
+    # HACK: We must run all the GPU and window setup stuff
+    # synchronously in the main thread on macOS.
+
+    proc fake {s} {
+        set __envStack [list]
+
+        rename When When'
+        proc When args {
+            set pattern [lrange $args 0 end-1]
+            # Await the dependencies being available.
+            while {[llength [Query! {*}$pattern]] != 1} {
+                sleep 0.1
+            }
+
+            if {[lrange $pattern 0 3] eq {the GPU texture library}} {
+                # HACK: We want Whens inside this block to be normal
+                # Whens and run off-thread/async.
+                rename When {}
+                rename When' When
+            }
+
+            tailcall ForEach! {*}$args
+        }
+
+        source $s
+
+        rename When {}
+        rename When' When
+    }
+    fake "builtin-programs/gpu/gpu.folk"
+    fake "builtin-programs/gpu/draw.folk"
+}

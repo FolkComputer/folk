@@ -1,0 +1,271 @@
+Wish the web server handles route "/new" with nav "<button>New program</button>" handler {
+    html {
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { overflow: hidden; }
+    </style>
+  </head>
+  <body>
+    <span id="status">Status</span>
+    <div id="dragme" style="cursor: move; position: absolute; user-select: none; background-color: #ccc; padding: 1em">
+      <textarea id="code" cols="50" rows="20" style="font-family: monospace">Wish $this is outlined blue</textarea>
+      <p>
+        <button onclick="handleSave()">Save</button>
+        <button id="printBtn" onclick="handlePrint()">Print</button>
+
+        <input id="regionAngleRange" type="range" value="0" min="0" max="360" step="0.1" oninput="this.nextElementSibling.value = `angle: ${this.value}&deg;`; regionAngle = this.value; handleDrag();">
+        <output>angle: 0&deg;</output>
+      </p>
+      <pre id="error"></pre>
+    </div>
+
+    <script src="/lib/folk.js"></script>
+    <script>
+  // The current position of mouse
+  let x = 0;
+  let y = 0;
+
+  // Query the element
+  const ele = document.getElementById('dragme');
+  const codeEle = document.getElementById("code");
+  const angleEle = document.getElementById("regionAngleRange");
+  const errorEle = document.getElementById("error");
+  
+
+  // Handle the mousedown event
+  // that's triggered when user drags the element
+  const mouseDownHandler = function (e) {
+    if (e.target == codeEle) return;
+    if (e.target == angleEle) return;
+
+    // Get the current mouse position
+    x = e.clientX;
+    y = e.clientY;
+
+    // Attach the listeners to `document`
+    document.addEventListener('pointermove', mouseMoveHandler);
+    document.addEventListener('pointerup', mouseUpHandler);
+  };
+
+  const mouseMoveHandler = function (e) {
+    if (e.target == codeEle) return;
+
+    // How far the mouse has been moved
+    const dx = e.clientX - x;
+    const dy = e.clientY - y;
+
+    // Set the position of element
+    const [top, left] = [ele.offsetTop + dy, ele.offsetLeft + dx];
+    ele.style.top = `${top}px`;
+    ele.style.left = `${left}px`;
+    handleDrag();
+
+    // Reassign the position of mouse
+    x = e.clientX;
+    y = e.clientY;
+  };
+
+  const mouseUpHandler = function () {
+    // Remove the handlers of `mousemove` and `mouseup`
+    document.removeEventListener('pointermove', mouseMoveHandler);
+    document.removeEventListener('pointerup', mouseUpHandler);
+  };
+
+  // Cmd + S || Ctrl + S => Save
+  document.addEventListener('keydown', function(e) {
+    if ((window.navigator.platform.match('Mac') ? e.metaKey : e.ctrlKey)  && e.keyCode == 83) {
+      e.preventDefault();
+      handleSave();
+    }
+  }, false);
+  // Cmd + P || Ctrl + P => Print
+  document.addEventListener('keydown', function(e) {
+    if ((window.navigator.platform.match('Mac') ? e.metaKey : e.ctrlKey)  && e.keyCode == 80) {
+      e.preventDefault();
+      handlePrint();
+    }
+  }, false);
+
+  ele.addEventListener('pointerdown', mouseDownHandler);
+
+  function uuidv4() {
+    return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+      (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+    );
+    }
+  const program = "web-program-" + uuidv4();
+
+  let regionAngle = 0;
+  const ws = new FolkWS(document.getElementById('status'));
+  ws.send(`
+    On unmatch {
+      Hold! -on $this -key canv {}
+      Hold! -on $this -key geom {}
+      Hold! -on $this -key quad {}
+      Hold! -on $this -key code {}
+    }
+  `);
+
+  ws.hold('canv', tcl`
+    Wish ${program} has a canvas
+  `);
+
+  function formatErrorInfo(errorInfoDict) {
+    errorInfoDict = loadDict(errorInfoDict);
+    const stacktrace = errorInfoDict['-errorinfo'];
+
+    // Parse the stacktrace list (simplified Tcl list parser)
+    // Format: [proc file line cmd proc file line cmd ...]
+    const frames = [];
+    const tokens = loadList(stacktrace);
+
+    // Group tokens into frames of 4: proc, file, line, cmd
+    for (let i = 0; i + 3 < tokens.length; i += 4) {
+      const [proc, file, line, cmd] = tokens.slice(i, i + 4);
+      frames.push({ proc, file, line, cmd });
+    }
+
+    if (frames.length === 0) return errorInfoDict;
+
+    // Format like Jim's errorInfo: "file:line: Error: msg\nstackdump"
+    const firstFrame = frames[0];
+    let result = "";
+
+    if (firstFrame.file && firstFrame.file !== "") {
+      result = `${firstFrame.file}:${firstFrame.line}: Error: `;
+    }
+
+    // Extract error message (usually in the cmd of first frame)
+    result += `${firstFrame.cmd}\n`;
+
+    // Add stackdump
+    for (const frame of frames) {
+      if (frame.file && frame.file !== "") {
+        result += `in ${frame.proc} called at ${frame.file}:${frame.line}\n`;
+      } else {
+        result += `in ${frame.proc}\n`;
+      }
+    }
+
+    return result.trim();
+  }
+
+  ws.watchCollected(tcl`${program} has error /something/ with info /errorInfo/`, errors => {
+    errorEle.style.backgroundColor = errors.length ? "#f55" : "";
+    errorEle.innerText = errors.map(e => formatErrorInfo(e.errorInfo)).join('\n');
+  });
+
+  function handleDrag() {
+    let [top, left, w, h] = [ele.offsetTop, ele.offsetLeft, ele.offsetWidth, ele.offsetHeight];
+    ws.hold('geom', tcl`
+      Claim ${program} has resolved geometry {width ${w / 2000} height ${h / 2000}}
+   `);
+    ws.hold('quad', tcl`
+      package require linalg
+      namespace import ::math::linearalgebra::add
+      namespace import ::math::linearalgebra::sub
+      namespace import ::math::linearalgebra::matmul
+      namespace import ::math::linearalgebra::scale
+
+      set quadLib [dict get [lindex [Query! the quad library is /quadLib/] 0] quadLib]
+
+      set dims [lindex [Query! display /disp/ has width /displayWidth/ height /displayHeight/] 0]
+      set disp [dict get $dims disp]
+      set displayWidth [dict get $dims displayWidth]; set displayHeight [dict get $dims displayHeight]
+
+      set x [expr {int(double(${(left + (left/window.innerWidth) * w)}) * (double($displayWidth) / ${window.innerWidth}))}]
+      set y [expr {int(double(${(top + (top/window.innerHeight) * h)}) * (double($displayHeight) / ${window.innerHeight}))}]
+      set w ${w}; set h ${h}
+
+      # Create 3D vertices in meters that will project to the desired pixel coordinates
+      # Using a depth of 1.5 meters from the projector center
+      set depth 1.5
+      set displayIntrinsics [dict get [lindex [Query! display $disp has intrinsics /displayIntrinsics/] 0] displayIntrinsics]
+      
+      # Convert pixel coordinates to 3D coordinates in projector space
+      set fx [dict get $displayIntrinsics fx]
+      set fy [dict get $displayIntrinsics fy] 
+      set cx [dict get $displayIntrinsics cx]
+      set cy [dict get $displayIntrinsics cy]
+      
+      # Scale pixel coordinates to intrinsic matrix dimensions
+      set scale_x [expr {[dict get $displayIntrinsics width] / double($displayWidth)}]
+      set scale_y [expr {[dict get $displayIntrinsics height] / double($displayHeight)}]
+      
+      set x_scaled [expr {$x * $scale_x}]
+      set y_scaled [expr {$y * $scale_y}]
+      set w_scaled [expr {$w * $scale_x}]
+      set h_scaled [expr {$h * $scale_y}]
+      
+      # Convert to normalized coordinates then to 3D
+      set x1_3d [expr {($x_scaled - $cx) * $depth / $fx}]
+      set y1_3d [expr {($y_scaled - $cy) * $depth / $fy}]
+      set x2_3d [expr {($x_scaled + $w_scaled - $cx) * $depth / $fx}]
+      set y2_3d [expr {($y_scaled + $h_scaled - $cy) * $depth / $fy}]
+      
+      set vertices [list \
+          [list $x1_3d $y1_3d $depth] \
+          [list $x2_3d $y1_3d $depth] \
+          [list $x2_3d $y2_3d $depth] \
+          [list $x1_3d $y2_3d $depth] \
+      ]
+
+      # Get the angle (in radians) from JS
+      set angle_rad [expr {${regionAngle} * 3.14159265 / 180.0}]
+
+      # Manually create the 3D rotation matrix for the Z-axis
+      set c [expr {cos($angle_rad)}]
+      set s [expr {sin($angle_rad)}]
+      set R [list [list $c [expr {-1.0 * $s}] 0.0] \
+                  [list $s $c              0.0] \
+                  [list 0.0 0.0             1.0]]
+
+      # Calculate the centroid (center) of the quad
+      lassign $vertices v1 v2 v3 v4
+
+      set centroid [scale 0.25 [add [add $v1 $v2] [add $v3 $v4]]]
+
+      # Rotate each vertex around the centroid
+      # Formula: new_vertex = RotationMatrix * (vertex - centroid) + centroid
+      set rotated_vertices [list \
+          [add [matmul $R [sub $v1 $centroid]] $centroid] \
+          [add [matmul $R [sub $v2 $centroid]] $centroid] \
+          [add [matmul $R [sub $v3 $centroid]] $centroid] \
+          [add [matmul $R [sub $v4 $centroid]] $centroid] \
+      ]
+
+      Claim ${program} has quad \
+          [$quadLib create "display $disp" $rotated_vertices]
+  `);
+  }
+  function handleSave() {
+    const code = document.getElementById("code").value;
+    // base64-encoding the code ensures that backslash-newlines are
+    // preserved in the code and printout (otherwise, braced-string-parsing
+    // would elide them: https://www.tcl.tk/man/tcl8.7/TclCmd/Tcl.html#M10)
+    ws.hold('code', tcl`
+      package require base64
+      Claim ${program} has program code [binary decode base64 ${btoa(code)}]
+    `);
+  }
+  function handlePrint() {
+    const code = document.getElementById("code").value;
+    const jobid = String(Math.random());
+    ws.send(tcl`Notify: print code ${code}`);
+    let printBtn = document.getElementById("printBtn")
+    printBtn.innerText = "Printing";
+    printBtn.disabled = true;
+    setTimeout(() => {
+      printBtn.innerText = "Print";
+      printBtn.disabled = false;
+    }, 1000);
+  }
+  handleDrag();
+    </script>
+  </body>
+</html>
+    }
+}

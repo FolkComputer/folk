@@ -1,0 +1,47 @@
+Wish the GPU compiles pipeline "circle" {
+    {vec2 viewport mat3 surfaceToClip
+     vec2 center float radius float thickness vec4 color int filled} {
+        float r = radius + thickness;
+        vec2 vertices[6] = vec2[6](
+            center - r,
+            vec2(center.x + r, center.y - r),
+            vec2(center.x - r, center.y + r),
+
+            vec2(center.x + r, center.y - r),
+            center + r,
+            vec2(center.x - r, center.y + r)
+        );
+        vec3 v = surfaceToClip * vec3(vertices[gl_VertexIndex], 1.0);
+        return vec4(v.xy/v.z, 0.0, 1.0);
+    } {
+        vec2 clipXy = (gl_FragCoord.xy / viewport) * 2.0 - 1.0;
+        vec3 surfaceXy = inverse(surfaceToClip) * vec3(clipXy, 1.0);
+        surfaceXy /= surfaceXy.z;
+
+        float dist = length(surfaceXy.xy - center) - radius;
+        if (filled == 1) {
+            return (dist < thickness) ? color : vec4(0, 0, 0, 0);
+        } else {
+            return (dist < thickness && dist > 0.0) ? color : vec4(0, 0, 0, 0);
+        }
+    }
+}
+
+When the color map is /colorMap/ &\
+     /p/ has canvas /id/ with /...wiOptions/ &\
+     /p/ has canvas projection /surfaceToClip/ &\
+     /someone/ wishes to draw a circle onto /p/ with /...options/ {
+
+    set center [dict getdef $options center ""]
+    if {$center eq ""} { set center [list [dict get $options x] [dict get $options y]] }
+    set radius [dict get $options radius]
+    set thickness [dict get $options thickness]
+    set color [dict get $options color]
+    set color [dict getdef $colorMap $color $color]
+    set filled [dict getdef $options filled false]
+
+    set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
+    Wish the GPU draws pipeline "circle" onto canvas $id with arguments \
+        [list $wiResolution $surfaceToClip \
+             $center $radius $thickness $color [expr {$filled eq false ? 0 : 1}]]
+}

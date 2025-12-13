@@ -1,0 +1,37 @@
+Assert! we are on
+Assert! when we are on {
+    puts "In --"
+
+    When the counter is /t/ {
+        puts $t
+        Claim the counter is now $t
+        Claim the counter is now running
+    }
+    When the counter is now running {
+        puts "[__threadId]: RERUNNING"
+    }
+
+    When we are on {
+        puts "RUNNING HOLDS"
+        for {set i 0} {$i <= 89} {incr i} {
+            Hold! counter {Claim the counter is $i}
+            Hold! counter {Claim the counter is $i}
+        }
+
+        sleep 2
+
+        set results [Query! /someone/ claims the counter is /t/]
+        puts stderr "counter: ($results)"
+
+        When {
+            source builtin-programs/web/trace.folk
+            source builtin-programs/web/dep-graph.folk
+            source builtin-programs/web/index.folk
+            source builtin-programs/web/web.folk
+        }
+
+        if {[dict get [lindex $results end] t] == 89} {
+            Exit! 0
+        }
+    }
+} with environment {}

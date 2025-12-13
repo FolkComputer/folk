@@ -1,9 +1,0 @@
-Wish the web server handles route {/printed-programs/[^/]+\.folk$} with handler {
-    regexp {/printed-programs/([^/]+)\.folk$} $path -> prefix
-    set filename "../folk-printed-programs/$prefix.folk" 
-    set fp [open $filename r]
-    set data [read $fp]
-    close $fp
-
-    dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: text/plain; charset=utf-8\n\n" body $data
-}

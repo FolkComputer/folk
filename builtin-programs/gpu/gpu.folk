@@ -1,0 +1,301 @@
+# gpu.folk --
+#
+#     Sets up the GPU device.
+
+if {[info exists this] && $::tcl_platform(os) eq "darwin"} {
+    # We hard-code gpu.folk into thread 0, so we should abort if not
+    # running that way.
+    return
+}
+
+fn defineVulkanHandleType {cc type} {
+    $cc argtype $type [format {
+#ifdef VK_USE_64_BIT_PTR_DEFINES
+        %s $argname; sscanf(Jim_String($obj), "(%s) 0x%%p", &$argname);
+#else
+        %s $argname; sscanf(Jim_String($obj), "(%s) 0x%%llx", &$argname);
+#endif
+    } $type $type $type $type]
+    # Tcl_ObjPrintf doesn't work with %lld/%llx for some reason,
+    # so we do it by hand.
+    $cc rtype $type [format {
+#ifdef VK_USE_64_BIT_PTR_DEFINES
+        $robj = Jim_ObjPrintf("(%s) 0x%%" PRIxPTR, (uintptr_t) $rvalue);
+#else
+        {
+          char buf[100]; snprintf(buf, 100, "(%s) 0x%%llx", $rvalue);
+          $robj = Jim_NewStringObj(buf, -1);
+        }
+#endif
+    } $type $type]
+}
+Claim the GPU Vulkan handle type definer is [fn defineVulkanHandleType]
+
+When $::thisNode has had displays enumerated &\
+     /someone/ wishes $::thisNode uses display /display/ with /...any/ {
+
+set useGlfw $($display eq "glfw")
+
+# First, we build the C GPU library, which can make direct calls into
+# Vulkan -- this library then exposes functions that we can call from
+# Tcl.
+set gpuc [C]
+$gpuc cflags -I./vendor
+$gpuc include <pthread.h>
+$gpuc code {
+    #define VOLK_IMPLEMENTATION
+    #include "volk/volk.h"
+}
+if {$useGlfw} {
+    $gpuc code {
+        // This must be included _after_ volk.h (Vulkan).
+        #include <GLFW/glfw3.h>
+    }
+}
+
+set macos [expr {$::tcl_platform(os) eq "darwin"}]
+if {$macos} {
+    $gpuc cflags -I/opt/homebrew/include -L/opt/homebrew/lib
+}
+
+if {$useGlfw} {
+    $gpuc endcflags -lglfw
+} else {
+    foreach renderFile [glob -nocomplain "/dev/dri/render*"] {
+        if {![file readable $renderFile]} {
+            puts stderr "Gpu: Warning: $renderFile is not readable by current user; Vulkan device may not appear.
+Try doing `sudo chmod 666 $renderFile`."
+        }
+    }
+}
+
+$gpuc argtype VkResult { long $argname; __ENSURE_OK(Jim_GetLong(interp, $obj, &$argname)); }
+$gpuc proc VkResultToString {VkResult res} char* {
+            switch (res) {
+    #define CASE(x) case VK_##x: return #x;
+            CASE(SUCCESS)                       CASE(NOT_READY)
+            CASE(TIMEOUT)                       CASE(EVENT_SET)
+            CASE(EVENT_RESET)                   CASE(INCOMPLETE)
+            CASE(ERROR_OUT_OF_HOST_MEMORY)      CASE(ERROR_OUT_OF_DEVICE_MEMORY)
+            CASE(ERROR_INITIALIZATION_FAILED)   CASE(ERROR_DEVICE_LOST)
+            CASE(ERROR_MEMORY_MAP_FAILED)       CASE(ERROR_LAYER_NOT_PRESENT)
+            CASE(ERROR_EXTENSION_NOT_PRESENT)   CASE(ERROR_FEATURE_NOT_PRESENT)
+            CASE(ERROR_INCOMPATIBLE_DRIVER)     CASE(ERROR_TOO_MANY_OBJECTS)
+            CASE(ERROR_FORMAT_NOT_SUPPORTED)    CASE(ERROR_FRAGMENTED_POOL)
+            CASE(ERROR_UNKNOWN)                 CASE(ERROR_OUT_OF_POOL_MEMORY)
+            CASE(ERROR_INVALID_EXTERNAL_HANDLE) CASE(ERROR_FRAGMENTATION)
+            CASE(ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS)
+            CASE(PIPELINE_COMPILE_REQUIRED)      CASE(ERROR_SURFACE_LOST_KHR)
+            CASE(ERROR_NATIVE_WINDOW_IN_USE_KHR) CASE(SUBOPTIMAL_KHR)
+            CASE(ERROR_OUT_OF_DATE_KHR)          CASE(ERROR_INCOMPATIBLE_DISPLAY_KHR)
+            CASE(ERROR_VALIDATION_FAILED_EXT)    CASE(ERROR_INVALID_SHADER_NV)
+    #ifdef VK_ENABLE_BETA_EXTENSIONS
+            CASE(ERROR_IMAGE_USAGE_NOT_SUPPORTED_KHR)
+            CASE(ERROR_VIDEO_PICTURE_LAYOUT_NOT_SUPPORTED_KHR)
+            CASE(ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR)
+            CASE(ERROR_VIDEO_PROFILE_FORMAT_NOT_SUPPORTED_KHR)
+            CASE(ERROR_VIDEO_PROFILE_CODEC_NOT_SUPPORTED_KHR)
+            CASE(ERROR_VIDEO_STD_VERSION_NOT_SUPPORTED_KHR)
+    #endif
+            CASE(ERROR_INVALID_DRM_FORMAT_MODIFIER_PLANE_LAYOUT_EXT)
+            CASE(ERROR_NOT_PERMITTED_KHR)
+            CASE(ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT)
+            CASE(THREAD_IDLE_KHR)        CASE(THREAD_DONE_KHR)
+            CASE(OPERATION_DEFERRED_KHR) CASE(OPERATION_NOT_DEFERRED_KHR)
+            default: return "unknown";
+            }
+    #undef CASE
+}
+local proc vktry {call} { string map {\n " "} [csubst {{
+    VkResult res = $call;
+    if (res != VK_SUCCESS) {
+        fprintf(stderr, "Failed $call: %s (%d)\n",
+                VkResultToString(res), res); exit(1);
+    }
+}}] }
+
+$gpuc define {
+    VkInstance instance;
+    VkPhysicalDevice physicalDevice;
+    VkPhysicalDeviceFeatures physicalDeviceFeatures;
+    VkPhysicalDeviceProperties physicalDeviceProperties;
+
+    VkDevice device;
+    uint32_t computeQueueFamilyIndex;
+    uint32_t graphicsQueueFamilyIndex = UINT32_MAX;
+
+    pthread_mutex_t graphicsQueueMutex;
+    VkQueue graphicsQueue;
+    VkQueue presentQueue;
+    VkQueue computeQueue;
+}
+defineVulkanHandleType $gpuc VkPhysicalDevice
+defineVulkanHandleType $gpuc VkDevice
+$gpuc proc getPhysicalDevice {} VkPhysicalDevice { return physicalDevice; }
+$gpuc proc getDevice {} VkDevice { return device; }
+
+$gpuc proc init {bool useGlfw} void {
+    $[vktry volkInitialize()]
+    $[if {$useGlfw} { expr {"glfwInit();"} }]
+
+    // Set up VkInstance instance:
+    {
+        VkInstanceCreateInfo createInfo = {0};
+        createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+
+        const char* validationLayers[] = {
+           "VK_LAYER_KHRONOS_validation"
+        };
+        createInfo.enabledLayerCount = sizeof(validationLayers)/sizeof(validationLayers[0]);
+        createInfo.ppEnabledLayerNames = validationLayers;
+
+        $[if {$macos} {subst -nocommands {
+            const char* enabledExtensions[] = {
+                VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
+                VK_KHR_SURFACE_EXTENSION_NAME,
+                "VK_EXT_metal_surface",
+                VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
+            };
+            createInfo.enabledExtensionCount = sizeof(enabledExtensions)/sizeof(enabledExtensions[0]);
+
+        }} elseif {$useGlfw} {subst -nocommands {
+            const char** enabledExtensions = glfwGetRequiredInstanceExtensions(&createInfo.enabledExtensionCount);
+
+        }} else {subst -nocommands {
+            const char* enabledExtensions[] = {
+                // 2 extensions for non-X11/Wayland display
+                VK_KHR_SURFACE_EXTENSION_NAME,
+                VK_KHR_DISPLAY_EXTENSION_NAME,
+                VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
+            };
+            createInfo.enabledExtensionCount = sizeof(enabledExtensions)/sizeof(enabledExtensions[0]);
+        }}]
+        createInfo.ppEnabledExtensionNames = enabledExtensions;
+
+        $[if {$macos} { expr {{
+            createInfo.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+        }} }]
+        VkResult res = vkCreateInstance(&createInfo, NULL, &instance);
+        if (res != VK_SUCCESS) {
+            FOLK_ERROR("Failed vkCreateInstance: %s (%d)\n",
+                    VkResultToString(res), res);
+            if (res == VK_ERROR_LAYER_NOT_PRESENT) {
+                FOLK_ERROR("It looks like a required layer is missing.\n"
+                           "Did you install `vulkan-validationlayers`?\n");
+            }
+        }
+    }
+    volkLoadInstance(instance);
+
+    // Set up VkPhysicalDevice physicalDevice
+    {
+        uint32_t physicalDeviceCount = 0;
+        vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, NULL);
+        if (physicalDeviceCount == 0) {
+            FOLK_ERROR("Failed to find Vulkan physical device\n");
+        }
+        printf("gpu: Found %d Vulkan devices\n", physicalDeviceCount);
+        VkPhysicalDevice physicalDevices[physicalDeviceCount];
+        vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, physicalDevices);
+
+        physicalDevice = physicalDevices[0];
+        vkGetPhysicalDeviceFeatures(physicalDevice, &physicalDeviceFeatures);
+        vkGetPhysicalDeviceProperties(physicalDevice, &physicalDeviceProperties);
+    }
+
+    computeQueueFamilyIndex = UINT32_MAX; {
+        uint32_t queueFamilyCount = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, NULL);
+        VkQueueFamilyProperties queueFamilies[queueFamilyCount];
+        vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, queueFamilies);
+        for (int i = 0; i < queueFamilyCount; i++) {
+            if (queueFamilies[i].queueFlags & VK_QUEUE_COMPUTE_BIT) {
+                computeQueueFamilyIndex = i;
+            }
+            if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+                graphicsQueueFamilyIndex = i;
+                break;
+            }
+        }
+        if (graphicsQueueFamilyIndex == UINT32_MAX) {
+            fprintf(stderr, "Failed to find a Vulkan graphics queue family\n"); exit(1);
+        }
+        if (computeQueueFamilyIndex == UINT32_MAX) {
+            fprintf(stderr, "Failed to find a Vulkan compute queue family\n"); exit(1);
+        }
+    }
+
+    // Set up VkDevice device
+    {
+        VkDeviceQueueCreateInfo queueCreateInfo = {0};
+        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queueCreateInfo.queueFamilyIndex = graphicsQueueFamilyIndex;
+        queueCreateInfo.queueCount = 1;
+        float queuePriority = 1.0f;
+        queueCreateInfo.pQueuePriorities = &queuePriority;
+
+        VkPhysicalDeviceFeatures deviceFeatures = {0};
+
+        $[if {$macos} {subst -nocommands {
+            const char *deviceExtensions[] = {
+                VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+                "VK_KHR_portability_subset",
+                VK_KHR_MAINTENANCE3_EXTENSION_NAME
+            };
+        }} elseif {$useGlfw} {subst -nocommands {
+            const char *deviceExtensions[] = {
+                VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+            };
+        }} else {subst -nocommands {
+            const char *deviceExtensions[] = {
+                VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+                VK_KHR_MAINTENANCE3_EXTENSION_NAME
+            };
+        }}]
+
+        VkDeviceCreateInfo createInfo = {0};
+        createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+        createInfo.pQueueCreateInfos = &queueCreateInfo;
+        createInfo.queueCreateInfoCount = 1;
+        createInfo.pEnabledFeatures = &deviceFeatures;
+        createInfo.enabledLayerCount = 0;
+        createInfo.enabledExtensionCount = sizeof(deviceExtensions)/sizeof(deviceExtensions[0]);
+        createInfo.ppEnabledExtensionNames = deviceExtensions;
+
+        /* VkPhysicalDeviceDescriptorIndexingFeatures descriptorIndexingFeatures = {0}; */
+        /* descriptorIndexingFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES; */
+        /* descriptorIndexingFeatures.descriptorBindingPartiallyBound = VK_TRUE; */
+        /* // TODO: Do we need more descriptor indexing features? */
+        /* createInfo.pNext = &descriptorIndexingFeatures; */
+
+        $[vktry {vkCreateDevice(physicalDevice, &createInfo, NULL, &device)}]
+    }
+
+    // Set up VkQueue graphicsQueue and VkQueue presentQueue and VkQueue computeQueue
+    {
+        pthread_mutex_init(&graphicsQueueMutex, NULL);
+        vkGetDeviceQueue(device, graphicsQueueFamilyIndex, 0, &graphicsQueue);
+        presentQueue = graphicsQueue;
+        computeQueue = graphicsQueue;
+    }
+}
+$gpuc proc getDoesSupportShaderSampledImageArrayDynamicIndexing {} bool {
+    return physicalDeviceFeatures.shaderSampledImageArrayDynamicIndexing;
+}
+$gpuc proc getMaxTextures {} int {
+    int maxTextures = physicalDeviceProperties.limits.maxPerStageDescriptorSamplers;
+    // If it's actually a low cap (often 16), stick with that.
+    if (maxTextures < 128) { return maxTextures; }
+    // HACK: for now, I don't want to deal with all the other descriptor caps etc.
+    return 128;
+}
+
+set gpuLib [$gpuc compile]
+
+$gpuLib init $useGlfw
+Claim the GPU library is $gpuLib
+
+Claim the GPU physical device is [$gpuLib getPhysicalDevice]
+Claim the GPU device is [$gpuLib getDevice]
+
+}

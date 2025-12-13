@@ -1,0 +1,9 @@
+Wish the web server handles route {/printed-programs/([^/]+)\.folk$} with handler {
+    set programDir [dict get [QueryOne! the program save directory is /programDir/] programDir]
+    set filename "$programDir/$1.folk"
+    set fp [open $filename r]
+    set data [read $fp]
+    close $fp
+
+    dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: text/plain; charset=utf-8\n\n" body $data
+}

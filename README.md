@@ -23,7 +23,9 @@ objects are physical objects in the real world, and you can program
 them inside the system itself. Folk is [written in a mix of C and
 Tcl](https://github.com/FolkComputer/folk/blob/main/docs/design.md).
 
-## Hardware
+## Installation
+
+### Hardware
 
 You'll need to set up a dedicated PC to run Folk and connect to
 webcam+projector+printer+etc.
@@ -32,21 +34,14 @@ We tend to recommend a Beelink mini-PC (or _maybe_ a Pi 5).
 
 See <https://folk.computer/pilot/>
 
-## Linux tabletop installation using live USB
-
-**Experimental:** If you have an amd64 PC, you can use the live USB
-image which has Folk and all dependencies pre-installed.
-
-**See <https://github.com/FolkComputer/folk/releases> to
-get the Linux live USB image.**
-
-You can update Folk by running `git pull` in the `folk` subfolder of
-the FOLK-LIVE partition once you've flashed the live USB.
-
-## Manual Linux tabletop installation
+### Manual Linux tabletop installation
 
 On an Intel/AMD PC, set up [Ubuntu **Server** 24.04 LTS (Noble
 Numbat)](https://ubuntu.com/download/server#releases).
+
+(if you have an NVIDIA GPU, don't install the drivers in the Ubuntu OS
+installer. we'll install manually later. or if you do, install driver
+version 570 or newer)
 
 (for a Pi 4/5, use Raspberry Pi Imager and get Raspberry Pi OS Lite
 64-bit version [also see [this
@@ -59,10 +54,10 @@ if flashing from a Mac] -- Ubuntu doesn't have a good kernel for Pi 5)
 
    If no `folk` user, then:
 
-        sudo useradd -m folk; sudo passwd folk;
+        sudo useradd -m folk; sudo passwd folk
 
-   After creating `folk` user, then:
-    
+   Add the `folk` user to groups:
+
         for group in adm dialout cdrom sudo audio video plugdev games users input tty render netdev lpadmin gpio i2c spi; do sudo usermod -a -G $group folk; done; groups folk
 
 1. `sudo apt update`
@@ -71,12 +66,16 @@ if flashing from a Mac] -- Ubuntu doesn't have a good kernel for Pi 5)
    `folk@folk-WHATEVER.local` by name, `sudo apt install avahi-daemon`
    and then on your laptop: `ssh-copy-id folk@folk-WHATEVER.local`
 
-1. Install dependencies: `sudo apt install rsync tcl-thread tcl8.6-dev
-   git libjpeg-dev libpng-dev libdrm-dev pkg-config v4l-utils
-   mesa-vulkan-drivers vulkan-tools libvulkan-dev libvulkan1 meson
-   libgbm-dev glslc vulkan-validationlayers ghostscript console-data kbd`
+1. Install dependencies: `sudo apt install rsync git libturbojpeg0-dev libpng-dev libdrm-dev pkg-config v4l-utils vulkan-tools libvulkan-dev libvulkan1 meson libgbm-dev glslc vulkan-validationlayers ghostscript console-data kbd psmisc zlib1g-dev libssl-dev automake libtool autoconf-archive`
 
-   (When prompted while installing `console-data` for `Policy for handling keymaps` type `3` (meaning `3. Keep kernel keymap`) and press `Enter`)
+   (When prompted while installing `console-data` for `Policy for
+   handling keymaps` type `3` (meaning `3. Keep kernel keymap`) and
+   press `Enter`)
+
+     1. on a non-NVIDIA GPU: `sudo apt install mesa-vulkan-drivers`
+     1. on an NVIDIA GPU: run `sudo ubuntu-drivers install nvidia:580`
+     1. for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
+`libgoogle-perftools-dev`
 
 1. Vulkan testing (optional):
      1. Try `vulkaninfo` and see if it works.
@@ -98,11 +97,7 @@ if flashing from a Mac] -- Ubuntu doesn't have a good kernel for Pi 5)
      1. See [notes](https://folk.computer/notes/vulkan) and [Naveen's
         notes](https://gist.github.com/nmichaud/1c08821833449bdd3ac70dcb28486539).
 
-1. `sudo nano /etc/udev/rules.d/99-input.rules`. add
-   `SUBSYSTEM=="input", GROUP="input", MODE="0666"`. `sudo udevadm
-   control --reload-rules && sudo udevadm trigger`
-
-1. Get AprilTags: `cd ~ && git clone https://github.com/FolkComputer/apriltag.git && cd apriltag && make libapriltag.so libapriltag.a`
+1. `sudo sh -c 'echo SUBSYSTEM=="input", GROUP="input", MODE="0666" > /etc/udev/rules.d/99-input.rules && udevadm control --reload-rules && udevadm trigger'`
 
 1. Add the systemd service so it starts on boot and can be managed
    when you run it from laptop. On Ubuntu Server or Raspberry Pi OS
@@ -120,11 +115,15 @@ if flashing from a Mac] -- Ubuntu doesn't have a good kernel for Pi 5)
        Restart=always
        RestartSec=1
        User=folk
-       ExecStart=make -C /home/folk/folk
+       WorkingDirectory=/home/folk/folk
+       ExecStart=make -C /home/folk/folk start
 
        [Install]
        WantedBy=multi-user.target
 
+   Run these commands as root after editing the file above:
+
+       # chmod 644 /etc/systemd/system/folk.service
        # systemctl start folk
        # systemctl enable folk
 
@@ -133,34 +132,21 @@ the bottom of `/etc/sudoers` on the tabletop. (This lets the `make`
 scripts from your laptop manage the Folk service by running
 `systemctl` without needing a password.)
 
-Then, _on your laptop_, clone this repository:
+To compile and run Folk:
 
 ```
-$ git clone https://github.com/FolkComputer/folk.git
+$ make deps
+$ make && ./folk
 ```
 
-And run `make sync-restart FOLK_SHARE_NODE=folk-WHATEVER.local`. This
-will rsync folk to the tabletop and run it there as well as running it
-on your laptop.
+or (if remote machine):
 
-(or clone it onto the machine and run `sudo systemctl start folk` there)
+```
+$ make remote FOLK_REMOTE_NODE=<your-remote-hostname-here>
+```
 
-### How to control tabletop Folk from your laptop
-
-On your laptop Web browser, go to http://folk-WHATEVER.local:4273 --
-click New Program, hit Save, drag it around. You should see the
-program move on your table as you drag it around on your laptop.
-
-Does it work? Add your tabletop to hosts.tcl! Send in a patch!
-Celebrate!
-
-### General debugging
-
-You can run `make journal` to see stdout/stderr output from the
-tabletop machine. If you need to pass in a specific hostname, `make
-journal FOLK_SHARE_NODE=folk-whatever.local`.
-
-`make repl` will give you a dialed-in Tcl REPL.
+On your laptop Web browser, go to http://<your-remote-hostname>.local:4273 --
+you should see the Folk web page with the live statement set.
 
 ### Printer support
 
@@ -195,26 +181,35 @@ and Set as Server Default.
 Try printing from Folk!
 
 You can also test printing again with `lpr
-~/folk-printed-programs/SOMETHING.pdf` (you have to print the PDF and
+~/folk-data/program/SOMETHING.pdf` (you have to print the PDF and
 not the PS for it to work, probably)
 
-### Projector-camera calibration
 
-1. Position the camera. Make sure Folk is running (ssh in, `cd
-   ~/folk`, `./folk.tcl start`). Go to your Folk server's Web page
-   http://whatever.local:4273/camera-frame to see a preview of what
-   the camera sees. Reposition your camera to cover your table.
+### Projector-camera setup and calibration
 
-1. Go to the Folk calibration page at
-   http://whatever.local:4273/calibrate and follow the instructions
-   (print calibration board & run calibration process).
+1. Make sure Folk is running. Go to your Folk server's Web page
+   http://whatever.local:4273/setup . Select your camera and
+   projector, using as high framerate and resolution as you're
+   comfortable with.
+
+1. You should see a live preview of the camera. Reposition your camera
+   to cover your table closely (try not to waste too much of the
+   camera viewport on pixels that the projector won't be able to hit)
+
+1. Select your camera and projector at the bottom and then click
+   Calibrate. Follow the calibration instructions.
+
+After calibrating, on http://whatever.local:4273/ : click New Program,
+hit Save, drag it around. You should see the program move on your
+table as you drag it around on your laptop.
+
 
 ### Connect a keyboard
 
 Follow [the instructions on this Folk wiki page](https://folk.computer/guides/keyboard)
 to connect a new keyboard to your system.
 
-### Bluetooth keyboards
+#### Bluetooth keyboards
 
 Install `bluetoothctl`. Follow the instructions in
 https://wiki.archlinux.org/title/bluetooth_keyboard to pair and trust
@@ -223,6 +218,45 @@ and connect.
 (FIXME: Write down the Bluetooth MAC address of your keyboard. We'll
 proceed as though it's "f4:73:35:93:7f:9d" (it's important that you
 turn it into lowercase).)
+
+
+## Development tools
+
+### Address Sanitizer
+
+Address Sanitizer (ASan) support can be enabled by setting the `ASAN_ENABLE` environment variable:
+
+```
+make ASAN_ENABLE=1
+```
+
+Then when running:
+
+```
+ASAN_ENABLE=1 make start
+```
+
+### Tracy profiling
+
+To use Tracy, first do `git submodule update --init` here.
+
+Pass `CFLAGS=-DTRACY_ENABLE` to `make` when compiling Folk (you might
+need to clean first if you already built Folk).
+
+Ideally, run Folk as root with `sudo ./folk` or `make sudo-remote`.
+
+Build the profiler client on your laptop/other PC:
+
+```
+$ cmake -B vendor/tracy/profiler/build -S vendor/tracy/profiler -DCMAKE_BUILD_TYPE=Release
+$ make -C vendor/tracy/profiler/build
+```
+
+Run the profiler client on your laptop/other PC and connect to a running Folk:
+
+```
+$ make run-tracy
+```
 
 ### Potentially useful
 
@@ -243,6 +277,8 @@ Potentially useful: `journalctl -f -u folk` to see log of folk service
 For audio:
 https://askubuntu.com/questions/1349221/which-packages-should-be-installed-to-have-sound-output-working-on-minimal-ubunt
 
+## Troubleshooting
+
 ### HDMI No signal on Pi 4
 
 Edit /boot/cmdline.txt https://github.com/raspberrypi/firmware/issues/1647#issuecomment-971500256
@@ -252,8 +288,6 @@ Edit /boot/cmdline.txt https://github.com/raspberrypi/firmware/issues/1647#issue
 
 https://askubuntu.com/questions/1321443/very-long-startup-time-on-ubuntu-server-network-configuration
 (add `optional: true` to all netplan interfaces)
-
-## Troubleshooting
 
 ### Why is my camera slow (why is tracking janky or laggy, why is camera time high)
 
@@ -290,7 +324,7 @@ created. Therefore, it will eventually be useful for you to know
 syntax](https://www.ee.columbia.edu/~shane/projects/sensornet/part1.pdf).
 
 These are all implemented in `main.tcl`. For most things, you'll
-probably only need `Wish`, `Claim`, `When`, and maybe `Hold`.
+probably only need `Wish`, `Claim`, `When`, and maybe `Hold!`.
 
 ### Wish and Claim
 
@@ -374,40 +408,40 @@ When /x/ is cool & \
 }
 ```
 
-### Collecting matches
+### Collecting results
 
 ```
-When the collected matches for [list /actor/ is cool] are /matches/ {
-   Wish $this is labelled [join $matches "\n"]
+When the collected results for [list /actor/ is cool] are /results/ {
+   Wish $this is labelled [join $results "\n"]
 }
 ```
 
-This gets you an array of all matches for the pattern `/actor/ is
+This gets you an array of all results for the pattern `/actor/ is
 cool`.
 
 (We use the Tcl `list` function to construct a pattern as a
 first-class object. You can use `&` joins in that pattern as
 well.)
 
-### Hold
+### Hold!
 
-Experimental: `Hold` is used to register claims that will stick
-around until you do another `Hold`. You can use this to create the
+Experimental: `Hold!` is used to register claims that will stick
+around until you do another `Hold!`. You can use this to create the
 equivalent of 'variables', stateful statements.
 
 ```
-Hold { Claim $this has a ball at x 100 y 100 }
+Hold! { Claim $this has a ball at x 100 y 100 }
 
 When $this has a ball at x /x/ y /y/ {
     puts "ball at $x $y"
     After 10 milliseconds {
-        Hold { Claim $this has a ball at x $x y [expr {$y+1}] }
+        Hold! { Claim $this has a ball at x $x y [expr {$y+1}] }
         if {$y > 115} { set ::done true }
     }
 }
 ```
 
-`Hold` will overwrite all statements made by the previous `Hold`
+`Hold!` will overwrite all statements made by the previous `Hold!`
 (scoped to the current `$this`).
 
 **Notice that you should scope your claim: it's `$this has a ball`, not `there
@@ -420,7 +454,7 @@ If you want multiple state atoms, you can also provide a key -- you
 can be like
 
 ```
-Hold ball position {
+Hold! ball position {
   Claim $this has a ball at blahblah
 }
 ```
@@ -429,37 +463,32 @@ and then future holds with that key, `ball position`, will
 overwrite this statement but not override different holds with
 different keys
 
-You can overwrite another program's Hold with the `on` parameter, like
-`Hold (on 852) { ... }` (if the Hold is from page 852) or `Hold (on
-virtual-programs/example.folk) { ... }` (if the Hold is from the
-example.folk virtual program)
+You can overwrite another program's Hold! with the `on` parameter, like
+`Hold! (on 852) { ... }` (if the Hold! is from page 852) or `Hold! (on
+builtin-programs/example.folk) { ... }` (if the Hold! is from the
+example.folk builtin program)
 
-### Every time
+### Subscribe: and Notify:
 
-Experimental: `Every time` works almost like `When`, but it's used to
-hold when an 'event' happens without causing a reaction cascade.
+`Subscribe:` subscribes to notifications. It executes once per
+`Notify:` and cannot support any Claims/Whens/Wishes in its body.
 
-**You can't make Claims, Whens, or Wishes inside an `Every time`
-block. You can only Hold.**
+**You can't make Claims, Whens, or Wishes inside a `Subscribe:`
+block. You can only Hold!.**
 
 Example:
 
 ```
-Hold { Claim $this has seen 0 boops }
+Hold! { Claim $this has seen 0 boops }
 
-Every time there is a boop & $this has seen /n/ boops {
-  Hold { Claim $this has seen [expr {$n + 1}] boops }
+Subscribe: there is a boop {
+  ForEach! $this has seen /n/ boops {
+    Hold! { Claim $this has seen [expr {$n + 1}] boops }
+  }
 }
+
+Notify: there is a boop
 ```
-
-If you had used `When` here, it wouldn't terminate, since the new
-`$this has seen n+1 boops` hold would cause the `When` to retrigger,
-resulting in a `$this has seen n+2 boops` hold, then another
-retrigger, and so on.
-
-`Every time`, in contrast, will 'only react once' to the boop; nothing
-in its body will run again unless the boop goes away and an entirely
-new boop appears.
 
 ### Animation
 
@@ -497,23 +526,7 @@ When when /personVar/ is cool /lambda/ with environment /e/ {
 }
 ```
 
-#### On and Start
-
-FIXME: General note: the `On` and `Start` blocks are used for weird
-non-reactive behavior. Need to fill this out more.
-
-##### Start process
-
-```
-Start process A {
-  while true {
-    puts "Hello! Another second has passed"
-    exec sleep 1
-  }
-}
-```
-
-##### On unmatch
+#### On unmatch
 
 You should _not_ use `When`, `Claim`, or `Wish` directly inside an
 `On unmatch` block; those only make sense inside a normal reactive
@@ -530,25 +543,25 @@ On unmatch {
 #### Non-capturing
 
 You can disable capturing of lexical context around a When with the
-`(non-capturing)` flag.
+`-noncapturing` flag.
 
 This is mostly to help runtime performance if a When is declared
 somewhere that has a lot of stuff in scope at declaration time.
 
 ```
 set foo 3
-When (non-capturing) /p/ is cool {
+When -noncapturing /p/ is cool {
    Claim $p is awesome
    # can't access $foo from in here
 }
 ```
 
-#### Assert and Retract
+#### Assert! and Retract!
 
-General note: `Assert` and `Retract` are used for weird non-reactive
+General note: `Assert!` and `Retract!` are used for weird non-reactive
 behavior.
 
-You should generally _not_ use `Assert` and `Retract` inside a `When`
+You should generally _not_ use `Assert!` and `Retract!` inside a `When`
 block. Use `Claim`, `Wish`, and `When` instead.
 
 ## Tcl for JavaScripters
@@ -577,14 +590,14 @@ puts [add {*}$numbers]
 
 ## Style guide
 
-### Tcl code vs. virtual programs vs. printed programs
+### Tcl code vs. builtin programs vs. printed programs
 
 In general, avoid adding new .tcl files to the Git repo. Pure Tcl
 libraries are an antipattern; we should only need them for the hard
 core of the system.
 
 Most new code (both libraries and applications) should be virtual
-programs (which ilve as .folk files in the virtual-programs/
+programs (which ilve as .folk files in the builtin-programs/
 subfolder) or printed programs.
 
 ### Folk 
@@ -642,3 +655,92 @@ create`.
 #### Singletons
 
 Capitalized namespace, like `Statements`.
+
+
+## Thanks
+
+- Omar Rizwan: evaluator; display, AprilTag, camera subsystems
+- Andrés Cuervo: keyboard library and code editor, sprites
+- Naveen Michaud-Agrawal: connections, points-at, 
+- Jacob Haip: web endpoints, tag masking, blob detection
+- Arcade Wise: fonts
+- s-ol bekic: WebSocket library, keyboard locale support
+- terminal subsystem
+- Mason Jones: tag stabilization, `Notify:`/`Subscribe:` event system,
+  `-save` statement persistence, new code editor with scrolling & font
+  size & editing of existing programs
+
+## todo
+
+- clean up shader reference errors (use trick from main?)
+- **fix camera-rpi corruption**
+- restore smj cam/display parameters
+- fix remaining display/ primitives
+- rebuild live image
+- why is web endpoints so slow?
+- optimize jpeg decoding
+- only intern long strings?
+- accidentally matches prefixes even when not all teh way up to end of statement
+- camera stops working when calibration terminates
+  - laser-cut or cnc or 3d print a plate with 2 sliders and a slot
+    for a program
+- camera slices cause hop/distortion when pulled off
+
+### perf
+- on folk-live at home, folk2-leakfix: 160ms calibration cycle
+- on folk-live at home, folk2-shared-objects: TODO
+
+### next
+- minor memory leak
+- on old folk2 with term copying:, in tracy 245 microseconds --
+  apriltags.folk:170 (collection)
+- **calibrate render loop blinks out regularly**
+- calibrate doesn't click in afterward, have to restart system (is it
+  because of kill refiner?)
+- rename resolved geometry to geometry
+- On unmatch doesn't work if run at start of When block instead of
+  end? -- **it's probably because it gets pinned through descendant
+  statements**
+- ~~fix error reporting on table~~ clean up title, clean up points-at
+- "Added tag 1313" pileup (and removal pileup when flipped over)
+- fix calibration screwing up system state
+- persist transient errors
+
+### ideas
+- aborted executions shouldn't be too high a percentage of total # of
+executions of the block? if they are, then we warn on the page that it
+isn't meeting timing
+- build a settlement-based local fps counter like clock time labeler
+  (how many frames are we dropping?)
+
+### other stuff
+- stereo calibration
+- run segmentation model
+- **editor cutoff bug**
+  - editor 132 keyboard stops responding?
+- recsale camera slice to have correct aspect ratio
+- debug memory leaks
+  - are we ever freeing AtomicallyVersion? -- no, but this isn't the
+    main memory leak (not enough allocated)
+  - not destructors
+  - also not camera images
+  - also not jim allocations
+- bug where camera slices halt / slow down animation
+  - animation blinky
+- ~~make web handlers inherit lexical scope~~
+- gadget-platinum outline blink
+- remaining blink on clock time
+  - the problem is that the _root_ match has no atomic marker attached
+    in the db (the When the clock time is /t/), which means that any
+    direct child statements don't get made if they aren't made before
+    the root match is revoked.
+    - we need to also find a way to pin the root match
+- slowdown where sysmon starts taking forever bc of endless chains of
+  destructors/atomicallyversions
+  - warn if sysmon is too slow?
+- make RAM/metrics page to not clutter up stdout
+- make errors page
+- ~~enumerate web pages nav bar automatically~~
+- remove Hold and Atomically limits
+- automatic default calibration so you can drag stuff around on laptop
+- automatically allow optional fields on `with`

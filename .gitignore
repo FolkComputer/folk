@@ -1,6 +1,10 @@
+folk
+folk.pid
+*.o
+folk.dSYM
+CFLAGS
 .DS_Store
-statements.pdf
-statements.dot
-trie.pdf
-trie.dot
-
+play
+.vscode/settings.json
+vendor/jimtcl/conftest__.dSYM/Contents/Info.plist
+vendor/jimtcl/conftest__.dSYM/Contents/Resources/Relocations/aarch64/conftest__.yml

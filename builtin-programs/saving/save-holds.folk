@@ -1,0 +1,183 @@
+set cc [C]
+
+$cc include <pthread.h>
+$cc include <assert.h>
+$cc include <stdio.h>
+$cc include <string.h>
+$cc include "jim.h"
+
+$cc code {
+
+/* Generic string hash function from jim.c */
+static unsigned int cacheGenHashFunction(const unsigned char *string, int length) {
+    unsigned result = 0;
+    string += length;
+    while (length--) {
+        result += (result << 3) + (unsigned char)(*--string);
+    }
+    return result;
+}
+static unsigned int holdHTHashFunction(const void *key) {
+    return cacheGenHashFunction(key, strlen(key));
+}
+static void *holdHTKeyDup(void *privdata, const void *key) {
+    return strdup(key);
+}
+static void *holdHTValDup(void *privdata, const void *val) {
+    return strdup(val);
+}
+static int holdHTKeyCompare(void *privdata, const void *key1, const void *key2) {
+    return strcmp(key1, key2) == 0;
+}
+static void holdHTKeyDestructor(void *privdata, void *key) {
+    free(key);
+}
+static void holdHTValDestructor(void *privdata, void *val) {
+    free(val);
+}
+
+static const Jim_HashTableType holdHashTableType = {
+    .hashFunction = holdHTHashFunction,
+    .keyDup = holdHTKeyDup,
+    .valDup = holdHTValDup,
+    .keyCompare = holdHTKeyCompare,
+    .keyDestructor = holdHTKeyDestructor,
+    .valDestructor = holdHTValDestructor
+};
+
+// key = value of -on passed to Hold!,
+// val = string that can be converted to a jim dict, with
+// that dict having its key = the value passed to -key
+// and its value = its corresponding held statement
+static Jim_HashTable holds;
+static int areHoldsInitialized = 0;
+
+static pthread_mutex_t holdMutex = PTHREAD_MUTEX_INITIALIZER;
+
+}
+
+$cc proc init {} void {
+    pthread_mutex_lock(&holdMutex);
+    if (!areHoldsInitialized) {
+        areHoldsInitialized = 1;
+        Jim_InitHashTable(&holds, &holdHashTableType, interp);
+    }
+    pthread_mutex_unlock(&holdMutex);
+}
+
+$cc proc loadHolds {char* canonicalName char* holdStr} void {
+    pthread_mutex_lock(&holdMutex);
+    Jim_AddHashEntry(&holds, (const void *)canonicalName, (void *)holdStr);
+    pthread_mutex_unlock(&holdMutex);
+}
+
+# canonical, tclEscaped, and filename all have to do with the value from -on in Hold!
+$cc proc saveHold {char* canonical Jim_Obj* tclEscaped char* filename Jim_Obj* key Jim_Obj* clause} void {
+    pthread_mutex_lock(&holdMutex);
+    assert(areHoldsInitialized);
+
+    Jim_Obj* holdDict = NULL;
+
+    Jim_HashEntry* he = Jim_FindHashEntry(&holds, canonical);
+    if (he == NULL) {
+        // this is this files' first hold
+        holdDict = Jim_NewDictObj(interp, NULL, 0);
+    } else {
+        holdDict = Jim_NewStringObj(interp, (char *)Jim_GetHashEntryVal(he), -1);
+    }
+
+    // empty clause, e.g. removal
+    if (Jim_Length(clause) == 0) {
+        Jim_DictAddElement(interp, holdDict, key, NULL);
+    } else {
+        Jim_DictAddElement(interp, holdDict, key, clause);
+    }
+
+    if (he == NULL) {
+        Jim_AddHashEntry(&holds, (const void *)canonical, (void *)Jim_String(holdDict));
+    } else {
+        Jim_SetHashVal(&holds, he, (void *)Jim_String(holdDict));
+    }
+
+    pthread_mutex_unlock(&holdMutex);
+
+    // grab entries from dict
+    int dictLen = 0;
+    Jim_Obj** dictValues = Jim_DictPairs(interp, holdDict, &dictLen);
+
+    if (dictLen > 0) {
+        // write changes
+        FILE* file = fopen(filename, "w+b");
+        assert(file != NULL);
+
+        // write the filename in tcl form at the top of the file
+        fwrite(Jim_String(tclEscaped), 1, Jim_Length(tclEscaped), file);
+        fwrite("\n\n", 1, 2, file);
+
+        // write all hash entries, with one entry per line
+        for (int i = 0; i < dictLen; i += 2) {
+            Jim_Obj* pair[] = { dictValues[i], dictValues[i + 1] };
+            Jim_Obj* tmpListObj = Jim_NewListObj(interp, pair, 2);
+
+            fwrite(Jim_String(tmpListObj), 1, Jim_Length(tmpListObj), file);
+            fwrite("\n", 1, 1, file);
+
+            Jim_FreeNewObj(interp, tmpListObj);
+        }
+
+        fclose(file);
+    } else {
+        // the dict is empty, so we should delete its hold file if it exists
+        remove(filename); // no need to check error
+    }
+
+    Jim_FreeNewObj(interp, holdDict);
+}
+
+set savedHoldsLib [$cc compile]
+$savedHoldsLib init
+
+When /someone/ wishes to deserialize namespace hold with directory /directory/ {
+    set holdFiles [glob -nocomplain $directory/*]
+
+    foreach holdFile $holdFiles {
+        set fd [open $holdFile r]
+        set holds [read $fd]
+        close $fd
+
+        # the hold file's first line is its canonical name (since
+        # having / in a filename would mess a lot of stuff up),
+        # while the rest of the file is a dict of holds
+        set canonicalName [lindex $holds 0]
+        set holdDict [lrange $holds 1 end]
+
+        dict for {key clause} $holdDict {
+            Hold! -on $canonicalName -key $key -- {*}$clause
+        }
+
+        $savedHoldsLib loadHolds $canonicalName $holdDict
+    }
+}
+
+When the hold save directory is /holdDirectory/ {
+    Subscribe: save hold on /on/ with key /key/ clause /clause/ {
+        set canonical $on
+        set tclEscaped [list $on]
+        set escapedFilename ""
+
+        # does it match builtin-programs/**/*.folk? If so,
+        # chop off builtin-programs/
+        if {![regexp {^builtin-programs/(.*\.folk)} $canonical -> escapedFilename]} {
+            set escapedFilename $canonical
+        }
+
+        # replace all / with __
+        set escapedFilename [regsub -all -- / $escapedFilename __]
+        set escapedFilename "$holdDirectory/$escapedFilename"
+
+        $savedHoldsLib saveHold $canonical $tclEscaped $escapedFilename \
+            $key $clause
+    }
+
+    Claim saving is ready
+}

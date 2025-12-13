@@ -1,0 +1,72 @@
+When the default program geometry is /defaultGeom/ &\
+     program /program/ is scaled by x /xScale/ y /yScale/ {
+    proc extractMm {mm} {
+        regexp {([0-9.]+)mm} $mm -> extracted
+        return $extracted
+    }
+
+    set tagSize [extractMm [dict get $defaultGeom tagSize]]
+    set left [extractMm [dict get $defaultGeom left]]
+    set right [extractMm [dict get $defaultGeom right]]
+    set top [extractMm [dict get $defaultGeom top]]
+    set bottom [extractMm [dict get $defaultGeom bottom]]
+
+    set width [expr {$left + $tagSize + $right}]
+    set height [expr {$top + $tagSize + $bottom}]
+
+    set right $($right + ($width * $xScale - $width))mm
+    set bottom $($bottom + ($height * $yScale - $height))mm
+
+    set newGeom [list tagSize ${tagSize}mm left ${left}mm right ${right}mm top ${top}mm bottom ${bottom}mm]
+
+    Claim tag $program has geometry $newGeom
+}
+
+When the default program geometry is /defaultGeom/ &\
+     /someone/ wishes /tag/ has resolved geometry {
+
+    # Setting aside this tag space (48600 to 48713) for calibration.
+    if {!($tag >= 0 && $tag < 48600)} { return }
+
+    When the collected results for [list /someone/ claims tag $tag has geometry /geom/] are /results/ {
+        # Choose a geometry.
+        if {[llength $results] == 1} {
+            set geom [dict get [lindex $results 0] geom]
+        } elseif {[llength $results] == 0} {
+            set geom $defaultGeom
+        } else {
+            puts stderr "tags-to-quads: WARNING: Multiple geometries for $tag"
+            set geom [dict get [lindex $results 0] geom]
+        }
+
+        local proc dim {x} {
+            return [expr {[string map {mm ""} $x] / 1000.0}]
+        }
+        dict for {k v} $geom { dict set geom $k [dim $v] }
+        dict with geom {
+            set width [expr {$left + $tagSize + $right}]
+            set height [expr {$top + $tagSize + $bottom}]
+        }
+        dict set geom width $width
+        dict set geom height $height
+        # This (resolved geometry) feels like a hack.
+        Claim $tag has resolved geometry $geom
+
+        # Use the geometry to create the canvas projection,
+        # which maps from page-space (in meters from the top-left
+        # corner) to normalized-space (x and y from -1 to 1)
+        set proj [list [list $(2.0/$width) 0 -1] \
+                       [list 0 $(2.0/$height) -1] \
+                       [list 0 0 1]]
+        Claim $tag has canvas projection $proj
+
+        set writableTextureId [list $tag canvas]
+        # TODO: Set canvas resolution based on physical width
+        # & height.
+        Wish -keep 40ms the GPU creates canvas $writableTextureId \
+            with width 1024 height 1024
+        When the GPU has created canvas $writableTextureId with /...opts/ {
+            Claim $tag has canvas $writableTextureId with {*}$opts
+        }
+    }
+}

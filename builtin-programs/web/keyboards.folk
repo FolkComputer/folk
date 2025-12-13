@@ -1,0 +1,60 @@
+Wish the web server handles route "/keyboards$" with handler {
+    set keyboards [lmap result [Query! /someone/ claims /keyboard/ is a keyboard device] {
+        dict get $result keyboard
+    }]
+    html [subst {
+      <html>
+          <head>
+          <style>
+          body {
+              background-color: #222;
+              color: whitesmoke;
+          }
+            .kbinfo {
+                outline: 1px solid whitesmoke;
+                border-radius: 6px;
+                font-family: monospace;
+                margin: 1%;
+                padding: 1%;
+            }
+            .path:before {
+                content: "Path: "
+            }
+          </style>
+          </head>
+      <body>
+        <span id="status">Status</span>
+        <dl>
+        [join [lmap kb $keyboards { subst {
+            <div class=kbinfo>
+                <dt class=path>$kb</dt>
+                <dd>
+                    <span>Keys typed: </span><code id="$kb-presses"></code>
+                </dd>
+                <dd>
+                    <button onclick="handlePrint('$kb')">Print</button>
+                </dd>
+            </div>
+        } }] "\n"]
+        </dl>
+
+        <script src="/lib/folk.js"></script>
+        <script>
+          const ws = new FolkWS(document.getElementById('status'));
+
+          ws.subscribe("keyboard /kb/ claims key /anything/ is down with /...options/", ({ kb, options }) => {
+            const { printable } = loadDict(options);
+            document.getElementById(kb + "-presses").innerText += printable + " ";
+          });
+
+          function handlePrint(kb) {
+            ws.send(
+              tcl`Notify: print code {Claim \$this is a keyboard with path \${kb}}`
+            );
+          }
+        </script>
+      </body>
+      </html>
+    }]
+}
+

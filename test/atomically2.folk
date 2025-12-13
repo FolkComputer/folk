@@ -1,0 +1,35 @@
+When -atomically the version is /v/ {
+    Claim the atomic version is $v
+    if {$v == 2} {
+        # Keep v2 unconverged to make sure v1 still presents in that
+        # case.
+        sleep 1
+    }
+}
+
+Hold! Claim the version is 1
+When -nonatomically the atomic version is 1 {
+    Hold! Claim the version is 2
+    Claim blooper
+    sleep 0.5
+
+    # At this point, `the atomic version is 2` should be present but
+    # in an unconverged version (so we won't get it in the query
+    # response), and `the atomic version is 1` should be present and
+    # returned by the query, being part of the last converged
+    # version.
+
+
+    set atomicResults [QuerySimple! true /someone/ claims the atomic version is /v/]
+    assert {[llength $atomicResults] == 1}
+    assert {[dict get [lindex $atomicResults 0] v] == 1}
+}
+When -nonatomically the atomic version is 2 {
+    sleep 2
+
+    set atomicResults [QuerySimple! true /someone/ claims the atomic version is /v/]
+    assert {[llength $atomicResults] == 1}
+    assert {[dict get [lindex $atomicResults 0] v] == 2}
+
+    Exit! 0
+}

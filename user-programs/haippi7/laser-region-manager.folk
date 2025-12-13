@@ -1,7 +1,7 @@
-When the collected matches for [list /someone/ claims /something/ region /id/ data /data/] are /regionMatches/ {
+When the collected results for [list /someone/ claims /something/ region /id/ data /data/] are /regionResults/ {
     set regionDataJsStrList {}
-    foreach match $regionMatches {
-        set m [dict get $match data]
+    foreach result $regionResults {
+        set m [dict get $result data]
         # Convert tcl list to javascript array
         lappend regionDataJsStrList "\[[string map {"{" "\[" "}" "\]" " " ", "} $m]\]"
     }

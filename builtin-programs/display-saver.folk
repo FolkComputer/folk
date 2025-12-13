@@ -1,0 +1,25 @@
+When tag /nobody/ has a program & /nobody/ has a display saver & \
+     display /disp/ has width /displayWidth/ height /displayHeight/ {
+    puts "Starting display-saver"
+
+    set cx [/ $displayWidth 2.0]
+    set cy [* $displayHeight 0.3]
+    set host [info hostname]
+    set msg "Welcome to Folk\n$host"
+
+    Wish to draw text onto $disp with \
+        x $cx \
+        y $cy \
+        text $msg \
+        color green \
+        scale 80
+
+	set borderPoints [list \
+	    [list 0 0] \
+	    [list $displayWidth 0] \
+	    [list $displayWidth $displayHeight] \
+	    [list 0 $displayHeight] \
+	    [list 0 0]]
+
+	Wish to draw a line onto $disp with points $borderPoints width 6 color white
+}

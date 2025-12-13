@@ -1,0 +1,17 @@
+Say A claims P is an editor
+Say B claims P is an editor
+
+When /p/ is an editor {
+    set x 3
+
+    When this is a test {
+        # This should be deduplicated because the environment is
+        # identical in both branches (p = P, x = 3), so only one When
+        # should be in the db.
+    }
+}
+
+sleep 1
+set whens [Query! when this is a test /body/ with /...anything/]
+assert {[llength $whens] == 1}
+Exit! 0

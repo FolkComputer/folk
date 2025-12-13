@@ -1,0 +1,158 @@
+# Function to check if the device is a keyboard
+proc isKeyboard {device} {
+    set properties [exec udevadm info --query=property --name=$device]
+    if {$properties eq ""} {
+        return false
+    }
+    set isKeyboard [string match *ID_INPUT_KEYBOARD=1* $properties]
+    return $isKeyboard
+    # TODO: Excluding mice would nice to keey the list of keyboard devices short
+    #       Alas, including mice is necessary for the Logitech K400R keyboard
+    # set isMouse [string match *ID_INPUT_MOUSE=1* $properties]
+    # return [expr {$isKeyboard && !$isMouse}]
+}
+
+####
+# /dev/input/event* addresses are the ground truth for keyboard devices
+#
+# This function goes through each of them and checks if they are keyboards
+proc walkInputEventPaths {} {
+    # set allDevices [glob -nocomplain "/dev/input/event*"]
+    set allDevices [glob -nocomplain "/dev/input/by-path/*"]
+    set keyboards [list]
+    foreach device $allDevices {
+        if {[isKeyboard $device]} {
+            if {[file readable $device] == 0} {
+                puts stderr "keyboard: Device $device is not readable. Attempting to change permissions."
+                # Attempt to change permissions so that the file can be read
+                exec chmod +r $device
+            }
+            lappend keyboards $device
+        }
+    }
+    return $keyboards
+}
+
+set keyboardDevices [walkInputEventPaths]
+foreach keyboard $keyboardDevices {
+    Claim $keyboard is a keyboard device
+}
+
+# backwards compatibility
+When /page/ is a keyboard with path /keyboard/ {
+    Claim $page is a keyboard with path $keyboard locale us
+}
+
+When /keyboard/ is a keyboard device {
+    source "lib/keymap.tcl"
+    set defaultKeymap [keymap load us]
+
+    set cc [C]
+    $cc include <linux/input.h>
+    $cc include <sys/ioctl.h>
+    $cc include <stdio.h>
+    $cc include <string.h>
+
+    # This needs to be called on this thread (since it depends on
+    # interpreter-local information about the channel), and then the
+    # returned fileno is portable to other threads which can do the
+    # keyboard grab/ungrab later.
+    $cc proc getFileno {Jim_Interp* interp Jim_Obj* channel} int {
+        int fd = Jim_AioFilehandle(interp, channel);
+        if (fd < 0) {
+            printf("unable to open channel '%s' as file\n'", Jim_String(channel));
+            return -1;
+        }
+        return fd;
+    }
+
+    $cc proc setGrabDevice {Jim_Interp* interp int fileno bool grab} void {
+        ioctl(fileno, EVIOCGRAB, (void*)grab);
+    }
+
+    set grabber [$cc compile]
+
+    set KEY_STATES [list up down repeat]
+
+    set keyboardChannel [open $keyboard r]
+    fconfigure $keyboardChannel -translation binary
+
+    set keyboardFileno [$grabber getFileno $keyboardChannel]
+    # $grabber setGrabDevice $keyboardFileno 1
+
+    Hold! -key [list local-keymaps $keyboard] \
+        Claim $keyboard has keymaps [dict create]
+
+    When /page/ is a keyboard with path $keyboard locale /locale/ {
+        set localKeymaps [dict getdef [lindex [Query! $keyboard has keymaps /localKeymaps/] 0] localKeymaps {}]
+        if {[dict exists $localKeymaps $locale]} {
+            return
+        }
+
+        if {![exists -command keymap]} {
+            source "lib/keymap.tcl"
+        }
+        set map [keymap load $locale]
+        dict set localKeymaps $locale $map
+        Hold! -key [list local-keymaps $keyboard] \
+            Claim $keyboard has keymaps $localKeymaps
+
+        # TODO: do this removal (it's slow and happens even when we
+        # blink out, causing cascading slowness, so skipping for now)
+
+        # On unmatch {
+        #     dict unset localKeymaps $map
+        #     Hold! [list local-keymaps $keyboard] \
+        #         Claim $keyboard has keymaps $localKeymaps
+
+        #     # keymap destroy $map
+        #     $grabber setGrabDevice $keyboardFileno [dict size $localKeymaps]
+        # }
+    }
+
+    set evtBytes 16
+    set evtFormat iissi
+    if {[exec getconf LONG_BIT] == 64} {
+        set evtBytes 24
+        set evtFormat wwssi
+    }
+
+    set modifiers $::keymap::modWeights
+    foreach k [dict keys $modifiers] {
+        dict set modifiers $k 0
+    }
+    while 1 {
+        binary scan [read $keyboardChannel $evtBytes] $evtFormat \
+            tvSec tvUsec type code value
+
+        if {$type == 0x01} { ;# EV_KEY
+            set localKeymaps [dict getdef [lindex [Query! /someone/ claims $keyboard has keymaps /localKeymaps/] \
+                                               0] localKeymaps {}]
+
+            lassign [dict values $localKeymaps] activeKeymap
+            if {$activeKeymap eq ""} {
+                set activeKeymap $defaultKeymap
+            }
+
+            set mods [+ {*}[dict values $modifiers]]
+            lassign [keymap resolve $activeKeymap $code $mods] key keychar
+            if {$key eq ""} { continue }
+
+            set keyState [lindex $KEY_STATES $value]
+
+            set isDown [expr {$keyState != "up"}]
+            if {[dict exists $::keymap::modWeights $key]} {
+                set weight [dict get $::keymap::modWeights $key]
+                dict set modifiers $key [expr {$isDown * $weight}]
+            }
+
+            set now $([clock milliseconds] / 1000.0)
+            set options [dict create timestamp $now]
+            set modKeyNotHeld [expr {$mods <= 1}] ;# excluding Shift
+            if {$keychar ne "" && $modKeyNotHeld} {
+                dict set options printable $keychar
+            }
+            Notify: keyboard $keyboard claims key $key is $keyState with {*}$options
+        }
+    }
+}
