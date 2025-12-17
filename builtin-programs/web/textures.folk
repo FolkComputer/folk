@@ -1,14 +1,20 @@
 When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
      the GPU draw library is /drawLib/ &\
+     the GPU VMA DLL is /vmaDll/ &\
      the GPU texture library for /drawLib/ is /gpuTextureLib/ &\
      display /any/ has width /any/ height /any/ {
     set cc [C]
     $cc endcflags -lpng
     $cc cflags -I./vendor
+    $cc endcflags $vmaDll
     $cc include <png.h>
     $cc code {
         #define VOLK_IMPLEMENTATION
         #include "volk/volk.h"
+
+        #include "vk_mem_alloc.h"
+
+        VmaAllocator vmaGetAllocator();
 
         VkDevice device;
     }
@@ -16,6 +22,16 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
     # HACK: to make gpuLib extend properly
     $cc typedef {struct PushConstantsEncoder} PushConstantsEncoder
     $cc typedef {struct Pipeline} Pipeline
+    $cc typedef {struct VmaAllocation_T*} VmaAllocation
+    $cc argtype VmaAllocation {
+        VmaAllocation $argname;
+        sscanf(Jim_String($obj), "(VmaAllocation) %p", &$argname);
+    }
+    $cc rtype VmaAllocation {
+        char buf[100];
+        snprintf(buf, 100, "(VmaAllocation) %p", $rvalue);
+        $robj = Jim_NewStringObj(interp, buf, -1);
+    }
     $cc extend $gpuLib
     $cc extend $imageLib
     $cc extend $gpuTextureLib
@@ -42,11 +58,11 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         };
 
         VkBuffer stagingBuffer;
-        VkDeviceMemory stagingBufferMemory;
+        VmaAllocation stagingBufferAllocation;
         size_t stagingBufferSize = block->width * block->height * 4;
         createBuffer(stagingBufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                    &stagingBuffer, &stagingBufferMemory);
+                    &stagingBuffer, &stagingBufferAllocation);
 
         VkCommandBuffer commandBuffer = beginSingleTimeCommands();
 
@@ -120,13 +136,12 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
 
         // Copy staging buffer back to CPU
         void* data;
-        vkMapMemory(device, stagingBufferMemory, 0, stagingBufferSize, 0, &data);
+        vmaMapMemory(vmaGetAllocator(), stagingBufferAllocation, &data);
         memcpy(im.data, data, stagingBufferSize);
-        vkUnmapMemory(device, stagingBufferMemory);
+        vmaUnmapMemory(vmaGetAllocator(), stagingBufferAllocation);
 
         // Cleanup staging buffer
-        vkDestroyBuffer(device, stagingBuffer, NULL);
-        vkFreeMemory(device, stagingBufferMemory, NULL);
+        vmaDestroyBuffer(vmaGetAllocator(), stagingBuffer, stagingBufferAllocation);
 
         return im;
     }
