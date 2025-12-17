@@ -686,14 +686,7 @@ Capitalized namespace, like `Statements`.
     for a program
 - camera slices cause hop/distortion when pulled off
 
-### perf
-- on folk-live at home, folk2-leakfix: 160ms calibration cycle
-- on folk-live at home, folk2-shared-objects: TODO
-
 ### next
-- minor memory leak
-- on old folk2 with term copying:, in tracy 245 microseconds --
-  apriltags.folk:170 (collection)
 - **calibrate render loop blinks out regularly**
 - calibrate doesn't click in afterward, have to restart system (is it
   because of kill refiner?)
@@ -717,7 +710,7 @@ isn't meeting timing
 - stereo calibration
 - run segmentation model
 - **editor cutoff bug**
-  - editor 132 keyboard stops responding?
+- **editor 132 keyboard stops responding?**
 - recsale camera slice to have correct aspect ratio
 - debug memory leaks
   - are we ever freeing AtomicallyVersion? -- no, but this isn't the
@@ -727,20 +720,18 @@ isn't meeting timing
   - also not jim allocations
 - bug where camera slices halt / slow down animation
   - animation blinky
-- ~~make web handlers inherit lexical scope~~
 - gadget-platinum outline blink
-- remaining blink on clock time
-  - the problem is that the _root_ match has no atomic marker attached
+- ~~remaining blink on clock time~~
+  - ~~the problem is that the _root_ match has no atomic marker attached
     in the db (the When the clock time is /t/), which means that any
     direct child statements don't get made if they aren't made before
-    the root match is revoked.
-    - we need to also find a way to pin the root match
+    the root match is revoked.~~
+    - ~~we need to also find a way to pin the root match~~
 - slowdown where sysmon starts taking forever bc of endless chains of
   destructors/atomicallyversions
   - warn if sysmon is too slow?
 - make RAM/metrics page to not clutter up stdout
 - make errors page
-- ~~enumerate web pages nav bar automatically~~
 - remove Hold and Atomically limits
 - automatic default calibration so you can drag stuff around on laptop
 - automatically allow optional fields on `with`

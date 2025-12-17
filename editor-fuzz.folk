@@ -1,0 +1,94 @@
+# Editor fuzzer to help reproduce the evaluator race condition
+# where the last statement (max x cursor) in a Hold! gets dropped
+# This is a minimal self-contained reproduction of the editor's pattern
+
+set fuzzKeyboard "/synthetic-keyboard"
+set fuzzView "/synthetic-view"
+
+# Set up initial state
+Hold! -key view-state-of:$fuzzView {
+    Claim $fuzzView has view dimensions [list 0 0 80 24]
+    Claim $fuzzView has cursor 0
+    Claim $fuzzView has max cursor x 0
+}
+Claim view code for fuzz-program is "# test code\n"
+
+# Replicate the problematic Subscribe pattern from editor.folk
+Subscribe: keyboard $fuzzKeyboard claims key /key/ is /keyState/ with /...options/ {
+    # Replicate the ForEach! pattern from editor.folk:154-264
+    ForEach! $fuzzView has view dimensions /dims/ &\
+             view code for fuzz-program is /code/ &\
+             $fuzzView has max cursor x /maxCursorX/ &\
+             $fuzzView has cursor /cursor/ {
+
+        lassign $dims vpX vpY vpWidth vpHeight
+
+        if {$keyState == "up"} { return }
+
+        # Simple cursor movement logic
+        switch $key {
+            Left { set cursor [::math::max 0 [- $cursor 1]] }
+            Right { set cursor [expr {$cursor + 1}] }
+            Up { set cursor [::math::max 0 [- $cursor 10]] }
+            Down { set cursor [expr {$cursor + 10}] }
+            default {
+                # Simulate text insertion
+                if {[dict exists $options printable]} {
+                    set cursor [expr {$cursor + 1}]
+                    set maxCursorX [expr {$cursor % 80}]
+                }
+            }
+        }
+
+        # Update viewport (simplified)
+        set cursorX [expr {$cursor % 80}]
+        set cursorY [expr {$cursor / 80}]
+
+        if {$cursorX < $vpX} { set vpX $cursorX }
+        if {$cursorX >= $vpX + $vpWidth} {
+            set vpX [expr {$cursorX - $vpWidth}]
+        }
+        if {$cursorY < $vpY} { set vpY $cursorY }
+        if {$cursorY >= $vpY + $vpHeight - 1} {
+            set vpY [expr {$cursorY - $vpHeight + 1}]
+        }
+
+        # THIS IS THE PROBLEMATIC PATTERN - last statement sometimes gets dropped
+        Hold! -key view-state-of:$fuzzView {
+            Claim $fuzzView has view dimensions [list $vpX $vpY $vpWidth $vpHeight]
+            Claim $fuzzView has cursor $cursor
+            Claim $fuzzView has max cursor x $maxCursorX
+        }
+    }
+}
+
+# Generate synthetic keypresses to trigger the race
+set keys {a b c d e f g h i j k l m n o p q r s t u v w x y z
+          Return space BackSpace
+          Left Right Up Down}
+
+set counter 0
+while 1 {
+    set key [lindex $keys [expr {$counter % [llength $keys]}]]
+    incr counter
+
+    # Send key down
+    Hold! -keep 5ms -key synth-key:$counter {
+        Notify: keyboard $fuzzKeyboard claims key $key is down with printable $key
+    }
+
+    sleep 0.01
+    Hold! -key synth-key:$counter {}
+
+    # Check if max cursor x is still set (to detect the race)
+    if {$counter % 50 == 0} {
+        set result [QueryOne! $fuzzView has max cursor x /x/]
+        if {$result == {}} {
+            puts "RACE DETECTED at iteration $counter: max cursor x was dropped!"
+        } else {
+            puts "Iteration $counter: max cursor x = [dict get $result x]"
+        }
+    }
+
+    sleep 0.005
+}
