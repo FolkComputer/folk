@@ -5,7 +5,12 @@ Wish the web server handles route "/programs" with handler {
         set returnList [list "<details data-label='$label' data-count='[llength $programList]'><summary>$prettyLabel ([llength $programList])</summary>"]
         lappend returnList "<ul>"
         foreach item $programList {
-            lappend returnList "<li><details><summary>[dict get $item programName]</summary><pre><code>[htmlEscape [dict get $item programCode]]</code></pre></details></li>"
+            lappend returnList [subst {
+                <li id="program-[string map {{ } -} $item(programName)]"><details>
+                  <summary>$item(programName)</summary>
+                  <pre><code>[htmlEscape $item(programCode)]</code></pre>
+                </details></li>
+            }]
         }
         lappend returnList "</ul>"
         lappend returnList "</details>"
@@ -62,6 +67,7 @@ Wish the web server handles route "/programs" with handler {
                 }
             </style>
             <script src="/lib/folk.js"></script>
+            <script src="/vendor/idiomorph.js"></script>
             <script>
               const folk = new FolkWS();
             </script>
@@ -70,7 +76,10 @@ Wish the web server handles route "/programs" with handler {
         [HtmlWhen the collected results for [list /programName/ has program code /programCode/] \
                   are /programs/ {
             emitHtmlForPrograms $programs
-        }]
+
+        } -beforeAttributeUpdated {(attributeName, node, mutationType) => {
+            if (attributeName === "open") { return false; }
+        }}]
         </body>
         </html>
     }]

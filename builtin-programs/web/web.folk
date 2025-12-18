@@ -44,6 +44,10 @@ proc handlePage {path httpStatusVar contentTypeVar} {
             set contentType "text/javascript"
             readFile "lib/folk.js" contentType
         }
+        "/vendor/idiomorph.js" {
+            set contentType "text/javascript"
+            readFile "vendor/idiomorph.js" contentType
+        }
         default {
             upvar $httpStatusVar httpStatus
             set httpStatus "HTTP/1.1 404 Not Found"
@@ -79,8 +83,23 @@ proc parseQueryString {queryString} {
 }
 
 fn HtmlWhen args {
-    set body [lindex $args end]
-    set pattern [lreplace $args end end]
+    set callbacks [dict create]
+    set pattern [list]
+    for {set i 0} {$i < [llength $args]} {incr i} {
+        set arg [lindex $args $i]
+        if {$arg in [list "-beforeNodeAdded" "-afterNodeAdded" "-beforeNodeMorphed" \
+                         "-afterNodeMorphed" "-beforeNodeRemoved" "-afterNodeRemoved" \
+                         "-beforeAttributeUpdated"]} {
+            incr i
+            dict set callbacks [string range $arg 1 end] \
+                [lindex $args $i]
+        } else {
+            lappend pattern $arg
+        }
+    }
+    
+    set body [lindex $pattern end]
+    set pattern [lreplace $pattern end end]
     set envStack [uplevel captureEnvStack]
     lappend envStack [list ^HtmlWhen ${^HtmlWhen}]
     # TODO: Retract this when the page is closed.
@@ -115,14 +134,17 @@ fn HtmlWhen args {
         }
     }
 
+    set callbacksJs [join [lmap {callbackName callback} $callbacks {
+        subst {$callbackName: $callback}
+    }] ,]
     return [subst {
         <div style="display: contents;">[join $htmls \n]</div>
         <script>
         (function() {
           const el = document.currentScript.previousElementSibling;
+          const callbacks = {$callbacksJs};
           folk.subscribe(`the html for {$pattern} is /html/`, ({html}) => {
-            // TODO: use morph algorithm.
-            el.innerHTML = html;
+            Idiomorph.morph(el, html, {morphStyle:'innerHTML', callbacks:callbacks});
           });
         })();
         </script>
