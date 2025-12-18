@@ -330,7 +330,7 @@ When /view/ is an editor with /...anything/ &\
             scale $textScale anchor topleft font NeomatrixCode
 
         set p1 [vec2 add $cursorPos $pos]
-        set p2 [vec2 add $p1 [list 0 [expr {$em + 0.004}]]]
+        set p2 [vec2 add $p1 [list 0 [expr {$em * 1.2}]]]
         set s [expr {$textScale / 6}]
         Wish to draw a circle onto $view with center $p1 radius $s thickness 0 color green filled true
         Wish to draw a line onto $view with points [list $p1 $p2] width $s color green
