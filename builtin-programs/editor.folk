@@ -320,8 +320,9 @@ When /view/ is an editor with /...anything/ &\
         set lineCount [- [llength [split $code "\n"]] $vpY]
         set lineNumbers [$utils lineNumberView $vpY $lineCount]
         Wish to draw text onto $view with \
-            position [vec2 sub $margin [list 0.005 0.0]] text $lineNumbers \
-            scale $textScale anchor topright font NeomatrixCode
+            position [vec2 sub $margin [list [* $em 1.8] 0.0]] \
+            text $lineNumbers \
+            scale $textScale anchor topleft font NeomatrixCode
 
         set text [$utils applyTextViewport $code $vpX $vpY $vpWidth $vpHeight]
         set pos $margin
