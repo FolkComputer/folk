@@ -735,3 +735,8 @@ isn't meeting timing
 - remove Hold and Atomically limits
 - automatic default calibration so you can drag stuff around on laptop
 - automatically allow optional fields on `with`
+- try to maximize cpu usage
+- dual camera calibration -> ML
+- ~~scan for invariant violation (statement w/o trie entry)~~
+  - ~~look at trie (make separate trie walker that gives us the interior pointer
+    to examine)~~

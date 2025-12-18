@@ -1299,7 +1299,10 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
                 continue;
             }
         }
-    } while (!atomic_compare_exchange_weak(&db->clauseToStatementRef,
+
+        // Note: continue statements from reuse logic above jump here
+    } while (newClauseToStatementRef == oldClauseToStatementRef ||
+             !atomic_compare_exchange_weak(&db->clauseToStatementRef,
                                            &oldClauseToStatementRef,
                                            newClauseToStatementRef));
     epochEnd();
