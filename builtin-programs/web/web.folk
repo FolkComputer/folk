@@ -144,7 +144,11 @@ fn HtmlWhen args {
           const el = document.currentScript.previousElementSibling;
           const callbacks = {$callbacksJs};
           folk.subscribe(`the html for {$pattern} is /html/`, ({html}) => {
-            Idiomorph.morph(el, html, {morphStyle:'innerHTML', callbacks:callbacks});
+            if (window.Idiomorph) {
+              Idiomorph.morph(el, html, {morphStyle:'innerHTML', callbacks:callbacks});
+            } else {
+              el.innerHTML = html;
+            }
           });
         })();
         </script>
