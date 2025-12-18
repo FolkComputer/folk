@@ -265,7 +265,7 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
 }
 
 Subscribe: save code on view /view/ {
-    ForEach! /view/ has selected program /program/ &\
+    ForEach! $view has selected program /program/ &\
              view code for /program/ is /programCode/ {
         Hold! -on builtin-programs/programs.folk -key new-code-for:$program \
             Wish program $program is replaced with \
