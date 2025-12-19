@@ -68,7 +68,6 @@ VmaAllocator vmaGetAllocator() {
 } }
 
 set vmaDll [$vmac compile -noload]
-puts $vmaDll
 Claim the GPU VMA DLL is $vmaDll
 
 }
