@@ -12,6 +12,11 @@
 #include <sys/sysinfo.h>
 #include <sys/resource.h>
 #endif
+#ifdef __APPLE__
+#include <sys/sysctl.h>
+#include <sys/resource.h>
+#include <mach/mach.h>
+#endif
 
 #include "common.h"
 #include "epoch.h"
@@ -59,14 +64,12 @@ void sysmon() {
     int64_t currentMs = currentTick * SYSMON_TICK_MS;
 
     // First: check that we have a reasonable amount of free RAM.
-#ifdef __linux__
     // TODO: move this check to userspace.
     if (currentTick % 1000 == 0) {
         // assuming that ticks happen every 2ms, this should happen
         // every 2s.
         checkRam();
     }
-#endif
 
     // Second: deal with any remove-later statements that we should
     // remove.
@@ -221,15 +224,59 @@ static void checkRam() {
     // detect leaks (I think system RAM is good for killing but
     // process RAM use is better for leak diagnosis).
     struct rusage ru; getrusage(RUSAGE_SELF, &ru);
-    /* fprintf(stderr, "Check avail system RAM: %d MB / %d MB\n" */
-    /*         "Check self RAM usage: %ld MB\n", */
-    /*         freeRamMb, totalRamMb, */
-    /*         ru.ru_maxrss / 1024); */
+    fprintf(stderr, "Check avail system RAM: %d MB / %d MB\n"
+            "Check self RAM usage: %ld MB\n",
+            freeRamMb, totalRamMb,
+            ru.ru_maxrss / 1024);
     // TODO: Report this result as a statement.
     if (freeRamMb < 200) {
         // Hard die if we are likely to run out of RAM, because
         // that will lock the system (making it hard to ssh in,
         // etc).
+        fprintf(stderr, "--------------------\n"
+                "OUT OF RAM, EXITING.\n"
+                "--------------------\n");
+        exit(1);
+    }
+#endif
+#ifdef __APPLE__
+    // Get total physical memory
+    int64_t totalRamBytes = 0;
+    size_t len = sizeof(totalRamBytes);
+    if (sysctlbyname("hw.memsize", &totalRamBytes, &len, NULL, 0) != 0) {
+        totalRamBytes = 0;
+    }
+    int totalRamMb = totalRamBytes / (1024 * 1024);
+
+    // Get VM statistics for free/available memory
+    vm_size_t page_size;
+    mach_port_t mach_port = mach_host_self();
+    mach_msg_type_number_t count = sizeof(vm_statistics64_data_t) / sizeof(integer_t);
+    vm_statistics64_data_t vm_stats;
+
+    int freeRamMb = 0;
+    if (host_page_size(mach_port, &page_size) == KERN_SUCCESS &&
+        host_statistics64(mach_port, HOST_VM_INFO64, (host_info64_t)&vm_stats, &count) == KERN_SUCCESS) {
+        // Calculate available memory (free + inactive + purgeable)
+        int64_t free_pages = vm_stats.free_count;
+        int64_t inactive_pages = vm_stats.inactive_count;
+        int64_t purgeable_pages = vm_stats.purgeable_count;
+        int64_t available_bytes = (free_pages + inactive_pages + purgeable_pages) * page_size;
+        freeRamMb = available_bytes / (1024 * 1024);
+    }
+
+    // Check process's own RAM usage
+    struct rusage ru;
+    getrusage(RUSAGE_SELF, &ru);
+    // Note: On macOS, ru_maxrss is in bytes, not kilobytes like Linux
+    fprintf(stderr, "Check avail system RAM: %d MB / %d MB\n"
+            "Check self RAM usage: %ld MB\n",
+            freeRamMb, totalRamMb,
+            ru.ru_maxrss / (1024 * 1024));
+
+    // TODO: Report this result as a statement.
+    if (freeRamMb < 200) {
+        // Hard die if we are likely to run out of RAM
         fprintf(stderr, "--------------------\n"
                 "OUT OF RAM, EXITING.\n"
                 "--------------------\n");
