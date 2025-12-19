@@ -1,6 +1,7 @@
 # Watch for builtin-programs/ changes.
 try {
-    set fd [open "|fswatch --recursive --event Updated --event Created builtin-programs" r]
+    set fd [open [list |fswatch --recursive --event Updated --event Created \
+                      builtin-programs $::env(HOME)/folk-data/local-program] r]
     fconfigure $fd -buffering line
     while true {
         if {[gets $fd line] < 0} {
