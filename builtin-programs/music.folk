@@ -137,7 +137,8 @@ s.reboot { // server options are only updated on reboot
 );}
 close $scStartup
 
-set ::env(DBUS_SESSION_BUS_ADDRESS) "unix:path=/run/user/1000/bus"
+set uid [exec id -u $::env(USER)]
+set ::env(DBUS_SESSION_BUS_ADDRESS) "unix:path=/run/user/$uid/bus"
 
 exec rm -f $musicDir/music.log
 fn musicExec {args} {
@@ -177,7 +178,7 @@ fn musicFinishSetup {} {
 while true {
     puts "music: Waiting for D-Bus."
     sleep 0.2
-    if {[file exists /run/user/1000/bus]} {
+    if {[file exists /run/user/$uid/bus]} {
         puts "music: Found D-Bus."
         musicFinishSetup
         break
