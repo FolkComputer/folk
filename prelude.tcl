@@ -567,7 +567,13 @@ proc When {args} {
         set prologue [join [lmap {optionName optionValue} $optionsAfterWith {
             # optionName = "x"; optionValue = "/x/"
             set optionValue [string range $optionValue 1 end-1]
-            subst -nocommands {set $optionValue [dict get \$$restName $optionName]}
+            if {[string index $optionValue end] eq "?"} {
+                set optionValue [string range $optionValue 0 end-1]
+                subst -nocommands {if {[dict exists \$$restName $optionName]} \
+                                       {set $optionValue [dict get \$$restName $optionName]}}
+            } else {
+                subst -nocommands {set $optionValue [dict get \$$restName $optionName]}
+            }
         }] ;]
         set body "$prologue;$body"
     }
