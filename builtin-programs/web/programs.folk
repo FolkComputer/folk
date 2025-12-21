@@ -32,6 +32,9 @@ Wish the web server handles route "/programs" with handler {
                 "/home/*" {
                     lappend cp $match
                 }
+                "/Users/*" {
+                    lappend cp $match
+                }
                 "web-program-*" {
                     lappend wp $match
                 }
