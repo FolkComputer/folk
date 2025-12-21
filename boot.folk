@@ -29,8 +29,8 @@ apply {{} {
 
 Assert! when /__this/ has program code /__programCode/ {
     SayWithSource $__this 1 0 {} {} \
-        when $__programCode with environment [list [list this $__this]]
-} with environment {}
+        when $__programCode in environment [list [list this $__this]]
+} in environment {}
 
 local proc LoadProgram! {programFilename} {
     set fp [open $programFilename r]

@@ -876,7 +876,7 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
 
     assert(whenClause->nTerms >= 5);
 
-    // when the time is /t/ /body/ with environment /capturedEnvStack/
+    // when the time is /t/ /body/ in environment /capturedEnvStack/
     const Term* body = whenClause->terms[whenClause->nTerms - 4];
     const Term* capturedEnvStack = whenClause->terms[whenClause->nTerms - 1];
     Jim_Obj *envStackObj = termToJimObj(interp, capturedEnvStack);
@@ -928,7 +928,7 @@ static void runSubscribeBlock(StatementRef subscribeRef, Clause* subscribePatter
     self->inSubscription = true;
 
     // key x was pressed
-    // -> subscribe key x was pressed /lambda/ with environment /capturedEnvStack/
+    // -> subscribe key x was pressed /lambda/ in environment /capturedEnvStack/
     const Term* body = subscribeClause->terms[subscribeClause->nTerms - 4];
     const Term* capturedEnvStack = subscribeClause->terms[subscribeClause->nTerms - 1];
     Jim_Obj *envStackObj = termToJimObj(interp, capturedEnvStack);
@@ -1037,20 +1037,20 @@ static Clause* unclaimizeClause(Clause* clause) {
 }
 static Clause* whenizeClause(Clause* clause) {
     // the time is /t/
-    //   -> when the time is /t/ /__lambda/ with environment /__env/
+    //   -> when the time is /t/ /__lambda/ in environment /__env/
     Clause* ret = clauseNew(clause->nTerms + 5);
     ret->terms[0] = TERM_STATIC("when");
     for (int i = 0; i < clause->nTerms; i++) {
         ret->terms[1 + i] = clause->terms[i];
     }
     ret->terms[1 + clause->nTerms] = TERM_STATIC("/__lambda/");
-    ret->terms[2 + clause->nTerms] = TERM_STATIC("with");
+    ret->terms[2 + clause->nTerms] = TERM_STATIC("in");
     ret->terms[3 + clause->nTerms] = TERM_STATIC("environment");
     ret->terms[4 + clause->nTerms] = TERM_STATIC("/__env/");
     return ret;
 }
 static Clause* unwhenizeClause(Clause* whenClause) {
-    // when the time is /t/ /lambda/ with environment /env/
+    // when the time is /t/ /lambda/ in environment /env/
     //   -> the time is /t/
     Clause* ret = clauseNew(whenClause->nTerms - 5);
     for (int i = 1; i < whenClause->nTerms - 4; i++) {
@@ -1060,21 +1060,21 @@ static Clause* unwhenizeClause(Clause* whenClause) {
 }
 static Clause* subscriptionizeClause(Clause* notifyClause) {
     // key x was pressed
-    // -> subscribe key x was pressed /lambda/ with environment /__env/
+    // -> subscribe key x was pressed /lambda/ in environment /__env/
     Clause* ret = clauseNew(notifyClause->nTerms + 5);
     ret->terms[0] = TERM_STATIC("subscribe");
     for (int i = 0; i < notifyClause->nTerms; i++) {
         ret->terms[1 + i] = notifyClause->terms[i];
     }
     ret->terms[1 + notifyClause->nTerms] = TERM_STATIC("/__lambda/");
-    ret->terms[2 + notifyClause->nTerms] = TERM_STATIC("with");
+    ret->terms[2 + notifyClause->nTerms] = TERM_STATIC("in");
     ret->terms[3 + notifyClause->nTerms] = TERM_STATIC("environment");
     ret->terms[4 + notifyClause->nTerms] = TERM_STATIC("/__env/");
     return ret;
 }
 // currently the same as unwhenizeClause, but semantically different
 static Clause* unsubscriptionizeClause(Clause* subscribeClause) {
-    // subscribe the time is /t/ /lambda/ with environment /env/
+    // subscribe the time is /t/ /lambda/ in environment /env/
     //        -> the time is /t/
     Clause* ret = clauseNew(subscribeClause->nTerms - 5);
     for (int i = 1; i < subscribeClause->nTerms - 4; i++) {
@@ -1158,7 +1158,7 @@ static void reactToNewStatement(StatementRef ref) {
     // statement (look for Whens that are already in the database).
     {
         // the time is 3
-        //   -> when the time is 3 /__lambda/ with environment /__env/
+        //   -> when the time is 3 /__lambda/ in environment /__env/
         Clause* whenizedClause = whenizeClause(clause);
 
         ResultSet* existingReactingWhens = dbQuery(db, whenizedClause);
@@ -1166,7 +1166,7 @@ static void reactToNewStatement(StatementRef ref) {
         /*       existingReactingWhens->nResults); */
         for (int i = 0; i < existingReactingWhens->nResults; i++) {
             StatementRef whenRef = existingReactingWhens->results[i];
-            // when the time is /t/ /__lambda/ with environment /__env/
+            // when the time is /t/ /__lambda/ in environment /__env/
             //   -> the time is /t/
             Statement* when = statementAcquire(db, whenRef);
             if (when) {
@@ -1186,7 +1186,7 @@ static void reactToNewStatement(StatementRef ref) {
         // Cut off `/x/ claims` from start of clause:
         //
         // /x/ claims the time is 3
-        //   -> when the time is 3 /__lambda/ with environment /__env/
+        //   -> when the time is 3 /__lambda/ in environment /__env/
         Clause* unclaimizedClause = unclaimizeClause(clause);
         Clause* whenizedUnclaimizedClause = whenizeClause(unclaimizedClause);
 
@@ -1196,7 +1196,7 @@ static void reactToNewStatement(StatementRef ref) {
 
         for (int i = 0; i < existingReactingWhens->nResults; i++) {
             StatementRef whenRef = existingReactingWhens->results[i];
-            // when the time is /t/ /__lambda/ with environment /__env/
+            // when the time is /t/ /__lambda/ in environment /__env/
             //   -> /someone/ claims the time is /t/
             Statement* when = statementAcquire(db, whenRef);
             if (when) {
@@ -1217,7 +1217,7 @@ static void reactToNewStatement(StatementRef ref) {
 
 static void Notify(Clause* toNotify) {
     // key x was pressed
-    // -> subscribe key x was pressed /lambda/ with environment /__env/
+    // -> subscribe key x was pressed /lambda/ in environment /__env/
     Clause* query = subscriptionizeClause(toNotify);
     ResultSet* rs = dbQuery(db, query);
 

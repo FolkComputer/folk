@@ -20,6 +20,6 @@ When /someone/ wishes /p/ has neighbors & /p/ has region /r/ & /p2/ has region /
   }
 }
 
-When when /p/ has neighbor /n/ /lambda/ with environment /e/ {
+When when /p/ has neighbor /n/ /lambda/ in environment /e/ {
   Wish $p has neighbors
 }

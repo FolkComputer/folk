@@ -1,9 +1,9 @@
 When when the collected results for /clause/ are /resultsVar/ \
-          /body/ with environment /e/ {
+          /body/ in environment /e/ {
     Wish to collect results for $clause with settle 0ms
 }
-When when the collected results for /clause/ with settle /settle/ are /resultsVar/ \
-          /body/ with environment /e/ {
+When -noWith when the collected results for /clause/ with settle /settle/ are /resultsVar/ \
+          /body/ in environment /e/ {
     Wish to collect results for $clause with settle $settle
 }
 

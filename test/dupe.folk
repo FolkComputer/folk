@@ -19,4 +19,4 @@ Assert! when {
         puts stderr "OKAY"
         Exit! 0
     }
-} with environment {}
+} in environment {}

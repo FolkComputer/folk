@@ -521,7 +521,7 @@ that statement.
 When /thing/ is cool {
     Wish $this is labelled "$thing is cool"
 }
-When when /personVar/ is cool /lambda/ with environment /e/ {
+When when /personVar/ is cool /body/ in environment /e/ {
     Claim Folk is cool
 }
 ```
@@ -672,7 +672,6 @@ Capitalized namespace, like `Statements`.
 
 ## todo
 
-- clean up shader reference errors (use trick from main?)
 - **fix camera-rpi corruption**
 - restore smj cam/display parameters
 - fix remaining display/ primitives
@@ -680,11 +679,9 @@ Capitalized namespace, like `Statements`.
 - why is web endpoints so slow?
 - optimize jpeg decoding
 - only intern long strings?
-- accidentally matches prefixes even when not all teh way up to end of statement
 - camera stops working when calibration terminates
-  - laser-cut or cnc or 3d print a plate with 2 sliders and a slot
-    for a program
-- camera slices cause hop/distortion when pulled off
+- laser-cut or cnc or 3d print a plate with 2 sliders and a slot for
+  animation
 
 ### next
 - **calibrate render loop blinks out regularly**
@@ -694,8 +691,6 @@ Capitalized namespace, like `Statements`.
 - On unmatch doesn't work if run at start of When block instead of
   end? -- **it's probably because it gets pinned through descendant
   statements**
-- ~~fix error reporting on table~~ clean up title, clean up points-at
-- "Added tag 1313" pileup (and removal pileup when flipped over)
 - fix calibration screwing up system state
 - persist transient errors
 
@@ -714,29 +709,23 @@ isn't meeting timing
 - recsale camera slice to have correct aspect ratio
 - debug memory leaks
   - are we ever freeing AtomicallyVersion? -- no, but this isn't the
-    main memory leak (not enough allocated)
-  - not destructors
-  - also not camera images
-  - also not jim allocations
+    main memory leak (not enough allocated). it's maybe 1/5 of total
+    memory leak
 - bug where camera slices halt / slow down animation
   - animation blinky
+  - sleeps cause really bad behavior?
 - gadget-platinum outline blink
-- ~~remaining blink on clock time~~
-  - ~~the problem is that the _root_ match has no atomic marker attached
-    in the db (the When the clock time is /t/), which means that any
-    direct child statements don't get made if they aren't made before
-    the root match is revoked.~~
-    - ~~we need to also find a way to pin the root match~~
 - slowdown where sysmon starts taking forever bc of endless chains of
   destructors/atomicallyversions
   - warn if sysmon is too slow?
 - make RAM/metrics page to not clutter up stdout
 - make errors page
-- remove Hold and Atomically limits
 - automatic default calibration so you can drag stuff around on laptop
-- automatically allow optional fields on `with`
 - try to maximize cpu usage
 - dual camera calibration -> ML
-- ~~scan for invariant violation (statement w/o trie entry)~~
-  - ~~look at trie (make separate trie walker that gives us the interior pointer
-    to examine)~~
+
+### language/runtime niceties
+- automatically allow optional fields on `with`
+- remove Hold and Atomically limits
+- accidentally matches prefixes even when not all teh way up to end of statement
+- clean up the horrible -atomically parameters mess on `When`

@@ -52,7 +52,7 @@ When the image library is /imageLib/ &\
 }
 
 # Auto-trigger callback for `when has camera slice` statements
-When when /p/ has camera slice /slice/ /lambda/ with environment /e/ {
+When when /p/ has camera slice /slice/ /lambda/ in environment /e/ {
     Wish -nonatomically $p has camera slice
 }
 

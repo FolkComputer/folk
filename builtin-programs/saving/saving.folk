@@ -16,7 +16,7 @@ When the migration is complete {
 }
 
 When when the /fileType/ save directory is /anything/ \
-          /body/ with environment /e/ {
+          /body/ in environment /e/ {
     set serdeDirectory "$dataDirectory/$fileType"
 
     # make sure directory exists

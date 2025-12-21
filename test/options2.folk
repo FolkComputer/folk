@@ -1,0 +1,26 @@
+Hold! the value is 0
+When /someone/ wishes to increment with step /step/ {
+    set oldVal [dict get [QueryOne! the value is /val/] val]
+    Hold! the value is [+ $oldVal $step]
+}
+
+Wish to increment with step 1
+sleep 0.05
+Wish to increment with step 3
+sleep 0.05
+
+assert {[dict get [QueryOne! the value is /val/] val] == 4}
+
+Hold! the value is 0
+When /someone/ wishes to increment with /...options/ {
+    set oldVal [dict get [QueryOne! the value is /val/] val]
+    Hold! the value is [+ $oldVal $options(step)]
+}
+
+Wish to increment with step 1
+sleep 0.05
+Wish to increment with step 3
+sleep 0.05
+
+assert {[dict get [QueryOne! the value is /val/] val] == 4}
+Exit! 0

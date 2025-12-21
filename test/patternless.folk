@@ -6,4 +6,4 @@ Assert! when we are on {
         puts inside
         Exit! 0
     }
-} with environment {}
+} in environment {}

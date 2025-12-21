@@ -34,7 +34,7 @@ wsSend {
     Assert! when websocket $chan is connected {
         Claim there is a sent statement
         puts stderr X
-    } with environment [list [list this $chan __ctx $ctx __seq 0]]
+    } in environment [list [list this $chan __ctx $ctx __seq 0]]
 }
 
 When there is a sent statement {

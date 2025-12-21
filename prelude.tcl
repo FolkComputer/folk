@@ -338,7 +338,7 @@ proc Hold! {args} {
             set envStack [uplevel captureEnvStack]
         }
         lassign [info source $body] filename lineno
-        set clause [list when $body with environment $envStack]
+        set clause [list when $body in environment $envStack]
     } elseif {[llength $clause] > 1} {
         if {[lindex $clause 0] eq "Claim"} {
             set clause [list $this claims {*}[lrange $clause 1 end]]
@@ -456,11 +456,11 @@ proc desugarWhen {pattern body} {
         set negateBody [list if {[llength $__results] == 0} $body]
         return [list \
             [list when the collected results for $pattern are /__results/ \
-                $negateBody with environment] \
+                $negateBody in environment] \
             $varNamesWillBeBound]
     } else {
         return [list \
-            [list when {*}$pattern $body with environment] \
+            [list when {*}$pattern $body in environment] \
             $varNamesWillBeBound]
     }
 }
@@ -471,8 +471,11 @@ proc When {args} {
     set args [lreplace $args end end]
 
     set isAfterAmpersand false
+    set optionsAfterWith false ;# if non-false, then we're
+                                # accumulating post-`with` options
     set isNonCapturing false
     set isSerially false
+    set isNoWith false
     set atomicallyVersion "default"
 
     set pattern [list]
@@ -483,8 +486,34 @@ proc When {args} {
             # patterns later.
             lappend pattern $term
         } elseif {$term eq "&"} {
+            set optionsAfterWith false
             set isAfterAmpersand true
             lappend pattern $term
+        } elseif {$optionsAfterWith ne false} {
+            if {[string range $term 1 3] eq "..."} {
+                # Use this as the wildcard term. TODO: Check that
+                # there aren't multiple wildcard terms and that this
+                # term is the last in the args.
+                lappend pattern with $term
+            } else {
+                # When we have `When whatever with x /x/ y /y/ {
+                # ... }`, instead of directly adding the suffix to the
+                # When pattern, we synthesize `When whatever with
+                # /...options/ { ... }`, then generate a prologue to
+                # the body that pulls x and y out of that $options
+                # object.
+                #
+                # This lets us tolerate extra options + lets the
+                # arguments be defined inline in the When, rather than
+                # ad hoc in code, so clearer for human reader.
+                incr i
+                dict set optionsAfterWith $term [lindex $args $i]
+            }
+
+        } elseif {!$isNoWith && $term eq "with"} {
+            set optionsAfterWith [dict create]
+        } elseif {$term eq "-noWith"} {
+            set isNoWith true
         } elseif {$term eq "-noncapturing"} {
             set isNonCapturing true
         } elseif {$term eq "-serially"} {
@@ -528,16 +557,27 @@ proc When {args} {
         set envStack [uplevel captureEnvStack]
     }
 
+    if {$optionsAfterWith ne false} {
+        set restName [string range [lindex $pattern end] 1 end-1]
+        if {[string range $restName 0 2] ne "..."} {
+            lappend pattern with /...__options/
+            set restName __options
+        }
+
+        set prologue [join [lmap {optionName optionValue} $optionsAfterWith {
+            # optionName = "x"; optionValue = "/x/"
+            set optionValue [string range $optionValue 1 end-1]
+            subst -nocommands {set $optionValue [dict get \$$restName $optionName]}
+        }] ;]
+        set body "$prologue;$body"
+    }
+
     if {$isSerially} {
         # Serial prologue: find this When itself; see if that
         # statement ref has any match children that are incomplete. If
         # so, then die.
-        set prologue {
-            if {[__isWhenOfCurrentMatchAlreadyRunning]} {
-                return
-            }
-        }
-        set body "$prologue\n$body"
+        set prologue {if {[__isWhenOfCurrentMatchAlreadyRunning]} {return}}
+        set body "$prologue;$body"
     }
 
     if {[llength $atomicallyVersion] == 2 &&
@@ -567,7 +607,7 @@ proc Subscribe: {args} {
 
     tailcall SayWithSource {*}$sourceInfo \
         0 {} {} \
-        subscribe {*}$pattern $body with environment $envStack
+        subscribe {*}$pattern $body in environment $envStack
 }
 proc Notify: {args} {
     NotifyImpl {*}$args
