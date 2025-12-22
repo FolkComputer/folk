@@ -116,7 +116,7 @@ When /editor/ is an editor with /...options/ {
 
     # Load in initial program code (note, this buffer is shared between
     # all editor instances)
-    When $editor has selected program /program/ &\
+    When editor $editor has selected program /program/ &\
          /program/ has program code /programCode/ {
         set results [Query! editor buffer for $program is /anything/]
         if {[llength $results] == 0} {
