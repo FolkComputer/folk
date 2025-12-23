@@ -574,7 +574,7 @@ proc When {args} {
             } else {
                 subst -nocommands {set $optionValue [dict get \$$restName $optionName]}
             }
-        }] ;]
+        }] ";"]
         set body "$prologue;$body"
     }
 
