@@ -4,23 +4,13 @@ When /someone/ wishes to increment with step /step/ {
     Hold! the value is [+ $oldVal $step]
 }
 
-Wish to increment with step 1
-sleep 0.05
-Wish to increment with step 3
-sleep 0.05
+fn getValue {} { dict get [QueryOne! the value is /val/] val }
 
-assert {[dict get [QueryOne! the value is /val/] val] == 4}
+Hold! -key incr Wish to increment with step 1
+while {[getValue] != 1} {sleep 0.05}
+Hold! -key incr Wish to increment with step 3
+while {[getValue] != 4} {sleep 0.05}
+Hold! -key incr {}
 
-Hold! the value is 0
-When /someone/ wishes to increment with /...options/ {
-    set oldVal [dict get [QueryOne! the value is /val/] val]
-    Hold! the value is [+ $oldVal $options(step)]
-}
-
-Wish to increment with step 1
-sleep 0.05
-Wish to increment with step 3
-sleep 0.05
-
-assert {[dict get [QueryOne! the value is /val/] val] == 4}
+assert {[getValue] == 4}
 Exit! 0

@@ -1,0 +1,17 @@
+fn getValue {} { dict get [QueryOne! the value is /val/] val }
+
+Hold! the value is 0
+while {[getValue] != 0} {sleep 0.05}
+
+When /someone/ wishes to increment with /...options/ {
+    set oldVal [getValue]
+    Hold! the value is [+ $oldVal $options(step)]
+}
+
+Hold! -key incr Wish to increment with step 1
+while {[getValue] != 1} {sleep 0.05}
+Hold! -key incr Wish to increment with step 3
+while {[getValue] != 4} {sleep 0.05}
+
+assert {[getValue] == 4}
+Exit! 0
