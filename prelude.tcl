@@ -559,7 +559,9 @@ proc When {args} {
 
     if {$optionsAfterWith ne false} {
         set restName [string range [lindex $pattern end] 1 end-1]
-        if {[string range $restName 0 2] ne "..."} {
+        if {[string range $restName 0 2] eq "..."} {
+            set restName [string range $restName 3 end]
+        } else {
             lappend pattern with /...__options/
             set restName __options
         }
