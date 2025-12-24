@@ -333,21 +333,20 @@ When the GPU library is /gpuLib/ & the GPU draw library is /drawLib/ &\
                 }
             }
 
-            local proc renderPipeline {name id options} {
+            local proc addToDrawLists {&drawLists pipelineName options} {
                 upvar gpuCanvasLib gpuCanvasLib
                 upvar pipelines pipelines
                 upvar missingPipelines missingPipelines
-                upvar drawListsByTexture drawListsByTexture
 
-                if {![dict exists $pipelines $name]} {
-                    if {![dict exists $missingPipelines $name]} {
-                        puts stderr "canvases: Missing pipeline $name"
-                        dict set missingPipelines $name true
+                if {![dict exists $pipelines $pipelineName]} {
+                    if {![dict exists $missingPipelines $pipelineName]} {
+                        puts stderr "canvases: Missing pipeline $pipelineName"
+                        dict set missingPipelines $pipelineName true
                     }
                     continue
                 }
-                dict unset missingPipelines $name
-                set pipeline [dict get $pipelines $name]
+                dict unset missingPipelines $pipelineName
+                set pipeline [dict get $pipelines $pipelineName]
 
                 set layer [dict getdef $options layer 0]
                 if {[dict exists $options instances]} {
@@ -356,42 +355,49 @@ When the GPU library is /gpuLib/ & the GPU draw library is /drawLib/ &\
                     set instances [list [dict get $options arguments]]
                 }
                 foreach instance $instances {
-                    dict lappend drawListsByTexture($id) $layer \
+                    dict lappend drawLists $layer \
                         [list $gpuCanvasLib draw $pipeline $instance]
                 }
             }
 
             set drawListsByTexture [dict create]
             dict for {id wi} $canvases {
-                # In case no draw commands come in, we still want to
-                # mark that the draw list is clear.
+                set resultsList [Query! the collected results for \
+                                     [list /wisher/ wishes the GPU draws pipeline /name/ \
+                                          onto canvas $id with /...options/] are /results/]
+                if {[llength $resultsList] == 0} {
+                    # No collect statement present. Just reuse the
+                    # last draw list. (Note: this is _not_ the same as
+                    # a collect statement being present with 0 results
+                    # inside it, where we actually shouldn't display
+                    # anything, not reuse the last draw list.)
+                    dict set drawListsByTexture $id \
+                        [dict getdef $mostRecentDrawListsByTexture $id [list]]
+                    continue
+                }
+
                 dict set drawListsByTexture $id [list]
 
-                while true {
-                    set resultsList [Query! the collected results for \
-                                         [list /wisher/ wishes the GPU draws pipeline /name/ \
-                                              onto canvas $id with /...options/] are /results/]
-                    if {[llength $resultsList] == 0} { break }
-                    set resultsStmt [lindex $resultsList 0]
-                    set ref [dict get $resultsStmt __ref]
-                    try {
-                        StatementAcquire! $ref
-                        lappend acquiredRefs $ref
-                        break
+                set resultsStmt [lindex $resultsList 0]
+                set ref [dict get $resultsStmt __ref]
+                try {
+                    StatementAcquire! $ref
+                    lappend acquiredRefs $ref
+                    set results [dict get $resultsStmt results]
 
-                    } on error e {
-                        # Couldn't acquire the collection. Try again
-                        # until we get a valid collection or no
-                        # collection.
-                        continue
-                    }
+                } on error e {
+                    # Couldn't acquire the collect statement (it
+                    # must have just been invalidated). Just reuse
+                    # the last one.
+                    dict set drawListsByTexture $id \
+                        [dict getdef $mostRecentDrawListsByTexture $id [list]]
+                    continue
                 }
-                if {[llength $resultsList] == 0} { continue }
 
-                set results [dict get $resultsStmt results]
                 foreach result $results { dict with result {
                     try {
-                        renderPipeline $name $id $options
+                        addToDrawLists drawListsByTexture($id) \
+                            $name $options
                     } on error e {
                         puts stderr "Error: GPU draws pipeline $name: [errorInfo $e]"
                         Assert! $this claims $wisher has error $e with info [errorInfo $e]
