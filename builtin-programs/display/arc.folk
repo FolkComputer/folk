@@ -31,9 +31,7 @@ Wish the GPU compiles pipeline "arc" {{vec2 center float start float arclen floa
 
 }}
 
-When /someone/ wishes to draw an arc with /...options/ {
-    dict with options {
-        Wish the GPU draws pipeline "arc" with arguments \
-            [list [list $x $y] $start $arclen $radius $thickness [getColor $color]]
-    }
+When /someone/ wishes to draw an arc with x /x/ y /y/ start /start/ arclen /arclen/ radius /radius/ thickness /thickness/ color /color/ {
+    Wish the GPU draws pipeline "arc" with arguments \
+        [list [list $x $y] $start $arclen $radius $thickness [getColor $color]]
 }

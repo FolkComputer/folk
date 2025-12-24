@@ -1,24 +1,11 @@
 # Creates an id "${p}:${index}" and assigns region.
 # Extra regions can be used to create sensitive areas other pages can collect.
-When /someone/ wishes /p/ adds region with /...options/ & /p/ has region /r/ {
+When /someone/ wishes /p/ adds region with index /index/ height /height/ width /width/ highlight /highlight/ color /color/ offset /offset?/ & /p/ has region /r/ {
+  if {![info exists offset]} { set offset {0 0} }
+
   lassign [region centroid $r] cx cy
   set angle [region angle $r]
 
-  set defaults {
-    index 0 \
-    height 55 \
-    width 55 \
-    highlight false \
-    color red \
-  }
-
-  set index [dict get $options index]
-  set height [dict get $options height]
-  set width [dict get $options width]
-  set highlight [dict get $options highlight]
-  set color [dict get $options color]
-
-  set offset [dict_getdef $options offset {0 0}]
   set offset [::process_offset $offset $r]
   set center [vec2 add [list $cx $cy] [vec2 rotate $offset $angle]]
 
@@ -34,7 +21,7 @@ When /someone/ wishes /p/ adds region with /...options/ & /p/ has region /r/ {
     [list [expr {-$hw}] [expr {$hh}]] \
     [list [expr {-$hw}] [expr {-$hh}]] \
   ] {
-    vec2 add $center [vec2 rotate $v $angle] 
+    vec2 add $center [vec2 rotate $v $angle]
   }]
 
   set edges [list]
@@ -54,14 +41,14 @@ When /someone/ wishes /p/ adds region with /...options/ & /p/ has region /r/ {
   }
 }
 
-When /someone/ wishes region /r/ has highlight /highlighted/ with /...options/ {
+When /someone/ wishes region /r/ has highlight /highlighted/ with color /color?/ thickness /thickness?/ layer /layer?/ dashed /dashed?/ dashlength /dashlength?/ dashoffset /dashoffset?/ {
 
-  set color [dict_getdef $options color white]
-  set thickness [dict_getdef $options thickness 2]
-  set layer [dict_getdef $options layer 0]
-  set dashed [dict_getdef $options dashed false]
-  set dashlength [dict_getdef $options dashlength 20]
-  set dashoffset [dict_getdef $options dashoffset 0]
+  if {![info exists color]} { set color white }
+  if {![info exists thickness]} { set thickness 2 }
+  if {![info exists layer]} { set layer 0 }
+  if {![info exists dashed]} { set dashed false }
+  if {![info exists dashlength]} { set dashlength 20 }
+  if {![info exists dashoffset]} { set dashoffset 0 }
 
   if {$highlighted} {
     set verts [region vertices $r]

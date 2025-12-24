@@ -1,4 +1,4 @@
-When when /rect/ points /direction/ with length /l/ at /someone/ /lambda/ in environment /e/ {
+When -noWith when /rect/ points /direction/ with length /l/ at /someone/ /lambda/ in environment /e/ {
   if {[string match "/*" $rect]} { return }
   Wish $rect points $direction with length $l
 }

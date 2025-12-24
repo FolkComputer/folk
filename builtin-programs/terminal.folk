@@ -77,10 +77,10 @@ When /anyone/ wishes /thing/ is a terminal spawning /cmd/ {
   }
 
   When /anyone/ claims $thing has keyboard input \
-    & keyboard /anyone/ claims key /key/ is /direction/ with /...options/ {
+    & keyboard /anyone/ claims key /key/ is /direction/ with printable /printable?/ {
     if {$direction != "up"} {
-      if {[dict exists $options printable]} {
-        Terminal::write $term [dict get $options printable]
+      if {[info exists printable]} {
+        Terminal::write $term $printable
       } else {
         Terminal::handleKey $term $key
       }

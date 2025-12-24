@@ -9,11 +9,11 @@
 # - path get prepended with ~/folk-images/
 When the image library is /imageLib/ &\
      the image loader is /loadImage/ &\
-     /anyone/ wishes /p/ draws sprite /path/ with /...options/ {
+     /anyone/ wishes /p/ draws sprite /path/ with \
+         frames /frames/ columns /columns/ fps /fps?/ \
+         /...options/ {
 
-  set frames [dict get $options frames]
-  set columns [dict get $options columns]
-  set fps [dict getdef $options fps 60]
+  if {![info exists fps]} { set fps 60 }
 
   fn loadImage
   set im [loadImage $path]

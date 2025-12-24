@@ -30,15 +30,13 @@ Wish the GPU compiles pipeline "circle" {
 When the color map is /colorMap/ &\
      /p/ has canvas /id/ with /...wiOptions/ &\
      /p/ has canvas projection /surfaceToClip/ &\
-     /someone/ wishes to draw a circle onto /p/ with /...options/ {
+     /someone/ wishes to draw a circle onto /p/ with \
+         radius /radius/ thickness /thickness/ color /color/ \
+         center /center?/ x /x?/ y /y?/ filled /filled?/ {
 
-    set center [dict getdef $options center ""]
-    if {$center eq ""} { set center [list [dict get $options x] [dict get $options y]] }
-    set radius [dict get $options radius]
-    set thickness [dict get $options thickness]
-    set color [dict get $options color]
+    if {![info exists center]} { set center [list $x $y] }
     set color [dict getdef $colorMap $color $color]
-    set filled [dict getdef $options filled false]
+    if {![info exists filled]} { set filled false }
 
     set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
     Wish the GPU draws pipeline "circle" onto canvas $id with arguments \

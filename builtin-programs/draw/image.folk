@@ -101,33 +101,32 @@ Wish the GPU compiles pipeline "image" {
         return vec4(0.0, 0.0, 0.0, 0.0);
 }}
 When the image library is /imageLib/ &\
-     /someone/ wishes to draw an image onto /p/ with /...options/ &\
+     /someone/ wishes to draw an image onto /p/ with \
+         image /image/ position /position?/ x /x?/ y /y?/ \
+         radians /radians?/ width /width?/ height /height?/ anchor /anchor?/ &\
      /p/ has canvas /id/ with /...wiOptions/ &\
      /p/ has canvas projection /surfaceToClip/ {
 
-    set im [dict get $options image]
+    set im $image
 
-    if {[dict exists $options position]} {
-        lassign [dict get $options position] x0 y0
+    if {[info exists position]} {
+        lassign $position x0 y0
     } else {
-        set x0 [dict get $options x]
-        set y0 [dict get $options y]
+        set x0 $x
+        set y0 $y
     }
-    set radians [dict getdef $options radians 0]
-    
-    if {[dict exists $options width] && [dict exists $options height]} {
-        set width [dict get $options width]
-        set height [dict get $options height]
-    } elseif {[dict exists $options width] && ![dict exists $options height]} {
-        set width [dict get $options width]
+    if {![info exists radians]} { set radians 0 }
+
+    if {[info exists width] && [info exists height]} {
+        # both provided, use them as-is
+    } elseif {[info exists width] && ![info exists height]} {
         set height $(double([$imageLib Image_height $im]) / [$imageLib Image_width $im] * $width)
-    } elseif {![dict exists $options width] && [dict exists $options height]} {
-        set height [dict get $options height]
+    } elseif {![info exists width] && [info exists height]} {
         set width $(double([$imageLib Image_width $im]) / [$imageLib Image_height $im] * $height)
     }
 
     # TODO: implement anchor like in text
-    set anchor [dict getdef $options anchor "topleft"]
+    if {![info exists anchor]} { set anchor "topleft" }
     if {$anchor eq "center"} {
         set a [list $($x0 - $width/2.0) $($y0 - $height/2.0)]
         set b [list $($x0 + $width/2.0) $($y0 - $height/2.0)]
@@ -155,12 +154,9 @@ When the image library is /imageLib/ &\
 
 When the image library is /imageLib/ &\
      the image loader is /loadImage/ &\
-     /someone/ wishes /p/ displays image /im/ with /...options/ &\
+     /someone/ wishes /p/ displays image /im/ with position /position?/ width /width?/ &\
      /p/ has resolved geometry /geom/ {
          # TODO: Mask the tag out?
-
-    # HACK: because we match partially
-    if {![info exists options]} { return }
 
     fn loadImage
     try {
@@ -170,16 +166,20 @@ When the image library is /imageLib/ &\
         return
     }
 
-    set width [/ [dict getdef $geom left [dict get $geom width]] 1.5]
-    set derivedHeight $(double([$imageLib Image_height $im])/[$imageLib Image_width $im] * $width)
+    set calculatedWidth [/ [dict getdef $geom left [dict get $geom width]] 1.5]
+    set derivedHeight $(double([$imageLib Image_height $im])/[$imageLib Image_width $im] * $calculatedWidth)
     set geomHeight [dict get $geom height]
     if {$derivedHeight > $geomHeight} {
-        set width $($geomHeight / $derivedHeight * $width)
+        set calculatedWidth $($geomHeight / $derivedHeight * $calculatedWidth)
     }
+
+    if {![info exists position]} { set position [list 0 0] }
+    if {![info exists width]} { set width $calculatedWidth }
+
     Wish to draw an image onto $p with \
         image $im \
-        position [dict getdef $options position [list 0 0]] \
-        anchor topleft width [dict getdef $options width $width]
+        position $position \
+        anchor topleft width $width
 
 }
 

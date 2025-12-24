@@ -34,11 +34,8 @@ Wish the GPU compiles pipeline "line" {
 When the color map is /colorMap/ &\
      /p/ has canvas /id/ with /...wiOptions/ &\
      /p/ has canvas projection /surfaceToClip/ &\
-     /someone/ wishes to draw a line onto /p/ with /...options/ {
+     /someone/ wishes to draw a line onto /p/ with points /points/ width /width/ color /color/ {
 
-    set points [dict get $options points]
-    set width [dict get $options width]
-    set color [dict get $options color]
     set color [dict getdef $colorMap $color $color]
 
     set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]

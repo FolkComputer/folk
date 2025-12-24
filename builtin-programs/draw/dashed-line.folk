@@ -39,14 +39,12 @@ Wish the GPU compiles pipeline "dashed-line" {
 When the color map is /colorMap/ &\
      /p/ has canvas /id/ with /...wiOptions/ &\
      /p/ has canvas projection /surfaceToClip/ &\
-     /someone/ wishes to draw a dashed line onto /p/ with /...options/ {
+     /someone/ wishes to draw a dashed line onto /p/ with points /points/ width /width/ color /color/ dashlength /dashlength?/ dashoffset /dashoffset?/ layer /layer?/ {
 
-    set points [dict get $options points]
-    set width [dict get $options width]
-    set color [dict get $options color]
+    if {![info exists dashlength]} { set dashlength 4 }
+    if {![info exists dashoffset]} { set dashoffset 0 }
+    if {![info exists layer]} { set layer 0 }
     set color [dict getdef $colorMap $color $color]
-    set dashlength [dict getdef $options dashlength 4]
-    set dashoffset [dict getdef $options dashoffset 0]
 
     set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
     set instances [list]
@@ -57,7 +55,6 @@ When the color map is /colorMap/ &\
                                $from $to $width $color $dashlength $dashoffset]
     }
 
-    set layer [dict getdef $options layer 0]
     Wish the GPU draws pipeline "dashed-line" onto canvas $id \
         with instances $instances layer $layer
 }

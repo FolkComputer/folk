@@ -70,27 +70,33 @@ proc process_offset {offset region} {
   return $offset
 }
 
-When /someone/ wishes to draw a shape with /...options/ {
+When /someone/ wishes to draw a shape with \
+    type /type?/ center /center?/ color /color?/ filled /filled?/ \
+    thickness /thickness?/ layer /layer?/ angle /angle?/ \
+    width /width?/ height /height?/ sides /sides?/ shape /shape?/ radius /radius?/ {
   set isRect 0
-  if {[dict exists $options type] && [dict get $options type] eq "rect"} {
+  if {[info exists type] && $type eq "rect"} {
     set isRect 1
   }
-  
-  set c [dict_getdef $options center {0 0}]
-  
-  set color [dict_getdef $options color white]
-  set filled [dict_getdef $options filled false]
-  set thickness [dict_getdef $options thickness 1]
-  set layer [dict_getdef $options layer 0]
-  set angle [dict_getdef $options angle 0]
-  
+
+  if {![info exists center]} { set center {0 0} }
+  set c $center
+
+  if {![info exists color]} { set color white }
+  if {![info exists filled]} { set filled false }
+  if {![info exists thickness]} { set thickness 1 }
+  if {![info exists layer]} { set layer 0 }
+  if {![info exists angle]} { set angle 0 }
+
   if {$isRect} {
-    set w [dict_getdef $options width 100]
-    set h [dict_getdef $options height 100]
-    
+    if {![info exists width]} { set width 100 }
+    if {![info exists height]} { set height 100 }
+    set w $width
+    set h $height
+
     set hw [expr {$w / 2.0}]
     set hh [expr {$h / 2.0}]
-    
+
     set points [lmap v [list \
       [list [expr {-$hw}] [expr {-$hh}]] \
       [list [expr {$hw}] [expr {-$hh}]] \
@@ -101,29 +107,31 @@ When /someone/ wishes to draw a shape with /...options/ {
       vec2 add [vec2 rotate $v $angle] $c
     }]
   } else {
-    set numPoints [dict_getdef $options sides 4]
-    if {[dict exists $options shape] && [dict exists $shapes [dict get $options shape]]} {
-      set numPoints [dict get $shapes [dict get $options shape]]
+    if {![info exists sides]} { set sides 4 }
+    set numPoints $sides
+    if {[info exists shape] && [dict exists $shapes $shape]} {
+      set numPoints [dict get $shapes $shape]
     }
-    set r [dict_getdef $options radius 50]
-    
+    if {![info exists radius]} { set radius 50 }
+    set r $radius
+
     set points {{0 0}}
     set centerPoint {0 0}
     set polyAngle [expr {2 * 3.14159 / $numPoints + 3.14159}]
     set angleIncr [expr {2 * 3.14159 / $numPoints}]
-    
+
     for {set i 0} {$i < $numPoints} {incr i} {
       set p [vec2 add [lindex $points end] [vec2 scale [list [expr {cos($polyAngle)}] [expr {sin($polyAngle)}]] $r]]
       lappend points $p
       set centerPoint [vec2 add $centerPoint $p]
       set polyAngle [expr {$polyAngle + $angleIncr}]
     }
-    
+
     set points [lmap v $points {
       vec2 add [vec2 rotate [vec2 sub $v [vec2 scale $centerPoint [expr {1.0/$numPoints}]]] $angle] $c
     }]
   }
-  
+
   if {$filled} {
     Wish to draw a polygon with points $points color $color layer $layer
   } else {
@@ -140,31 +148,22 @@ When /someone/ wishes /p/ draws an /shape/ {
   Wish $p draws a $shape
 }
 
-When /someone/ wishes /p/ draws text /text/ with /...options/ & /p/ has region /r/ {
+When /someone/ wishes /p/ draws text /text/ with \
+    color /color?/ scale /scale?/ layer /layer?/ angle /angle?/ \
+    anchor /anchor?/ font /font?/ offset /offset?/ & /p/ has region /r/ {
    # As shapes.folk but for text.
    lassign [region centroid $r] cx cy
    set pageAngle [region angle $r]
 
    # Use the page's angle unless explicitly overwritten
-   set defaults [dict create \
-       color white \
-       scale 1.0 \
-       layer 0 \
-       angle $pageAngle \
-       anchor center \
-       font "PTSans-Regular"
-   ]
+   if {![info exists color]} { set color white }
+   if {![info exists scale]} { set scale 1.0 }
+   if {![info exists layer]} { set layer 0 }
+   if {![info exists angle]} { set angle $pageAngle }
+   if {![info exists anchor]} { set anchor center }
+   if {![info exists font]} { set font "PTSans-Regular" }
+   if {![info exists offset]} { set offset {0 0} }
 
-   set options [dict merge $defaults $options]
-
-   set color [dict get $options color]
-   set scale [dict get $options scale]
-   set layer [dict get $options layer]
-   set angle [dict get $options angle]
-   set anchor [dict get $options anchor]
-   set font [dict get $options font]
-
-   set offset [dict_getdef $options offset {0 0}]
    set offset [::process_offset $offset $r]
    set center [vec2 add [list $cx $cy] [vec2 rotate $offset $pageAngle]]
 
@@ -176,42 +175,46 @@ When /someone/ wishes /p/ draws text /text/ {
     Wish $p draws text $text with color white
 }
 
-When /someone/ wishes /p/ draws a /shape/ with /...options/ & /p/ has region /r/ {
+When /someone/ wishes /p/ draws a /shape/ with \
+    color /color?/ filled /filled?/ thickness /thickness?/ layer /layer?/ \
+    offset /offset?/ radius /radius?/ width /width?/ height /height?/ & /p/ has region /r/ {
   lassign [region centroid $r] cx cy
   set angle [region angle $r]
-  
-  set color [dict_getdef $options color white]
-  set filled [dict_getdef $options filled false]
-  set thickness [dict_getdef $options thickness 5]
-  set layer [dict_getdef $options layer 0]
-  
-  set offset [dict_getdef $options offset {0 0}]
+
+  if {![info exists color]} { set color white }
+  if {![info exists filled]} { set filled false }
+  if {![info exists thickness]} { set thickness 5 }
+  if {![info exists layer]} { set layer 0 }
+  if {![info exists offset]} { set offset {0 0} }
+
   set offset [process_offset $offset $r]
-  
+
   set center [vec2 add [list $cx $cy] [vec2 rotate $offset $angle]]
-  
+
   if {$shape eq "circle"} {
-    set radius [dict_getdef $options radius 50]
-    
+    if {![info exists radius]} { set radius 50 }
+
     Wish to draw a circle with center $center radius $radius thickness $thickness \
       color $color filled $filled layer $layer
-      
+
   } elseif {$shape eq "rect"} {
-    set w [dict_getdef $options width [region width $r]]
-    set h [dict_getdef $options height [region height $r]]
-    
+    if {![info exists width]} { set width [region width $r] }
+    if {![info exists height]} { set height [region height $r] }
+    set w $width
+    set h $height
+
     Wish to draw a shape with type rect center $center width $w height $h angle $angle \
       color $color filled $filled thickness $thickness layer $layer
-      
+
   } elseif {[dict exists $shapes $shape]} {
-    set radius [dict_getdef $options radius 50]
-    
+    if {![info exists radius]} { set radius 50 }
+
     Wish to draw a shape with sides [dict get $shapes $shape] center $center radius $radius \
       angle $angle color $color filled $filled thickness $thickness layer $layer
-      
+
   } else {
-    set radius [dict_getdef $options radius 50]
-    
+    if {![info exists radius]} { set radius 50 }
+
     Wish to draw a shape with sides 4 center $center radius $radius \
       angle $angle color $color filled $filled thickness $thickness layer $layer
   }
@@ -230,54 +233,56 @@ When /someone/ wishes /p/ draws a /shape/ with radius /rad/ {
   Wish $p draws a $shape with radius $rad
 }
 
-When /someone/ wishes /page/ draws a set of points /points/ with /...options/ & /page/ has region /r/ {
-  set radius [dict_getdef $options radius 5]
-  set color [dict_getdef $options color white]
-  set filled [dict_getdef $options filled true]
-  set thickness [dict_getdef $options thickness 2]
-  set layer [dict_getdef $options layer 0]
-  
+When /someone/ wishes /page/ draws a set of points /points/ with \
+    radius /radius?/ color /color?/ filled /filled?/ thickness /thickness?/ \
+    layer /layer?/ offset /offset?/ & /page/ has region /r/ {
+  if {![info exists radius]} { set radius 5 }
+  if {![info exists color]} { set color white }
+  if {![info exists filled]} { set filled true }
+  if {![info exists thickness]} { set thickness 2 }
+  if {![info exists layer]} { set layer 0 }
+
   lassign [region centroid $r] cx cy
   set angle [region angle $r]
   set center [list $cx $cy]
-  
-  if {[dict exists $options offset]} {
-    set offset [dict get $options offset]
+
+  if {[info exists offset]} {
     set offset [process_offset $offset $r]
     set center [vec2 add $center [vec2 rotate $offset $angle]]
   }
-  
+
   foreach point $points {
     set pointPos [vec2 add $center [vec2 rotate $point $angle]]
-    
+
     Wish to draw a circle with center $pointPos radius $radius thickness $thickness \
       color $color filled $filled layer $layer
   }
 }
 
-When /someone/ wishes /page/ draws a polyline /points/ with /...options/ & /page/ has region /r/ {
-  set color [dict_getdef $options color white]
-  set thickness [dict_getdef $options thickness 2]
-  set layer [dict_getdef $options layer 0]
-  set dashed [dict_getdef $options dashed false]
-  set dashlength [dict_getdef $options dashlength 20]
-  set dashoffset [dict_getdef $options dashoffset 0]
-  
+When /someone/ wishes /page/ draws a polyline /points/ with \
+    color /color?/ thickness /thickness?/ layer /layer?/ dashed /dashed?/ \
+    dashlength /dashlength?/ dashoffset /dashoffset?/ offset /offset?/ & /page/ has region /r/ {
+  if {![info exists color]} { set color white }
+  if {![info exists thickness]} { set thickness 2 }
+  if {![info exists layer]} { set layer 0 }
+  if {![info exists dashed]} { set dashed false }
+  if {![info exists dashlength]} { set dashlength 20 }
+  if {![info exists dashoffset]} { set dashoffset 0 }
+
   lassign [region centroid $r] cx cy
   set angle [region angle $r]
   set center [list $cx $cy]
-  
-  if {[dict exists $options offset]} {
-    set offset [dict get $options offset]
+
+  if {[info exists offset]} {
     set offset [process_offset $offset $r]
     set center [vec2 add $center [vec2 rotate $offset $angle]]
   }
-  
+
   set transformedPoints {}
   foreach point $points {
     lappend transformedPoints [vec2 add $center [vec2 rotate $point $angle]]
   }
-  
+
   if {$dashed} {
     Wish to draw a dashed stroke with points $transformedPoints color $color width $thickness \
       dashlength $dashlength dashoffset $dashoffset layer $layer

@@ -219,21 +219,23 @@ Wish the GPU compiles pipeline "glyph" {
 }}
 
 When the color map is /colorMap/ &\
-     /someone/ wishes to draw text onto /p/ with /...options/ {
-    if {[dict exists $options position]} {
-        lassign [dict get $options position] x0 y0
+     /someone/ wishes to draw text onto /p/ with \
+         text /text/ position /position?/ x /x?/ y /y?/ \
+         scale /scale?/ font /font?/ anchor /anchor?/ radians /radians?/ \
+         color /color?/ layer /layer?/ {
+    if {[info exists position]} {
+        lassign $position x0 y0
     } else {
-        set x0 [dict get $options x]
-        set y0 [dict get $options y]
+        set x0 $x
+        set y0 $y
     }
-    set scale [dict getdef $options scale 0.01] ;# 1cm default scale
-    set font [dict getdef $options font "PTSans-Regular"]
-    set text [dict get $options text]
-    set anchor [dict getdef $options anchor "center"]
-    set radians [dict getdef $options radians 0]
-    set color [dict getdef $options color white]
+    if {![info exists scale]} { set scale 0.01 } ;# 1cm default scale
+    if {![info exists font]} { set font "PTSans-Regular" }
+    if {![info exists anchor]} { set anchor "center" }
+    if {![info exists radians]} { set radians 0 }
+    if {![info exists color]} { set color white }
     set color [dict getdef $colorMap $color $color]
-    set layer [dict getdef $options layer 0]
+    if {![info exists layer]} { set layer 0 }
 
     if {$anchor == "topleft"} {
         set anchor [list 0 0]

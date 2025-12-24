@@ -22,12 +22,10 @@ Wish the GPU compiles pipeline "apriltag" {
 When the image library is /imageLib/ & the print library is /printLib/ &\
      /p/ has canvas /writableTexture/ with /...wiOptions/ &\
      /p/ has canvas projection /surfaceToClip/ &\
-     /someone/ wishes to draw an AprilTag onto /p/ with /...options/ {
+     /someone/ wishes to draw an AprilTag onto /p/ with id /id/ corners /corners/ layer /layer?/ background /background?/ {
 
-    set id [dict get $options id]
-    set corners [dict get $options corners]
-    set layer [dict getdef $options layer 0]
-    set background [dict getdef $options background [list 1 1 1 1]]
+    if {![info exists layer]} { set layer 0 }
+    if {![info exists background]} { set background [list 1 1 1 1] }
 
     set tagImage [$printLib tagImageForId $id]
     set tagBits [list]
