@@ -30,7 +30,7 @@ When the program save directory is /programDir/ &\
      the editor utils library is /utils/ {
 
 # TODO: also don't hardcode this?
-set margin [list 0.01 0.01 0.01 0.02] ;# CSS order (top, right, bottom, left)
+set margin [list 0.01 0.01 0.01 0.025] ;# CSS order (top, right, bottom, left)
 set defaults { textScale 0.01 }
 
 set editorLib [library create editorLib {margin defaults} {
@@ -300,15 +300,15 @@ When /editor/ is an editor with /...anything/ &\
     When editor $editor has selected program /program/ &\
          editor buffer for /program/ is /code/ &\
          editor $editor has cursor position /cursorPos/ {
-        set lineCount [- [llength [split $code "\n"]] $vpY]
+        set lineCount [min [- [llength [split $code "\n"]] $vpY] $vpHeight]
         set lineNumbers [$utils lineNumberView $vpY $lineCount]
 
         set marginLeft [lindex $margin 3]
-        set numberX [- $marginLeft [min [* $textScale 1.2] [* $marginLeft 0.7]]]
+        set numberX $($marginLeft - $advance * 0.3)
         Wish to draw text onto $editor with \
             position [list $numberX [lindex $margin 0]] \
             text $lineNumbers \
-            scale $textScale anchor topleft font NeomatrixCode
+            scale $textScale anchor topright font NeomatrixCode
 
         set text [$utils applyTextViewport $code $vpX $vpY $vpWidth $vpHeight]
         set pos [list [lindex $margin 3] [lindex $margin 0]]
@@ -317,7 +317,7 @@ When /editor/ is an editor with /...anything/ &\
             scale $textScale anchor topleft font NeomatrixCode
 
         set p1 [vec2 add $cursorPos $pos]
-        set p2 [vec2 add $p1 [list 0 $($textScale * 1.2)]]
+        set p2 [vec2 add $p1 [list 0 [* $textScale 1.2]]]
         set s [/ $textScale 6]
         Wish to draw a circle onto $editor with center $p1 radius $s thickness 0 color green filled true
         Wish to draw a line onto $editor with points [list $p1 $p2] width $s color green
