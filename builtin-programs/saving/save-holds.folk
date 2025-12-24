@@ -157,6 +157,8 @@ When /someone/ wishes to deserialize namespace hold with directory /directory/ {
 
         $savedHoldsLib loadHolds $canonicalName $holdDict
     }
+
+    Claim the saved holds are loaded
 }
 
 When the hold save directory is /holdDirectory/ {

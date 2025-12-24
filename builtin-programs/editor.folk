@@ -90,17 +90,20 @@ When /editor/ is an editor with /...options/ {
 
     # Initial setup
     # Load initial text settings if not set
-    When /nobody/ claims editor $editor has font options /...anything/ {
+    When /nobody/ claims editor $editor has font options /...anything/ &\
+         the saved holds are loaded {
+        # Wait until all the saved holds are loaded, so we don't accidentally
+        # overwrite a saved setting.
         set textScale [dict get $options textScale]
-        # Don't `Hold! -save` here, so if previous options were saved, they'll load correctly.
-        Claim editor $editor has font options with scale $textScale
+        Hold! -save -key font-options-of:$editor \
+            Claim editor $editor has font options with scale $textScale
     }
 
     # We need the editor's resolved geometry to get its size.
     # We then use its size to figure out how many characters we can fit in it,
     # width-wise and height-wise.
     When $editor has resolved geometry /geom/ &\
-         editor $editor has font options with /...options/  {
+         editor $editor has font options with /...options/ {
         Claim editor $editor has viewport size [$editorLib editorSizeInCharacters $geom $options]
     }
 
