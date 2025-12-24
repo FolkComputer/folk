@@ -120,7 +120,9 @@ When /editor/ is an editor with /...options/ {
     # Load in initial program code (note, this buffer is shared between
     # all editor instances)
     When editor $editor has selected program /program/ &\
-         /program/ has program code /programCode/ {
+         /program/ has program code /programCode/ &\
+         the saved holds are loaded {
+        # Check if the code already exists.
         set results [Query! editor buffer for $program is /anything/]
         if {[llength $results] == 0} {
             Hold! -save -key buffer-for:$program \
@@ -212,13 +214,13 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                 Hold! -on builtin-programs/programs.folk -key new-code-for:$program {}
                 file delete "$programDir/$program.folk.edited"
 
-                Hold! -keep 12ms -save -key buffer-for:$program {
+                Hold! -save -key buffer-for:$program {
                     When $program has program code /originalCode/ {
                         Claim editor buffer for $program is $originalCode
                     }
                 }
             } else {
-                Hold! -keep 12ms -save -key buffer-for:$program \
+                Hold! -save -key buffer-for:$program \
                     Claim editor buffer for $program is $code
             }
 
