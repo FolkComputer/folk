@@ -269,7 +269,7 @@ When the color map is /colorMap/ &\
     } elseif {$anchor == "topright"} {
         set anchor [list 1.0 0 1 0]
     } elseif {$anchor == "left"} {
-        set anchor [list 0 0.5 0 5]
+        set anchor [list 0 0.5 0 0.5]
     } elseif {$anchor == "center"} {
         set anchor [list 0.5 0.5 0.5 0.5]
     } elseif {$anchor == "right"} {
