@@ -30,7 +30,7 @@ When the program save directory is /programDir/ &\
      the editor utils library is /utils/ {
 
 # TODO: also don't hardcode this?
-set margin [list 0.01 0.01 0.01 0.025] ;# CSS order (top, right, bottom, left)
+set margin [list 0.01 0.005 0.005 0.01] ;# CSS order (top, right, bottom, left)
 set defaults { textScale 0.01 }
 
 set editorLib [library create editorLib {margin defaults} {
@@ -304,14 +304,14 @@ When /editor/ is an editor with /...anything/ &\
         set lineNumbers [$utils lineNumberView $vpY $lineCount]
 
         set marginLeft [lindex $margin 3]
-        set numberX $($marginLeft - $advance * 0.3)
+        set lineNumbersRight $($marginLeft + $advance*1.5)
         Wish to draw text onto $editor with \
-            position [list $numberX [lindex $margin 0]] \
+            position [list $lineNumbersRight [lindex $margin 0]] \
             text $lineNumbers \
             scale $textScale anchor topright font NeomatrixCode
 
         set text [$utils applyTextViewport $code $vpX $vpY $vpWidth $vpHeight]
-        set pos [list [lindex $margin 3] [lindex $margin 0]]
+        set pos [list [+ $lineNumbersRight $advance] [lindex $margin 0]]
         Wish to draw text onto $editor with \
             position $pos text $text \
             scale $textScale anchor topleft font NeomatrixCode
