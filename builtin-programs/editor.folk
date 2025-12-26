@@ -30,16 +30,13 @@ When the program save directory is /programDir/ &\
      the editor utils library is /utils/ {
 
 # TODO: also don't hardcode this?
-set margin [list 0.02 0.01]
+set margin [list 0.01 0.005 0.005 0.01] ;# CSS order (top, right, bottom, left)
 set defaults { textScale 0.01 }
 
-set codeViewLib [library create codeViewLib {margin defaults} {
-    proc getEmAndAdvance {textScale} {
-        set em [expr {$textScale * 1}]
+set editorLib [library create editorLib {margin defaults} {
+    proc getAdvance {em} {
         # From NeomatrixCode.csv
-        set advance [expr {0.5859375 * $em}]
-
-        return [list $em $advance]
+        return $(0.5859375 * $em)
     }
 
     proc widthAndHeight {resolvedGeom} {
@@ -49,121 +46,121 @@ set codeViewLib [library create codeViewLib {margin defaults} {
         set top [dict get $resolvedGeom top]
         set bottom [dict get $resolvedGeom bottom]
 
-        set width [expr {$left + $tagSize + $right}]
-        set height [expr {$top + $tagSize + $bottom}]
+        set width $($left + $tagSize + $right)
+        set height $($top + $tagSize + $bottom)
 
         return [list $width $height]
     }
 
     # given program and the editor options, figure out how many characters can
     # fit in this editor
-    proc viewCharacterSize {resolvedGeom options} {
+    proc editorSizeInCharacters {resolvedGeom options} {
         variable margin
 
-        set textScale [dict get $options textScale]
-        lassign [getEmAndAdvance $textScale] em advance
+        set textScale [dict get $options scale]
+        set advance [getAdvance $textScale]
 
         lassign [widthAndHeight $resolvedGeom] width height
-        set width [expr {$width - [lindex $margin 0]}]
-        set height [expr {$height - [lindex $margin 1]}]
+        set width $($width - [lindex $margin 3] - $advance*2.5 - [lindex $margin 1])
+        set height $($height - [lindex $margin 0] - [lindex $margin 2])
 
-        set widthInCharacters [expr {int($width / $advance)}]
-        set heightInCharacters [expr {int($height / $em)}]
+        set widthInCharacters $(int($width / $advance))
+        set heightInCharacters $(int($height / $textScale))
 
         return [list $widthInCharacters $heightInCharacters]
     }
 }]
 
-When /someone/ claims /view/ is an editor {
-    Claim $view is an editor with {*}$defaults
+When /someone/ claims /editor/ is an editor {
+    Claim $editor is an editor with {*}$defaults
 }
 
-# initial setup
-When /view/ is an editor with /...options/ {
+When /editor/ is an editor with /...options/ {
     # HACK: because we partial match
     if {![info exists options]} { return }
 
     set options [dict merge $defaults $options]
 
-    # select which program the view is viewing
-    When $view points up with length 0.3 at /program/ {
-        Hold! -key selected-program:$view \
-            Claim $view has selected program $program
+    Wish tag $editor is stabilized
+
+    # Select which program the editor is viewing
+    When $editor points up with length 0.3 at /program/ {
+        Claim editor $editor has selected program $program
     }
 
-    # reset selected program when it's not pointing at anything
-    When /nobody/ claims $view points up at /anything/ {
-        Hold! -key selected-program:$view {}
-    }
-
+    # Initial setup
     # Load initial text settings if not set
-    When /nobody/ claims $view has text settings /...anything/ {
+    When /nobody/ claims editor $editor has font options /...anything/ &\
+         the saved holds are loaded {
+        # Wait until all the saved holds are loaded, so we don't accidentally
+        # overwrite a saved setting.
         set textScale [dict get $options textScale]
-
-        Hold! -save -key text-params-of:$view \
-            Claim $view has text settings with scale $textScale
+        Hold! -save -key font-options-of:$editor \
+            Claim editor $editor has font options with scale $textScale
     }
 
-    # load in defaults for the view if it hasn't been initialized
-    set results [Query! /somebody/ claims $view has cursor /anything/]
+    # We need the editor's resolved geometry to get its size.
+    # We then use its size to figure out how many characters we can fit in it,
+    # width-wise and height-wise.
+    When $editor has resolved geometry /geom/ &\
+         editor $editor has font options with /...options/ {
+        Claim editor $editor has viewport size [$editorLib editorSizeInCharacters $geom $options]
+    }
+
+    # Load in defaults for the editor if it hasn't been initialized
+    set results [Query! /somebody/ claims editor $editor has cursor /anything/]
     if {[llength $results] == 0} {
-        # We need the view's region in geometry to get its size.
-        # We then use its size to figure out how many characters we can fit in it,
-        # width-wise and height-wise
-        When $view has resolved geometry /geom/ {
-            Hold! -key view-state-of:$view {
-                lassign [$codeViewLib viewCharacterSize $geom $options] widthInCharacters heightInCharacters
-
-                Claim $view has view dimensions [list 0 0 $widthInCharacters $heightInCharacters]
-                Claim $view has cursor 0
-                Claim $view has max cursor x 0
-            }
+        Hold! -key editor-state-of:$editor {
+            Claim editor $editor has cursor 0
+            Claim editor $editor has max cursor x 0
+            Claim editor $editor has viewport position [list 0 0]
         }
     }
 
-    # load in initial program code
-    When $view has selected program /program/ &\
-         /program/ has program code /programCode/ {
-        set results [Query! view code for $program is /anything/]
+    # Load in initial program code (note, this buffer is shared between
+    # all editor instances)
+    When editor $editor has selected program /program/ &\
+         /program/ has program code /programCode/ &\
+         the saved holds are loaded {
+        # Check if the code already exists.
+        set results [Query! editor buffer for $program is /anything/]
         if {[llength $results] == 0} {
-            Hold! -save -key code-for:$program \
-                Claim view code for $program is $programCode
+            Hold! -save -key buffer-for:$program \
+                Claim editor buffer for $program is $programCode
         }
     }
 
-    # feedback: show that the editor is not active
-    When /nobody/ wishes $view is outlined green {
-        Wish $view is outlined blue
+    # Feedback: show that the editor is not active
+    When /nobody/ wishes $editor is outlined green {
+        Wish $editor is outlined blue
     }
-
-    Wish tag $view is stabilized
 }
 
-Subscribe: keyboard /keyboard/ claims key /key/ is /keyState/ with /...options/ {
-    if {$keyState == "down" && $key == "Control_b"} {
-        Notify: print code "# blank"
-    }
-} 
+Subscribe: keyboard /keyboard/ claims key Control_b is down with /...options/ {
+    Notify: print code "# blank"
+}
 
 When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
-     /keyboard/ is typing into /view/ &\
-     /view/ is an editor with /...anything/ &\
-     /view/ has selected program /program/ {
-    Wish $view is outlined green
+     /keyboard/ is typing into /editor/ &\
+     /editor/ is an editor with /...anything/ &\
+     editor /editor/ has selected program /program/ {
+    Wish $editor is outlined green
 
     Subscribe: keyboard $kbPath claims key /key/ is /keyState/ with /...options/ {
-        ForEach! $view has view dimensions /dims/ &\
-                 view code for $program is /code/ &\
-                 $view has max cursor x /maxCursorX/ &\
-                 $view has cursor /cursor/ &\
-                 $view has text settings with /...textOptions/ {
-            lassign $dims vpX vpY vpWidth vpHeight
+        ForEach! editor $editor has viewport position /vpPos/ &\
+                 editor /editor/ has viewport size /vpSize/ &\
+                 editor buffer for $program is /code/ &\
+                 editor $editor has max cursor x /maxCursorX/ &\
+                 editor $editor has cursor /cursor/ &\
+                 editor $editor has font options with /...textOptions/ {
+            lassign $vpPos vpX vpY
+            lassign $vpSize vpWidth vpHeight
 
             if {$keyState == "up"} { return }
 
-            # if this is true, the code will remove the hold for program code
+            # if this is true, the buffer will remove the hold for program code
             # (triggering a reinitialization)
-            set resetCode false
+            set resetBuffer false
 
             if {[dict exists $options printable]} {
                 lassign [$utils insertText $code $cursor [dict get $options printable]] code cursor maxCursorX
@@ -175,59 +172,41 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                 # specific editor functionality
                 switch $key {
                     Control_r {
-                        set resetCode true
+                        set resetBuffer true
                     }
                     Control_s {
-                        Notify: save code on view $view
+                        Notify: save code on editor $editor
                     }
                     Control_p {
                         Notify: print code $code
 
                         # Give the user some feedback
-                        Hold! -key printed-alert:$view \
-                            Wish $view is labelled "Printed!"
+                        Hold! -key printed-alert:$editor \
+                            Wish $editor is labelled "Printed!"
                         sleep 0.25
-                        Hold! -key printed-alert:$view {}
-                    }
-                    Control_t {
-                        # remove the edited code to restore the program to its original code
-                        Hold! -on builtin-programs/programs.folk -key new-code-for:$program {}
-                        set resetCode true
-                        file delete "$programDir/$program.folk.edited"
+                        Hold! -key printed-alert:$editor {}
                     }
                     Control_underscore {
                         # ctrl and - (zoom out)
-                        set geom [dict get [QueryOne! $view has resolved geometry /geom/] geom]
-
                         set textScale [dict get $textOptions scale]
                         set textScale [/ $textScale 1.1]
 
-                        Hold! -save -key text-params-of:$view \
-                            Claim $view has text settings with scale $textScale
-
-                        # overwrite vpWidth and vpHeight as it's used later when updating the viewport
-                        set codeViewOptions [dict create textScale $textScale]
-                        lassign [$codeViewLib viewCharacterSize $geom $codeViewOptions] vpWidth vpHeight
+                        Hold! -save -key font-options-of:$editor \
+                            Claim editor $editor has font options with scale $textScale
                     }
                     equal {
                         # Dunno why it registers as equal instead of Control_equal? It works regardless, lol
                         # ctrl and + (zoom in)
-                        set geom [dict get [QueryOne! $view has resolved geometry /geom/] geom]
-
                         set textScale [dict get $textOptions scale]
                         set textScale [* $textScale 1.1]
 
-                        Hold! -save -key text-params-of:$view \
-                            Claim $view has text settings with scale $textScale
-
-                        # overwrite vpWidth and vpHeight as it's used later when updating the viewport
-                        set codeViewOptions [dict create textScale $textScale]
-                        lassign [$codeViewLib viewCharacterSize $geom $codeViewOptions] vpWidth vpHeight
+                        Hold! -save -key font-options-of:$editor \
+                            Claim editor $editor has font options with scale $textScale
                     }
                 }
             }
 
-            if {$resetCode} {
+            if {$resetBuffer} {
                 set cursor 0
                 set maxCursorX 0
 
@@ -235,38 +214,42 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                 Hold! -on builtin-programs/programs.folk -key new-code-for:$program {}
                 file delete "$programDir/$program.folk.edited"
 
-                Hold! -keep 12ms -save -key code-for:$program {
+                Hold! -save -key buffer-for:$program {
                     When $program has program code /originalCode/ {
-                        Claim view code for $program is $originalCode
+                        Claim editor buffer for $program is $originalCode
                     }
                 }
             } else {
-                Hold! -keep 12ms -save -key code-for:$program \
-                    Claim view code for $program is $code
+                Hold! -save -key buffer-for:$program \
+                    Claim editor buffer for $program is $code
             }
 
             lassign [$utils cursorToXy $code $cursor] cursorX cursorY
-            if {$cursorX < $vpX} { set vpX $cursorX }
+            # Be sure to have at least two characters on the left, so we can
+            # see what we're removing.
+            if {[- $cursorX 2] < $vpX} {
+                set vpX [max 0 [- $cursorX 2]]
+            }
             if {$cursorX >= $vpX + $vpWidth} {
-                set vpX [expr {$cursorX - $vpWidth}]
+                set vpX $($cursorX - $vpWidth)
             }
             if {$cursorY < $vpY} { set vpY $cursorY }
             if {$cursorY >= $vpY + $vpHeight - 1} {
-                set vpY [expr {$cursorY - $vpHeight + 1}]
+                set vpY $($cursorY - $vpHeight + 1)
             }
 
-            Hold! -key view-state-of:$view {
-                Claim $view has view dimensions [list $vpX $vpY $vpWidth $vpHeight]
-                Claim $view has cursor $cursor
-                Claim $view has max cursor x $maxCursorX
+            Hold! -keep 12ms -key editor-state-of:$editor {
+                Claim editor $editor has viewport position [list $vpX $vpY]
+                Claim editor $editor has cursor $cursor
+                Claim editor $editor has max cursor x $maxCursorX
             }
         }
     }
 }
 
-Subscribe: save code on view /view/ {
-    ForEach! $view has selected program /program/ &\
-             view code for /program/ is /programCode/ {
+Subscribe: save code on editor /editor/ {
+    ForEach! editor $editor has selected program /program/ &\
+             editor buffer for /program/ is /programCode/ {
         Hold! -on builtin-programs/programs.folk -key new-code-for:$program \
             Wish program $program is replaced with \
             code $programCode editedTime [clock seconds]
@@ -276,65 +259,68 @@ Subscribe: save code on view /view/ {
         close $fp
 
         # Give the user some feedback
-        Hold! -key saved-alert:$view \
-            Wish $view is labelled "Saved!"
+        Hold! -key saved-alert:$editor \
+            Wish $editor is labelled "Saved!"
         sleep 0.25
-        Hold! -key saved-alert:$view {}
+        Hold! -key saved-alert:$editor {}
     }
 }
 
 # calculate cursor position
-When /view/ is an editor with /...anything/ &\
-     /view/ has cursor /cursor/ &\
-     /view/ has selected program /program/ &\
-     view code for /program/ is /code/ &\
-     /view/ has view dimensions /dims/ &\
-     /view/ has text settings with /...textOptions/ {
-    lassign $dims vpX vpY vpWidth vpHeight
+When /editor/ is an editor with /...anything/ &\
+     editor /editor/ has cursor /cursor/ &\
+     editor /editor/ has selected program /program/ &\
+     editor buffer for /program/ is /code/ &\
+     editor /editor/ has viewport position /vpPos/ &\
+     editor /editor/ has font options with /...textOptions/ {
+    lassign $vpPos vpX vpY
 
     lassign [$utils cursorToXy $code $cursor] cursorX cursorY
 
     set textScale [dict get $textOptions scale]
-    lassign [$codeViewLib getEmAndAdvance $textScale] em advance
+    set advance [$editorLib getAdvance $textScale]
 
-    set offsetX [expr {($cursorX - $vpX) * $advance}]
-    set offsetY [expr {($cursorY - $vpY) * $em}]
+    set offsetX $(($cursorX - $vpX) * $advance)
+    set offsetY $(($cursorY - $vpY) * $textScale)
 
-    Claim $view has cursor position [list $offsetX $offsetY]
+    Claim editor $editor has cursor position [list $offsetX $offsetY]
 }
 
 # Draw text and cursor
-When /view/ is an editor with /...anything/ &\
-     /view/ has view dimensions /dims/ &\
-     /view/ has resolved geometry /geom/ &\
-     /view/ has text settings with /...textOptions/ {
-    # vp = viewport
-    lassign $dims vpX vpY vpWidth vpHeight
+When /editor/ is an editor with /...anything/ &\
+     editor /editor/ has viewport position /vpPos/ &\
+     editor /editor/ has viewport size /vpSize/ &\
+     editor /editor/ has font options with /...fontOptions/ {
+    lassign $vpPos vpX vpY
+    lassign $vpSize vpWidth vpHeight
 
-    set textScale [dict get $textOptions scale]
-    lassign [$codeViewLib getEmAndAdvance $textScale] em advance
+    set textScale [dict get $fontOptions scale]
+    set advance [$editorLib getAdvance $textScale]
 
-    When $view has selected program /program/ &\
-         view code for /program/ is /code/ &\
-         $view has cursor position /cursorPos/ {
-        set lineCount [- [llength [split $code "\n"]] $vpY]
+    When editor $editor has selected program /program/ &\
+         editor buffer for /program/ is /code/ &\
+         editor $editor has cursor position /cursorPos/ {
+        set lineCount [min [- [llength [split $code "\n"]] $vpY] $vpHeight]
         set lineNumbers [$utils lineNumberView $vpY $lineCount]
-        Wish to draw text onto $view with \
-            position [vec2 sub $margin [list [* $em 1.8] 0.0]] \
+
+        set marginLeft [lindex $margin 3]
+        set lineNumbersRight $($marginLeft + $advance*1.5)
+        Wish to draw text onto $editor with \
+            position [list $lineNumbersRight [lindex $margin 0]] \
             text $lineNumbers \
-            scale $textScale anchor topleft font NeomatrixCode
+            scale $textScale anchor topright font NeomatrixCode
 
         set text [$utils applyTextViewport $code $vpX $vpY $vpWidth $vpHeight]
-        set pos $margin
-        Wish to draw text onto $view with \
+        set pos [list [+ $lineNumbersRight $advance] [lindex $margin 0]]
+        Wish to draw text onto $editor with \
             position $pos text $text \
             scale $textScale anchor topleft font NeomatrixCode
 
         set p1 [vec2 add $cursorPos $pos]
-        set p2 [vec2 add $p1 [list 0 [expr {$em * 1.2}]]]
-        set s [expr {$textScale / 6}]
-        Wish to draw a circle onto $view with center $p1 radius $s thickness 0 color green filled true
-        Wish to draw a line onto $view with points [list $p1 $p2] width $s color green
+        set p2 [vec2 add $p1 [list 0 [* $textScale 1.2]]]
+        set s [/ $textScale 6]
+        Wish to draw a circle onto $editor with center $p1 radius $s thickness 0 color green filled true
+        Wish to draw a line onto $editor with points [list $p1 $p2] width $s color green
     }
 }
 

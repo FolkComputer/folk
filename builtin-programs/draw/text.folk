@@ -30,6 +30,12 @@ $cc proc vec2f_toObj {vec2f a} Jim_Obj* {
     Jim_Obj *v[] = { Jim_NewDoubleObj(interp, a.x), Jim_NewDoubleObj(interp, a.y) };
     return Jim_NewListObj(interp, v, 2);
 }
+$cc proc charOrFallback {Font* font int ch} int {
+    if (ch < ' ' || ch >= sizeof(font->glyphInfos)/sizeof(font->glyphInfos[0])) {
+        return '?';
+    }
+    return ch;
+}
 $cc proc textExtent {Font* font char* text float scale} vec2f {
     float em = scale;
     float x = 0; float y = 0;
@@ -39,9 +45,7 @@ $cc proc textExtent {Font* font char* text float scale} vec2f {
         if (ch == '\n') {
             y = y + em; x = 0; continue;
         }
-        if (ch >= sizeof(font->glyphInfos)/sizeof(font->glyphInfos[0])) {
-            ch = '?';
-        }
+        ch = charOrFallback(font, ch);
 
         x = x + font->glyphInfos[ch].advance * em;
         if (x > width) { width = x; }
@@ -50,37 +54,57 @@ $cc proc textExtent {Font* font char* text float scale} vec2f {
 }
 $cc proc textShape {Jim_Obj* viewport Jim_Obj* surfaceToClip
                     Font* font char* text
-                    float x0 float y0 float scale float anchorx float anchory float radians Jim_Obj* color} Jim_Obj* {
+                    float x0 float y0 float scale
+                    float blockAnchorX float blockAnchorY float lineAnchorX float lineAnchorY
+                    float radians Jim_Obj* color} Jim_Obj* {
     vec2f extent = textExtent(font, text, scale);
     float em = scale;
 
-    // The anchor origin is the top left of the text
-    float x = anchorx * extent.x;
-    float y = anchory * extent.y;
+    // The anchor origin goes from top-left (0.0) to bottom-right (1.0).
+    float blockOffsetX = -(blockAnchorX * extent.x);
+    // `lineAnchorY - 1` because the font is relative to the bottom, while we're relative to the top.
+    float blockOffsetY = -(blockAnchorY * extent.y + (lineAnchorY - 1) * em);
+    // Offset is rotated before adding (x0, y0), so that text is relative
+    // to (x0, y0).
+    vec2f rotatedBlockOffset = vec2f_rotate((vec2f) {blockOffsetX, blockOffsetY}, radians);
+    vec2f blockStart = (vec2f) { x0 + rotatedBlockOffset.x, y0 + rotatedBlockOffset.y };
 
-    // Text rendering starts from the baseline.
-    if (anchory == 0) { y = -em; }
+    // Need to get the initial line width so the line is relative to lineAnchorX. We
+    // later recalculate this whenever we hit '\n', but obviously that doesn't work at
+    // the start.
+    float lineWidth = 0.0;
+    for (int i = 0; text[i] != '\n' && text[i] != '\0'; i++) {
+        lineWidth += font->glyphInfos[charOrFallback(font, text[i])].advance * em;
+    }
 
-    vec2f offset = vec2f_rotate((vec2f){x, y}, radians);
-    vec2f p0 = (vec2f) { x0 - offset.x, y0 - offset.y };
-    vec2f p = p0;
+    Jim_Obj* finishedChars = Jim_NewListObj(interp, NULL, 0);
 
-    int lineNum = 0;
-    Jim_Obj* instances = Jim_NewListObj(interp, NULL, 0);
+    // Relative character position (relative to (0, 0), not rotated).
+    float relCharX = 0;
+    float relCharY = 0;
     for (int i = 0; text[i] != 0; i++) {
         int ch = text[i];
         if (ch == '\n') {
-            lineNum++;
-            p = vec2f_add(p0, vec2f_rotate((vec2f) {0, lineNum * em}, radians));
+            relCharX = 0;
+            relCharY += em;
+            lineWidth = 0.0;
+            for (int j = i + 1; text[j] != '\n' && text[j] != '\0'; j++) {
+                lineWidth += font->glyphInfos[charOrFallback(font, text[j])].advance * em;
+            }
             continue;
         }
-        if (ch >= sizeof(font->glyphInfos)/sizeof(font->glyphInfos[0])) {
-            ch = '?';
-        }
+
+        ch = charOrFallback(font, ch);
         GlyphInfo* glyphInfo = &font->glyphInfos[ch];
         if (ch != ' ') {
-            // Append to list of instances.
-            
+            // Calculate the absolute glyph position.
+            float lineOffsetX = -(lineAnchorX * lineWidth) - blockOffsetX;
+            // `lineOffsetY` doesn't exist, since it's already included in the `blockOffsetY` calculation.
+            vec2f rotatedLineOffset = vec2f_rotate((vec2f) { lineOffsetX, 0 }, radians);
+            vec2f combinedOffset = vec2f_add(blockStart, rotatedLineOffset);
+            vec2f charPos = vec2f_add(combinedOffset, vec2f_rotate((vec2f) { relCharX, relCharY }, radians));
+
+            // Now, we'll append the character to the list of finished characters.
             Jim_Obj* atlasv[] = {
                 // left
                 Jim_NewDoubleObj(interp, (glyphInfo->atlasBounds[0] / font->atlasImage.width)),
@@ -97,12 +121,12 @@ $cc proc textShape {Jim_Obj* viewport Jim_Obj* surfaceToClip
             float right = glyphInfo->planeBounds[2] * em;
             float top = glyphInfo->planeBounds[3] * em;
 
-            vec2f topLeft = vec2f_add(p, vec2f_rotate((vec2f) {left, -top}, radians));
-            vec2f topRight = vec2f_add(p, vec2f_rotate((vec2f) {right, -top}, radians));;
-            vec2f bottomRight = vec2f_add(p, vec2f_rotate((vec2f) {right, -bottom}, radians));;
-            vec2f bottomLeft =vec2f_add(p, vec2f_rotate((vec2f) {left, -bottom}, radians));;
+            vec2f topLeft = vec2f_add(charPos, vec2f_rotate((vec2f) {left, -top}, radians));
+            vec2f topRight = vec2f_add(charPos, vec2f_rotate((vec2f) {right, -top}, radians));
+            vec2f bottomRight = vec2f_add(charPos, vec2f_rotate((vec2f) {right, -bottom}, radians));
+            vec2f bottomLeft =vec2f_add(charPos, vec2f_rotate((vec2f) {left, -bottom}, radians));
 
-            Jim_Obj* args[] = {
+            Jim_Obj* glyphItems[] = {
                 surfaceToClip,
 
                 Jim_NewListObj(interp, atlasv, sizeof(atlasv)/sizeof(atlasv[0])),
@@ -115,12 +139,15 @@ $cc proc textShape {Jim_Obj* viewport Jim_Obj* surfaceToClip
 
                 Jim_NewIntObj(interp, font->gpuAtlasImage),
             };
-            Jim_Obj* instance = Jim_NewListObj(interp, args, sizeof(args)/sizeof(args[0]));
-            Jim_ListAppendElement(interp, instances, instance);
+            Jim_Obj* instance = Jim_NewListObj(interp, glyphItems, sizeof(glyphItems)/sizeof(glyphItems[0]));
+            Jim_ListAppendElement(interp, finishedChars, instance);
         }
-        p = vec2f_add(p, vec2f_rotate((vec2f) {glyphInfo->advance * em, 0}, radians));
+
+        // Advance to next character position.
+        relCharX += glyphInfo->advance * em;
     }
-    return instances;
+
+    return finishedChars;
 }
 set fontLib [$cc compile]
 
@@ -236,23 +263,23 @@ When the color map is /colorMap/ &\
     set layer [dict getdef $options layer 0]
 
     if {$anchor == "topleft"} {
-        set anchor [list 0 0]
+        set anchor [list 0 0 0 0]
     } elseif {$anchor == "top"} {
-        set anchor [list 0.5 0]
+        set anchor [list 0.5 0 0.5 0]
     } elseif {$anchor == "topright"} {
-        set anchor [list 1.0 0]
+        set anchor [list 1.0 0 1 0]
     } elseif {$anchor == "left"} {
-        set anchor [list 0 0.5]
+        set anchor [list 0 0.5 0 0.5]
     } elseif {$anchor == "center"} {
-        set anchor [list 0.5 0.5]
+        set anchor [list 0.5 0.5 0.5 0.5]
     } elseif {$anchor == "right"} {
-        set anchor [list 1.0 0.5]
+        set anchor [list 1.0 0.5 1 0.5]
     } elseif {$anchor == "bottomleft"} {
-        set anchor [list 0 1]
+        set anchor [list 0 1 0 1]
     } elseif {$anchor == "bottom"} {
-        set anchor [list 0.5 1]
+        set anchor [list 0.5 1 0.5 1]
     } elseif {$anchor == "bottomright"} {
-        set anchor [list 1 1]
+        set anchor [list 1 1 1 1]
     }
 
     When $p has canvas /id/ with /...wiOptions/ &\
