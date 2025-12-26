@@ -61,7 +61,7 @@ set editorLib [library create editorLib {margin defaults} {
         set advance [getAdvance $textScale]
 
         lassign [widthAndHeight $resolvedGeom] width height
-        set width $($width - [lindex $margin 3] - [lindex $margin 1])
+        set width $($width - [lindex $margin 3] - $advance*2.5 - [lindex $margin 1])
         set height $($height - [lindex $margin 0] - [lindex $margin 2])
 
         set widthInCharacters $(int($width / $advance))
