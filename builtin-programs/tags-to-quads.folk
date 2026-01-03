@@ -712,16 +712,71 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     }
 }
 
+When /tag/ has resolved geometry /geom/ {
+    When /nobody/ claims tag $tag has pair /anything/ &\
+         tag $tag has quad /q/ {
+        set pageQuad [$quadLib buffer $q \
+                    top [dict getdef $geom top 0] \
+                    right [dict getdef $geom right 0] \
+                    left [dict getdef $geom left 0] \
+                    bottom [dict getdef $geom bottom 0]]
+        Claim $tag has quad $pageQuad
+    }
 
-When /tag/ has resolved geometry /geom/ &\
-     tag /tag/ has quad /q/ {
+    When tag $tag has pair /other/ {
+        if {$tag > $other} { return }
+        When tag $tag has quad /myQuad/ {
+            When tag $other has quad /otherQuad/ {
+                local proc reconstructMatrix {quad} {
+                    package require linalg
+                    namespace import \
+                        ::math::linearalgebra::add \
+                        ::math::linearalgebra::sub \
+                        ::math::linearalgebra::scale \
+                        ::math::linearalgebra::transpose \
+                        ::math::linearalgebra::crossproduct \
+                        ::math::linearalgebra::unitLengthVector
 
-    set pageQuad [$quadLib buffer $q \
-                      top [dict getdef $geom top 0] \
-                      right [dict getdef $geom right 0] \
-                      left [dict getdef $geom left 0] \
-                      bottom [dict getdef $geom bottom 0]]
-    Claim $tag has quad $pageQuad
+                    set iHat [sub [lindex $quad 2] [lindex $quad 3]]
+                    set jHat [sub [lindex $quad 0] [lindex $quad 3]]
+                    set kHat [crossproduct $iHat $jHat]
+
+                    set matrix [transpose [list \
+                        [unitLengthVector $iHat] \
+                        [unitLengthVector $jHat] \
+                        [unitLengthVector $kHat] \
+                    ]]
+                    return $matrix
+                }
+
+                package require linalg
+                namespace import \
+                    ::math::linearalgebra::add \
+                    ::math::linearalgebra::sub \
+                    ::math::linearalgebra::dotproduct \
+                    ::math::linearalgebra::matmul \
+                    ::math::linearalgebra::getcol
+
+                set myMatrix [reconstructMatrix [lindex $myQuad 1]]
+
+                set iHat [getcol $myMatrix 0]
+                set jHat [getcol $myMatrix 1]
+
+                # A--B
+                # |  |
+                # D--C
+                set A [lindex $myQuad 1 2]
+                set C [lindex $otherQuad 1 0]
+                set diagonal [sub $C $A]
+                set width [dotproduct $diagonal $iHat]
+                set height [dotproduct $diagonal $jHat]
+                set B [add $A [scale $width $iHat]]
+                set D [add $A [scale $height $jHat]]
+
+                Claim $tag has quad [list [lindex $myQuad 0] [list $A $B $C $D]]
+            }
+        }
+    }
 }
 
 When the quad changer is /quadChange/ &\
