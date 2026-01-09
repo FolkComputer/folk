@@ -1,27 +1,27 @@
-namespace eval escpos {
-    namespace export *
-    namespace ensemble create
+When the print library is /printLib/ &\
+     the image library is /imageLib/ &\
+     the program save directory is /saveDir/ {
 
-    proc printProgram {printer id code} {
-        if {[file exists "$::env(HOME)/folk-printed-programs/$id.folk"]} {
+    fn printProgram {printer id code} {
+        if {[file exists "$saveDir/$id.folk"]} {
             error "Program $id already exists on disk. Aborting print."
         }
         writeFolkFile $id $code
-        writeGeomFile $printer $id
+        writeMetaFile $printer $id
 
         set matches [Query! /someone/ claims $printer is at /address/]
         set matchDict [lindex $matches 0]
         if {![dict exists $matchDict address]} { return }
         set address [dict get $matchDict address]
 
-        set printerSocket [socket $address 9100]
+        set printerSocket [socket stream ${address}:9100]
 
         fconfigure $printerSocket -translation binary -buffering none
         set template {
             [init]
             [tag $id]
             [feed 1]
-            $id ([clock format [clock seconds] -timezone :America/Denver -format "%a, %d %b %Y, %r"])
+            $id ([clock format [clock seconds] -format "%a, %d %b %Y, %r"])
             [feed 2]
             $code
             [feed 3]
@@ -31,52 +31,52 @@ namespace eval escpos {
         close $printerSocket
     }
 
-    proc render {template} {
+    fn render {template} {
         set trimmed [lmap line [split $template "\n"] { string trim $line }]
         set singleLine [join $trimmed ""]
         return [uplevel [list subst $singleLine]]
     }
 
-    proc writeFolkFile {id code} {
-        set folkFile [open "$::env(HOME)/folk-printed-programs/$id.folk" w]
+    fn writeFolkFile {id code} {
+        set folkFile [open "$saveDir/$id.folk" w]
         puts $folkFile $code
         close $folkFile
     }
 
-    proc writeGeomFile {printer id} {
+    fn writeMetaFile {printer id} {
         set matches [Query! /someone/ claims $printer has tag geometry /geometry/]
         set matchDict [lindex $matches 0]
         if {![dict exists $matchDict geometry]} { return }
         set geometry [dict get $matchDict geometry]
-        set metaFile [open "$::env(HOME)/folk-printed-programs/$id.meta.folk" w]
+        set metaFile [open "$saveDir/$id.meta.folk" w]
         puts $metaFile [subst {Claim tag \$this has geometry {$geometry}}]
         close $metaFile
     }
 
-    proc cut {} {
+    fn cut {} {
         return "\x1dV\x0"
     }
 
-    proc feed n {
+    fn feed n {
         return [format "\x1b\x64%c" $n]
     }
 
-    proc init {} {
+    fn init {} {
         return "\x1b\x40"
     }
 
-    proc raw number {
+    fn raw number {
         return [format "%c" $number]
     }
 
-    proc scaledAprilTag {id scale} {
-        set tagImage [::tagImageForId $id]
+    fn scaledAprilTag {id scale} {
+        set tagImage [$printLib tagImageForId $id]
         set tagBits [list]
         for {set y 0} {$y < 10} {incr y} {
             for {set i 0 } {$i < $scale} {incr i} {
                 for {set x 0} {$x < 10} {incr x} {
-                    set j [expr {$y * [image_t bytesPerRow $tagImage] + $x}]
-                    set bit [!= [image_t data $tagImage $j] 255]
+                    set j [expr {$y * [$imageLib Image_bytesPerRow $tagImage] + $x}]
+                    set bit [expr {[$imageLib Image_data $tagImage $j] != 255}]
                     lappend tagBits {*}[lrepeat $scale $bit]
                 }
             }
@@ -85,8 +85,7 @@ namespace eval escpos {
     }
 
     # scale must be divisible by 4 so width will be divisible by 8
-    proc tag {id {scale 12}} {
-        set tagImage [::tagImageForId $id]
+    fn tag {id {scale 12}} {
         set tagBits [scaledAprilTag $id $scale]
 
         set width [expr {10 * $scale}]
@@ -95,5 +94,9 @@ namespace eval escpos {
         set yH [expr {$width / 256}] ;# height in lines (high byte)
 
         return "\x1dv0\x03[raw $xL]\x00[raw $yL][raw $yH][binary format B* [join $tagBits ""]]"
+    }
+
+    Subscribe: print program /id/ on receipt printer /printer/ with code /code/ {
+        printProgram $printer $id $code
     }
 }
