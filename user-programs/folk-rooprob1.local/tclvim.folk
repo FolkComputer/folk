@@ -1,0 +1,1079 @@
+# This printed program is a keyboard with a border.
+Claim $this is a keyboard with path /dev/input/by-path/keyboard-annepro-bt
+Wish $this is outlined white
+
+# DEBUG: Page 202 is a big white table space.
+When /someone/ claims the /page/ starttime is /t/ {
+  Wish 202 is labelled "$page has starttime $t"
+}
+
+# Start of tclvim.folk code
+When /page/ is a keyboard with path /...anything/ {
+    Claim $page is a tclvim
+    Wish $page points up with length 2.0
+}
+
+# Detect target, and claim $target is editing.
+When /page/ is a keyboard with path /kbPath/ /...anything/ &\
+  /page/ is a tclvim &\
+  /page/ has region /r/ &\
+  /page/ points up at /target/ {
+  
+  Wish $target is titled "editing"
+  Wish tag $target is stabilized
+  Claim $target is editing
+  # blur out the target region to display test.
+  Wish $target draws a rect with color black filled true layer 0
+} 
+
+# Page goes out of scope ?
+When /page/ is a keyboard with path /kbPath/ /...anything/ &\
+  /page/ points up at /target/ {
+ 
+  On unmatch {
+    puts "DEBUG: page gone out of scope for kbPath"
+    Hold "buffer$kbPath" {}
+    Hold "undo_stack$kbPath" {}
+    Hold "cursor$kbPath" {}
+    Hold "mode$kbPath" {}
+    Hold "time$kbPath" {}
+    Hold "claim$kbPath" {}
+    Hold "last_key$kbPath" {}
+  }
+} 
+
+
+# Setup cursor for kbPath
+When /page/ is a keyboard with path /kbPath/ /...anything/ &\
+  /page/ is a tclvim &\
+  the clock time is /t/ {
+
+  When /nobody/ claims the $kbPath buffer is /something/ {
+    puts "DEBUG: Init empty buffer/cursor for kbPath"
+
+    Hold "buffer$kbPath" {
+      Claim the $kbPath buffer is [list ""]
+    }
+    Hold "undo_stack$kbPath" {
+      Claim the $kbPath undo_stack is [list ]
+    }
+    Hold "cursor$kbPath" {
+      Claim the $kbPath cursor is [list 0 0]
+    }
+    Hold "mode$kbPath" {
+      Claim the $kbPath mode is normal
+    }
+    Hold "time$kbPath" {
+      Claim the $kbPath starttime is $t
+    }
+    Hold "oppendng$kbPath" {
+      Claim the $kbPath operation pending is [list]
+    }
+    Hold "anim$kbPath" {}
+    Hold "last_key$kbPath" {}
+  }
+}
+
+# Load runnning code from target.
+When /page/ is a keyboard with path /kbPath/ /...anything/ &\
+  /page/ points up at /target/ &\
+  the clock time is /t/ {
+
+  When /nobody/ claims the $kbPath is editing $target & $target has program code /runningCode/ {
+    puts "DEBUG: Loading code $target into buffer"
+    
+    # transform code into list for buffer.
+    set lines [split $runningCode "\n"]
+    Hold "buffer$kbPath" {
+        Claim the $kbPath buffer is $lines
+    }
+    Hold "undo_stack$kbPath" {
+      Claim the $kbPath undo_stack is [list]
+    }
+    Hold "claim$kbPath" {
+      Claim the $kbPath is editing $target
+    }
+    Hold "cursor$kbPath" {
+      Claim the $kbPath cursor is [list 0 0]
+    }
+    Hold "mode$kbPath" {
+      Claim the $kbPath mode is normal
+    }
+    Hold "time$kbPath" {
+      Claim the $kbPath starttime is $t
+    }
+    Hold "oppending$kbPath" {
+      Claim the $kbPath operation pending is [list]
+    }
+    Hold "last_key$kbPath" {
+      Claim the $kbPath last_key is [list "" {}]
+    }
+    Hold "anim$kbPath" {}
+  }
+}
+    
+
+# Unhold the time when we are no longer live.
+# TODO investigate for completeness.
+When /page/ is a keyboard with path /kbPath/ /...anything/ {
+
+  On unmatch {
+    puts "DEBUG: OFFLINE for kbPath"
+    # Claim ths $kbPath buffer is [list ""]
+    Hold "buffer$kbPath" {}
+    Hold "undo_stack$kbPath" {}
+    Hold "cursor$kbPath" {}
+    Hold "mode$kbPath" {}
+    Hold "time$kbPath" {}
+    Hold "claim$kbPath" {}
+    Hold "oppending$kbPath" {}
+    Hold "last_key$kbPath" {}
+  }
+}
+
+proc saveUndoState {undo_stack buffer x y} {
+  lappend undo_stack [list $buffer $x $y]
+
+  return $undo_stack
+}
+proc updateCursor {oldCursor updates} {
+  set newCursor $oldCursor
+  if {[dict exists $updates x]} {
+    lset newCursor 0 [expr {max(0, [dict get $updates x] + [x $oldCursor])}]
+  }
+  if {[dict exists $updates y]} {
+    lset newCursor 1 [expr {max(0, [dict get $updates y] + [y $oldCursor])}]
+  }
+  return $newCursor
+}
+
+proc insertCharacter {lines newCharacter cursor} {
+  lassign $cursor x y
+  set x [- $x 1]
+  set line [lindex $lines $y]
+ 
+  puts "DEBUG: insertCharacter: editing line $line"
+ 
+  if {$x < 0} {
+    lset lines $y [string cat $newCharacter $line]
+    return $lines
+  } else {
+    set character [string cat [string index $line $x] $newCharacter]
+    set line [string replace $line $x $x $character]
+    lset lines $y $line
+    return $lines 
+  }
+}
+ 
+proc deleteCharacter {lines cursor} {
+  lassign $cursor x y
+  if {$x == 0 && $y > 0} {
+    set previousLine [lindex $lines [expr {$y - 1}]]
+    set thisLine [lindex $lines $y]
+    set mergedLine [string cat $previousLine $thisLine]
+    lset lines [expr {$y - 1}] $mergedLine
+    lset lines $y ""
+    set newLines {}
+    for {set i 0} {$i < [llength $lines]} {incr i} {
+      if {$i != $y} {
+        lappend newLines [lindex $lines $i]
+      }
+    }
+    set lines $newLines
+  } else {
+    set line [lindex $lines $y]
+    set line [string replace $line [expr {$x - 1}] [expr {$x - 1}] ""]
+    lset lines $y $line
+  }
+  return $lines
+}
+
+proc eraseCharacter {lines cursor} {
+  lassign $cursor x y
+  set length [getCurrentLineLength $lines $cursor]
+  set currentLine [lindex $lines $y]
+  set bufferLength [llength $lines]
+  puts "DEBUG: currentLine is $currentLine, length $length ($x, $y)"
+
+  # if x is on the line, eat the current character.
+  # if x is on the end of the line also -1
+  set line [lindex $lines $y]
+  set line [string replace $line $x $x ""]
+  lset lines $y $line
+
+  set newLength [getCurrentLineLength $lines $cursor]
+  
+  set newCursor $cursor
+  if {$x == $newLength} {
+    set newCursor [updateCursor $cursor {x -1}]
+  }
+  return [list $lines $newCursor]
+}
+
+proc deleteToBeginning {lines cursor} {
+  lassign $cursor x y
+  set line [lindex $lines $y]
+  set newLine [string range $line $x end]
+  lset lines $y $newLine
+  return $lines 
+}
+
+proc deleteLine {lines cursor} {
+  lassign $cursor x y
+  set newLines [list]
+  for {set i 0} {$i < [llength $lines]} {incr i} {
+    if {$i != $y} {
+      lappend newLines [lindex $lines $i]
+    }
+  }
+  return $newLines
+}
+ 
+proc insertNewline {lines cursor} {
+  lassign $cursor x y
+  
+  set buffer [list]
+  for {set i 0} {$i < [llength $lines]} {incr i} {
+    set line [lindex $lines $i]
+    if {$y != $i} {
+      lappend buffer $line
+      continue
+    }
+    set new_line [string range $line 0 [expr {$x - 1}]]
+    lappend buffer $new_line
+    lappend buffer [string range $line $x end]
+  }
+  return $buffer
+}
+ 
+proc insertNewlineBelowCursor {lines cursor} {
+  lassign $cursor x y
+  
+  set buffer [list]
+  for {set i 0} {$i < [llength $lines]} {incr i} {
+    set line [lindex $lines $i]
+    if {$y != $i} {
+      lappend buffer $line
+      continue
+    }
+    lappend buffer [spaces $x]
+    lappend buffer $line
+  }
+  return $buffer
+}
+ 
+proc getLineLength {lines cursor} {
+  set line [lindex $lines [lindex $cursor 1]]
+  set ll [string length $line]
+  return $ll
+}
+ 
+proc lineNumberView {ystart linecount} {
+  set yend [expr {$ystart + $linecount}]
+  set numbers [list]
+  for {set i [expr {$ystart + 1}]} {$i <= $yend} {incr i} {
+    lappend numbers $i
+  }
+  join $numbers "\n"
+}
+
+proc getCurrentLineLength {lines cursor} {
+  set currentLine [lindex $lines [y $cursor]]
+  string length $currentLine
+}
+              
+proc getFirstCharPosition {lines cursor} {
+  
+  set currentLine [lindex $lines [y $cursor]]
+  set len [string length $currentLine]
+  for {set i 0} {$i < $len} {incr i} {
+      set c [string index $currentLine $i]
+      if {$c ne " " && $c ne "\t"} {
+          puts "DEBUG: getFirstCharPosition was $i"
+          return $i
+      }
+  }
+  return 0
+}
+ 
+proc wrapLine {line width} {
+    set out {}
+    set len [string length $line]
+    if {$len == 0} {
+      # blank lines
+      lappend out $line
+    }
+    for {set i 0} {$i < $len} {incr i $width} {
+        lappend out [string range $line $i [expr {$i + $width - 1}]]
+    }
+    return $out
+}
+ 
+proc isWordChar {ch} {
+  return [regexp {\w} $ch]
+}
+ 
+proc spaces {n} {
+  return [string repeat " " $n]
+}
+ 
+proc debug {position color} {
+  Display::circle {*}$position 5 2 $color true
+}
+
+proc firesKeyUpwards {step radians x0 y0 vx vy  gravity width height} {
+
+  # vertical motion
+  set x [expr {$x0 + $vx * $step}]
+  # horizontal motion
+  set y [expr {$y0 + $vy * $step + 0.5 * $gravity * $step * $step}]
+  # puts "firesKeyUpwards: $step $x0,$y"
+  set theta [expr {$radians + 3.14159}]
+  set p [list $x0 $y0]
+  set np [list $x $y]
+  set p [vec2 add [vec2 rotate [vec2 sub $p $np] $theta] $p]
+
+  lassign $p x y
+  if {$y > $height || $x < 0 || $x > $width} {
+    return [list]
+  }
+  return [list $x $y]
+}
+
+# firesKeyUpwards keys when not pointing at a page
+When /page/ is a keyboard with path /kbPath/ /...anything/ &\
+  /page/ has region /r/ &\
+  /nobody/ is editing &\
+  /page/ fires /key/ from /startTime/ color /color/ &\
+  display /disp/ has width /displayWidth/ height /displayHeight/ &\
+  the clock time is /t/ {
+
+
+    set gravity 4000.0
+    set vx [expr {sin($t) * 500.0}]
+    set vy -3700.0
+    set FPS 2
+
+    set radians [region angle $r]
+    set origin [region centroid $r ]
+    
+    lassign $origin x0 y0
+    
+    # set step [expr {round(($t - $startTime) * $FPS) % 60}]
+    set step [expr {($t - $startTime) * $FPS }]
+    Wish 202 is labelled "step: $step"
+    if {$step >= 60} {
+      Hold "anim${key}${kbPath}" {}
+      return
+    }
+    
+    set coords [firesKeyUpwards $step $radians $x0 $y0 $vx $vy $gravity $displayWidth $displayHeight]
+    puts "DEBUG: driving the firing ${coords}"
+
+    # puts "DEBUG: computing trajectory for key $key with coords $coords"
+    if {[llength $coords] == 0} {
+        # clear the hold /page/ fires /key/
+        Hold "anim${key}${kbPath}" {}
+        return
+    }
+    # puts "DEBUG fires $key $coords"
+    set scale [expr {sin($t) + (12 * $step)}]
+    set rotate [expr {sin($t) + ($step * $radians * -3.12)}] 
+    Wish to draw text with position $coords text $key color $color scale $scale radians $rotate font NeomatrixCode layer 0
+}
+
+# Draw the buffer
+When /page/ is a keyboard with path /kbPath/ /...anything/ &\
+  /page/ is a tclvim {
+  
+  When the $kbPath buffer is /buffer/ &\
+    the $kbPath mode is /mode/ &\
+    the $kbPath cursor is /cursor/ &\
+    the $kbPath operation pending is /op/ &\
+    the $kbPath last_key is /last_key/ &\
+    /target/ is editing &\
+    /target/ has region /r/ &\
+    the clock time is /t/ {
+
+    set screen_width 50
+    set screen_height 20
+    
+    set intTime [expr {int($t * 10)}]
+    set scale 0.75
+
+    lassign [region topleft $r] xstart ystart
+    set em [expr {$scale * 25}]
+    # From NeomatrixCode.csv
+    set advance [expr {0.5859375 * $em}]
+    set margin [expr {$advance * 3 + 10}]
+
+    # code area 
+    set p [region topleft [region move $r right ${margin}px down ${margin}px]]
+    # line number area
+    set lp [region topleft [region move $r right 5px down ${margin}px]]
+
+    # status area
+    set statusRegion [region move $r down 50%  up [* $em 1]px]
+    set statusRegion [region scale $statusRegion height [* $em 2]px width 90% ]
+    Wish region $statusRegion is filled with color blue layer 1
+    set sp [region topleft [region move $statusRegion right ${em}px down [/ $em 2]px] ]
+
+
+    set height [expr {[region height $r] - 25}]
+    set width [expr {[region width $r] - ($margin + 20)}]
+    set radians [region angle $r]
+
+    # Wrap all lines and build a screen representation
+    set screen_lines {}
+    set line_map {}
+    for {set i 0} {$i < [llength $buffer]} {incr i} {
+      set logical_line [lindex $buffer $i]
+      set wrapped [wrapLine $logical_line $screen_width]
+      for {set idx 0} {$idx < [llength $wrapped]} {incr idx} {
+        set wrapped_line [lindex $wrapped $idx]
+        lappend screen_lines $wrapped_line
+        lappend line_map $i
+      }
+    }
+
+    # Convert buffer cursor into screen cursor
+    set screen_cursor_y 0
+    for {set i 0} {$i < [y $cursor]} {incr i} {
+      set logical_line [lindex $buffer $i]
+      set wrapped [wrapLine $logical_line $screen_width]
+      incr screen_cursor_y [llength $wrapped]
+    }
+    set line_fragment_index [expr {int([x $cursor]) / int($screen_width)}]
+    set screen_cursor_x [expr {[x $cursor] % $screen_width}]
+    incr screen_cursor_y [int $line_fragment_index]
+
+    # top of the viewport
+    set scroll_y 0 
+    if {$screen_cursor_y < $scroll_y} {
+      set scroll_y $screen_cursor_y
+    } elseif {$screen_cursor_y >= [expr {$scroll_y + $screen_height}]} {
+      set scroll_y [expr {$screen_cursor_y - $screen_height + 1}]
+    }
+
+    set screenCursor [list $screen_cursor_x $screen_cursor_y]
+
+    # Display cursor
+    set curs [vec2 scale $screenCursor $advance $em]
+    # limit curs $y to visible
+    lassign $curs cx cy
+    # puts "DEBUG cursor $cursor is: curs is $curs, em $em"
+    if {$cy >= [expr {$screen_height * $em}]} {
+      set cy [expr {($screen_height - 1) * $em}]
+    }
+    set curs [list $cx $cy]
+
+    set x1 [vec2 sub $p $curs]
+    set x2 [vec2 sub $x1 [list 0 [expr {$em + 4}]]]
+
+    set theta [expr {$radians + 3.14159}]
+    set x1 [vec2 add [vec2 rotate [vec2 sub $x1 $p] $theta] $p]
+    set x2 [vec2 add [vec2 rotate [vec2 sub $x2 $p] $theta] $p]
+    set s [expr {$scale * 4}]
+
+
+    # Display visible lines
+    set visibleBuffer [list]
+    set visibleLineNumbers [list]
+    for {set i 0} {$i < $screen_height} {incr i} {
+      set idx [expr {$scroll_y + $i}]
+      if {$idx < [llength $screen_lines]} {
+        set line [lindex $screen_lines $idx]
+        lappend visibleBuffer $line
+        lappend visibleLineNumbers [+ $idx 1]
+      }
+    }
+
+    Wish to draw text with position $p text [join $visibleBuffer "\n"] scale $scale anchor topleft radians [region angle $r] font NeomatrixCode layer 0
+
+    # Draw line numbers
+    set linecount [llength $buffer]
+    set linenumbers [lineNumberView 0 $linecount]
+    Wish to draw text with position $lp text [join $visibleLineNumbers "\n"] scale $scale anchor topleft radians $radians font NeomatrixCode layer 0
+ 
+    # Draw cursor
+    Wish to draw a circle with center $x1 radius $s thickness 0 color yellow filled true layer 0
+    Wish to draw a stroke with points [list $x1 $x2] width $s color green layer 0
+  
+    set ops [join $op ""]
+     
+    # Draw status line
+    Wish to draw text with position $sp text "--[string toupper $mode]-- Ln [+ [y $cursor] 1], Col [+ [x $cursor] 1] Op: ${ops} LK: ${last_key}" scale $scale anchor topleft radians $radians font NeomatrixCode layer 1
+  }
+}
+
+proc motionTarget {buffer cursor char} {
+
+    lassign $cursor x y
+
+    set motion_type "char"
+    set inclusive 0
+
+    switch -- $char {
+        zero {
+            set x 0
+        }
+        asciicircum {
+            set x [getFirstCharPosition $buffer $cursor]
+            puts "---> first char pos is $x"
+            if {$x == -1} { set x 0 }
+        }
+        dollar {
+            set line [lindex $buffer $y]
+            set x [string length $line]
+        }
+        c {
+          # treat 'cc' like 'c_' (change whole line)
+          return [list 0 $y "line" 1]
+        }
+        w {
+          set line [lindex $buffer $y]
+          set len [string length $line]
+          set i $x
+          while {$i < $len && ![isWordChar [string index $line $i]]} { incr i }
+          while {$i < $len && [isWordChar [string index $line $i]]} { incr i }
+          while {$i < $len && ![isWordChar [string index $line $i]]} { incr i }
+          if {$i < $len} {
+              set x $i
+          } elseif {$y < [expr {[llength $buffer] - 1}]} {
+              incr y
+              set x 0
+          }
+          set motion_type "char"
+          set inclusive 0
+        }
+        b {
+            set line [lindex $buffer $y]
+            set i [expr {$x - 1}]
+            while {$i >= 0 && ![isWordChar [string index $line $i]]} { incr i -1 }
+            while {$i >= 0 && [isWordChar [string index $line $i]]} { incr i -1 }
+            if {$i < 0 && $y > 0} {
+              incr y -1
+              set x [string length [lindex $buffer $y]]
+            } else {
+              set x [expr {$i + 1}]
+            }
+        }
+        e {
+          set line [lindex $buffer $y]
+          set len [string length $line]
+          set i $x
+          
+          # always advance at least one character if possible
+          if {$i < $len - 1} {
+            incr i
+          } elseif {$y < [llength $buffer]} {
+            incr y 
+            set x 0
+            set i $x
+            set line [lindex $buffer $y]
+            set len [string length $line]
+          }
+          # if currently in word, go to it's end
+          if {[isWordChar [string index $line $i]]} {
+            while {$i < $len && [isWordChar [string index $line $i]]} {
+              incr i
+            }
+            set x [expr {$i - 1}]
+          } else {
+            # we're at the end of a word, continue
+            while {$i < $len && [isWordChar [string index $line $i]]} { incr i }
+            # skip non-word chars
+            while {$i < $len && ![isWordChar [string index $line $i]]} { incr i }
+            # skip through the word
+            while {$i < $len && [isWordChar [string index $line $i]]} { incr i }
+            if {$i > 0} {
+              set x [expr {$i - 1}]
+            }
+          }
+          set motion_type "char"
+          set inclusive 1
+        }
+        default {
+            return ""
+        }
+    }
+
+    return [list $x $y $motion_type $inclusive]
+}
+
+proc applyOperator {buffer cursor op x0 y0 x1 y1 motion_type inclusive} {
+
+    # Normalize positions
+    if {$y0 > $y1 || ($y0 == $y1 && $x0 > $x1)} {
+        foreach {x0 x1} [list $x1 $x0] {}
+        foreach {y0 y1} [list $y1 $y0] {}
+    }
+
+    if {$motion_type eq "char"} {
+      # adjust for inclusive or exclusive
+      if {!$inclusive} {
+        set x1 [expr {$x1 - 1}]
+      }
+      if {$y0 == $y1} {
+          set line [lindex $buffer $y0]
+          set new_line "[string range $line 0 [expr {$x0 - 1}]]"
+          append new_line "[string range $line [expr {$x1 + 1}] end]"
+          set buffer [lreplace $buffer $y0 $y0 $new_line]
+      } else {
+          # TODO: multiline delete
+          puts "Multiline delete not yet supported"
+      }
+    } elseif {$motion_type eq "line"} {
+        set buffer [lreplace $buffer $y0 $y1]
+    }
+
+    return [list $buffer $cursor]
+}
+
+When /page/ is a keyboard with path /kbPath/ /...anything/ &\
+  /page/ is a tclvim &\
+  /nobody/ is editing {
+  # handle regular key strokes
+  
+  Every time keyboard $kbPath claims key /key/ is /keyState/ with /...options/ &\
+    the $kbPath starttime is /startTime/ &\
+    the clock time is /t/ {
+
+    set timestamp [dict get $options timestamp]
+    set colors [list red yellow orange pink green purple blue]
+    set randidx [expr {int(rand() * [llength $colors])}]
+    set color [lindex $colors $randidx]
+
+    if {$timestamp > ($startTime * 1000) && ($keyState == "down" || $keyState == "repeat")} {
+
+      if {[dict exists $options printable]} { 
+        Hold "anim${key}${kbPath}" {
+          Claim $page fires $key from $t color $color
+        }
+      }
+    }
+  }
+}
+
+# Handle input
+# When page is a keyboard and editor
+#   and codeEditor has an id
+#   and our target
+# Then we are catching key presses.
+# We're updating our Hold "cursor$kbPath" and embedded Hold "code$kbPath" (our buffer)
+
+When /page/ is a keyboard with path /kbPath/ /...anything/ &\
+  /page/ is a tclvim &\
+  /target/ is editing {
+
+  # handle regular key strokes
+  Every time keyboard $kbPath claims key /key/ is /keyState/ with /...options/ &\
+             the $kbPath buffer is /buffer/ &\
+             the $kbPath undo_stack is /undo_stack/ &\
+             the $kbPath cursor is /cursor/ &\
+             the $kbPath mode is /mode/ &\
+             the $kbPath is editing $target &\
+             the $kbPath operation pending is /op/ &\
+             the $kbPath last_key is /last_key/ &\
+             the $kbPath starttime is /startTime/ {
+
+    set timestamp [dict get $options timestamp]
+
+    if {$timestamp > ($startTime * 1000) && ($keyState == "down" || $keyState == "repeat")} {
+
+      puts "$mode Key pressed: key:$key, keyState:$keyState, options:$options startTime:$startTime timestamp:$timestamp (chk: [expr {$timestamp > ($startTime * 1000)}])"
+      
+      if {[dict exists $options printable]} { 
+        
+        if {$mode == "insert" } {
+          # INSERT mode
+
+          lassign $last_key last_key_key last_key_options
+          set last_key_timestamp [dict_getdef $last_key_options timestamp 0]
+          if {$last_key_key eq "j" && $key eq "k" && ($last_key_timestamp + 100) > $timestamp } {
+            set newCursor [updateCursor $cursor {x -1}]
+            Hold "mode$kbPath" {
+              Claim the $kbPath mode is normal
+            }
+            Hold "cursor$kbPath" {
+              Claim the $kbPath cursor is $newCursor
+            }
+            # # remove the last j
+            # Hold "cursor$kbPath" {
+            #   Claim the $kbPath cursor is [updateCursor $cursor {x -1}]
+            # }
+            # Hold "buffer$kbPath" {
+            #   Claim the $kbPath buffer is [deleteCharacter $buffer $cursor]
+            # }
+            # Hold "mode$kbPath" {
+            #   Claim the $kbPath mode is normal
+            # }
+            return
+          }
+
+          # handle tracking last key
+          Hold "last_key$kbPath" {
+            Claim the $kbPath last_key is [list $key $options]
+          }
+
+          # handle saving Undo
+          set newUndoStack [saveUndoState $undo_stack $buffer [x $cursor] [y $cursor]]
+          puts "DEBUG: newUndoStack is now [llength $newUndoStack]"
+          Hold "undo_stack$kbPath" {
+            Claim the $kbPath undo_stack is $newUndoStack
+          }
+
+          set char [dict get $options printable]
+
+          set newCursor [updateCursor $cursor {x 1}]
+          Hold "cursor$kbPath" {
+            Claim the $kbPath cursor is $newCursor
+          }
+          Hold "buffer$kbPath" {
+            Claim the $kbPath buffer is [insertCharacter $buffer [dict get $options printable] $cursor] 
+          }
+
+        } elseif {$mode == "command" } {
+        
+        } elseif {$mode == "normal" } {
+          # NORMAL mode
+          
+          # Pending operation
+          if {[llength $op] > 0} {
+
+            set pending_operation [lindex $op 0]
+
+            if {$pending_operation in {"d" "c"}} {
+              set newUndoStack [saveUndoState $undo_stack $buffer [x $cursor] [y $cursor]]
+              puts "DEBUG: newUndoStack is now [llength $newUndoStack]"
+              Hold "undo_stack$kbPath" {
+                Claim the $kbPath undo_stack is $newUndoStack
+              }
+            }            
+
+            set motion [motionTarget $buffer $cursor $key]
+            if {$motion ne ""} {
+              lassign $motion tx ty motion_type inclusive
+              set new_buffer_cursor [applyOperator $buffer $cursor $pending_operation [x $cursor] [y $cursor] $tx $ty $motion_type $inclusive]
+              lassign $new_buffer_cursor newBuffer newCursor
+
+              puts "-->newCursor is now $newCursor"
+              Hold "cursor$kbPath" {
+                Claim the $kbPath cursor is $newCursor
+              }
+              Hold "buffer$kbPath" {
+                Claim the $kbPath buffer is $newBuffer
+              }
+                
+              if {$pending_operation == "c"} {
+                Hold "mode$kbPath" {
+                  Claim the $kbPath mode is insert
+                }
+              }
+            }
+            # clear operation pending
+            Hold "oppending$kbPath" {
+              Claim the $kbPath operation pending is [list]
+            }
+
+          } else {
+
+            switch $key {
+              c - 
+              d -
+              y {
+                # change/delete/yank line
+                # set newCursor [updateCursor $cursor {y -1}]
+                # set newBuffer [deleteLine $buffer $cursor]
+                puts "debug: setting operation pending to key $key"
+                Hold "oppending$kbPath" {
+                  Claim the $kbPath operation pending is [list $key]
+                }
+              }
+              colon {
+                Hold "mode$kbPath" {
+                  Claim the $kbPath mode is command
+                }
+              }
+              zero - asciicircum - dollar - w - b - e {
+                puts "debug: now execuing motion key $key"
+                set motion [motionTarget $buffer $cursor $key]
+                lassign $motion tx ty
+                set newCursor [list $tx $ty]
+                Hold "cursor$kbPath" {
+                  Claim the $kbPath cursor is $newCursor
+                }
+              }
+              u {
+                puts "DEBUG: the undo_stack is [llength $undo_stack]" 
+                if {[llength $undo_stack] > 0} {
+                  set last [lindex $undo_stack end]
+                  set newUndoStack [lreplace $undo_stack end end]
+                  puts "DEBUG: newUndoStack is now [llength $newUndoStack]"
+                  lassign $last buffer prev_x prev_y
+
+                  puts "DEBUG: the last buffer x and y were [llength $buffer] $prev_x $prev_y"
+
+                  Hold "undo_stack$kbPath" {
+                    Claim the $kbPath undo_stack is $newUndoStack
+                  }
+
+                  Hold "buffer$kbPath" {
+                    Claim the $kbPath buffer is $buffer
+                  }
+                  
+                  set newCursor [list $prev_x $prev_y]
+                  Hold "cursor$kbPath" {
+                    Claim the $kbPath cursor is $newCursor
+                  }
+                }
+              }
+              i {
+                Hold "mode$kbPath" {
+                  Claim the $kbPath mode is insert
+                }
+              }
+              a {
+                set newCursor [updateCursor $cursor {x 1}]
+                Hold "mode$kbPath" {
+                  Claim the $kbPath mode is insert
+                }
+                Hold "cursor$kbPath" {
+                  Claim the $kbPath cursor is $newCursor
+                }
+              }
+              o {
+                set updatedCursor [updateCursor $cursor {y 1}]
+                
+                Hold "cursor$kbPath" {
+                  Claim the $kbPath cursor is $updatedCursor 
+                }
+                Hold "buffer$kbPath" {
+                  Claim the $kbPath buffer is [insertNewlineBelowCursor $buffer $updatedCursor]
+                }
+                Hold "mode$kbPath" {
+                  Claim the $kbPath mode is insert
+                }
+              }
+              O {
+                
+                Hold "buffer$kbPath" {
+                  Claim the $kbPath buffer is [insertNewlineBelowCursor $buffer $cursor]
+                }
+                Hold "mode$kbPath" {
+                  Claim the $kbPath mode is insert
+                }
+              }
+              x {
+                set buffer_cursor [eraseCharacter $buffer $cursor]
+                lassign $buffer_cursor newBuffer newCursor
+
+                Hold "buffer$kbPath" {
+                  Claim the $kbPath buffer is $newBuffer
+                }
+                Hold "cursor$kbPath" {
+                  Claim the $kbPath cursor is $newCursor
+                }
+              }
+              G {
+                lassign $cursor x y
+                set bufferLength [- [llength $buffer] 1]
+                Hold "cursor$kbPath" {
+                  Claim the $kbPath cursor is [list 0 $bufferLength]
+                }
+              }
+              h {
+                # left 
+                if {[x $cursor] == 0 && [y $cursor] == 0} {
+                  Hold "cursor$kbPath" {
+                    Claim the $kbPath cursor is $cursor
+                  }
+                } elseif {[x $cursor] == 0} {
+                  set newCursor [updateCursor $cursor {y -1}]
+                  set previousLineLength  [getCurrentLineLength $buffer $newCursor]
+                  set newCursor [list $previousLineLength [y $newCursor]]
+                  puts "movement mode for key $key: $newCursor"
+                  Hold "cursor$kbPath" {
+                    Claim the $kbPath cursor is $newCursor
+                  }
+                } else {
+                  set newCursor [updateCursor $cursor {x -1}]
+                  puts "movement mode for key $key: $newCursor"
+                  Hold "cursor$kbPath" {
+                    Claim the $kbPath cursor is $newCursor
+                  }
+                }
+              }
+              l {
+                set currentLineLength [getCurrentLineLength $buffer $cursor]
+                if {[x $cursor] == $currentLineLength} {
+                  if {[y $cursor] == [expr {[llength $buffer] - 1}]} {
+                    Hold "cursor$kbPath" {
+                      Claim the $kbPath cursor is $cursor
+                    }
+                  } else {
+                    set newCursor [updateCursor $cursor {y 1}]
+                    puts "movement mode for key $key: $newCursor"
+                    Hold "cursor$kbPath" {
+                      Claim the $kbPath cursor is [list 0 [y $newCursor]]
+                    }
+                  }
+                } else {
+                  set newCursor [updateCursor $cursor {x 1}]
+                  puts "movement mode for key $key: $newCursor"
+                  Hold "cursor$kbPath" {
+                    Claim the $kbPath cursor is $newCursor 
+                  }
+                }
+              }
+              j {
+                # down
+                set linecount [llength $buffer]
+                puts "DEBUG: buffer length: $linecount"
+                set updatedCursor [updateCursor $cursor {y 1}]
+                puts "movement mode for key $key: $updatedCursor"
+                set currentLineLength [getCurrentLineLength $buffer $updatedCursor]
+
+                if {[y $updatedCursor] == $linecount} {
+                  puts "DEBUG: limit reached: $cursor"
+                  Hold "cursor$kbPath" {
+                    Claim the $kbPath cursor is $cursor
+                  }
+                  return
+                } elseif {[x $updatedCursor] > $currentLineLength} {
+                  puts "DEBUG: need to correct X"
+                  Hold "cursor$kbPath" {
+                    Claim the $kbPath cursor is [list $currentLineLength  [y $updatedCursor]]
+                  }
+                } else {
+                  puts "DEBUG: else updated cursor"
+                  Hold "cursor$kbPath" {
+                    Claim the $kbPath cursor is $updatedCursor
+                  }
+                }
+              }
+              k {
+                # up
+                set updatedCursor [updateCursor $cursor {y -1}]
+                puts "movement mode for key $key: $updatedCursor"
+                set currentLineLength  [getCurrentLineLength $buffer $updatedCursor]
+                if {[x $updatedCursor] > $currentLineLength} {
+                  Hold "cursor$kbPath" {
+                    Claim the $kbPath cursor is [list $currentLineLength  [y $updatedCursor]]
+                  }
+                } else {
+                  Hold "cursor$kbPath" {
+                    Claim the $kbPath cursor is $updatedCursor
+                  }
+                }
+              }
+            }
+          }
+        } 
+
+      } else {
+        # non-printable character handling
+
+        if {$mode == "insert"} {
+          switch $key {
+            Escape {
+              set newCursor [updateCursor $cursor {x -1}]
+              Hold "mode$kbPath" {
+                Claim the $kbPath mode is normal
+              }
+              Hold "cursor$kbPath" {
+                Claim the $kbPath cursor is $newCursor
+              }
+            }
+            Delete {
+              # if cursor is at the beginning of the line, delete the newline
+              if {[x $cursor] == 0 && [y $cursor] > 0} {
+                set newCursor [updateCursor $cursor {y -1}]
+                set previousLineLength  [getCurrentLineLength $buffer $newCursor]
+                set newCursor [list $previousLineLength [y $newCursor]]
+                Hold "cursor$kbPath" {
+                  Claim the $kbPath cursor is $newCursor
+                }
+              } else {
+                Hold "cursor$kbPath" {
+                  Claim the $kbPath cursor is [updateCursor $cursor {x -1}]
+                }
+              }
+              Hold "buffer$kbPath" {
+                Claim the $kbPath buffer is [deleteCharacter $buffer $cursor]
+              }
+            }
+            Return {
+              set updatedCursor [updateCursor $cursor {y 1}]
+              Hold "cursor$kbPath" {
+                Claim the $kbPath cursor is [list 0 [y $updatedCursor]]
+              }
+              Hold "buffer$kbPath" {
+                Claim the $kbPath buffer is [insertNewline $buffer $cursor]
+              }
+            }
+          }
+        } elseif {$mode == "command"} {
+          switch $key {
+            Escape {
+              Hold "mode$kbPath" {
+                Claim the $kbPath mode is normal
+              }
+            }
+          }
+        } elseif {$mode == "normal"} {
+          switch $key {
+            Escape {
+              puts "DEBUG: clear operating pending"
+              Hold "oppending$kbPath" {
+                Claim the $kbPath operation pending is [list]
+              }
+            }
+            Return {
+              set linecount [llength $buffer]
+              set updatedCursor [updateCursor $cursor {y 1}]
+              puts "movement mode for key $key: $updatedCursor"
+              set currentLineLength [getCurrentLineLength $buffer $updatedCursor]
+
+              if {[y $updatedCursor] == $linecount} {
+                Hold "cursor$kbPath" {
+                  Claim the $kbPath cursor is $cursor
+                }
+                return
+              } elseif {[x $updatedCursor] > $currentLineLength} {
+                Hold "cursor$kbPath" {
+                  Claim the $kbPath cursor is [list $currentLineLength  [y $updatedCursor]]
+                }
+              } else {
+                Hold "cursor$kbPath" {
+                  Claim the $kbPath cursor is $updatedCursor
+                }
+              }
+            }
+          }
+        }
+
+        if {$key == "Control_s"} {
+          puts "-->saving to program ${target}"
+          set editorCode [join $buffer "\n"]
+          Claim $target has program code $editorCode
+
+          puts "-->writing to file ${target}"
+          set fp [open "$::env(HOME)/folk-printed-programs/${target}.folk" w]
+          puts $fp $editorCode
+          close $fp
+        }
+
+      }
+    }
+  }
+
+}
+
+When /page/ is printing /jobid/ & /page/ has region /r/ {
+  set r [region move $r left 50px]
+  lassign [region left $r] x y
+  set angle [region angle $r]
+  Wish to draw text with x $x y $y text  "Printing (jobid: $jobid)" radians [+ $angle 1.55] font NeomatrixCode
+}
+ 
