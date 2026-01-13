@@ -1,0 +1,145 @@
+fn getBoxSegments {cx cy w h thickness angleDeg} {
+    set halfW [expr {$w / 2.0}]
+    set halfH [expr {$h / 2.0}]
+    set ext [expr {$thickness / 2.0}]
+
+    # Rotation math
+    set pi 3.141592653589793
+    set angleRad [expr {$angleDeg * $pi / 180.0}]
+    set c [expr {cos($angleRad)}]
+    set s [expr {sin($angleRad)}]
+
+    # Local segment definitions (x1 y1 x2 y2)
+    # Top (extended horizontally)
+    lappend localSegs [list [expr {-$halfW - $ext}] [expr {-$halfH}] \
+                            [expr { $halfW + $ext}] [expr {-$halfH}]]
+    # Bottom (extended horizontally)
+    lappend localSegs [list [expr {-$halfW - $ext}] [expr { $halfH}] \
+                            [expr { $halfW + $ext}] [expr { $halfH}]]
+    # Left (extended vertically)
+    lappend localSegs [list [expr {-$halfW}] [expr {-$halfH - $ext}] \
+                            [expr {-$halfW}] [expr { $halfH + $ext}]]
+    # Right (extended vertically)
+    lappend localSegs [list [expr { $halfW}] [expr {-$halfH - $ext}] \
+                            [expr { $halfW}] [expr { $halfH + $ext}]]
+
+    set finalSegments [list]
+    foreach seg $localSegs {
+        lassign $seg x1 y1 x2 y2
+        
+        # Rotate P1
+        set rx1 [expr {$x1 * $c - $y1 * $s + $cx}]
+        set ry1 [expr {$x1 * $s + $y1 * $c + $cy}]
+        
+        # Rotate P2
+        set rx2 [expr {$x2 * $c - $y2 * $s + $cx}]
+        set ry2 [expr {$x2 * $s + $y2 * $c + $cy}]
+
+        lappend finalSegments [list [list $rx1 $ry1] [list $rx2 $ry2]]
+    }
+    return $finalSegments
+}
+
+Claim the getBoxSegments function is [fn getBoxSegments]
+
+When the getBoxSegments function is /getBoxSegments/ {
+    fn getBoxSegments
+
+    When /someone/ wishes /thing/ draws a square {
+        Wish $thing draws a square with [dict create]
+    }
+
+    When /someone/ wishes /thing/ draws a square with /...options/ &\
+        /thing/ has resolved geometry /geom/ {
+        
+        # 1. Defaults Calculation
+        dict with geom {
+            set defaultX [expr {$width / 2.0}]
+            try {
+                set spaceBelow [expr {$height - ($top + $tagSize)}]
+                set defaultY [expr {($top + $tagSize) + ($spaceBelow / 2.0)}]
+            } on error e {
+                set defaultY [expr {$height / 2.0}]
+            }
+            set minDim [expr {$width < $height ? $width : $height}]
+            set defaultSize [expr {$minDim / 3.0}]
+        }
+
+        # 2. Parse Options
+        set thickness [dict getdef $options thickness 0.005]
+        set color [dict getdef $options color white]
+        set size [dict getdef $options size $defaultSize]
+        set angle [dict getdef $options angle 0]
+
+        # 3. Resolve Center (Coordinate Logic)
+        set center [dict getdef $options center ""]
+        if {$center eq ""} { 
+            set x [dict getdef $options x $defaultX]
+            set y [dict getdef $options y $defaultY]
+            set center [list $x $y] 
+        }
+        lassign $center cx cy
+
+        set offsetX [dict getdef $options offsetX 0]
+        set offsetY [dict getdef $options offsetY 0]
+        set cx [expr {$cx + $offsetX}]
+        set cy [expr {$cy + $offsetY}]
+
+        # 4. Generate Segments
+        set segments [getBoxSegments $cx $cy $size $size $thickness $angle]
+
+        Wish to draw segments onto $thing with \
+            segments $segments width $thickness color $color
+    }
+
+    # --- RECTANGLE ---
+
+    When /someone/ wishes /thing/ draws a rectangle {
+        Wish $thing draws a rectangle with [dict create]
+    }
+
+    When /someone/ wishes /thing/ draws a rectangle with /...options/ &\
+        /thing/ has resolved geometry /geom/ {
+
+        # 1. Defaults Calculation
+        dict with geom {
+            set defaultX [expr {$width / 2.0}]
+            try {
+                set spaceBelow [expr {$height - ($top + $tagSize)}]
+                set defaultY [expr {($top + $tagSize) + ($spaceBelow / 2.0)}]
+            } on error e {
+                set defaultY [expr {$height / 2.0}]
+            }
+            set minDim [expr {$width < $height ? $width : $height}]
+            set defaultSize [expr {$minDim / 3.0}]
+        }
+
+        # 2. Parse Options
+        set thickness [dict getdef $options thickness 0.005]
+        set color [dict getdef $options color white]
+        set angle [dict getdef $options angle 0]
+        
+        set w [dict getdef $options width $defaultSize]
+        set h [dict getdef $options height $defaultSize]
+
+        # 3. Resolve Center (Coordinate Logic)
+        set center [dict getdef $options center ""]
+        if {$center eq ""} { 
+            set x [dict getdef $options x $defaultX]
+            set y [dict getdef $options y $defaultY]
+            set center [list $x $y] 
+        }
+        lassign $center cx cy
+
+        set offsetX [dict getdef $options offsetX 0]
+        set offsetY [dict getdef $options offsetY 0]
+        set cx [expr {$cx + $offsetX}]
+        set cy [expr {$cy + $offsetY}]
+
+        # 4. Generate Segments
+        set segments [getBoxSegments $cx $cy $w $h $thickness $angle]
+
+        Wish to draw segments onto $thing with \
+            segments $segments width $thickness color $color
+    }
+}

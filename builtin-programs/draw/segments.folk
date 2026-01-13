@@ -1,0 +1,23 @@
+When the color map is /colorMap/ &\
+     /p/ has canvas /id/ with /...wiOptions/ &\
+     /p/ has canvas projection /surfaceToClip/ &\
+     /someone/ wishes to draw segments onto /p/ with /...options/ {
+
+    set segments [dict get $options segments]
+    set width [dict get $options width]
+    set color [dict get $options color]
+    set color [dict getdef $colorMap $color $color]
+
+    set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
+    set instances [list]
+
+    foreach segment $segments {
+        set from [lindex $segment 0]
+        set to [lindex $segment 1]
+        
+        lappend instances [list $wiResolution $surfaceToClip $from $to $width $color]
+    }
+
+    Wish the GPU draws pipeline "line" onto canvas $id \
+        with instances $instances
+}
