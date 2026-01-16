@@ -369,8 +369,15 @@ $cc proc jpegDecompressGray {Jpeg jpeg int width int height int uniq} Image {
     int ret = tjDecompress2(handle, jpeg.start, jpeg.length,
                             dest.data, width, 0, height, TJPF_GRAY, 0);
     if (ret != 0) {
-        tjDestroy(handle);
-        FOLK_ERROR("cameraDecompressGray: Decompression failed: %s\n", tjGetErrorStr());
+        // Check if this is just a warning (e.g., "extraneous bytes before marker")
+        // or a fatal error. Warnings are common with webcam MJPEG streams.
+        int errCode = tjGetErrorCode(handle);
+        if (errCode == TJERR_FATAL) {
+            tjDestroy(handle);
+            FOLK_ERROR("cameraDecompressGray: Decompression failed: %s\n", tjGetErrorStr());
+        }
+        // For warnings, continue with the (possibly partially corrupted) image
+        // fprintf(stderr, "cameraDecompressGray: Warning: %s\n", tjGetErrorStr());
     }
 
     tjDestroy(handle);

@@ -203,17 +203,25 @@ $camc code {
 }
 
 $camc proc cameraFrameJpeg {Camera* camera} CameraBuffer {
-    struct timeval timeout;
-    timeout.tv_sec = 1;
-    timeout.tv_usec = 0;
-    fd_set fds;
-    FD_ZERO(&fds);
-    FD_SET(camera->fd, &fds);
-    int r = select(camera->fd + 1, &fds, 0, 0, &timeout);
-    // printf("r: %d\n", r);
-    if (r == -1) quit("select");
+    // Retry select() up to 5 times with 2 second timeout each
+    // Some cameras need time to start streaming
+    int r = 0;
+    for (int attempt = 0; attempt < 5 && r == 0; attempt++) {
+        struct timeval timeout;
+        timeout.tv_sec = 2;
+        timeout.tv_usec = 0;
+        fd_set fds;
+        FD_ZERO(&fds);
+        FD_SET(camera->fd, &fds);
+        r = select(camera->fd + 1, &fds, 0, 0, &timeout);
+        if (r == -1) quit("select");
+        if (r == 0 && attempt < 4) {
+            fprintf(stderr, "camera/usb: select timeout on fd %d, retry %d/4\n",
+                    camera->fd, attempt + 1);
+        }
+    }
     if (r == 0) {
-        FOLK_ERROR("selection failed of fd %d\n", camera->fd);
+        FOLK_ERROR("selection failed of fd %d after 5 attempts\n", camera->fd);
     }
 
     FOLK_ENSURE(camera_capture(camera) != 0);
