@@ -156,6 +156,11 @@ Wish the web server handles route "/calibrate" with hidden true handler {
 
     set camera $QUERY(camera)
 
+    # Query the camera resolution for proper aspect ratio in preview (defaults to 1920x1080)
+    set cameraOpts [dict getdef [lindex [Query! /someone/ wishes $::thisNode uses camera $camera with /...opts/] 0] opts {width 1920 height 1080}]
+    set cameraWidth [dict get $cameraOpts width]
+    set cameraHeight [dict get $cameraOpts height]
+
     upvar ^html ^html
     html [csubst {
       <html>
@@ -269,6 +274,9 @@ Claim the calibration poses max is \${calibrationPosesMax}
             <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position): <button id="refreshButton">Refresh Preview</button> <input type="checkbox" value="true" id="autoRefreshCheckbox" checked>
   <label for="autoRefreshCheckbox">Automatically refresh preview</label> </p><br> <span id="cameraPreview"></span>
             <script>
+              const cameraWidth = $cameraWidth;
+              const cameraHeight = $cameraHeight;
+
               refreshButton.onclick = function() {
                 if (typeof cameraFrame !== 'undefined') {
                   cameraFrame.src = '/camera-frame?uniq=' + Math.random();
@@ -277,8 +285,10 @@ Claim the calibration poses max is \${calibrationPosesMax}
                 }
               };
               function setupCameraPreview() {
+                const iframeWidth = 600;
+                const iframeHeight = Math.round(600 * cameraHeight / cameraWidth);
                 if (autoRefreshCheckbox.checked) {
-                  cameraPreview.innerHTML = `<iframe id="cameraView" src="/camera" width="600" height="338"></iframe>`;
+                  cameraPreview.innerHTML = `<iframe id="cameraView" src="/camera" width="\${iframeWidth}" height="\${iframeHeight}"></iframe>`;
                 } else {
                   cameraPreview.innerHTML = `<img id="cameraFrame" src="/camera-frame" style="max-width: 100%">`;
                 }
