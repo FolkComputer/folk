@@ -81,16 +81,23 @@ deps:
 		cd vendor/jimtcl && ./configure CFLAGS='-g -fno-omit-frame-pointer'; \
 	fi
 	make -C vendor/jimtcl
+
 	cmake -B vendor/apriltag/build -S vendor/apriltag -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON
 	cmake --build vendor/apriltag/build
+
 	if [ ! -f vendor/wslay/Makefile ]; then \
 		cd vendor/wslay && autoreconf -i && automake && autoconf && ./configure; \
 	fi
 	make -C vendor/wslay
+
 	if [ "$$(uname)" = "Darwin" ]; then \
 		install_name_tool -id @executable_path/vendor/apriltag/build/libapriltag.dylib vendor/apriltag/build/libapriltag.dylib; \
 		cd vendor/apriltag/build && ln -sf libapriltag.dylib libapriltag.so; \
 		install_name_tool -id @executable_path/vendor/wslay/lib/.libs/libwslay.0.dylib vendor/wslay/lib/.libs/libwslay.0.dylib; \
+	fi
+	if [ "$$(uname)" = "Linux" ]; then \
+		patchelf --set-soname "$$(pwd)/vendor/apriltag/build/libapriltag.so.3" vendor/apriltag/build/libapriltag.so.3; \
+		patchelf --set-soname "$$(pwd)/vendor/wslay/lib/.libs/libwslay.so.0" vendor/wslay/lib/.libs/libwslay.so.0 || true; \
 	fi
 
 kill-folk:
