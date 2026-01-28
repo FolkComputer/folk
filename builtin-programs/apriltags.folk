@@ -18,7 +18,7 @@ fn makeAprilTagDetector {TAG_FAMILY QUAD_DECIMATE NTHREADS} {
     $cc proc detectInit {} void {
         td = apriltag_detector_create();
         tf = ${TAG_FAMILY}_create();
-        apriltag_detector_add_family_bits(td, tf, 1);
+        apriltag_detector_add_family_bits(td, tf, 3);
         td->quad_decimate = ${QUAD_DECIMATE};
         td->nthreads = ${NTHREADS};
     }
