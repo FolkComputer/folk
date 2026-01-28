@@ -70,7 +70,7 @@ clean:
 	rm -f folk *.o vendor/tracy/public/TracyClient.o vendor/c11-queues/*.o
 distclean: clean
 	make -C vendor/jimtcl distclean
-	make -C vendor/apriltag clean
+	rm -rf vendor/apriltag/build
 
 remote-clean: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make clean'
@@ -81,13 +81,15 @@ deps:
 		cd vendor/jimtcl && ./configure CFLAGS='-g -fno-omit-frame-pointer'; \
 	fi
 	make -C vendor/jimtcl
-	make -C vendor/apriltag libapriltag.so
+	cmake -B vendor/apriltag/build -S vendor/apriltag -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON
+	cmake --build vendor/apriltag/build
 	if [ ! -f vendor/wslay/Makefile ]; then \
 		cd vendor/wslay && autoreconf -i && automake && autoconf && ./configure; \
 	fi
 	make -C vendor/wslay
 	if [ "$$(uname)" = "Darwin" ]; then \
-		install_name_tool -id @executable_path/vendor/apriltag/libapriltag.so vendor/apriltag/libapriltag.so; \
+		install_name_tool -id @executable_path/vendor/apriltag/build/libapriltag.dylib vendor/apriltag/build/libapriltag.dylib; \
+		cd vendor/apriltag/build && ln -sf libapriltag.dylib libapriltag.so; \
 		install_name_tool -id @executable_path/vendor/wslay/lib/.libs/libwslay.0.dylib vendor/wslay/lib/.libs/libwslay.0.dylib; \
 	fi
 

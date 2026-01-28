@@ -70,7 +70,7 @@ $cc proc rescaleAndUndistort {Intrinsics intr
     out[1] = y*intr.fy + intr.cy;
 }
 $cc cflags -I./vendor/apriltag
-$cc endcflags ./vendor/apriltag/libapriltag.so
+$cc endcflags ./vendor/apriltag/build/libapriltag.so
 
 $cc include <apriltag_pose.h>
 $cc include <math.h>

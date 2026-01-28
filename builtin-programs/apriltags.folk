@@ -5,7 +5,7 @@ fn makeAprilTagDetector {TAG_FAMILY QUAD_DECIMATE NTHREADS} {
     $cc extend $imageLib
 
     $cc cflags -I./vendor/apriltag
-    $cc endcflags ./vendor/apriltag/libapriltag.so
+    $cc endcflags ./vendor/apriltag/build/libapriltag.so
     $cc include <apriltag.h>
     $cc include <$TAG_FAMILY.h>
     $cc include <math.h>
