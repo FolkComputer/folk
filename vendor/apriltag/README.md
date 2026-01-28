@@ -8,8 +8,6 @@ Table of Contents
 =================
 - [Papers](#papers)
 - [Install](#install)
-  - [cmake](#cmake)
-  - [make](#make)
 - [Usage](#usage)
   - [Choosing a Tag Family](#choosing-a-tag-family)
   - [Getting Started with the Detector](#getting-started-with-the-detector)
@@ -44,8 +42,6 @@ Officially only Linux operating systems are supported, although users have had s
 
 The default installation will place headers in /usr/local/include and shared library in /usr/local/lib. It also installs a pkg-config script into /usr/local/lib/pkgconfig and will install a python wrapper if python3 is installed.
 
-## cmake
-If you have CMake installed, then do:
 ```
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --target install
@@ -65,16 +61,6 @@ to generate and compile via the ninja build script. It will be much faster than 
 
 You can omit `--target install` if you only want to use this locally without installing.
 
-## make
-Otherwise, we have a handwritten makefile you can use (be warned it will do slightly different things):
-```
-make -j
-sudo make install
-```
-
-To install to a different directory than /usr/local:
-
-    $ PREFIX=/some/path sudo make install
 
 Usage
 =====
@@ -103,11 +89,15 @@ If none of these fit your needs, generate your own custom tag family [here](http
 
     detections = detector.detect(image)
 
-Alternately you can use the AprilTag python bindings created by [duckietown](https://github.com/duckietown/apriltags3-py).
+Alternately you can use the AprilTag python bindings created by [duckietown](https://github.com/duckietown/lib-dt-apriltags).
 
 ### C
 
-    image_u8_t* im = image_u8_create_from_pnm("test.png");
+    image_u8_t* im = image_u8_create_from_pnm("test.pnm");
+    if (im == NULL) {
+        fprintf(stderr, "Failed to load pnm image.\n");
+        exit(1);
+    }
     apriltag_detector_t *td = apriltag_detector_create();
     apriltag_family_t *tf = tagStandard41h12_create();
     apriltag_detector_add_family(td, tf);
@@ -146,10 +136,9 @@ Note that this library has no external dependencies. Most applications
 will require, at minimum, a method for acquiring images.
 
 See example/opencv_demo.cc for an example of using AprilTag in C++ with OpenCV.
-This example application can be built by executing the following:
+After building the repository you can run the example opencv application with:
 
-    $ cd examples
-    $ make opencv_demo
+    $ ./build/opencv_demo
 
 Image data in a cv::Mat object can be passed to AprilTag without creating
 a deep copy. Simply create an image_u8_t header for the cv::Mat data buffer:
@@ -202,7 +191,7 @@ Note: The tag size should not be measured from the outside of the tag. The tag s
  ![The tag size is the width of the edge between the white and black borders.](tag_size_48h12.png)
 
 ### Coordinate System
-The coordinate system has the origin at the camera center. The z-axis points from the camera center out the camera lens. The x-axis is to the right in the image taken by the camera, and y is down. The tag's coordinate frame is centered at the center of the tag, with x-axis to the right, y-axis down, and z-axis into the tag.
+The coordinate system has the origin at the camera center. The z-axis points from the camera center out the camera lens. The x-axis is to the right in the image taken by the camera, and y is down. The tag's coordinate frame is centered at the center of the tag. From the viewer's perspective, the x-axis is to the right, y-axis down, and z-axis is into the tag.
 
 Debugging
 =========

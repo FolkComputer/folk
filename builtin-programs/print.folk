@@ -23,7 +23,7 @@ When the image library is /imageLib/ &\
 set cc [C]
 $cc extend $imageLib
 $cc cflags -I./vendor/apriltag -Wall -Werror
-$cc endcflags ./vendor/apriltag/libapriltag.so
+$cc endcflags ./vendor/apriltag/build/libapriltag.so
 
 $cc code {
     #include <apriltag.h>

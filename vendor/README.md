@@ -12,3 +12,4 @@ Some of these packages have been modified by us.
 - `vk_mem_alloc` is from <https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/blob/e722e57c891a8fbe3cc73ca56c19dd76be242759/include/vk_mem_alloc.h>
 - idiomorph is from
   <https://github.com/bigskysoftware/idiomorph/blob/10224e0841d4b14bead9f6fd9ac2dfa2d030b4c7/dist/idiomorph.js>
+- apriltag is from <https://github.com/AprilRobotics/apriltag/tree/c5a4fc1cc5c6edcb5929dfc3a79f167bf173f7a5>

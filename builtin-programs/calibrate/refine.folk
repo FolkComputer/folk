@@ -61,7 +61,7 @@ set NUM_TAGS_IN_MODEL 20
 
 set cc [C]
 $cc cflags -I./vendor/cmpfit -I./vendor/apriltag -Wall -Werror
-$cc endcflags ./vendor/apriltag/libapriltag.so
+$cc endcflags ./vendor/apriltag/build/libapriltag.so
 
 $cc include <math.h>
 $cc include <string.h>
