@@ -1,44 +1,152 @@
 # Need uv installed:
 #  $ curl -LsSf https://astral.sh/uv/install.sh | sh
 
+# Create C helper to send image data to pipe
+set cc [C]
+$cc include <stdint.h>
+$cc include <stdio.h>
+$cc include <string.h>
+$cc include <unistd.h>
+
+$cc struct Image {
+    uint32_t width;
+    uint32_t height;
+    int components;
+    uint32_t bytesPerRow;
+    uint64_t uniq;
+    uint8_t* data;
+}
+
+$cc proc sendImageToPipe {Image im int pipe} void {
+    // Send header: width, height, components (12 bytes, little-endian)
+    uint32_t header[3] = {im.width, im.height, (uint32_t)im.components};
+    write(pipe, header, sizeof(uint32_t)*3);
+
+    // Send raw pixel data
+    uint32_t rowSize = im.width * im.components;
+    if (im.bytesPerRow == rowSize) {
+        // Data is contiguous, send directly
+        write(pipe, im.data, rowSize * im.height);
+    } else {
+        // Need to send row by row
+        for (uint32_t y = 0; y < im.height; y++) {
+            write(pipe, im.data + y * im.bytesPerRow, rowSize);
+        }
+    }
+}
+
+set trocrLib [$cc compile]
+
 set deps [list --with transformers --with requests --with pillow --with torch --with protobuf]
-set cmd [list uvx {*}$deps python -c {
+set cmd [list uvx {*}$deps python -u -c {
 try:
     from transformers import TrOCRProcessor, VisionEncoderDecoderModel
     import os
+    import sys
+    import struct
     from PIL import Image
 
     TROCR_PATH = os.path.expanduser("~/folk-data/trocr")
     try:
         processor = TrOCRProcessor.from_pretrained(TROCR_PATH)
         model = VisionEncoderDecoderModel.from_pretrained(TROCR_PATH)
-        print("trocr: Loaded model from disk.")
+        print("trocr: Loaded model from disk.", file=sys.stderr, flush=True)
     except Exception:
-        print("trocr: Model not saved; loading from Internet.")
+        print("trocr: Model not saved; loading from Internet.", file=sys.stderr, flush=True)
         processor = TrOCRProcessor.from_pretrained("microsoft/trocr-base-handwritten")
         processor.save_pretrained(TROCR_PATH)
         model = VisionEncoderDecoderModel.from_pretrained("microsoft/trocr-base-handwritten")
         model.save_pretrained(TROCR_PATH)
-        print("trocr: Loaded model from Internet.")
+        print("trocr: Loaded model from Internet.", file=sys.stderr, flush=True)
 
-    # load image from the IAM dataset
-    image = Image.open("a01-122-02.jpg").convert("RGB")
+    print("READY", flush=True)
 
-    pixel_values = processor(image, return_tensors="pt").pixel_values
-    generated_ids = model.generate(pixel_values)
+    # Read images from stdin in binary protocol
+    # Protocol: width (4 bytes) + height (4 bytes) + components (4 bytes) + raw pixel data
+    while True:
+        print(f"trocr: Awaiting image.", file=sys.stderr, flush=True)
 
-    generated_text = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
-    print(generated_text)
+        # Read width, height, components
+        header = sys.stdin.buffer.read(12)
+        if len(header) < 12:
+            print(f"trocr: Invalid image.", file=sys.stderr, flush=True)
+            break
+
+        width, height, components = struct.unpack('<III', header)
+        print(f"trocr: Received image: {width}x{height}x{components}", file=sys.stderr, flush=True)
+
+        # Read raw pixel data
+        data_length = width * height * components
+        pixel_data = sys.stdin.buffer.read(data_length)
+        if len(pixel_data) < data_length:
+            print(f"trocr: ERROR: Expected {data_length} bytes, got {len(pixel_data)}", file=sys.stderr, flush=True)
+            break
+
+        try:
+            # Convert raw data to PIL Image
+            if components == 1:
+                mode = 'L'
+            elif components == 3:
+                mode = 'RGB'
+            else:
+                raise ValueError(f"Unsupported components: {components}")
+
+            image = Image.frombytes(mode, (width, height), pixel_data).convert("RGB")
+
+            pixel_values = processor(image, return_tensors="pt").pixel_values
+            generated_ids = model.generate(pixel_values)
+            generated_text = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+
+            print(f"trocr: Found: {generated_text}", file=sys.stderr, flush=True)
+            print(generated_text, flush=True)
+        except Exception as e:
+            print(f"trocr: ERROR: {e}", file=sys.stderr, flush=True)
+
 except Exception as e:
-    print(e)
+    print(f"trocr: FATAL: {e}", file=sys.stderr, flush=True)
     raise e
 }]
-set pipe [open "|$cmd 2>&1" r]
-fconfigure $pipe -buffering line
 
-while {[gets $pipe line] >= 0} {
-    puts $line
-    flush stdout
+# Create pipes for stdin and stdout
+lassign [pipe] stdinRead stdinWrite
+lassign [pipe] stdoutRead stdoutWrite
+
+# Get file descriptors before spawning
+set stdinWriteFd [$stdinWrite getfd]
+set stdoutReadFd [$stdoutRead getfd]
+
+# Launch subprocess with redirected stdin/stdout
+set proc [open |[list {*}$cmd <@$stdinRead >@$stdoutWrite] r]
+
+# Close the ends we don't need in parent
+close $stdinRead
+close $stdoutWrite
+
+# Configure channels
+fconfigure $stdinWrite -buffering none -blocking 1
+fconfigure $stdoutRead -buffering none -blocking 1
+
+# Block until subprocess is ready
+while {[gets $stdoutRead line] >= 0} {
+    if {[string match "READY" $line]} {
+        break
+    }
 }
 
-close $pipe
+# Create TrOCR function
+fn TrOCR {im} {
+    # Send image to subprocess
+    puts stderr "Start TrOCR"
+    $trocrLib sendImageToPipe $im $stdinWriteFd
+    puts stderr "Done TrOCR"
+
+    # Block and read result
+    # set result ""
+    # if {[gets $stdoutRead line] >= 0} {
+    #     set result $line
+    # }
+
+    # return $result
+}
+
+Claim the TrOCR function is [fn TrOCR]
