@@ -1,0 +1,44 @@
+# Need uv installed:
+#  $ curl -LsSf https://astral.sh/uv/install.sh | sh
+
+set deps [list --with transformers --with requests --with pillow --with torch --with protobuf]
+set cmd [list uvx {*}$deps python -c {
+try:
+    from transformers import TrOCRProcessor, VisionEncoderDecoderModel
+    import os
+    from PIL import Image
+
+    TROCR_PATH = os.path.expanduser("~/folk-data/trocr")
+    try:
+        processor = TrOCRProcessor.from_pretrained(TROCR_PATH)
+        model = VisionEncoderDecoderModel.from_pretrained(TROCR_PATH)
+        print("trocr: Loaded model from disk.")
+    except Exception:
+        print("trocr: Model not saved; loading from Internet.")
+        processor = TrOCRProcessor.from_pretrained("microsoft/trocr-base-handwritten")
+        processor.save_pretrained(TROCR_PATH)
+        model = VisionEncoderDecoderModel.from_pretrained("microsoft/trocr-base-handwritten")
+        model.save_pretrained(TROCR_PATH)
+        print("trocr: Loaded model from Internet.")
+
+    # load image from the IAM dataset
+    image = Image.open("a01-122-02.jpg").convert("RGB")
+
+    pixel_values = processor(image, return_tensors="pt").pixel_values
+    generated_ids = model.generate(pixel_values)
+
+    generated_text = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+    print(generated_text)
+except Exception as e:
+    print(e)
+    raise e
+}]
+set pipe [open "|$cmd 2>&1" r]
+fconfigure $pipe -buffering line
+
+while {[gets $pipe line] >= 0} {
+    puts $line
+    flush stdout
+}
+
+close $pipe
