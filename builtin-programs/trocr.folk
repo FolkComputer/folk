@@ -1,7 +1,6 @@
 # Need uv installed:
 #  $ curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Create C helper to send image data to pipe
 set cc [C]
 $cc include <stdint.h>
 $cc include <stdio.h>
@@ -17,28 +16,45 @@ $cc struct Image {
     uint8_t* data;
 }
 
-$cc proc sendImageToPipe {Image im int pipe} void {
+$cc proc ocrImage {Image im int writerFd int readerFd} char* {
     // Send header: width, height, components (12 bytes, little-endian)
     uint32_t header[3] = {im.width, im.height, (uint32_t)im.components};
-    write(pipe, header, sizeof(uint32_t)*3);
+    write(writerFd, header, sizeof(uint32_t)*3);
 
     // Send raw pixel data
     uint32_t rowSize = im.width * im.components;
     if (im.bytesPerRow == rowSize) {
         // Data is contiguous, send directly
-        write(pipe, im.data, rowSize * im.height);
+        write(writerFd, im.data, rowSize * im.height);
     } else {
         // Need to send row by row
         for (uint32_t y = 0; y < im.height; y++) {
-            write(pipe, im.data + y * im.bytesPerRow, rowSize);
+            write(writerFd, im.data + y * im.bytesPerRow, rowSize);
         }
     }
+
+    // Read length prefix (4 bytes)
+    uint32_t length;
+    if (read(readerFd, &length, sizeof(uint32_t)) != sizeof(uint32_t)) {
+        return strdup("");
+    }
+
+    // Read text data
+    char* buffer = malloc(length + 1);
+    size_t totalRead = 0;
+    while (totalRead < length) {
+        ssize_t n = read(readerFd, buffer + totalRead, length - totalRead);
+        if (n <= 0) break;
+        totalRead += n;
+    }
+    buffer[totalRead] = '\0';
+    return buffer;
 }
 
 set trocrLib [$cc compile]
 
 set deps [list --with transformers --with requests --with pillow --with torch --with protobuf]
-set cmd [list uvx {*}$deps python -u -c {
+set cmd [list $::env(HOME)/.local/bin/uvx {*}$deps python -u -c {
 try:
     from transformers import TrOCRProcessor, VisionEncoderDecoderModel
     import os
@@ -98,7 +114,13 @@ try:
             generated_text = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
 
             print(f"trocr: Found: {generated_text}", file=sys.stderr, flush=True)
-            print(generated_text, flush=True)
+
+            # Send length-prefixed result
+            text_bytes = generated_text.encode('utf-8')
+            length = len(text_bytes)
+            sys.stdout.buffer.write(struct.pack('<I', length))
+            sys.stdout.buffer.write(text_bytes)
+            sys.stdout.buffer.flush()
         except Exception as e:
             print(f"trocr: ERROR: {e}", file=sys.stderr, flush=True)
 
@@ -107,46 +129,25 @@ except Exception as e:
     raise e
 }]
 
-# Create pipes for stdin and stdout
 lassign [pipe] stdinRead stdinWrite
-lassign [pipe] stdoutRead stdoutWrite
-
-# Get file descriptors before spawning
+set stdinReadFd [$stdinRead getfd]
 set stdinWriteFd [$stdinWrite getfd]
+
+lassign [pipe] stdoutRead stdoutWrite
 set stdoutReadFd [$stdoutRead getfd]
+set stdoutWriteFd [$stdoutWrite getfd]
 
-# Launch subprocess with redirected stdin/stdout
-set proc [open |[list {*}$cmd <@$stdinRead >@$stdoutWrite] r]
+exec {*}$cmd <@$stdinRead >@$stdoutWrite 2>@stderr &
+close $stdinRead; close $stdoutWrite
 
-# Close the ends we don't need in parent
-close $stdinRead
-close $stdoutWrite
-
-# Configure channels
 fconfigure $stdinWrite -buffering none -blocking 1
 fconfigure $stdoutRead -buffering none -blocking 1
-
 # Block until subprocess is ready
 while {[gets $stdoutRead line] >= 0} {
-    if {[string match "READY" $line]} {
-        break
-    }
+    if {[string match "READY" $line]} { break }
 }
 
-# Create TrOCR function
 fn TrOCR {im} {
-    # Send image to subprocess
-    puts stderr "Start TrOCR"
-    $trocrLib sendImageToPipe $im $stdinWriteFd
-    puts stderr "Done TrOCR"
-
-    # Block and read result
-    # set result ""
-    # if {[gets $stdoutRead line] >= 0} {
-    #     set result $line
-    # }
-
-    # return $result
+    return [$trocrLib ocrImage $im $stdinWriteFd $stdoutReadFd]
 }
-
 Claim the TrOCR function is [fn TrOCR]
