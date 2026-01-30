@@ -142,7 +142,7 @@ try:
 
     # Initialize CRAFT text detector
     print("trocr: Loading CRAFT text detector...", file=sys.stderr, flush=True)
-    craft = Craft(output_dir=None, crop_type="box", cuda=use_cuda)
+    craft = Craft(output_dir=None, crop_type="box", link_threshold=0.1, cuda=use_cuda)
     print("trocr: CRAFT loaded.", file=sys.stderr, flush=True)
 
     # Load TrOCR model
