@@ -125,10 +125,14 @@ try:
     import struct
     import socket
     from PIL import Image
+    import torch
 
     SOCKET_PATH = "/tmp/trocr.sock"
 
-    # Load model
+    # Determine device
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    # Load TrOCR model
     TROCR_PATH = os.path.expanduser("~/folk-data/trocr")
     try:
         processor = TrOCRProcessor.from_pretrained(TROCR_PATH)
@@ -141,6 +145,9 @@ try:
         model = VisionEncoderDecoderModel.from_pretrained("microsoft/trocr-base-handwritten")
         model.save_pretrained(TROCR_PATH)
         print("trocr: Loaded model from Internet.", file=sys.stderr, flush=True)
+
+    model.to(device)
+    print(f"trocr: Using device: {device}", file=sys.stderr, flush=True)
 
     # Create Unix domain socket
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -187,13 +194,8 @@ try:
 
             image = Image.frombytes(mode, (width, height), pixel_data).convert("RGB")
 
-            # Save image to disk for debugging
-            # import time
-            # filename = f"/tmp/trocr-{int(time.time()*1000000)}.png"
-            # image.save(filename)
-            # print(f"trocr: Saved image to {filename}", file=sys.stderr, flush=True)
-
-            pixel_values = processor(image, return_tensors="pt").pixel_values
+            # Run TrOCR directly on the whole image
+            pixel_values = processor(image, return_tensors="pt").pixel_values.to(device)
             generated_ids = model.generate(pixel_values)
             generated_text = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
 
