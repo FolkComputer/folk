@@ -1,6 +1,8 @@
 # Need uv installed:
 #  $ curl -LsSf https://astral.sh/uv/install.sh | sh
 
+file delete /tmp/trocr.sock
+
 set cc [C]
 $cc include <stdint.h>
 $cc include <stdio.h>
@@ -126,12 +128,6 @@ try:
 
     SOCKET_PATH = "/tmp/trocr.sock"
 
-    # Remove old socket if exists
-    try:
-        os.unlink(SOCKET_PATH)
-    except FileNotFoundError:
-        pass
-
     # Load model
     TROCR_PATH = os.path.expanduser("~/folk-data/trocr")
     try:
@@ -190,6 +186,13 @@ try:
                 raise ValueError(f"Unsupported components: {components}")
 
             image = Image.frombytes(mode, (width, height), pixel_data).convert("RGB")
+
+            # Save image to disk for debugging
+            # import time
+            # filename = f"/tmp/trocr-{int(time.time()*1000000)}.png"
+            # image.save(filename)
+            # print(f"trocr: Saved image to {filename}", file=sys.stderr, flush=True)
+
             pixel_values = processor(image, return_tensors="pt").pixel_values
             generated_ids = model.generate(pixel_values)
             generated_text = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
