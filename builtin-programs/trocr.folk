@@ -6,6 +6,9 @@ $cc include <stdint.h>
 $cc include <stdio.h>
 $cc include <string.h>
 $cc include <unistd.h>
+$cc include <pthread.h>
+$cc include <sys/socket.h>
+$cc include <sys/un.h>
 
 $cc struct Image {
     uint32_t width;
@@ -16,38 +19,96 @@ $cc struct Image {
     uint8_t* data;
 }
 
-$cc proc ocrImage {Image im int writerFd int readerFd} char* {
-    // Send header: width, height, components (12 bytes, little-endian)
-    uint32_t header[3] = {im.width, im.height, (uint32_t)im.components};
-    write(writerFd, header, sizeof(uint32_t)*3);
+$cc code {
+    #define SOCKET_PATH "/tmp/trocr.sock"
 
-    // Send raw pixel data
-    uint32_t rowSize = im.width * im.components;
-    if (im.bytesPerRow == rowSize) {
-        // Data is contiguous, send directly
-        write(writerFd, im.data, rowSize * im.height);
-    } else {
-        // Need to send row by row
-        for (uint32_t y = 0; y < im.height; y++) {
-            write(writerFd, im.data + y * im.bytesPerRow, rowSize);
+    static ssize_t send_all(int sock, const void* buf, size_t len) {
+        size_t sent = 0;
+        while (sent < len) {
+            ssize_t n = send(sock, (const char*)buf + sent, len - sent, 0);
+            if (n <= 0) return -1;
+            sent += n;
         }
+        return sent;
     }
 
-    // Read length prefix (4 bytes)
-    uint32_t length;
-    if (read(readerFd, &length, sizeof(uint32_t)) != sizeof(uint32_t)) {
+    static ssize_t recv_all(int sock, void* buf, size_t len) {
+        size_t received = 0;
+        while (received < len) {
+            ssize_t n = recv(sock, (char*)buf + received, len - received, 0);
+            if (n <= 0) return -1;
+            received += n;
+        }
+        return received;
+    }
+}
+
+$cc proc ocrImage {Image im} char* {
+    // Create socket and connect
+    int sock = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (sock < 0) {
+        fprintf(stderr, "ocrImage: Failed to create socket\n");
         return strdup("");
     }
 
-    // Read text data
-    char* buffer = malloc(length + 1);
-    size_t totalRead = 0;
-    while (totalRead < length) {
-        ssize_t n = read(readerFd, buffer + totalRead, length - totalRead);
-        if (n <= 0) break;
-        totalRead += n;
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, SOCKET_PATH, sizeof(addr.sun_path) - 1);
+
+    if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        fprintf(stderr, "ocrImage: Failed to connect to socket\n");
+        close(sock);
+        return strdup("");
     }
-    buffer[totalRead] = '\0';
+
+    // Send header: width, height, components
+    uint32_t header[3] = {im.width, im.height, (uint32_t)im.components};
+    if (send_all(sock, header, sizeof(uint32_t)*3) < 0) {
+        fprintf(stderr, "ocrImage: Failed to send header\n");
+        close(sock);
+        return strdup("");
+    }
+
+    // Send pixel data
+    uint32_t rowSize = im.width * im.components;
+    if (im.bytesPerRow == rowSize) {
+        // Contiguous data
+        if (send_all(sock, im.data, rowSize * im.height) < 0) {
+            fprintf(stderr, "ocrImage: Failed to send image data\n");
+            close(sock);
+            return strdup("");
+        }
+    } else {
+        // Send row by row
+        for (uint32_t y = 0; y < im.height; y++) {
+            if (send_all(sock, im.data + y * im.bytesPerRow, rowSize) < 0) {
+                fprintf(stderr, "ocrImage: Failed to send row\n");
+                close(sock);
+                return strdup("");
+            }
+        }
+    }
+
+    // Read response length
+    uint32_t length;
+    if (recv_all(sock, &length, sizeof(uint32_t)) < 0) {
+        fprintf(stderr, "ocrImage: Failed to receive length\n");
+        close(sock);
+        return strdup("");
+    }
+
+    // Read response text
+    char* buffer = malloc(length + 1);
+    if (recv_all(sock, buffer, length) < 0) {
+        fprintf(stderr, "ocrImage: Failed to receive text\n");
+        free(buffer);
+        close(sock);
+        return strdup("");
+    }
+    buffer[length] = '\0';
+
+    close(sock);
     return buffer;
 }
 
@@ -60,8 +121,18 @@ try:
     import os
     import sys
     import struct
+    import socket
     from PIL import Image
 
+    SOCKET_PATH = "/tmp/trocr.sock"
+
+    # Remove old socket if exists
+    try:
+        os.unlink(SOCKET_PATH)
+    except FileNotFoundError:
+        pass
+
+    # Load model
     TROCR_PATH = os.path.expanduser("~/folk-data/trocr")
     try:
         processor = TrOCRProcessor.from_pretrained(TROCR_PATH)
@@ -75,31 +146,42 @@ try:
         model.save_pretrained(TROCR_PATH)
         print("trocr: Loaded model from Internet.", file=sys.stderr, flush=True)
 
+    # Create Unix domain socket
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.bind(SOCKET_PATH)
+    sock.listen(5)
+
     print("READY", flush=True)
 
-    # Read images from stdin in binary protocol
-    # Protocol: width (4 bytes) + height (4 bytes) + components (4 bytes) + raw pixel data
+    # Accept connections and process one image per connection
     while True:
-        print(f"trocr: Awaiting image.", file=sys.stderr, flush=True)
-
-        # Read width, height, components
-        header = sys.stdin.buffer.read(12)
-        if len(header) < 12:
-            print(f"trocr: Invalid image.", file=sys.stderr, flush=True)
-            break
-
-        width, height, components = struct.unpack('<III', header)
-        print(f"trocr: Received image: {width}x{height}x{components}", file=sys.stderr, flush=True)
-
-        # Read raw pixel data
-        data_length = width * height * components
-        pixel_data = sys.stdin.buffer.read(data_length)
-        if len(pixel_data) < data_length:
-            print(f"trocr: ERROR: Expected {data_length} bytes, got {len(pixel_data)}", file=sys.stderr, flush=True)
-            break
-
+        conn, _ = sock.accept()
         try:
-            # Convert raw data to PIL Image
+            # Read header (12 bytes)
+            header = conn.recv(12)
+            if len(header) < 12:
+                print("trocr: Invalid header", file=sys.stderr, flush=True)
+                conn.close()
+                continue
+
+            width, height, components = struct.unpack('<III', header)
+            print(f"trocr: Received {width}x{height}x{components}", file=sys.stderr, flush=True)
+
+            # Read pixel data
+            data_length = width * height * components
+            pixel_data = b''
+            while len(pixel_data) < data_length:
+                chunk = conn.recv(min(65536, data_length - len(pixel_data)))
+                if not chunk:
+                    break
+                pixel_data += chunk
+
+            if len(pixel_data) < data_length:
+                print(f"trocr: Incomplete data", file=sys.stderr, flush=True)
+                conn.close()
+                continue
+
+            # Process image
             if components == 1:
                 mode = 'L'
             elif components == 3:
@@ -108,46 +190,49 @@ try:
                 raise ValueError(f"Unsupported components: {components}")
 
             image = Image.frombytes(mode, (width, height), pixel_data).convert("RGB")
-
             pixel_values = processor(image, return_tensors="pt").pixel_values
             generated_ids = model.generate(pixel_values)
             generated_text = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
 
             print(f"trocr: Found: {generated_text}", file=sys.stderr, flush=True)
 
-            # Send length-prefixed result
+            # Send response
             text_bytes = generated_text.encode('utf-8')
-            length = len(text_bytes)
-            sys.stdout.buffer.write(struct.pack('<I', length))
-            sys.stdout.buffer.write(text_bytes)
-            sys.stdout.buffer.flush()
+            conn.sendall(struct.pack('<I', len(text_bytes)))
+            conn.sendall(text_bytes)
+
         except Exception as e:
             print(f"trocr: ERROR: {e}", file=sys.stderr, flush=True)
+        finally:
+            conn.close()
 
 except Exception as e:
     print(f"trocr: FATAL: {e}", file=sys.stderr, flush=True)
     raise e
 }]
 
-lassign [pipe] stdinRead stdinWrite
-set stdinReadFd [$stdinRead getfd]
-set stdinWriteFd [$stdinWrite getfd]
+# Start Python subprocess
+exec {*}$cmd 2>@stderr &
 
-lassign [pipe] stdoutRead stdoutWrite
-set stdoutReadFd [$stdoutRead getfd]
-set stdoutWriteFd [$stdoutWrite getfd]
-
-exec {*}$cmd <@$stdinRead >@$stdoutWrite 2>@stderr &
-close $stdinRead; close $stdoutWrite
-
-fconfigure $stdinWrite -buffering none -blocking 1
-fconfigure $stdoutRead -buffering none -blocking 1
-# Block until subprocess is ready
-while {[gets $stdoutRead line] >= 0} {
-    if {[string match "READY" $line]} { break }
+# Wait for READY
+set ready 0
+set timeout [expr {[clock milliseconds] + 60000}]
+while {!$ready && [clock milliseconds] < $timeout} {
+    if {[file exists /tmp/trocr.sock]} {
+        set ready 1
+    } else {
+        sleep 0.1
+    }
 }
+
+if {!$ready} {
+    error "trocr: Subprocess failed to create socket"
+}
+
+sleep 0.5
 
 fn TrOCR {im} {
-    return [$trocrLib ocrImage $im $stdinWriteFd $stdoutReadFd]
+    return [$trocrLib ocrImage $im]
 }
+
 Claim the TrOCR function is [fn TrOCR]
