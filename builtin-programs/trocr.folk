@@ -116,8 +116,11 @@ $cc proc ocrImage {Image im} char* {
 
 set trocrLib [$cc compile]
 
+set UVX "$::env(HOME)/.local/bin/uvx"
+if {![file exists $UVX]} { set UVX "uvx" }
+
 set deps [list --with transformers --with requests --with pillow --with torch --with protobuf]
-set cmd [list $::env(HOME)/.local/bin/uvx {*}$deps python -u -c {
+set cmd [list $UVX {*}$deps python -u -c {
 try:
     from transformers import TrOCRProcessor, VisionEncoderDecoderModel
     import os
