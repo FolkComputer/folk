@@ -136,13 +136,17 @@ try:
 
     SOCKET_PATH = "/tmp/trocr.sock"
 
-    # Determine device
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    use_cuda = device == "cuda"
+    # Determine device (prefer CUDA > MPS > CPU)
+    if torch.cuda.is_available():
+        device = "cuda"
+    elif torch.backends.mps.is_available():
+        device = "mps"
+    else:
+        device = "cpu"
 
     # Initialize CRAFT text detector
     print("trocr: Loading CRAFT text detector...", file=sys.stderr, flush=True)
-    craft = Craft(output_dir=None, crop_type="box", link_threshold=0.1, cuda=use_cuda)
+    craft = Craft(output_dir=None, crop_type="box", link_threshold=0.1, device=device)
     print("trocr: CRAFT loaded.", file=sys.stderr, flush=True)
 
     # Load TrOCR model
@@ -166,8 +170,6 @@ try:
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.bind(SOCKET_PATH)
     sock.listen(5)
-
-    print("READY", flush=True)
 
     # Accept connections and process one image per connection
     while True:
@@ -207,14 +209,19 @@ try:
 
             image = Image.frombytes(mode, (width, height), pixel_data).convert("RGB")
 
+            import time
+            start_total = time.time()
+
             # Convert PIL image to numpy array for CRAFT
             image_np = np.array(image)
 
             # Detect text boxes with CRAFT
+            start_craft = time.time()
             result = craft.detect_text(image_np)
             boxes = result["boxes"]
+            craft_time = time.time() - start_craft
 
-            print(f"trocr: Detected {len(boxes)} text boxes", file=sys.stderr, flush=True)
+            print(f"trocr: Detected {len(boxes)} text boxes ({craft_time:.3f}s)", file=sys.stderr, flush=True)
 
             # OCR each detected box
             texts = []
@@ -233,17 +240,21 @@ try:
                 crop = image.crop([x1, y1, x2, y2])
 
                 # Run TrOCR on the crop
+                start_ocr = time.time()
                 with torch.no_grad():
                     pixel_values = processor(crop, return_tensors="pt").pixel_values.to(device)
                     generated_ids = model.generate(pixel_values)
                     text = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
-                    texts.append(text)
-                    print(f"trocr: Box {i}: {text}", file=sys.stderr, flush=True)
+                ocr_time = time.time() - start_ocr
+
+                texts.append(text)
+                print(f"trocr: Box {i}: {text} ({ocr_time:.3f}s)", file=sys.stderr, flush=True)
 
             # Join all texts with spaces
             generated_text = " ".join(texts) if texts else ""
 
-            print(f"trocr: Final result: {generated_text}", file=sys.stderr, flush=True)
+            total_time = time.time() - start_total
+            print(f"trocr: Final result: {generated_text} ({total_time:.3f}s)", file=sys.stderr, flush=True)
 
             # Send response
             text_bytes = generated_text.encode('utf-8')
@@ -260,28 +271,31 @@ except Exception as e:
     raise e
 }]
 
-# Start Python subprocess
+# Start Python subprocess and wait for it to be ready.
 exec {*}$cmd 2>@stderr &
-
-# Wait for READY
-set ready 0
-set timeout [expr {[clock milliseconds] + 60000}]
-while {!$ready && [clock milliseconds] < $timeout} {
-    if {[file exists /tmp/trocr.sock]} {
-        set ready 1
-    } else {
-        sleep 0.1
-    }
+while true {
+    if {[file exists /tmp/trocr.sock]} { break }
+    sleep 0.1
 }
+sleep 0.5 ;# HACK: to set up server.
 
-if {!$ready} {
-    error "trocr: Subprocess failed to create socket"
-}
-
-sleep 0.5
-
-fn TrOCR {im} {
-    return [$trocrLib ocrImage $im]
-}
-
+fn TrOCR {im} { return [$trocrLib ocrImage $im] }
 Claim the TrOCR function is [fn TrOCR]
+
+# For testing from CLI:
+
+# When { source "builtin-programs/image-lib.folk" }
+# When the image library is /imageLib/ {
+#     set im [$imageLib loadPng "/Users/osnr/aux/ocrs/trocr-1769734124199024.png"]
+#     puts "OCR result 0: '[TrOCR $im]'"
+
+#     sleep 1
+
+#     set im [$imageLib loadPng "/Users/osnr/aux/ocrs/trocr-1769734234051440.png"]
+#     puts "OCR result 1: '[TrOCR $im]'"
+
+#     sleep 1
+
+#     set im [$imageLib loadPng "/Users/osnr/aux/ocrs/trocr-1769734124199024.png"]
+#     puts "OCR result 2: '[TrOCR $im]'"
+# }
