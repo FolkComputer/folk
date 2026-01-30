@@ -119,7 +119,9 @@ set trocrLib [$cc compile]
 set UVX "$::env(HOME)/.local/bin/uvx"
 if {![file exists $UVX]} { set UVX "uvx" }
 
-set deps [list --with transformers --with requests --with pillow --with torch --with protobuf]
+set deps [list --with transformers --with requests --with pillow --with torch \
+              --with protobuf --with opencv-python-headless \
+              --with "git+https://github.com/osnr/craft-text-detector.git"]
 set cmd [list $UVX {*}$deps python -u -c {
 try:
     from transformers import TrOCRProcessor, VisionEncoderDecoderModel
@@ -129,25 +131,33 @@ try:
     import socket
     from PIL import Image
     import torch
+    from craft_text_detector import Craft
+    import numpy as np
 
     SOCKET_PATH = "/tmp/trocr.sock"
 
     # Determine device
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    use_cuda = device == "cuda"
+
+    # Initialize CRAFT text detector
+    print("trocr: Loading CRAFT text detector...", file=sys.stderr, flush=True)
+    craft = Craft(output_dir=None, crop_type="box", cuda=use_cuda)
+    print("trocr: CRAFT loaded.", file=sys.stderr, flush=True)
 
     # Load TrOCR model
     TROCR_PATH = os.path.expanduser("~/folk-data/trocr")
     try:
         processor = TrOCRProcessor.from_pretrained(TROCR_PATH)
         model = VisionEncoderDecoderModel.from_pretrained(TROCR_PATH)
-        print("trocr: Loaded model from disk.", file=sys.stderr, flush=True)
+        print("trocr: Loaded TrOCR model from disk.", file=sys.stderr, flush=True)
     except Exception:
         print("trocr: Model not saved; loading from Internet.", file=sys.stderr, flush=True)
         processor = TrOCRProcessor.from_pretrained("microsoft/trocr-base-handwritten")
         processor.save_pretrained(TROCR_PATH)
         model = VisionEncoderDecoderModel.from_pretrained("microsoft/trocr-base-handwritten")
         model.save_pretrained(TROCR_PATH)
-        print("trocr: Loaded model from Internet.", file=sys.stderr, flush=True)
+        print("trocr: Loaded TrOCR model from Internet.", file=sys.stderr, flush=True)
 
     model.to(device)
     print(f"trocr: Using device: {device}", file=sys.stderr, flush=True)
@@ -197,12 +207,43 @@ try:
 
             image = Image.frombytes(mode, (width, height), pixel_data).convert("RGB")
 
-            # Run TrOCR directly on the whole image
-            pixel_values = processor(image, return_tensors="pt").pixel_values.to(device)
-            generated_ids = model.generate(pixel_values)
-            generated_text = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+            # Convert PIL image to numpy array for CRAFT
+            image_np = np.array(image)
 
-            print(f"trocr: Found: {generated_text}", file=sys.stderr, flush=True)
+            # Detect text boxes with CRAFT
+            result = craft.detect_text(image_np)
+            boxes = result["boxes"]
+
+            print(f"trocr: Detected {len(boxes)} text boxes", file=sys.stderr, flush=True)
+
+            # OCR each detected box
+            texts = []
+            for i, box in enumerate(boxes):
+                # Crop the box from the image
+                x1, y1 = int(box[0][0]), int(box[0][1])
+                x2, y2 = int(box[2][0]), int(box[2][1])
+
+                # Ensure coordinates are within image bounds
+                x1, y1 = max(0, x1), max(0, y1)
+                x2, y2 = min(width, x2), min(height, y2)
+
+                if x2 <= x1 or y2 <= y1:
+                    continue
+
+                crop = image.crop([x1, y1, x2, y2])
+
+                # Run TrOCR on the crop
+                with torch.no_grad():
+                    pixel_values = processor(crop, return_tensors="pt").pixel_values.to(device)
+                    generated_ids = model.generate(pixel_values)
+                    text = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+                    texts.append(text)
+                    print(f"trocr: Box {i}: {text}", file=sys.stderr, flush=True)
+
+            # Join all texts with spaces
+            generated_text = " ".join(texts) if texts else ""
+
+            print(f"trocr: Final result: {generated_text}", file=sys.stderr, flush=True)
 
             # Send response
             text_bytes = generated_text.encode('utf-8')
