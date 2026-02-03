@@ -13,7 +13,7 @@ Uvx method constructor args {
     set socket [$mpack zmqSocket REQ]
     $mpack zmqBind $socket $endpoint
 
-    set harnessCode {
+    set harnessCode [subst -nocommands {
 import sys
 import zmq
 import msgpack
@@ -21,8 +21,6 @@ import msgpack
 context = zmq.Context()
 socket = context.socket(zmq.REP)
 socket.connect('$endpoint')
-
-global_ns = {}
 
 while True:
     try:
@@ -35,25 +33,16 @@ while True:
         func_name = msg[0]
         args = msg[1:] if len(msg) > 1 else []
 
-        # Try to get function from globals, then builtins
-        if func_name in global_ns:
-            func = global_ns[func_name]
-        elif hasattr(__builtins__, func_name):
-            func = getattr(__builtins__, func_name)
-        else:
-            # Try to eval it (for things like 'lambda x: x + 1')
-            func = eval(func_name, global_ns)
-
+        func = getattr(__builtins__, func_name, None) or \
+            getattr(locals(), func_name, None) or \
+            getattr(globals(), func_name, None)
         result = func(*args)
-
-        # Store result back in global namespace if it's a function/class definition
-        if callable(result):
-            global_ns[func_name] = result
-
         socket.send(msgpack.packb({'status': 'ok', 'result': result}))
+
     except Exception as e:
+        print(f"python: Error: {func_name}({args}): {e}", file=sys.stderr)
         socket.send(msgpack.packb({'status': 'error', 'error': str(e)}))
-}
+}]
 
     exec $UVX --with msgpack --with pyzmq {*}$args \
         python -u -c $harnessCode 2>@stderr &
