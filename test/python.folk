@@ -1,0 +1,23 @@
+package require oo
+source lib/python.tcl
+
+set uvx [Uvx]
+
+set result [$uvx run "2 + 2"]
+puts "2 + 2 = $result"
+assert {$result == 4}
+
+set result [$uvx run "'hello' + ' world'"]
+puts "'hello' + ' world' = $result"
+assert {$result eq "hello world"}
+
+set result [$uvx run "\[1, 2, 3, 4, 5\]"]
+puts "\[1, 2, 3, 4, 5\] = $result"
+
+if {[catch {$uvx run "1/0"} err]} {
+    puts "Caught as expected: $err"
+} else {
+    error "Should have caught division by zero error"
+}
+
+Exit! 0
