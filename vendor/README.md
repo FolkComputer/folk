@@ -12,3 +12,4 @@ Some of these packages have been modified by us.
 - `vk_mem_alloc` is from <https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/blob/e722e57c891a8fbe3cc73ca56c19dd76be242759/include/vk_mem_alloc.h>
 - idiomorph is from
   <https://github.com/bigskysoftware/idiomorph/blob/10224e0841d4b14bead9f6fd9ac2dfa2d030b4c7/dist/idiomorph.js>
+- mpack is from <https://github.com/ludocode/mpack/releases/tag/v1.1.1>

@@ -2,54 +2,90 @@ set UVX "$::env(HOME)/.local/bin/uvx"
 if {![file exists $UVX]} { set UVX "uvx" }
 
 package require oo
+source lib/mpack.tcl
 
-class Uvx [list stdin "" stdout "" UVX $UVX]
+class Uvx [list \
+               UVX $UVX mpack $mpack \
+               socket "" endpoint ""]
 Uvx method constructor args {
-    lassign [pipe] stdin_read stdin_write
-    lassign [pipe] stdout_read stdout_write
+    set endpoint "ipc:///tmp/uvx-[clock milliseconds]-[expr {int(rand() * 100000)}].ipc"
 
-    set harness_code {import sys
-for line in sys.stdin:
+    set socket [$mpack zmqSocket REQ]
+    $mpack zmqBind $socket $endpoint
+
+    set harnessCode {
+import sys
+import zmq
+import msgpack
+
+context = zmq.Context()
+socket = context.socket(zmq.REP)
+socket.connect('$endpoint')
+
+global_ns = {}
+
+while True:
     try:
-        result = eval(line.strip())
-        print(f"___RESULT___{result}")
+        msg_bytes = socket.recv()
+        msg = msgpack.unpackb(msg_bytes, raw=False)
+
+        if not isinstance(msg, list) or len(msg) < 1:
+            raise ValueError('Message must be a list with at least one element')
+
+        func_name = msg[0]
+        args = msg[1:] if len(msg) > 1 else []
+
+        # Try to get function from globals, then builtins
+        if func_name in global_ns:
+            func = global_ns[func_name]
+        elif hasattr(__builtins__, func_name):
+            func = getattr(__builtins__, func_name)
+        else:
+            # Try to eval it (for things like 'lambda x: x + 1')
+            func = eval(func_name, global_ns)
+
+        result = func(*args)
+
+        # Store result back in global namespace if it's a function/class definition
+        if callable(result):
+            global_ns[func_name] = result
+
+        socket.send(msgpack.packb({'status': 'ok', 'result': result}))
     except Exception as e:
-        print(f"___ERROR___{e}")
-    print("___DONE___")
-    sys.stdout.flush()}
+        socket.send(msgpack.packb({'status': 'error', 'error': str(e)}))
+}
 
-    exec $UVX {*}$args python -u -c $harness_code <@$stdin_read >@$stdout_write 2>@stderr &
+    exec $UVX --with msgpack --with pyzmq {*}$args \
+        python -u -c $harnessCode 2>@stderr &
 
-    close $stdin_read
-    close $stdout_write
+    # Give Python time to connect
+    after 100
+}
+Uvx method call {funcName args} {
+    set msg [list $funcName {*}$args]
+    $mpack zmqSend $socket $msg
 
-    set stdin $stdin_write
-    set stdout $stdout_read
+    set response [$mpack zmqRecv $socket]
 
-    fconfigure $stdin -buffering line -blocking 1
-    fconfigure $stdout -buffering line -blocking 1
+    # Response is a dict-like list: status ok/error result/error value
+    set status_idx [lsearch $response "status"]
+    if {$status_idx == -1} {
+        error "Invalid response from Python"
+    }
+    set status [lindex $response [expr {$status_idx + 1}]]
+
+    if {$status eq "error"} {
+        set error_idx [lsearch $response "error"]
+        set error_msg [lindex $response [expr {$error_idx + 1}]]
+        error $error_msg
+    }
+
+    set result_idx [lsearch $response "result"]
+    if {$result_idx == -1} {
+        return ""
+    }
+    return [lindex $response [expr {$result_idx + 1}]]
 }
 Uvx method run {code} {
-    puts $stdin $code
-    flush $stdin
-
-    set result ""
-    set has_error 0
-
-    while {[gets $stdout line] >= 0} {
-        if {[string match "___RESULT___*" $line]} {
-            set result [string range $line 12 end]
-        } elseif {[string match "___ERROR___*" $line]} {
-            set result [string range $line 11 end]
-            set has_error 1
-        } elseif {$line eq "___DONE___"} {
-            break
-        }
-    }
-
-    if {$has_error} {
-        error $result
-    }
-
-    return $result
+    return [$self call "eval" $code]
 }
