@@ -80,9 +80,11 @@ set zmq [$cc compile]
 # Uvx class
 class Uvx [list \
                UVX $UVX zmq $zmq \
-               socket "" endpoint ""]
+               socket "" endpoint "" \
+               functions {}]
 
 Uvx method constructor args {
+    set functions [dict create]
     set endpoint "ipc:///tmp/uvx-[clock milliseconds]-[expr {int(rand() * 100000)}].ipc"
 
     set socket [$zmq zmqSocket REQ]
@@ -91,12 +93,12 @@ Uvx method constructor args {
     set harnessCode [subst -nocommands {
 import sys
 import zmq
+import json
 
 context = zmq.Context()
 socket = context.socket(zmq.REP)
 socket.connect('$endpoint')
 
-global_ns = {}
 while True:
     try:
         parts = socket.recv_multipart()
@@ -107,21 +109,26 @@ while True:
         func_name = parts[0].decode('utf-8')
         args = [part.decode('utf-8') for part in parts[1:]]
 
-        # Try to get function from globals, then builtins
-        if func_name in global_ns:
-            func = global_ns[func_name]
-        elif hasattr(__builtins__, func_name):
-            func = getattr(__builtins__, func_name)
-        else:
-            # Try to eval it
-            func = eval(func_name, global_ns)
+        # Look up function in globals, locals, or builtins
+        func = (globals().get(func_name) or
+                locals().get(func_name) or
+                getattr(__builtins__, func_name, None))
+
+        if func is None:
+            raise NameError(f"name '{func_name}' is not defined")
+
+        # For user-defined functions (not builtins), try to parse JSON arguments
+        if not hasattr(__builtins__, func_name):
+            parsed_args = []
+            for arg in args:
+                try:
+                    parsed_args.append(json.loads(arg))
+                except (json.JSONDecodeError, ValueError):
+                    # Not JSON, use as string
+                    parsed_args.append(arg)
+            args = parsed_args
 
         result = func(*args)
-
-        # Store result back in global namespace if it's callable
-        if callable(result):
-            global_ns[func_name] = result
-
         socket.send_multipart([b"ok", str(result).encode('utf-8')])
 
     except Exception as e:
@@ -136,7 +143,24 @@ while True:
 }
 
 Uvx method unknown {funcName args} {
-    set parts [list $funcName {*}$args]
+    # Check if this function has registered types
+    if {[dict exists $functions $funcName]} {
+        set funcInfo [dict get $functions $funcName]
+        set argTypes [dict get $funcInfo argTypes]
+
+        # Serialize arguments according to their JSON schemas
+        set serializedArgs {}
+        foreach schema $argTypes arg $args {
+            # Use schema as json::encode schema
+            lappend serializedArgs [json::encode $arg $schema]
+        }
+
+        set parts [list $funcName {*}$serializedArgs]
+    } else {
+        # No type info, send args as-is
+        set parts [list $funcName {*}$args]
+    }
+
     $zmq zmqSendMulti $socket $parts
 
     set response [$zmq zmqRecvMulti $socket]
@@ -147,4 +171,56 @@ Uvx method unknown {funcName args} {
 }
 Uvx method run {code} {
     return [$self unknown "eval" $code]
+}
+
+Uvx method def {funcName argSpec body} {
+    # Parse argument specification: {Type1 name1 Type2 name2 ...}
+    set argNames {}
+    set argTypes {}
+    foreach {argType argName} $argSpec {
+        lappend argNames $argName
+        lappend argTypes $argType
+    }
+
+    # Store function metadata
+    dict set functions $funcName [dict create \
+        argNames $argNames \
+        argTypes $argTypes]
+
+    # Create Python function
+    set pythonArgs [join $argNames ", "]
+    set pythonDef "def $funcName\($pythonArgs):\n"
+
+    # Strip common leading whitespace from body (like textwrap.dedent)
+    set lines [split $body "\n"]
+
+    # Find minimum indentation (excluding empty lines)
+    set minIndent 999
+    foreach line $lines {
+        if {[string trim $line] ne ""} {
+            set leadingSpaces [expr {[string length $line] - [string length [string trimleft $line]]}]
+            if {$leadingSpaces < $minIndent} {
+                set minIndent $leadingSpaces
+            }
+        }
+    }
+
+    # Remove common indentation and add function body indentation
+    set indentedBody ""
+    foreach line $lines {
+        set trimmedLine [string trim $line]
+        if {$trimmedLine ne ""} {
+            set dedented [string range $line $minIndent end]
+            append indentedBody "    $dedented\n"
+        }
+    }
+
+    # If body is empty, add pass statement
+    if {$indentedBody eq ""} {
+        set indentedBody "    pass\n"
+    }
+
+    set pythonCode "$pythonDef$indentedBody"
+
+    $self exec $pythonCode
 }
