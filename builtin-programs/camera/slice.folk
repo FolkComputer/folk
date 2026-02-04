@@ -30,12 +30,35 @@ When the image library is /imageLib/ &\
             $fWidth $fHeight $v
     }]
 
-    # Use $imageLib method to get a transformed subimage
-    lassign $vertices topLeft topRight bottomRight bottomLeft
-    set sliceWidth [::math::max [norm [sub $topRight $topLeft]] \
+    # Now, use $imageLib warpSlice to get a transformed subimage of
+    # the camera image.
+
+    lassign [$quadLib vertices $q] topLeft topRight bottomRight bottomLeft
+    # These dimensions are in meters. We have to start from these quad
+    # dimensions (not projected camera-plane dimensions) to maintain
+    # aspect ratio.
+    set quadWidth [::math::max [norm [sub $topRight $topLeft]] \
                         [norm [sub $bottomRight $bottomLeft]]]
-    set sliceHeight [::math::max [norm [sub $bottomRight $topRight]] \
-                         [norm [sub $bottomLeft $topLeft]]]
+    set quadHeight [::math::max [norm [sub $bottomRight $topRight]] \
+                        [norm [sub $bottomLeft $topLeft]]]
+
+    # Scale quadWidth and quadHeight to appropriate pixel dimensions
+    # by finding the scale factor from projected vertices
+    lassign $vertices topLeftProj topRightProj bottomRightProj bottomLeftProj
+    set projectedWidth [::math::max [norm [sub $topRightProj $topLeftProj]] \
+                            [norm [sub $bottomRightProj $bottomLeftProj]]]
+    set projectedHeight [::math::max [norm [sub $bottomRightProj $topRightProj]] \
+                             [norm [sub $bottomLeftProj $topLeftProj]]]
+
+    # Use the larger dimension to determine pixels per meter
+    set maxProjected [::math::max $projectedWidth $projectedHeight]
+    set max3D [::math::max $quadWidth $quadHeight]
+    set pixelsPerMeter [expr {$maxProjected / $max3D}]
+
+    # Scale to pixels while maintaining aspect ratio
+    set sliceWidth [expr {int($quadWidth * $pixelsPerMeter)}]
+    set sliceHeight [expr {int($quadHeight * $pixelsPerMeter)}]
+
     set slice [$imageLib warpSlice $f $vertices \
                    $sliceWidth $sliceHeight]
     Claim $p has camera slice $slice \

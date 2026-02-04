@@ -388,10 +388,8 @@ $cc proc jpegDecompressGray {Jpeg jpeg int width int height int uniq} Image {
 # Note that this returns a fresh (copied) image. imVertices are
 # coordinates in im, clockwise from top-left.
 $cc proc warpSlice {Image im double[4][2] imVertices
-                    double outwidth double outheight} Image {
-    int outW = (int)outwidth;
-    int outH = (int)outheight;
-    Image out = imageNew(outW, outH, im.components, im.uniq);
+                    int outWidth int outHeight} Image {
+    Image out = imageNew(outWidth, outHeight, im.components, im.uniq);
 
     // imVertices are clockwise from top-left: [TL, TR, BR, BL]
     double tlX = imVertices[0][0], tlY = imVertices[0][1];
@@ -400,11 +398,11 @@ $cc proc warpSlice {Image im double[4][2] imVertices
     double blX = imVertices[3][0], blY = imVertices[3][1];
 
     // For each output pixel, find corresponding source pixel using bilinear mapping
-    for (int y = 0; y < outH; y++) {
-        for (int x = 0; x < outW; x++) {
+    for (int y = 0; y < outHeight; y++) {
+        for (int x = 0; x < outWidth; x++) {
             // Normalize output coordinates to [0, 1]
-            double u = (double)x / (outW - 1);
-            double v = (double)y / (outH - 1);
+            double u = (double)x / (outWidth - 1);
+            double v = (double)y / (outHeight - 1);
 
             // Bilinear interpolation in quad space
             // Top edge: lerp between TL and TR
