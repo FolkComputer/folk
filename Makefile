@@ -110,6 +110,7 @@ sync:
 		--archive --delete --itemize-changes \
 		--exclude='/.git' \
 		--exclude-from='.git/ignores.tmp' \
+		--exclude='vendor/tracy/public/TracyClient.o' \
 		--include='vendor/tracy/public/***' \
 		--exclude='vendor/tracy/*' \
 		./ $(FOLK_REMOTE_NODE):~/folk/
