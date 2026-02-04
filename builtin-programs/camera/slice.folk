@@ -15,40 +15,31 @@ When the image library is /imageLib/ &\
      /p/ has quad /q/ {
     fn quadChange
 
+    package require linalg
+    namespace import \
+        ::math::linearalgebra::sub \
+        ::math::linearalgebra::norm \
+
     set fWidth [$imageLib Image_width $f]
     set fHeight [$imageLib Image_height $f]
 
     # Convert quad to camera coordinates
     set q [quadChange $q $cam]
-    set minX 10000; set minY 10000
-    set maxX -10000; set maxY -10000
-    foreach v [$quadLib vertices $q] {
-        lassign [$poseLib project $cameraIntrinsics \
-                     $fWidth $fHeight \
-                     $v] cx cy
-        if {$cx < $minX} { set minX $cx }
-        if {$cx > $maxX} { set maxX $cx }
-        if {$cy < $minY} { set minY $cy }
-        if {$cy > $maxY} { set maxY $cy }
-    }
+    set vertices [lmap v [$quadLib vertices $q] {
+        $poseLib project $cameraIntrinsics \
+            $fWidth $fHeight $v
+    }]
 
-    # Clamp to image bounds
-    if {$minX < 0} { set minX 0 }
-    if {$maxX < 0} { set maxX 0 }
-    if {$minY < 0} { set minY 0 }
-    if {$maxY < 0} { set maxY 0 }
-    if {$minX >= $fWidth} { set minX [- $fWidth 1] }
-    if {$maxX >= $fWidth} { set maxX [- $fWidth 1] }
-    if {$minY >= $fHeight} { set minY [- $fHeight 1] }
-    if {$maxY >= $fHeight} { set maxY [- $fHeight 1] }
-
-    set w [expr {$maxX - $minX}]
-    set h [expr {$maxY - $minY}]
-    if {$w <= 0 || $h <= 0} { return }
-
-    # Extract and claim the image for the page
-    set subimage [$imageLib subimage $f $minX $minY $w $h]
-    Claim $p has camera slice $subimage
+    # Use $imageLib method to get a transformed subimage
+    lassign $vertices topLeft topRight bottomRight bottomLeft
+    set sliceWidth [::math::max [norm [sub $topRight $topLeft]] \
+                        [norm [sub $bottomRight $bottomLeft]]]
+    set sliceHeight [::math::max [norm [sub $bottomRight $topRight]] \
+                         [norm [sub $bottomLeft $topLeft]]]
+    set slice [$imageLib warpSlice $f $vertices \
+                   $sliceWidth $sliceHeight]
+    Claim $p has camera slice $slice \
+        -destructor [list $imageLib imageFree $slice]
 }
 
 # Auto-trigger callback for `when has camera slice` statements
