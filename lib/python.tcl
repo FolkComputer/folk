@@ -39,6 +39,20 @@ $cc proc zmqConnect {void* socket char* endpoint} int {
     return zmq_connect(socket, endpoint);
 }
 
+$cc proc zmqSend {void* socket char* data int flags} int {
+    return zmq_send(socket, data, strlen(data), flags);
+}
+
+$cc proc zmqSendMore {void* socket char* data} int {
+    return zmq_send(socket, data, strlen(data), ZMQ_SNDMORE);
+}
+
+$cc proc zmqSendBytes {void* socket Jim_Obj* data int flags} int {
+    int len;
+    const char *bytes = Jim_GetString(data, &len);
+    return zmq_send(socket, bytes, len, flags);
+}
+
 $cc proc zmqSendMulti {void* socket Jim_Obj* parts} void {
     int len = Jim_ListLength(interp, parts);
     for (int i = 0; i < len; i++) {
@@ -81,10 +95,12 @@ set zmq [$cc compile]
 class Uvx [list \
                UVX $UVX zmq $zmq \
                socket "" endpoint "" \
-               functions {}]
+               functions {} \
+               argtypes {}]
 
 Uvx method constructor args {
     set functions [dict create]
+    set argtypes [dict create]
     set endpoint "ipc:///tmp/uvx-[clock milliseconds]-[expr {int(rand() * 100000)}].ipc"
 
     set socket [$zmq zmqSocket REQ]
@@ -143,25 +159,52 @@ while True:
 }
 
 Uvx method unknown {funcName args} {
+    # Send function name first
+    if {[llength $args] > 0} {
+        $zmq zmqSendMore $socket $funcName
+    } else {
+        $zmq zmqSend $socket $funcName 0
+    }
+
     # Check if this function has registered types
     if {[dict exists $functions $funcName]} {
         set funcInfo [dict get $functions $funcName]
         set argTypes [dict get $funcInfo argTypes]
 
-        # Serialize arguments according to their JSON schemas
-        set serializedArgs {}
+        # Send each argument according to its type
+        set numArgs [llength $args]
+        set i 0
         foreach schema $argTypes arg $args {
-            # Use schema as json::encode schema
-            lappend serializedArgs [json::encode $arg $schema]
+            incr i
+            set isLast [expr {$i == $numArgs}]
+            set flags [expr {$isLast ? 0 : 0x01}]
+
+            # Check if this is a custom argtype
+            if {[dict exists $argtypes $schema]} {
+                set serializerCode [dict get $argtypes $schema]
+                # Evaluate the serializer code with $arg, $socket, $flags, and $zmq in scope
+                set zmq $zmq
+                set socket $socket
+                set arg $arg
+                set flags $flags
+                eval $serializerCode
+            } else {
+                # Use JSON encoding
+                set encoded [json::encode $arg $schema]
+                $zmq zmqSendBytes $socket $encoded $flags
+            }
         }
-
-        set parts [list $funcName {*}$serializedArgs]
     } else {
-        # No type info, send args as-is
-        set parts [list $funcName {*}$args]
+        # No type info, send args as strings
+        set numArgs [llength $args]
+        set i 0
+        foreach arg $args {
+            incr i
+            set isLast [expr {$i == $numArgs}]
+            set flags [expr {$isLast ? 0 : 0x01}]
+            $zmq zmqSend $socket $arg $flags
+        }
     }
-
-    $zmq zmqSendMulti $socket $parts
 
     set response [$zmq zmqRecvMulti $socket]
 
@@ -171,6 +214,10 @@ Uvx method unknown {funcName args} {
 }
 Uvx method run {code} {
     return [$self unknown "eval" $code]
+}
+
+Uvx method argtype {typeName serializer} {
+    dict set argtypes $typeName $serializer
 }
 
 Uvx method def {funcName argSpec body} {
