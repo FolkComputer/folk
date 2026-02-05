@@ -97,7 +97,7 @@ deps:
 	fi
 	if [ "$$(uname)" = "Linux" ]; then \
 		patchelf --set-soname "$$(pwd)/vendor/apriltag/build/libapriltag.so.3" vendor/apriltag/build/libapriltag.so.3; \
-		patchelf --set-soname "$$(pwd)/vendor/wslay/lib/.libs/libwslay.so.0" vendor/wslay/lib/.libs/libwslay.so.0 || true; \
+		patchelf --set-soname "$$(pwd)/vendor/wslay/lib/.libs/libwslay.so.0" vendor/wslay/lib/.libs/libwslay.so.0; \
 	fi
 
 kill-folk:
