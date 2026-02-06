@@ -1,5 +1,4 @@
 package require oo
-source lib/python.tcl
 
 set uvx [Uvx]
 

@@ -825,6 +825,8 @@ if {[__isTracyEnabled]} {
 
 signal handle SIGUSR1
 
+source "lib/python.tcl"
+
 # For backward-compatibility:
 proc Assert {args} {
     puts stderr "Warning: Assert with no ! is deprecated: trying to [list Assert {*}$args]"

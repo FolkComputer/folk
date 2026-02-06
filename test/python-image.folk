@@ -1,0 +1,18 @@
+When { source builtin-programs/image-lib.folk }
+When the image library is /imageLib/ &\
+     the image uvx argtype definer is /defineImageArgtype/ {
+    set im [$imageLib loadPng "vendor/fonts/CourierPrimeCode.png"]
+
+    fn defineImageArgtype
+
+    set uvx [Uvx new --with pillow]
+    defineImageArgtype $uvx
+
+    $uvx def saveToDisk {Image im} {
+        import tempfile
+        fd, path = tempfile.mkstemp(suffix='.png')
+        im.save(path)
+        return path
+    }
+    puts [$uvx saveToDisk $im]
+}

@@ -128,7 +128,7 @@ while True:
             for argtype in fn_argtypes:
                 if argtype in registered_argtypes:
                     # Use registered deserializer, giving it direct socket access
-                    deserialized = argtypes[arg_type](socket)
+                    deserialized = registered_argtypes[argtype](socket)
                     parsed_args.append(deserialized)
                 else:
                     # Standard JSON decode
@@ -178,6 +178,7 @@ Uvx method unknown {fnName args} {
             # Check if this is a custom argtype
             if {[dict exists $registeredArgtypes $schema]} {
                 set serializerCode [dict get $registeredArgtypes $schema]
+                puts "zmq ($zmq) socket ($socket) arg ($arg) sc ($serializerCode)"
                 apply [list {zmq socket arg} $serializerCode] $zmq $socket $arg
             } else {
                 # Use JSON encoding
@@ -205,18 +206,10 @@ Uvx method run {code} {
 }
 
 Uvx method argtype {typeName serializer deserializer} {
-    # Store the Tcl serializer
+    # Store the Tcl serializer:
     dict set registeredArgtypes $typeName $serializer
-
-    # Register the Python deserializer with Python
-    $zmq zmqSendMore $socket "__register_argtype__"
-    $zmq zmqSendMore $socket $typeName
-    $zmq zmqSendMore $socket $deserializer
-    $zmq zmqSend $socket "" 0
-
-    set response [$zmq zmqRecvMulti $socket]
-    lassign $response status value
-    if {$status eq "error"} { error $value }
+    # Store the Python deserializer:
+    $self __register_argtype__ $typeName $deserializer
 }
 
 Uvx method def {fnName argSpec body} {
@@ -235,10 +228,6 @@ Uvx method def {fnName argSpec body} {
 
     # Register function signature with Python
     $self __register_function__ $fnName {*}$argTypes
-
-    set response [$zmq zmqRecvMulti $socket]
-    lassign $response status value
-    if {$status eq "error"} { error $value }
 
     # Create Python function
     set pythonArgs [join $argNames ", "]

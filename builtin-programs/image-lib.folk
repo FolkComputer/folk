@@ -443,16 +443,52 @@ $cc proc warpSlice {Image im double[4][2] imVertices
 set imageLib [$cc compile]
 Claim the image library is $imageLib
 
-Claim the image uvx argtype definer is [fn defineImageArgtype {uvx} {
-    $uvx argtype Image {
-        # $arg is the Image struct
-        # $socket is the ZMQ socket
-        # $flags is the send flags
-        # $zmq is the zmq command object
+fn defineImageArgtype {uvx} {
+    set cc [C]
+    $cc extend $imageLib
+    $cc endcflags -lzmq
+    $cc include <zmq.h>
+    $cc proc zmqSendImage {void* socket Image im} void {
+        // Image must be contiguous for now (TODO: copy if not)
+        FOLK_ENSURE(im.bytesPerRow == im.width * im.components);
 
-        $zmq zmqSendMore $socket [$imageLib Image_width $arg]
-        $zmq zmqSendMore $socket [$imageLib Image_height $arg]
-        $zmq zmqSendMore $socket [$imageLib Image_components $arg]
-        $zmq zmqSendBytes $socket [$imageLib Image_data $arg] $dataObj $flags
+        zmq_send(socket, &im.width, sizeof(im.width), ZMQ_SNDMORE);
+        zmq_send(socket, &im.height, sizeof(im.height), ZMQ_SNDMORE);
+        zmq_send(socket, &im.components, sizeof(im.components), ZMQ_SNDMORE);
+        zmq_send(socket, &im.bytesPerRow, sizeof(im.bytesPerRow), ZMQ_SNDMORE);
+
+        size_t dataLen = im.height * im.bytesPerRow;
+        zmq_send(socket, im.data, dataLen, ZMQ_SNDMORE);
     }
-}]
+    set lib [$cc compile]
+
+    $uvx argtype Image "$lib zmqSendImage \$socket \$arg" {
+        import struct
+        from PIL import Image
+        import numpy as np
+
+        # Receive image properties
+        width = struct.unpack('I', socket.recv())[0]
+        height = struct.unpack('I', socket.recv())[0]
+        components = struct.unpack('i', socket.recv())[0]
+        bytesPerRow = struct.unpack('I', socket.recv())[0]
+
+        # Receive image data
+        data = socket.recv()
+
+        # Convert to numpy array
+        arr = np.frombuffer(data, dtype=np.uint8)
+        arr = arr.reshape((height, width, components))
+
+        # Convert to PIL Image
+        if components == 1:
+            img = Image.fromarray(arr[:, :, 0], mode='L')
+        elif components == 3:
+            img = Image.fromarray(arr, mode='RGB')
+        else:
+            raise ValueError(f"Unsupported number of components: {components}")
+
+        return img
+    }
+}
+Claim the image uvx argtype definer is [fn defineImageArgtype]
