@@ -5,7 +5,7 @@ When the image library is /imageLib/ &\
 
     fn defineImageArgtype
 
-    set uvx [Uvx new --with pillow]
+    set uvx [Uvx --with pillow]
     defineImageArgtype $uvx
 
     $uvx def saveToDisk {Image im} {

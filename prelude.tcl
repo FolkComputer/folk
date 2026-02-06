@@ -3,6 +3,7 @@ stdout buffering line
 lappend ::auto_path "./vendor"
 source "lib/c.tcl"
 source "lib/math.tcl"
+source "lib/text.tcl"
 
 proc unknown {cmdName args} {
     if {[regexp {<C:([^ ]+)>} $cmdName -> cid]} {
@@ -247,40 +248,6 @@ namespace eval ::library {
         return "<library:$tclfile>"
     }
     namespace ensemble create
-}
-
-namespace eval ::math {
-    proc min {args} {
-        if {[llength $args] == 0} { error "min: No args" }
-        set min infinity
-        foreach arg $args { if {$arg < $min} { set min $arg } }
-        return $min
-    }
-    proc max {args} {
-        if {[llength $args] == 0} { error "max: No args" }
-        set max -infinity
-        foreach arg $args { if {$arg > $max} { set max $arg } }
-        return $max
-    }
-    proc mean {val args} {
-        set sum $val
-        set N [ expr { [ llength $args ] + 1 } ]
-        foreach val $args {
-            set sum [ expr { $sum + $val } ]
-        }
-        set mean [expr { double($sum) / $N }]
-    }
-    proc sin {x} { expr {sin($x)} }
-    proc cos {x} { expr {cos($x)} }
-}
-namespace import ::math::*
-
-proc lseq count {
-    set ret [list]
-    for {set i 0} {$i < $count} {incr i} {
-        lappend ret $i
-    }
-    return $ret
 }
 
 proc baretime body { string map {" microseconds per iteration" ""} [uplevel [list time $body]] }

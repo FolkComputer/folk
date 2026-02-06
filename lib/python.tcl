@@ -2,6 +2,7 @@ set UVX "$::env(HOME)/.local/bin/uvx"
 if {![file exists $UVX]} { set UVX "uvx" }
 
 package require oo
+source lib/text.tcl
 
 set cc [C]
 $cc endcflags -lzmq
@@ -78,6 +79,9 @@ class Uvx [list \
                socket "" endpoint "" \
                functions [dict create] \
                registeredArgtypes [dict create]]
+
+# HACK: so that we can call `Uvx` instead of `Uvx new`
+proc {Uvx --with} args { tailcall Uvx new --with {*}$args }
 
 Uvx method constructor args {
     set endpoint "ipc:///tmp/uvx-[clock milliseconds]-[expr {int(rand() * 100000)}].ipc"
@@ -200,9 +204,8 @@ Uvx method unknown {fnName args} {
     if {$status eq "error"} { error $value }
     return $value
 }
-Uvx method run {code} {
-    return [$self unknown "eval" $code]
-}
+Uvx method exec {code} { return [$self unknown "exec" [undent $code]] }
+Uvx method eval {code} { return [$self unknown "eval" $code] }
 
 Uvx method argtype {typeName serializer deserializer} {
     # Store the Tcl serializer:
@@ -210,7 +213,6 @@ Uvx method argtype {typeName serializer deserializer} {
     # Store the Python deserializer:
     $self __register_argtype__ $typeName $deserializer
 }
-
 Uvx method def {fnName argSpec body} {
     # Parse argument specification: {Type1 name1 Type2 name2 ...}
     set argNames {}
@@ -232,32 +234,12 @@ Uvx method def {fnName argSpec body} {
     set pythonArgs [join $argNames ", "]
     set pythonDef "def $fnName\($pythonArgs):\n"
 
-    # Strip common leading whitespace from body (like textwrap.dedent)
-    set lines [split $body "\n"]
-
-    # Find minimum indentation (excluding empty lines)
-    set minIndent 999
-    foreach line $lines {
-        if {[string trim $line] ne ""} {
-            set leadingSpaces [expr {[string length $line] - [string length [string trimleft $line]]}]
-            if {$leadingSpaces < $minIndent} {
-                set minIndent $leadingSpaces
-            }
-        }
-    }
-
-    # Remove common indentation and add function body indentation
-    set indentedBody ""
-    foreach line $lines {
-        set trimmedLine [string trim $line]
-        if {$trimmedLine ne ""} {
-            set dedented [string range $line $minIndent end]
-            append indentedBody "    $dedented\n"
-        }
-    }
+    # Strip common leading whitespace and add function body indentation
+    set dedented [undent $body]
+    set indentedBody [indent $dedented "    "]
 
     # If body is empty, add pass statement
-    if {$indentedBody eq ""} {
+    if {[string trim $indentedBody] eq ""} {
         set indentedBody "    pass\n"
     }
 
