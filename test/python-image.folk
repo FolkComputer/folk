@@ -14,5 +14,6 @@ When the image library is /imageLib/ &\
         im.save(path)
         return path
     }
-    puts [$uvx saveToDisk $im]
+    $uvx saveToDisk $im
+    Exit! 0
 }

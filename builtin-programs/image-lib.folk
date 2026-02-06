@@ -465,7 +465,6 @@ fn defineImageArgtype {uvx} {
     $uvx argtype Image "$lib zmqSendImage \$socket \$arg" {
         import struct
         from PIL import Image
-        import numpy as np
 
         # Receive image properties
         width = struct.unpack('I', socket.recv())[0]
@@ -476,15 +475,11 @@ fn defineImageArgtype {uvx} {
         # Receive image data
         data = socket.recv()
 
-        # Convert to numpy array
-        arr = np.frombuffer(data, dtype=np.uint8)
-        arr = arr.reshape((height, width, components))
-
-        # Convert to PIL Image
+        # Convert to PIL Image directly from buffer
         if components == 1:
-            img = Image.fromarray(arr[:, :, 0], mode='L')
+            img = Image.frombuffer('L', (width, height), data, 'raw', 'L', bytesPerRow, 1)
         elif components == 3:
-            img = Image.fromarray(arr, mode='RGB')
+            img = Image.frombuffer('RGB', (width, height), data, 'raw', 'RGB', bytesPerRow, 1)
         else:
             raise ValueError(f"Unsupported number of components: {components}")
 

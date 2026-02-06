@@ -178,7 +178,6 @@ Uvx method unknown {fnName args} {
             # Check if this is a custom argtype
             if {[dict exists $registeredArgtypes $schema]} {
                 set serializerCode [dict get $registeredArgtypes $schema]
-                puts "zmq ($zmq) socket ($socket) arg ($arg) sc ($serializerCode)"
                 apply [list {zmq socket arg} $serializerCode] $zmq $socket $arg
             } else {
                 # Use JSON encoding
