@@ -42,27 +42,8 @@ $cc proc zmqConnect {void* socket char* endpoint} int {
 $cc proc zmqSend {void* socket char* data int flags} int {
     return zmq_send(socket, data, strlen(data), flags);
 }
-
 $cc proc zmqSendMore {void* socket char* data} int {
     return zmq_send(socket, data, strlen(data), ZMQ_SNDMORE);
-}
-
-$cc proc zmqSendBytes {void* socket Jim_Obj* data int flags} int {
-    int len;
-    const char *bytes = Jim_GetString(data, &len);
-    return zmq_send(socket, bytes, len, flags);
-}
-
-$cc proc zmqSendMulti {void* socket Jim_Obj* parts} void {
-    int len = Jim_ListLength(interp, parts);
-    for (int i = 0; i < len; i++) {
-        Jim_Obj *part = Jim_ListGetIndex(interp, parts, i);
-        int partLen;
-        const char *partStr = Jim_GetString(part, &partLen);
-
-        int flags = (i < len - 1) ? ZMQ_SNDMORE : 0;
-        zmq_send(socket, partStr, partLen, flags);
-    }
 }
 
 $cc proc zmqRecvMulti {void* socket} Jim_Obj* {
@@ -95,18 +76,16 @@ set zmq [$cc compile]
 class Uvx [list \
                UVX $UVX zmq $zmq \
                socket "" endpoint "" \
-               functions {} \
-               argtypes {}]
+               functions [dict create] \
+               registeredArgtypes [dict create]]
 
 Uvx method constructor args {
-    set functions [dict create]
-    set argtypes [dict create]
     set endpoint "ipc:///tmp/uvx-[clock milliseconds]-[expr {int(rand() * 100000)}].ipc"
 
     set socket [$zmq zmqSocket REQ]
     $zmq zmqBind $socket $endpoint
 
-    set harnessCode [subst -nocommands {
+    set harnessCode [subst -nocommands -nobackslashes {
 import sys
 import zmq
 import json
@@ -115,40 +94,67 @@ context = zmq.Context()
 socket = context.socket(zmq.REP)
 socket.connect('$endpoint')
 
+# Storage for argtype deserializers and function signatures
+registered_argtypes = {}
+def __register_argtype__(type_name, deserializer_code):
+    # Store deserializer as a function that takes socket
+    # Indent the deserializer code and wrap in a function
+    indented = '\n'.join('    ' + line for line in deserializer_code.split('\n'))
+    func_code = f"def _deserialize_{type_name}(socket):\n{indented}"
+    exec(func_code, globals())
+    registered_argtypes[type_name] = globals()[f'_deserialize_{type_name}']
+
+fn_signatures = {}
+def __register_function__(fn_name, *fn_argtypes):
+    fn_signatures[fn_name] = fn_argtypes
+
 while True:
     try:
-        parts = socket.recv_multipart()
-
-        if len(parts) < 1:
-            raise ValueError('Message must have at least one part (function name)')
-
-        func_name = parts[0].decode('utf-8')
-        args = [part.decode('utf-8') for part in parts[1:]]
+        # Read function name
+        fn_name = socket.recv().decode('utf-8')
 
         # Look up function in globals, locals, or builtins
-        func = (globals().get(func_name) or
-                locals().get(func_name) or
-                getattr(__builtins__, func_name, None))
+        func = (globals().get(fn_name) or
+                locals().get(fn_name) or
+                getattr(__builtins__, fn_name, None))
 
         if func is None:
-            raise NameError(f"name '{func_name}' is not defined")
+            raise NameError(f"name '{fn_name}' is not defined")
 
-        # For user-defined functions (not builtins), try to parse JSON arguments
-        if not hasattr(__builtins__, func_name):
-            parsed_args = []
-            for arg in args:
-                try:
-                    parsed_args.append(json.loads(arg))
-                except (json.JSONDecodeError, ValueError):
-                    # Not JSON, use as string
-                    parsed_args.append(arg)
-            args = parsed_args
+        # Parse arguments based on function signature if available
+        parsed_args = []
+        if fn_name in fn_signatures:
+            fn_argtypes = fn_signatures[fn_name]
+            for argtype in fn_argtypes:
+                if argtype in registered_argtypes:
+                    # Use registered deserializer, giving it direct socket access
+                    deserialized = argtypes[arg_type](socket)
+                    parsed_args.append(deserialized)
+                else:
+                    # Standard JSON decode
+                    arg = socket.recv()
+                    try:
+                        parsed_args.append(json.loads(arg))
+                    except (json.JSONDecodeError, ValueError):
+                        parsed_args.append(arg)
+            # Consume terminator
+            socket.recv()
+        else:
+            # No signature info, read until terminator
+            # Pass arguments as strings without JSON parsing for safety
+            more = socket.getsockopt(zmq.RCVMORE)
+            while more:
+                arg = socket.recv()
+                more = socket.getsockopt(zmq.RCVMORE)
+                if more or len(arg) > 0:  # Not the terminator
+                    parsed_args.append(arg.decode('utf-8'))
 
-        result = func(*args)
+        result = func(*parsed_args)
         socket.send_multipart([b"ok", str(result).encode('utf-8')])
 
     except Exception as e:
-        socket.send_multipart([b"error", str(e).encode('utf-8')])
+        import traceback
+        socket.send_multipart([b"error", traceback.format_exc().encode('utf-8')])
 }]
 
     exec $UVX --with pyzmq {*}$args \
@@ -158,53 +164,35 @@ while True:
     after 100
 }
 
-Uvx method unknown {funcName args} {
+Uvx method unknown {fnName args} {
     # Send function name first
-    if {[llength $args] > 0} {
-        $zmq zmqSendMore $socket $funcName
-    } else {
-        $zmq zmqSend $socket $funcName 0
-    }
+    $zmq zmqSendMore $socket $fnName
 
     # Check if this function has registered types
-    if {[dict exists $functions $funcName]} {
-        set funcInfo [dict get $functions $funcName]
+    if {[dict exists $functions $fnName]} {
+        set funcInfo [dict get $functions $fnName]
         set argTypes [dict get $funcInfo argTypes]
 
         # Send each argument according to its type
-        set numArgs [llength $args]
-        set i 0
         foreach schema $argTypes arg $args {
-            incr i
-            set isLast [expr {$i == $numArgs}]
-            set flags [expr {$isLast ? 0 : 0x01}]
-
             # Check if this is a custom argtype
-            if {[dict exists $argtypes $schema]} {
-                set serializerCode [dict get $argtypes $schema]
-                # Evaluate the serializer code with $arg, $socket, $flags, and $zmq in scope
-                set zmq $zmq
-                set socket $socket
-                set arg $arg
-                set flags $flags
-                eval $serializerCode
+            if {[dict exists $registeredArgtypes $schema]} {
+                set serializerCode [dict get $registeredArgtypes $schema]
+                apply [list {zmq socket arg} $serializerCode] $zmq $socket $arg
             } else {
                 # Use JSON encoding
                 set encoded [json::encode $arg $schema]
-                $zmq zmqSendBytes $socket $encoded $flags
+                $zmq zmqSendMore $socket $encoded
             }
         }
+        
     } else {
         # No type info, send args as strings
-        set numArgs [llength $args]
-        set i 0
-        foreach arg $args {
-            incr i
-            set isLast [expr {$i == $numArgs}]
-            set flags [expr {$isLast ? 0 : 0x01}]
-            $zmq zmqSend $socket $arg $flags
-        }
+        foreach arg $args { $zmq zmqSendMore $socket $arg }
     }
+
+    # Send terminator.
+    $zmq zmqSend $socket "" 0
 
     set response [$zmq zmqRecvMulti $socket]
 
@@ -216,11 +204,22 @@ Uvx method run {code} {
     return [$self unknown "eval" $code]
 }
 
-Uvx method argtype {typeName serializer} {
-    dict set argtypes $typeName $serializer
+Uvx method argtype {typeName serializer deserializer} {
+    # Store the Tcl serializer
+    dict set registeredArgtypes $typeName $serializer
+
+    # Register the Python deserializer with Python
+    $zmq zmqSendMore $socket "__register_argtype__"
+    $zmq zmqSendMore $socket $typeName
+    $zmq zmqSendMore $socket $deserializer
+    $zmq zmqSend $socket "" 0
+
+    set response [$zmq zmqRecvMulti $socket]
+    lassign $response status value
+    if {$status eq "error"} { error $value }
 }
 
-Uvx method def {funcName argSpec body} {
+Uvx method def {fnName argSpec body} {
     # Parse argument specification: {Type1 name1 Type2 name2 ...}
     set argNames {}
     set argTypes {}
@@ -230,13 +229,20 @@ Uvx method def {funcName argSpec body} {
     }
 
     # Store function metadata
-    dict set functions $funcName [dict create \
+    dict set functions $fnName [dict create \
         argNames $argNames \
         argTypes $argTypes]
 
+    # Register function signature with Python
+    $self __register_function__ $fnName {*}$argTypes
+
+    set response [$zmq zmqRecvMulti $socket]
+    lassign $response status value
+    if {$status eq "error"} { error $value }
+
     # Create Python function
     set pythonArgs [join $argNames ", "]
-    set pythonDef "def $funcName\($pythonArgs):\n"
+    set pythonDef "def $fnName\($pythonArgs):\n"
 
     # Strip common leading whitespace from body (like textwrap.dedent)
     set lines [split $body "\n"]
