@@ -1,30 +1,38 @@
-set py [Uvx --with pillow --with "git+https://github.com/osnr/craft-text-detector.git"]
-$py exec {
-    import torch
-    from craft_text_detector import Craft
+When the image uvx argtype definer is /defineImageArgtype/ {
+    fn defineImageArgtype
 
-    if torch.cuda.is_available():
-        device = "cuda"
-    elif torch.backends.mps.is_available():
-        device = "mps"
-    else:
-        device = "cpu"
+    set py [Uvx --with pillow --with "git+https://github.com/osnr/craft-text-detector.git"]
+    defineImageArgtype $py
 
-    craft = Craft(output_dir=None, crop_type="box",
-                  link_threshold=0.1, device=device)
+    $py exec {
+        import torch
+        import numpy as np
+        from craft_text_detector import Craft
+        import time
+
+        if torch.cuda.is_available():
+            device = "cuda"
+        elif torch.backends.mps.is_available():
+            device = "mps"
+        else:
+            device = "cpu"
+
+        craft = Craft(output_dir=None, crop_type="box",
+                      link_threshold=0.1, device=device)
+    }
+    $py def detectTextBoxes {Image image} {
+        image_np = np.array(image)
+
+        start_craft = time.time()
+        result = craft.detect_text(image_np)
+        boxes = result["boxes"]
+        craft_time = time.time() - start_craft
+
+        print(f"trocr: Detected {len(boxes)} text boxes ({craft_time:.3f}s)",
+              file=sys.stderr, flush=True)
+        return boxes
+    }
+
+    fn CRAFT {im} { return [$py detectTextBoxes $im] }
+    Claim the CRAFT text detector is [fn CRAFT]
 }
-$py def detectTextBoxes {Image image} {
-    image_np = np.array(image)
-
-    start_craft = time.time()
-    result = craft.detect_text(image_np)
-    boxes = result["boxes"]
-    craft_time = time.time() - start_craft
-
-    print(f"trocr: Detected {len(boxes)} text boxes ({craft_time:.3f}s)",
-          file=sys.stderr, flush=True)
-    return boxes
-}
-
-fn CRAFT {im} { return [$py detectTextBoxes $im] }
-Claim the CRAFT text detector is [fn CRAFT]

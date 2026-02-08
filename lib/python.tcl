@@ -281,6 +281,11 @@ proc registerArgtype {typeName serializer} {
 
 proc unknown {fnName args} {
     variable zmq; variable socket
+    # We need normal `unknown` to call methods on $zmq, so need to
+    # pass it through to ::unknown.
+    if {$fnName eq $zmq} {
+        tailcall ::unknown $fnName {*}$args
+    }
 
     # Send function name first
     $zmq zmqSendMore $socket $fnName
