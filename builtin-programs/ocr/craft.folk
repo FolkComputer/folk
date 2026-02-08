@@ -30,7 +30,7 @@ When the image uvx argtype definer is /defineImageArgtype/ {
 
         print(f"trocr: Detected {len(boxes)} text boxes ({craft_time:.3f}s)",
               file=sys.stderr, flush=True)
-        return boxes
+        return boxes.tolist()
     }
 
     fn CRAFT {im} { return [$py detectTextBoxes $im] }

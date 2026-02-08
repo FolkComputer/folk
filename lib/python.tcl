@@ -243,7 +243,7 @@ while True:
                     parsed_args.append(arg.decode('utf-8'))
 
         result = func(*parsed_args)
-        socket.send_multipart([b"ok", str(result).encode('utf-8')])
+        socket.send_multipart([b"ok", json.dumps(result).encode('utf-8')])
 
     except Exception as e:
         import traceback
@@ -322,7 +322,7 @@ proc unknown {fnName args} {
 
     lassign $response status value
     if {$status eq "error"} { error $value }
-    return $value
+    return [json::decode $value]
 }
 proc exec {code} { return [unknown "exec" [undent $code]] }
 proc eval {code} { return [unknown "eval" $code] }
