@@ -324,7 +324,7 @@ error:
 			return NULL;
 
 		case 0:
-			Jim_SetResultString(interp, "root element must be an object or an array", -1);
+			Jim_SetResultString(interp, "empty JSON string", -1);
 			return NULL;
 
 		default:
@@ -339,9 +339,6 @@ error:
 
 	jsmn_init(&parser);
 	n = jsmn_parse(&parser, json, len, t, n);
-	if (t->type != JSMN_OBJECT && t->type != JSMN_ARRAY) {
-		n = 0;
-	}
 	if (n <= 0) {
 		Jim_Free(t);
 		goto error;
@@ -389,7 +386,18 @@ json_decode(Jim_Interp *interp, int argc, Jim_Obj *const argv[])
 	state.tok = tokens;
 	json_decode_schema_push(interp, &state);
 
-	list = json_decode_dump_container(interp, &state);
+	/* Handle both containers (objects/arrays) and primitives (strings/numbers/booleans/null) */
+	if (tokens->type == JSMN_STRING || tokens->type == JSMN_PRIMITIVE) {
+		/* Primitive root - create a temporary list and extract the single value */
+		Jim_Obj *tempList = Jim_NewListObj(interp, NULL, 0);
+		json_decode_dump_value(interp, &state, tempList);
+		/* Extract the first (and only) element */
+		Jim_ListIndex(interp, tempList, 0, &list, JIM_NONE);
+		Jim_IncrRefCount(list);
+	} else {
+		/* Container root (object or array) */
+		list = json_decode_dump_container(interp, &state);
+	}
 	Jim_Free(tokens);
 	ret = JIM_OK;
 
