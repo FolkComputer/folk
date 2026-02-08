@@ -1,5 +1,3 @@
-package require oo
-
 set uvx [Uvx]
 
 set result [$uvx eval "2 + 2"]

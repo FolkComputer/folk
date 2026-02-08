@@ -1,12 +1,10 @@
 set UVX "$::env(HOME)/.local/bin/uvx"
 if {![file exists $UVX]} { set UVX "uvx" }
 
-package require oo
-source lib/text.tcl
-
 set cc [C]
 $cc endcflags -lzmq
 $cc include <zmq.h>
+$cc include <pthread.h>
 $cc include <string.h>
 
 $cc code {
@@ -71,19 +69,110 @@ $cc proc zmqRecvMulti {void* socket} Jim_Obj* {
     return result;
 }
 
+# These need to be maintained in C so that they can be written and
+# read from multiple threads (any thread may call into the Python
+# module at any time).
+$cc code {
+    // This C module is global, so we need to maintain a separate
+    // functions/registeredArgtypes per uvx (per socket).
+
+    typedef struct SocketStringKV {
+        void* key;
+        char* value;
+    } SocketStringKV;
+
+    SocketStringKV registeredArgtypes[64];
+    pthread_mutex_t registeredArgtypesMutex = PTHREAD_MUTEX_INITIALIZER;
+
+    SocketStringKV functions[64];
+    pthread_mutex_t functionsMutex = PTHREAD_MUTEX_INITIALIZER;
+}
+$cc proc getFunctions {void* socket} char* {
+    pthread_mutex_lock(&functionsMutex);
+    for (int i = 0; i < 64; i++) {
+        if (functions[i].key == socket) {
+            char* result = functions[i].value;
+            pthread_mutex_unlock(&functionsMutex);
+            return result ? result : "";
+        }
+    }
+    pthread_mutex_unlock(&functionsMutex);
+    return "";
+}
+$cc proc getRegisteredArgtypes {void* socket} char* {
+    pthread_mutex_lock(&registeredArgtypesMutex);
+    for (int i = 0; i < 64; i++) {
+        if (registeredArgtypes[i].key == socket) {
+            char* result = registeredArgtypes[i].value;
+            pthread_mutex_unlock(&registeredArgtypesMutex);
+            return result ? result : "";
+        }
+    }
+    pthread_mutex_unlock(&registeredArgtypesMutex);
+    return "";
+}
+$cc proc setFunctions {void* socket char* value} void {
+    pthread_mutex_lock(&functionsMutex);
+
+    // Find or create entry for this socket
+    int slot = -1;
+    for (int i = 0; i < 64; i++) {
+        if (functions[i].key == socket) {
+            slot = i;
+            break;
+        }
+        if (functions[i].key == NULL && slot == -1) {
+            slot = i;
+        }
+    }
+
+    if (slot == -1) {
+        pthread_mutex_unlock(&functionsMutex);
+        FOLK_ERROR("setFunctions: No free slots\n");
+    }
+
+    // Free old value and store new one
+    if (functions[slot].value) {
+        free(functions[slot].value);
+    }
+    functions[slot].key = socket;
+    functions[slot].value = strdup(value);
+
+    pthread_mutex_unlock(&functionsMutex);
+}
+$cc proc setRegisteredArgtypes {void* socket char* value} void {
+    pthread_mutex_lock(&registeredArgtypesMutex);
+
+    // Find or create entry for this socket
+    int slot = -1;
+    for (int i = 0; i < 64; i++) {
+        if (registeredArgtypes[i].key == socket) {
+            slot = i;
+            break;
+        }
+        if (registeredArgtypes[i].key == NULL && slot == -1) {
+            slot = i;
+        }
+    }
+
+    if (slot == -1) {
+        pthread_mutex_unlock(&registeredArgtypesMutex);
+        FOLK_ERROR("setRegisteredArgtypes: No free slots\n");
+    }
+
+    // Free old value and store new one
+    if (registeredArgtypes[slot].value) {
+        free(registeredArgtypes[slot].value);
+    }
+    registeredArgtypes[slot].key = socket;
+    registeredArgtypes[slot].value = strdup(value);
+
+    pthread_mutex_unlock(&registeredArgtypesMutex);
+}
+
 set zmq [$cc compile]
 
-# Uvx class
-class Uvx [list \
-               UVX $UVX zmq $zmq \
-               socket "" endpoint "" \
-               functions [dict create] \
-               registeredArgtypes [dict create]]
-
-# HACK: so that we can call `Uvx` instead of `Uvx new`
-proc {Uvx --with} args { tailcall Uvx new --with {*}$args }
-
-Uvx method constructor args {
+proc Uvx args {zmq UVX} {
     set endpoint "ipc:///tmp/uvx-[clock milliseconds]-[expr {int(rand() * 100000)}].ipc"
 
     set socket [$zmq zmqSocket REQ]
@@ -166,16 +255,42 @@ while True:
 
     # Give Python time to connect
     after 100
+
+    # Return a library that runs internal state through the Folk db so
+    # it can be called from any thread.
+    return [library create uvx {zmq socket} {
+proc getFunctions {} {
+    variable zmq; variable socket
+    return [$zmq getFunctions $socket] }
+proc getRegisteredArgtypes {} {
+    variable zmq; variable socket
+    return [$zmq getRegisteredArgtypes $socket]
+}
+proc registerFunction {fnName fnInfo} {
+    variable zmq; variable socket
+    set functions [$zmq getFunctions $socket]
+    dict set functions $fnName $fnInfo
+    $zmq setFunctions $socket $functions
+}
+proc registerArgtype {typeName serializer} {
+    variable zmq; variable socket
+    set argtypes [$zmq getRegisteredArgtypes $socket]
+    dict set argtypes $typeName $serializer
+    $zmq setRegisteredArgtypes $socket $argtypes
 }
 
-Uvx method unknown {fnName args} {
+proc unknown {fnName args} {
+    variable zmq; variable socket
+
     # Send function name first
     $zmq zmqSendMore $socket $fnName
 
     # Check if this function has registered types
+    set functions [getFunctions]
+    set registeredArgtypes [getRegisteredArgtypes]
     if {[dict exists $functions $fnName]} {
-        set funcInfo [dict get $functions $fnName]
-        set argTypes [dict get $funcInfo argTypes]
+        set fnInfo [dict get $functions $fnName]
+        set argTypes [dict get $fnInfo argTypes]
 
         # Send each argument according to its type
         foreach schema $argTypes arg $args {
@@ -189,7 +304,7 @@ Uvx method unknown {fnName args} {
                 $zmq zmqSendMore $socket $encoded
             }
         }
-        
+
     } else {
         # No type info, send args as strings
         foreach arg $args { $zmq zmqSendMore $socket $arg }
@@ -204,16 +319,16 @@ Uvx method unknown {fnName args} {
     if {$status eq "error"} { error $value }
     return $value
 }
-Uvx method exec {code} { return [$self unknown "exec" [undent $code]] }
-Uvx method eval {code} { return [$self unknown "eval" $code] }
+proc exec {code} { return [unknown "exec" [undent $code]] }
+proc eval {code} { return [unknown "eval" $code] }
 
-Uvx method argtype {typeName serializer deserializer} {
+proc argtype {typeName serializer deserializer} {
     # Store the Tcl serializer:
-    dict set registeredArgtypes $typeName $serializer
+    registerArgtype $typeName $serializer
     # Store the Python deserializer:
-    $self __register_argtype__ $typeName $deserializer
+    __register_argtype__ $typeName $deserializer
 }
-Uvx method def {fnName argSpec body} {
+proc def {fnName argSpec body} {
     # Parse argument specification: {Type1 name1 Type2 name2 ...}
     set argNames {}
     set argTypes {}
@@ -223,27 +338,22 @@ Uvx method def {fnName argSpec body} {
     }
 
     # Store function metadata
-    dict set functions $fnName [dict create \
+    registerFunction $fnName [dict create \
         argNames $argNames \
         argTypes $argTypes]
 
     # Register function signature with Python
-    $self __register_function__ $fnName {*}$argTypes
-
-    # Create Python function
-    set pythonArgs [join $argNames ", "]
-    set pythonDef "def $fnName\($pythonArgs):\n"
+    __register_function__ $fnName {*}$argTypes
 
     # Strip common leading whitespace and add function body indentation
     set dedented [undent $body]
     set indentedBody [indent $dedented "    "]
-
     # If body is empty, add pass statement
     if {[string trim $indentedBody] eq ""} {
         set indentedBody "    pass\n"
     }
-
-    set pythonCode "$pythonDef$indentedBody"
-
-    $self exec $pythonCode
+    exec "def $fnName\([join $argNames ", "]):
+$indentedBody"
+}
+    }]
 }
