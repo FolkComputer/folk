@@ -30,7 +30,11 @@ proc ensemble {command args} {
 			# cache the mapping
 			dict set mapping $subcmd ${autoprefix}$subcmd
 		}
+		set cmd [dict get $mapping $subcmd]
+		if {![exists -command $cmd]} {
+			tailcall ${autoprefix}unknown $subcmd {*}$args
+		}
 		# tailcall here we don't add an extra stack frame, e.g. for uplevel
-		tailcall [dict get $mapping $subcmd] {*}$args
+		tailcall $cmd {*}$args
 	}
 }
