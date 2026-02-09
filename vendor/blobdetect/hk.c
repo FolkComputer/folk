@@ -31,8 +31,8 @@
    equivalence class.  The labels start at one; labels[0] is a special value indicating
    the highest label already used. */
 
-int *labels;
-int  n_labels = 0;     /* length of the labels array */
+static int *labels;
+static int  n_labels = 0;     /* length of the labels array */
 
 /*  uf_find returns the canonical label for the equivalence class containing x */
 
