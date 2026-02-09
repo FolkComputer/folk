@@ -22,39 +22,10 @@
 #   }
 #
 #
-# Note: Terminals are killed after ::termExpireMs of being unmatched.
-#
 
 source lib/terminal.tcl
 
-set ::termExpireMs [expr {10*60*1000}] ;# 10 minutes
-set ::termInstances [dict create]
-set ::termTimeouts [dict create]
-
-proc ::matchTerminal {id cmd} {
-  set termKey "$id $cmd"
-  if {$termKey ni $::termInstances} {
-    dict set ::termInstances $termKey [Terminal::create 12 43 $cmd]
-  }
-  if {$termKey in $::termTimeouts} {
-    after cancel [dict get $::termTimeouts $termKey]
-    dict unset ::termTimeouts $termKey
-  }
-  dict get $::termInstances $termKey
-}
-
-proc ::unmatchTerminal {id cmd} {
-  set termKey "$id $cmd"
-  dict set ::termTimeouts $termKey [
-    after $::termExpireMs "::destroyTerminal [list $termKey]"
-  ]
-}
-
-proc ::destroyTerminal {termKey} {
-  Terminal::destroy [dict get $::termInstances $termKey]
-  dict unset ::termInstances $termKey
-  dict unset ::termTimeouts $termKey
-}
+# WIP: Needs to finish being fixed for folk2.
 
 When /anyone/ wishes /thing/ is a terminal {
   Wish $thing is a terminal spawning bash
@@ -65,12 +36,15 @@ When /thing/ has terminal region /r/ & /r/ has keyboard input {
 }
 
 When /anyone/ wishes /thing/ is a terminal spawning /cmd/ {
-  set term [::matchTerminal $thing $cmd]
-  On unmatch { ::unmatchTerminal $thing $cmd }
+  set term [$terminalLib create 12 43 $cmd]
+  # Keep for 10 minutes.
+  Claim -keep [expr {10*60*1000}]ms \
+    -destructor [list $terminalLib destroy $term]
+    $thing has terminal $term spawning $cmd
 
-  When $::thisProcess has step count /c/ {
+  When the clock time is /t/ {
     set body {
-      Wish region $region is labelled [Terminal::read $term]
+      Wish region $region is labelled [$terminalLib read $term]
     }
     When $thing has terminal region /region/ $body
     When /nobody/ claims $thing has terminal region /x/ & $thing has region /region/ $body
@@ -80,9 +54,9 @@ When /anyone/ wishes /thing/ is a terminal spawning /cmd/ {
     & keyboard /anyone/ claims key /key/ is /direction/ with /...options/ {
     if {$direction != "up"} {
       if {[dict exists $options printable]} {
-        Terminal::write $term [dict get $options printable]
+        $terminalLib write $term [dict get $options printable]
       } else {
-        Terminal::handleKey $term $key
+        $terminalLib handleKey $term $key
       }
     }
   }

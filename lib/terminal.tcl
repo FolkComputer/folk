@@ -3,93 +3,14 @@
 #     Implements a virtual terminal with basic read/write procs.
 #
 
-namespace eval Terminal {
-  # From `man console_codes`
-  variable keymap [dict create \
-    Remove               "\x08" \
-    Tab                  "\x09" \
-    Linefeed             "\x0a" \
-    Return               "\x0d" \
-    nul                  "\x00" \
-    Delete               "\x7f" \
-    Escape               "\x1b" \
-    Control_backslash    "\x1c" \
-    Control_bracketright "\x1d" \
-    Control_asciicircum  "\x1e" \
-    Control_underscore   "\x1f" \
-    Up                   "\x1b\[A" \
-    Down                 "\x1b\[B" \
-    Right                "\x1b\[C" \
-    Left                 "\x1b\[D" \
-  ]
-
-  for {set i [scan a %c]} {$i <= [scan z %c]} {incr i} {
-      set char [format %c $i]
-      set charCode [expr {$i - 32 - 64}]
-      set charCode [format %c $charCode]
-
-      dict append keymap "Control_$char" $charCode
-  }
-
-  proc _remap {key} {
-    variable keymap
-
-    if {[string length $key] == 1} {
-      # Convert ctrl-A through ctrl-Z and others to terminal control characters
-      if {$ctrlPressed} {
-        set charCode [scan [string toupper $key] %c]
-        if {$charCode >= 64 && $charCode <= 95} {
-          set charCode [expr {$charCode - 64}]
-          return [format %c $charCode]
-        }
-      }
-      # All other single char keys can be passed through
-      return $key
-    }
-
-    if {[dict exists $keymap $key]} {
-      return [dict get $keymap $key]
-    }
-    return ""
-  }
-
-  proc create {rows cols cmd} {
-    termCreate $rows $cols [list bash -c $cmd ""]
-  }
-
-  proc destroy {term} {
-    termDestroy $term
-  }
-
-  proc write {term char} {
-    termWrite $term $char
-  }
-
-  proc handleKey {term key} {
-    set key [_remap $key]
-    if {$key ne ""} {
-      termWrite $term $key
-    }
-  }
-
-  # Returns a newline separated string of terminal lines
-  proc read {term} {
-    termRead $term
-  }
-}
-
 set cc [C]
-$cc cflags -I./vendor/libtmt ./vendor/libtmt/tmt.c
-
-if {$::tcl_platform(os) ne "Darwin"} {
-    c loadlibLd libutil
-}
-$cc cflags -lutil
+$cc cflags -I./vendor/libtmt
+$cc endcflags -lutil ./vendor/libtmt/tmt.c
 
 $cc include <sys/types.h>
 $cc include <stdlib.h>
 $cc include <unistd.h>
-if {$::tcl_platform(os) eq "Darwin"} {
+if {$::tcl_platform(os) eq "darwin"} {
     $cc include <util.h>
 } else {
     $cc include <pty.h>
@@ -215,4 +136,85 @@ $cc proc termWrite {VTerminal* vt char* key} void {
   write(vt->pty_fd, key, strlen(key));
 }
 
-$cc compile
+set impl [$cc compile]
+
+set terminalLib [library create terminalLib {impl} {
+  # From `man console_codes`
+  variable keymap [dict create \
+    Remove               "\x08" \
+    Tab                  "\x09" \
+    Linefeed             "\x0a" \
+    Return               "\x0d" \
+    nul                  "\x00" \
+    Delete               "\x7f" \
+    Escape               "\x1b" \
+    Control_backslash    "\x1c" \
+    Control_bracketright "\x1d" \
+    Control_asciicircum  "\x1e" \
+    Control_underscore   "\x1f" \
+    Up                   "\x1b\[A" \
+    Down                 "\x1b\[B" \
+    Right                "\x1b\[C" \
+    Left                 "\x1b\[D" \
+  ]
+
+  for {set i [scan a %c]} {$i <= [scan z %c]} {incr i} {
+      set char [format %c $i]
+      set charCode [expr {$i - 32 - 64}]
+      set charCode [format %c $charCode]
+
+      dict append keymap "Control_$char" $charCode
+  }
+
+  proc _remap {key} {
+    variable keymap
+
+    if {[string length $key] == 1} {
+      # Convert ctrl-A through ctrl-Z and others to terminal control characters
+      if {$ctrlPressed} {
+        set charCode [scan [string toupper $key] %c]
+        if {$charCode >= 64 && $charCode <= 95} {
+          set charCode [expr {$charCode - 64}]
+          return [format %c $charCode]
+        }
+      }
+      # All other single char keys can be passed through
+      return $key
+    }
+
+    if {[dict exists $keymap $key]} {
+      return [dict get $keymap $key]
+    }
+    return ""
+  }
+
+  proc create {rows cols cmd} {
+    variable impl
+    $impl termCreate $rows $cols [list bash -c $cmd ""]
+  }
+
+  proc destroy {term} {
+    variable impl
+    $impl termDestroy $term
+  }
+
+  proc write {term char} {
+    variable impl
+    $impl termWrite $term $char
+  }
+
+  proc handleKey {term key} {
+    variable impl
+    set key [_remap $key]
+    if {$key ne ""} {
+      $impl termWrite $term $key
+    }
+  }
+
+  # Returns a newline separated string of terminal lines
+  proc read {term} {
+    variable impl
+    $impl termRead $term
+  }
+}]
+
