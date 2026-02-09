@@ -29,7 +29,7 @@ When the image library is /imageLib/ &\
       set x [expr {($frameNumber % $columns) * $spriteWidth}]
       set y [expr {($frameNumber % $rows) * $spriteHeight}]
 
-      set subimage [$imageLib subimage $im $x $y $spriteWidth $spriteHeight]
+      set subimage [$imageLib slice $im $x $y $spriteWidth $spriteHeight]
       Wish $p displays image $subimage with {*}$options
   }
 }

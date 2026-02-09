@@ -130,7 +130,7 @@ When /nobody/ wishes to calibrate &\
         set x1 [min [+ $x1 $width] $frameWidth]
         set y1 [min [+ $y1 $height] $frameHeight]
 
-        set subimage [$imageLib subimage $frame $x $y [- $x1 $x] [- $y1 $y]]
+        set subimage [$imageLib slice $frame $x $y [- $x1 $x] [- $y1 $y]]
         set aprilTime [+ $aprilTime [baretime {
             foreach tag [$incrementalDetector detect $subimage] {
                 dict with tag {
