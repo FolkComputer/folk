@@ -11,7 +11,12 @@ When -noncapturing the program save directory is /saveDir/ {
         puts stderr "Added $type $obj"
         On unmatch { puts "Removed $type $obj" }
 
-        try {
+        When /nobody/ wishes program $obj does not run {
+            if {![catch {QueryOne! $obj has demo code /demoCode/} res]} {
+                Claim $obj has program code $res(demoCode)
+                return
+            }
+
             if {[file exists "$saveDir/$obj.folk.temp"]} {
                 set fd [open "$saveDir/$obj.folk.temp" r]
             } else {
@@ -28,7 +33,13 @@ When -noncapturing the program save directory is /saveDir/ {
                         "http://folk-hex.local:4273/printed-programs/$obj.meta.folk" &
                     # HACK: It won't be reloaded until you redetect the tag.
                 }
-                set fd [open "$saveDir/$obj.folk" r]
+
+                try {
+                    set fd [open "$saveDir/$obj.folk" r]
+                } on error err {
+                    puts stderr "No code for $type $obj ($err):\n  [errorInfo $err [info stacktrace]]"
+                    return
+                }
             }
             set code [read $fd]
             close $fd
@@ -54,18 +65,12 @@ When -noncapturing the program save directory is /saveDir/ {
                 set editedTime [dict get $opts editedTime]
                 Wish $obj is titled "(edited [clock format $editedTime -format "%a, %d %b %Y, %I:%M %p"])"
             }
+       }
 
-            if {[file exists "$saveDir/$obj.meta.folk"]} {
-                set mfd [open "$saveDir/$obj.meta.folk" r]
-                set metacode [read $mfd]; close $mfd
-                apply [list {this} $metacode] $obj
-            }
-        } on error err {
-            if {![catch {QueryOne! $obj has demo code /demoCode/} res]} {
-                Claim $obj has program code $res(demoCode)
-            } else {
-                puts stderr "No code for $type $obj ($err):\n  [errorInfo $err [info stacktrace]]"
-            }
-        }
+       if {[file exists "$saveDir/$obj.meta.folk"]} {
+           set mfd [open "$saveDir/$obj.meta.folk" r]
+           set metacode [read $mfd]; close $mfd
+           apply [list {this} $metacode] $obj
+       }
     }
 }
