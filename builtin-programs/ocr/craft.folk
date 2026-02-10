@@ -28,7 +28,7 @@ When the image uvx argtype definer is /defineImageArgtype/ {
         boxes = result["boxes"]
         craft_time = time.time() - start_craft
 
-        print(f"trocr: Detected {len(boxes)} text boxes ({craft_time:.3f}s)",
+        print(f"craft: Detected {len(boxes)} text boxes ({craft_time:.3f}s)",
               file=sys.stderr, flush=True)
         return boxes.tolist() if hasattr(boxes, 'tolist') else boxes
     }
