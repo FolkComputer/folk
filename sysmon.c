@@ -8,6 +8,8 @@
 #include <inttypes.h>
 #include <string.h>
 #include <stdatomic.h>
+#include <assert.h>
+
 #ifdef __linux__
 #include <sys/sysinfo.h>
 #include <sys/resource.h>
@@ -34,6 +36,8 @@ extern void dbGarbageCollectAtomicallys(Db* db, int64_t now);
 // How many ms are in each tick? You probably want this to be less
 // than half of 16ms (1 frame).
 #define SYSMON_TICK_MS 3
+
+char thisNode[256];
 
 typedef struct RemoveLater {
     StatementRef _Atomic stmt;
@@ -161,37 +165,17 @@ void sysmon() {
     // Sixth: update the time statements in the database.
     int64_t timeNs = timestamp_get(CLOCK_REALTIME);
 
-    // sysmon.c claims the internal time is <TIME> (used internally)
-    Clause* internalTimeClause = clauseNew(7);
-    internalTimeClause->terms[0] = termNew("sysmon.c", -1);
-    internalTimeClause->terms[1] = termNew("claims", -1);
-    internalTimeClause->terms[2] = termNew("the", -1);
-    internalTimeClause->terms[3] = termNew("internal", -1);
-    internalTimeClause->terms[4] = termNew("time", -1);
-    internalTimeClause->terms[5] = termNew("is", -1);
-    char internalTime[100];
-    snprintf(internalTime, 100, "%f",
-             (double)timeNs / 1000000000.0);
-    internalTimeClause->terms[6] = termNew(internalTime, -1);
-
+    Clause* internalTimeClause = clauseFormat(
+        "sysmon.c claims the internal time is %f",
+        (double)timeNs / 1000000000.0);
     HoldStatementGlobally("internal-time", currentTick,
                           internalTimeClause, 0, NULL,
                           "sysmon.c", __LINE__);
 
-    // sysmon.c claims the clock time is <TIME>
     if (currentTick % 3 == 0) {
-        Clause* clockTimeClause = clauseNew(7);
-        clockTimeClause->terms[0] = termNew("sysmon.c", -1);
-        clockTimeClause->terms[1] = termNew("claims", -1);
-        clockTimeClause->terms[2] = termNew("the", -1);
-        clockTimeClause->terms[3] = termNew("clock", -1);
-        clockTimeClause->terms[4] = termNew("time", -1);
-        clockTimeClause->terms[5] = termNew("is", -1);
-        char clockTime[100];
-        snprintf(clockTime, 100, "%f",
-                 (double)timeNs / 1000000000.0);
-        clockTimeClause->terms[6] = termNew(clockTime, -1);
-
+        Clause* clockTimeClause = clauseFormat(
+            "sysmon.c claims the clock time is %f",
+            (double)timeNs / 1000000000.0);
         HoldStatementGlobally("clock-time", currentTick,
                               clockTimeClause, 0, NULL,
                               "sysmon.c", __LINE__);
@@ -202,17 +186,21 @@ static void checkRam() {
 #ifdef __linux__
     // Read MemAvailable from /proc/meminfo (includes reclaimable buffers/cache)
     int freeRamMb = 0;
-    FILE* meminfo = fopen("/proc/meminfo", "r");
-    if (meminfo) {
-        char line[256];
-        while (fgets(line, sizeof(line), meminfo)) {
-            long memAvailableKb;
-            if (sscanf(line, "MemAvailable: %ld kB", &memAvailableKb) == 1) {
-                freeRamMb = memAvailableKb / 1024;
-                break;
-            }
+
+    static FILE* meminfo = NULL;
+    if (meminfo == NULL) {
+        meminfo = fopen("/proc/meminfo", "r");
+    }
+    assert(meminfo != NULL);
+    rewind(meminfo);
+
+    char line[256];
+    while (fgets(line, sizeof(line), meminfo)) {
+        long memAvailableKb;
+        if (sscanf(line, "MemAvailable: %ld kB", &memAvailableKb) == 1) {
+            freeRamMb = memAvailableKb / 1024;
+            break;
         }
-        fclose(meminfo);
     }
     // Fallback to old method if /proc/meminfo reading failed
     if (freeRamMb == 0) {
@@ -224,20 +212,7 @@ static void checkRam() {
     // detect leaks (I think system RAM is good for killing but
     // process RAM use is better for leak diagnosis).
     struct rusage ru; getrusage(RUSAGE_SELF, &ru);
-    /* fprintf(stderr, "Check avail system RAM: %d MB / %d MB\n" */
-    /*         "Check self RAM usage: %ld MB\n", */
-    /*         freeRamMb, totalRamMb, */
-    /*         ru.ru_maxrss / 1024); */
-    // TODO: Report this result as a statement.
-    if (freeRamMb < 200) {
-        // Hard die if we are likely to run out of RAM, because
-        // that will lock the system (making it hard to ssh in,
-        // etc).
-        fprintf(stderr, "--------------------\n"
-                "OUT OF RAM, EXITING.\n"
-                "--------------------\n");
-        exit(1);
-    }
+    int selfRamMb = ru.ru_maxrss / 1024;
 #endif
 #ifdef __APPLE__
     // Get total physical memory
@@ -266,15 +241,20 @@ static void checkRam() {
     }
 
     // Check process's own RAM usage
-    struct rusage ru;
-    getrusage(RUSAGE_SELF, &ru);
+    struct rusage ru; getrusage(RUSAGE_SELF, &ru);
     // Note: On macOS, ru_maxrss is in bytes, not kilobytes like Linux
-    fprintf(stderr, "Check avail system RAM: %d MB / %d MB\n"
-            "Check self RAM usage: %ld MB\n",
-            freeRamMb, totalRamMb,
-            ru.ru_maxrss / (1024 * 1024));
+    int selfRamMb = ru.ru_maxrss / (1024 * 1024);
+#endif
 
-    // TODO: Report this result as a statement.
+    HoldStatementGlobally("selfRam", tick,
+                          clauseFormat("sysmon.c claims %s has self RAM usage %d MB",
+                                       thisNode, selfRamMb),
+                          0, NULL, "sysmon.c", __LINE__);
+    HoldStatementGlobally("totalRam", tick,
+                          clauseFormat("sysmon.c claims %s has available RAM %d MB of %d MB",
+                                       thisNode, freeRamMb, totalRamMb),
+                          0, NULL, "sysmon.c", __LINE__);
+
     if (freeRamMb < 200) {
         // Hard die if we are likely to run out of RAM
         fprintf(stderr, "--------------------\n"
@@ -282,7 +262,6 @@ static void checkRam() {
                 "--------------------\n");
         exit(1);
     }
-#endif
 }
 
 void *sysmonMain(void *ptr) {
@@ -293,6 +272,7 @@ void *sysmonMain(void *ptr) {
     epochThreadInit();
 
     tick = 0;
+    gethostname(thisNode, sizeof(thisNode));
 
     struct timespec tickTime;
     tickTime.tv_sec = 0;

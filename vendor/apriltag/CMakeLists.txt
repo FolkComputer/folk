@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(apriltag VERSION 3.3.0 LANGUAGES C CXX)
+project(apriltag VERSION 3.4.5 LANGUAGES C)
 
 if(POLICY CMP0077)
     cmake_policy(SET CMP0077 NEW)
@@ -34,6 +34,10 @@ set(default_build_type "Release")
 
 SET(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
+if(WIN32)
+    add_compile_definitions(WIN32_LEAN_AND_MEAN)
+endif()
+
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     message(STATUS "Setting build type to '${default_build_type}' as none was specified.")
     set(CMAKE_BUILD_TYPE "${default_build_type}" CACHE  STRING "Choose the type of build." FORCE)
@@ -42,13 +46,21 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_C_COMPILER_ID MATCHES "Clang")
-    add_compile_options(-Wall -Wextra -Werror)
-    # add_compile_options(-Wpedantic)
+    add_compile_options(-Wall -Wextra)
+    add_compile_options(-Wpedantic)
+    if(CMAKE_C_COMPILER_ID MATCHES "Clang")
+        add_compile_options(
+            -Wno-gnu-zero-variadic-macro-arguments
+            -Wno-strict-prototypes
+            -Wno-static-in-inline
+        )
+    endif()
     add_compile_options(-Wno-shift-negative-value)
-endif()
-
-if(CMAKE_C_COMPILER_ID MATCHES "Clang" AND NOT CMAKE_C_COMPILER_ID MATCHES "AppleClang" AND NOT CMAKE_C_SIMULATE_ID MATCHES "MSVC")
-    add_link_options("-Wl,-z,relro,-z,now,-z,defs")
+    if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.24.0")
+      set(CMAKE_COMPILE_WARNING_AS_ERROR ON)
+    else()
+      add_compile_options(-Werror)
+    endif()
 endif()
 
 if(CMAKE_C_COMPILER_ID MATCHES "Clang" AND CMAKE_C_SIMULATE_ID MATCHES "MSVC")
@@ -65,6 +77,11 @@ set(APRILTAG_SRCS apriltag.c apriltag_pose.c apriltag_quad_thresh.c)
 # Library
 file(GLOB TAG_FILES ${CMAKE_CURRENT_SOURCE_DIR}/tag*.c)
 add_library(${PROJECT_NAME} ${APRILTAG_SRCS} ${COMMON_SRC} ${TAG_FILES})
+set_property(TARGET ${PROJECT_NAME} PROPERTY POSITION_INDEPENDENT_CODE ON)
+
+if(CMAKE_C_COMPILER_ID MATCHES "Clang" AND NOT APPLE AND NOT CMAKE_C_SIMULATE_ID MATCHES "MSVC")
+    target_link_options(${PROJECT_NAME} PRIVATE "-Wl,-z,relro,-z,now,-z,defs")
+endif()
 
 if (MSVC)
     add_compile_definitions("_CRT_SECURE_NO_WARNINGS")
@@ -79,6 +96,8 @@ endif()
 
 set_target_properties(${PROJECT_NAME} PROPERTIES SOVERSION 3 VERSION ${PROJECT_VERSION})
 set_target_properties(${PROJECT_NAME} PROPERTIES DEBUG_POSTFIX "d")
+set_property(TARGET ${PROJECT_NAME} PROPERTY C_STANDARD 99)
+
 
 include(GNUInstallDirs)
 target_include_directories(${PROJECT_NAME} PUBLIC
@@ -101,7 +120,7 @@ set(generated_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
 set(version_config "${generated_dir}/${PROJECT_NAME}ConfigVersion.cmake")
 set(project_config "${generated_dir}/${PROJECT_NAME}Config.cmake")
 set(targets_export_name "${PROJECT_NAME}Targets")
-set(config_install_dir "share/${PROJECT_NAME}/cmake")
+set(config_install_dir "${CMAKE_INSTALL_LIBDIR}/${PROJECT_NAME}/cmake")
 
 # Include module with fuction 'write_basic_package_version_file'
 include(CMakePackageConfigHelpers)
@@ -141,52 +160,48 @@ export(TARGETS apriltag
 
 # install pkgconfig file
 configure_file(${PROJECT_NAME}.pc.in ${PROJECT_NAME}.pc @ONLY)
-install(FILES "${CMAKE_BINARY_DIR}/${PROJECT_NAME}.pc"
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.pc"
         DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
 
 
 # Python wrapper
-include(CMakeDependentOption)
-cmake_dependent_option(BUILD_PYTHON_WRAPPER "Builds Python wrapper" ON BUILD_SHARED_LIBS OFF)
+option(BUILD_PYTHON_WRAPPER "Builds Python wrapper" ON)
 
-if(BUILD_PYTHON_WRAPPER)
-    SET(Python_ADDITIONAL_VERSIONS 3)
-    find_package(PythonLibs)
-    execute_process(COMMAND which python3 OUTPUT_QUIET RESULT_VARIABLE Python3_NOT_FOUND)
-    execute_process(COMMAND python3 -c "import numpy" RESULT_VARIABLE Numpy_NOT_FOUND)
-endif(BUILD_PYTHON_WRAPPER)
+find_package(Python3 QUIET COMPONENTS Development NumPy)
 
-if (NOT Python3_NOT_FOUND AND NOT Numpy_NOT_FOUND AND PYTHONLIBS_FOUND AND BUILD_PYTHON_WRAPPER)
-    # TODO deal with both python2/3
-    execute_process(COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/python_build_flags.py OUTPUT_VARIABLE PY_OUT)
-    set(PY_VARS CFLAGS LDFLAGS LINKER EXT_SUFFIX)
-    cmake_parse_arguments(PY "" "${PY_VARS}" "" ${PY_OUT})
-    separate_arguments(PY_CFLAGS)
-    list(REMOVE_ITEM PY_CFLAGS -flto)
-    separate_arguments(PY_LDFLAGS)
+if(BUILD_PYTHON_WRAPPER AND Python3_Development_FOUND AND Python3_NumPy_FOUND)
 
-    foreach(X detect py_type)
-    add_custom_command(OUTPUT ${PROJECT_BINARY_DIR}/apriltag_${X}.docstring.h
-        COMMAND < ${CMAKE_CURRENT_SOURCE_DIR}/apriltag_${X}.docstring sed 's/\"/\\\\\"/g\; s/^/\"/\; s/$$/\\\\n\"/\;' > apriltag_${X}.docstring.h
-        WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
+    include(CMake/vtkEncodeString.cmake)
+
+    foreach(X IN ITEMS detect py_type estimate_tag_pose)
+        vtk_encode_string(
+            INPUT ${CMAKE_CURRENT_SOURCE_DIR}/apriltag_${X}.docstring
+            NAME apriltag_${X}_docstring
+        )
     endforeach()
+    add_custom_target(apriltag_py_docstrings DEPENDS
+        ${PROJECT_BINARY_DIR}/apriltag_detect_docstring.h
+        ${PROJECT_BINARY_DIR}/apriltag_py_type_docstring.h
+        ${PROJECT_BINARY_DIR}/apriltag_estimate_tag_pose_docstring.h
+    )
 
-    add_custom_command(OUTPUT apriltag_pywrap.o
-        COMMAND ${CMAKE_C_COMPILER} ${PY_CFLAGS} -I${PROJECT_BINARY_DIR} -c -o apriltag_pywrap.o ${CMAKE_CURRENT_SOURCE_DIR}/apriltag_pywrap.c
-        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/apriltag_pywrap.c ${PROJECT_BINARY_DIR}/apriltag_detect.docstring.h ${PROJECT_BINARY_DIR}/apriltag_py_type.docstring.h)
+    # set the SOABI manually since renaming the library via OUTPUT_NAME does not work on MSVC
+    set(apriltag_py_target "apriltag.${Python3_SOABI}")
+    Python3_add_library(${apriltag_py_target} MODULE ${CMAKE_CURRENT_SOURCE_DIR}/apriltag_pywrap.c)
+    add_dependencies(${apriltag_py_target} apriltag_py_docstrings)
+    # avoid linking against Python3::Python to prevent segmentation faults in Conda environments
+    # https://github.com/AprilRobotics/apriltag/issues/352
+    target_link_libraries(${apriltag_py_target} PRIVATE apriltag Python3::NumPy)
+    target_include_directories(${apriltag_py_target} PRIVATE ${PROJECT_BINARY_DIR})
 
-    add_custom_target(apriltag${PY_EXT_SUFFIX}
-        ${PY_LINKER} ${PY_LDFLAGS} -Wl,-rpath,$ORIGIN apriltag_pywrap.o $<TARGET_FILE:apriltag> -o apriltag${PY_EXT_SUFFIX}
-        DEPENDS ${PROJECT_NAME} apriltag_pywrap.o
-        VERBATIM)
-
-    add_custom_target(apriltag_python ALL
-        DEPENDS apriltag${PY_EXT_SUFFIX})
-
-execute_process(COMMAND python3 -m site --user-site OUTPUT_VARIABLE PY_DEST)
-string(STRIP ${PY_DEST} PY_DEST)
-install(FILES ${PROJECT_BINARY_DIR}/apriltag${PY_EXT_SUFFIX} DESTINATION ${PY_DEST})
-endif (NOT Python3_NOT_FOUND AND NOT Numpy_NOT_FOUND AND PYTHONLIBS_FOUND AND BUILD_PYTHON_WRAPPER)
+    set(PY_DEST ${CMAKE_INSTALL_PREFIX}/lib/python${Python3_VERSION_MAJOR}.${Python3_VERSION_MINOR}/site-packages/)
+    install(TARGETS ${apriltag_py_target} LIBRARY DESTINATION ${PY_DEST})
+elseif(BUILD_PYTHON_WRAPPER)
+    message(WARNING
+        "Python bindings requested (BUILD_PYTHON_WRAPPER=ON) but Development and NumPy not found. "
+        "Python bindings will not be built. Set BUILD_PYTHON_WRAPPER=OFF to silent this warnings."
+     )
+endif()
 
 # Examples
 if (BUILD_EXAMPLES)
@@ -198,6 +213,7 @@ if (BUILD_EXAMPLES)
     set(_OpenCV_REQUIRED_COMPONENTS core imgproc videoio highgui)
     find_package(OpenCV COMPONENTS ${_OpenCV_REQUIRED_COMPONENTS} QUIET CONFIG)
     if(OpenCV_FOUND)
+        enable_language(CXX)
         # NB: contrib required for TickMeter in OpenCV 2.4. This is only required for 16.04 backwards compatibility and can be removed in the future.
         #     If we add it to the find_package initially, the demo won't build for newer OpenCV versions
         if(OpenCV_VERSION VERSION_LESS "3.0.0")
@@ -215,4 +231,9 @@ if (BUILD_EXAMPLES)
 
     # install example programs
     install(TARGETS apriltag_demo RUNTIME DESTINATION bin)
+endif()
+
+if(BUILD_TESTING)
+    enable_testing()
+    add_subdirectory(test)
 endif()

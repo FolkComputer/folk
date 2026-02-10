@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdarg.h>
 
 #include "trie.h"
 
@@ -44,6 +45,34 @@ bool termEqString(const Term* t, const char* s) {
 Clause* clauseNew(int32_t nTerms) {
     Clause* c = calloc(SIZEOF_CLAUSE(nTerms), 1);
     c->nTerms = nTerms;
+    return c;
+}
+Clause* clauseFormat(const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+
+    char* formatted;
+    vasprintf(&formatted, fmt, args);
+    va_end(args);
+
+    // Count terms by counting spaces
+    int nTerms = 1;
+    for (char* p = formatted; *p; p++) {
+        if (*p == ' ') nTerms++;
+    }
+
+    Clause* c = clauseNew(nTerms);
+
+    // Split by spaces using strtok_r
+    char* saveptr;
+    char* token = strtok_r(formatted, " ", &saveptr);
+    int i = 0;
+    while (token != NULL && i < nTerms) {
+        c->terms[i++] = termNew(token, -1);
+        token = strtok_r(NULL, " ", &saveptr);
+    }
+
+    free(formatted);
     return c;
 }
 Clause* clauseDup(Clause* c) {

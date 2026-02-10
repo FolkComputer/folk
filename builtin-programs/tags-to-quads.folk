@@ -70,7 +70,7 @@ $cc proc rescaleAndUndistort {Intrinsics intr
     out[1] = y*intr.fy + intr.cy;
 }
 $cc cflags -I./vendor/apriltag
-$cc endcflags ./vendor/apriltag/libapriltag.so
+$cc endcflags ./vendor/apriltag/build/libapriltag.so
 
 $cc include <apriltag_pose.h>
 $cc include <math.h>
@@ -78,7 +78,10 @@ $cc include <common/matd.h>
 $cc include <common/homography.h>
 
 $cc code {
-#define MATD_VAR(name, nr, nc) matd_t* name = alloca(sizeof(matd_t) + ((nr)*(nc)*sizeof(double))); name->nrows = nr; name->ncols = nc;
+    #define MATD_VAR(name, nr, nc) \
+              matd_t* name = alloca(sizeof(matd_t)); \
+              name->data = alloca((nr)*(nc)*sizeof(double)); \
+              name->nrows = nr; name->ncols = nc;
 }
 $cc proc pseudoInverse {matd_t* a} matd_t* {
     matd_svd_t usv = matd_svd(a);

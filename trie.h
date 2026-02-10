@@ -17,6 +17,7 @@ typedef struct Clause {
     Term* terms[];
 } Clause;
 Clause* clauseNew(int32_t nTerms);
+Clause* clauseFormat(const char* fmt, ...);
 Clause* clauseDup(Clause* c);
 void clauseFree(Clause* c);
 void clauseFreeBorrowed(Clause* c);
