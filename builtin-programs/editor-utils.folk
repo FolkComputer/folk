@@ -163,6 +163,26 @@ set editorUtilsLib [library create editorUtilsLib {
         return [list $code $cursor $maxCursorX]
     }
 
+    proc getSelectedText {code selAnchor cursor} {
+        set start [min $selAnchor $cursor]
+        set end [max $selAnchor $cursor]
+        return [string range $code $start [- $end 1]]
+    }
+
+    proc replaceRange {code rangeStart rangeEnd newText} {
+        if {$rangeStart > 0} {
+            set before [string range $code 0 [- $rangeStart 1]]
+        } else {
+            set before ""
+        }
+        set after [string range $code $rangeEnd end]
+        set code "${before}${newText}${after}"
+        set cursor [+ $rangeStart [string length $newText]]
+        lassign [cursorToXy $code $cursor] cursorX cursorY
+        set maxCursorX $cursorX
+        return [list $code $cursor $maxCursorX]
+    }
+
     proc lineNumberView {ystart linecount} {
         set yend [expr {$ystart + $linecount}]
         set numbers [list]
