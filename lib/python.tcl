@@ -29,20 +29,19 @@ $cc proc zmqSocket {char* socketType} void* {
     }
     return zmq_socket(zmq_context, type);
 }
-
-$cc proc zmqBind {void* socket char* endpoint} int {
-    return zmq_bind(socket, endpoint);
-}
-
 $cc proc zmqConnect {void* socket char* endpoint} int {
     return zmq_connect(socket, endpoint);
 }
 
 $cc proc zmqSend {void* socket char* data int flags} int {
-    return zmq_send(socket, data, strlen(data), flags);
+    int ret = zmq_send(socket, data, strlen(data), flags);
+    FOLK_ENSURE(ret != -1);
+    return ret;
 }
 $cc proc zmqSendMore {void* socket char* data} int {
-    return zmq_send(socket, data, strlen(data), ZMQ_SNDMORE);
+    int ret = zmq_send(socket, data, strlen(data), ZMQ_SNDMORE);
+    FOLK_ENSURE(ret != -1);
+    return ret;
 }
 
 $cc proc zmqRecvMulti {void* socket} Jim_Obj* {
@@ -175,9 +174,6 @@ set zmq [$cc compile]
 proc Uvx args {zmq UVX} {
     set endpoint "ipc:///tmp/uvx-[clock milliseconds]-[expr {int(rand() * 100000)}].ipc"
 
-    set socket [$zmq zmqSocket REQ]
-    $zmq zmqBind $socket $endpoint
-
     set harnessCode [subst -nocommands -nobackslashes {
 import sys
 import zmq
@@ -185,7 +181,7 @@ import json
 
 context = zmq.Context()
 socket = context.socket(zmq.REP)
-socket.connect('$endpoint')
+socket.bind('$endpoint')
 
 # Storage for argtype deserializers and function signatures
 registered_argtypes = {}
@@ -253,12 +249,18 @@ while True:
     exec $UVX --with pyzmq {*}$args \
         python -u -c $harnessCode 2>@stderr &
 
-    # Give Python time to connect
-    after 100
-
     # Return a library that runs internal state through the Folk db so
     # it can be called from any thread.
-    return [library create uvx {zmq socket} {
+    return [library create uvx {zmq endpoint} {
+
+variable zmq
+variable endpoint
+# We need to boot a new socket when this library is loaded onto a new
+# thread. Do that now.
+variable socket [$zmq zmqSocket REQ]
+# This should only actually connect when actually invoked.
+$zmq zmqConnect $socket $endpoint
+
 proc getFunctions {} {
     variable zmq; variable socket
     return [$zmq getFunctions $socket] }

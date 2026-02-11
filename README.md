@@ -709,24 +709,16 @@ isn't meeting timing
 ### other stuff
 - stereo calibration
 - run segmentation model
-- **editor cutoff bug**
-- **editor 132 keyboard stops responding?**
-- recsale camera slice to have correct aspect ratio
+- ~~rescale camera slice to have correct aspect ratio~~
 - debug memory leaks
   - are we ever freeing AtomicallyVersion? -- no, but this isn't the
     main memory leak (not enough allocated)
   - not destructors
   - also not camera images
   - also not jim allocations
-- bug where camera slices halt / slow down animation
-  - animation blinky
+- ~~bug where camera slices halt / slow down animation~~
+  - ~~animation blinky~~
 - gadget-platinum outline blink
-- ~~remaining blink on clock time~~
-  - ~~the problem is that the _root_ match has no atomic marker attached
-    in the db (the When the clock time is /t/), which means that any
-    direct child statements don't get made if they aren't made before
-    the root match is revoked.~~
-    - ~~we need to also find a way to pin the root match~~
 - slowdown where sysmon starts taking forever bc of endless chains of
   destructors/atomicallyversions
   - warn if sysmon is too slow?
@@ -737,6 +729,15 @@ isn't meeting timing
 - automatically allow optional fields on `with`
 - try to maximize cpu usage
 - dual camera calibration -> ML
-- ~~scan for invariant violation (statement w/o trie entry)~~
-  - ~~look at trie (make separate trie walker that gives us the interior pointer
-    to examine)~~
+
+### zeromq kill handling
+socket per thread would be ideal -- or socket per When burst
+
+flip directionality so python subproc is the server
+
+detect if send or recv fails and then .... ?
+
+when thread is killed (due to page flip or whatever), clean up the
+socket???
+
+or -- at top of unknown, handle _whatever_ the socket state is. i gue

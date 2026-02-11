@@ -708,7 +708,7 @@ void eval(const char* code) {
     int error = Jim_Eval(interp, code);
     if (error == JIM_ERR) {
         Jim_MakeErrorMessage(interp);
-        fprintf(stderr, "eval: (%s) -> (%s)\n", code, Jim_GetString(Jim_GetResult(interp), NULL));
+        fprintf(stderr, "eval: %s\n", Jim_GetString(Jim_GetResult(interp), NULL));
         Jim_FreeInterp(interp);
         exit(EXIT_FAILURE);
     }
