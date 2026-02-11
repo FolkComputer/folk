@@ -74,20 +74,31 @@ $cc proc warpQuad {Image im double[4][2] imVertices
             double srcX = topX + v * (botX - topX);
             double srcY = topY + v * (botY - topY);
 
-            // Clamp to image bounds
-            int ix = (int)(srcX + 0.5f);
-            int iy = (int)(srcY + 0.5f);
+            // Bilinear sample from source image
+            uint8_t *dstPixel = out.data + y * out.bytesPerRow + x * out.components;
 
-            if (ix >= 0 && ix < im.width && iy >= 0 && iy < im.height) {
-                // Copy pixel
+            int ix = (int)srcX;
+            int iy = (int)srcY;
+            double fx = srcX - ix;
+            double fy = srcY - iy;
+
+            if (ix >= 0 && ix < im.width - 1 && iy >= 0 && iy < im.height - 1) {
+                uint8_t *p00 = im.data + iy * im.bytesPerRow + ix * im.components;
+                uint8_t *p10 = p00 + im.components;
+                uint8_t *p01 = p00 + im.bytesPerRow;
+                uint8_t *p11 = p01 + im.components;
+                for (int c = 0; c < im.components; c++) {
+                    double top = p00[c] + fx * (p10[c] - p00[c]);
+                    double bot = p01[c] + fx * (p11[c] - p01[c]);
+                    dstPixel[c] = (uint8_t)(top + fy * (bot - top) + 0.5);
+                }
+            } else if (ix >= 0 && ix < im.width && iy >= 0 && iy < im.height) {
+                // Edge pixel: nearest neighbor fallback
                 uint8_t *srcPixel = im.data + iy * im.bytesPerRow + ix * im.components;
-                uint8_t *dstPixel = out.data + y * out.bytesPerRow + x * out.components;
                 for (int c = 0; c < im.components; c++) {
                     dstPixel[c] = srcPixel[c];
                 }
             } else {
-                // Out of bounds, fill with black
-                uint8_t *dstPixel = out.data + y * out.bytesPerRow + x * out.components;
                 for (int c = 0; c < im.components; c++) {
                     dstPixel[c] = 0;
                 }
