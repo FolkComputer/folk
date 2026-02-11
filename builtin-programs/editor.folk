@@ -115,6 +115,9 @@ When /editor/ is an editor with /...options/ {
             Claim editor $editor has max cursor x 0
             Claim editor $editor has viewport position [list 0 0]
             Claim editor $editor has selection anchor ""
+            Claim editor $editor has undo stack {}
+            Claim editor $editor has redo stack {}
+            Claim editor $editor has last edit type ""
         }
     }
 
@@ -160,6 +163,9 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                  editor $editor has cursor /cursor/ &\
                  editor $editor has selection anchor /selAnchor/ &\
                  editor $editor has clipboard /clipboard/ &\
+                 editor $editor has undo stack /undoStack/ &\
+                 editor $editor has redo stack /redoStack/ &\
+                 editor $editor has last edit type /lastEditType/ &\
                  editor $editor has font options with /...textOptions/ {
             lassign $vpPos vpX vpY
             lassign $vpSize vpWidth vpHeight
@@ -169,6 +175,11 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
             # if this is true, the buffer will remove the hold for program code
             # (triggering a reinitialization)
             set resetBuffer false
+            set isUndo false
+            set isRedo false
+            set origCode $code
+            set origCursor $cursor
+            set origMaxCursorX $maxCursorX
 
             set hasShift [dict exists $options shift]
             set isNavKey [expr {$key eq "Left" || $key eq "Right" || $key eq "Up" || $key eq "Down"}]
@@ -239,6 +250,26 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                                 }
                             }
                         }
+                        Control_z {
+                            if {[llength $undoStack] > 0} {
+                                lappend redoStack [list $code $cursor $maxCursorX]
+                                lassign [lindex $undoStack end] code cursor maxCursorX
+                                set undoStack [lrange $undoStack 0 end-1]
+                                set selAnchor ""
+                                set isUndo true
+                                set lastEditType ""
+                            }
+                        }
+                        Control_y {
+                            if {[llength $redoStack] > 0} {
+                                lappend undoStack [list $code $cursor $maxCursorX]
+                                lassign [lindex $redoStack end] code cursor maxCursorX
+                                set redoStack [lrange $redoStack 0 end-1]
+                                set selAnchor ""
+                                set isRedo true
+                                set lastEditType ""
+                            }
+                        }
                         Control_r {
                             set resetBuffer true
                         }
@@ -275,10 +306,40 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                 }
             }
 
+            # Undo stack management with coalescing
+            if {$code ne $origCode && !$isUndo && !$isRedo} {
+                # Determine edit type for coalescing consecutive same-type edits
+                if {[dict exists $options printable]} {
+                    set editType "insert"
+                } elseif {$key eq "Delete" || $key eq "Remove"} {
+                    set editType "delete"
+                } else {
+                    set editType "other"
+                }
+
+                # Only push when edit type changes or for non-coalescable edits
+                if {$editType ne $lastEditType || $editType eq "other"} {
+                    lappend undoStack [list $origCode $origCursor $origMaxCursorX]
+                    if {[llength $undoStack] > 50} {
+                        set undoStack [lrange $undoStack end-49 end]
+                    }
+                }
+                set lastEditType $editType
+
+                # Any real edit clears the redo stack
+                set redoStack {}
+            } elseif {!$isUndo && !$isRedo} {
+                # Navigation or no-op resets edit type (breaks coalescing)
+                set lastEditType ""
+            }
+
             if {$resetBuffer} {
                 set cursor 0
                 set maxCursorX 0
                 set selAnchor ""
+                set undoStack {}
+                set redoStack {}
+                set lastEditType ""
 
                 # remove the edited code to restore the program to its original code
                 Hold! -on builtin-programs/programs.folk -key new-code-for:$program {}
@@ -313,6 +374,9 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                 Claim editor $editor has cursor $cursor
                 Claim editor $editor has max cursor x $maxCursorX
                 Claim editor $editor has selection anchor $selAnchor
+                Claim editor $editor has undo stack $undoStack
+                Claim editor $editor has redo stack $redoStack
+                Claim editor $editor has last edit type $lastEditType
             }
         }
     }
