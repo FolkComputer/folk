@@ -1,7 +1,9 @@
-When { source builtin-programs/image-lib.folk }
-When the image library is /imageLib/ &\
+When { source builtin-programs/image/image-lib.folk }
+When { source builtin-programs/image/png-lib.folk }
+
+When the png library is /pngLib/ &\
      the image uvx argtype definer is /defineImageArgtype/ {
-    set im [$imageLib loadPng "vendor/fonts/CourierPrimeCode.png"]
+    set im [$pngLib loadPng "vendor/fonts/CourierPrimeCode.png"]
 
     fn defineImageArgtype
 
