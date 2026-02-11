@@ -45,8 +45,8 @@ $cc proc imageFree {Image image} void {
 
 # Note that this returns a fresh (copied) image. imVertices are
 # coordinates in im, clockwise from top-left.
-$cc proc warpSlice {Image im double[4][2] imVertices
-                    int outWidth int outHeight} Image {
+$cc proc warpQuad {Image im double[4][2] imVertices
+                   int outWidth int outHeight} Image {
     Image out = imageNew(outWidth, outHeight, im.components, im.uniq);
 
     // imVertices are clockwise from top-left: [TL, TR, BR, BL]

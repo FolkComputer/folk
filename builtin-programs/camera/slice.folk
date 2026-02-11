@@ -6,12 +6,13 @@
 
 # Callback: extract out a camera slice
 When the image library is /imageLib/ &\
+     the jpeg library is /jpegLib/ &\
      the quad library is /quadLib/ &\
      the pose library is /poseLib/ &\
      the quad changer is /quadChange/ &\
      /someone/ wishes /p/ has camera slice &\
      camera /cam/ has intrinsics /cameraIntrinsics/ &\
-     camera /cam/ has frame /f/ at timestamp /timestamp/ &\
+     camera /cam/ has jpeg frame /jpeg/ at timestamp /timestamp/ &\
      /p/ has quad /q/ {
     fn quadChange
 
@@ -20,9 +21,7 @@ When the image library is /imageLib/ &\
         ::math::linearalgebra::sub \
         ::math::linearalgebra::norm \
 
-    set fWidth [$imageLib Image_width $f]
-    set fHeight [$imageLib Image_height $f]
-
+    lassign [$jpegLib jpegDimensions $jpeg] fWidth fHeight
     # Convert quad to camera coordinates
     set q [quadChange $q $cam]
     set vertices [lmap v [$quadLib vertices $q] {
@@ -30,8 +29,8 @@ When the image library is /imageLib/ &\
             $fWidth $fHeight $v
     }]
 
-    # Now, use $imageLib warpSlice to get a transformed subimage of
-    # the camera image.
+    # Now, use $jpegLib jpegDecompressWarpedQuad to get a transformed
+    # subimage of the camera image.
 
     lassign [$quadLib vertices $q] topLeft topRight bottomRight bottomLeft
     # These dimensions are in meters. We have to start from these quad
@@ -59,7 +58,7 @@ When the image library is /imageLib/ &\
     set sliceWidth [expr {int($quadWidth * $pixelsPerMeter)}]
     set sliceHeight [expr {int($quadHeight * $pixelsPerMeter)}]
 
-    set slice [$imageLib warpSlice $f $vertices \
+    set slice [$jpegLib jpegDecompressWarpedQuad $jpeg $vertices \
                    $sliceWidth $sliceHeight]
     Claim $p has camera slice $slice \
         -destructor [list $imageLib imageFree $slice]
