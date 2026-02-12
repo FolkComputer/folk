@@ -73,23 +73,25 @@ $cc proc zmqRecvMulti {void* socket} Jim_Obj* {
 # module at any time).
 $cc code {
     // This C module is global, so we need to maintain a separate
-    // functions/registeredArgtypes per uvx (per socket).
+    // functions/registeredArgtypes per uvx (per endpoint).
 
-    typedef struct SocketStringKV {
-        void* key;
+    #define ENDPOINT_MAX 256
+
+    typedef struct EndpointStringKV {
+        char key[ENDPOINT_MAX];
         char* value;
-    } SocketStringKV;
+    } EndpointStringKV;
 
-    SocketStringKV registeredArgtypes[64];
+    EndpointStringKV registeredArgtypes[64];
     pthread_mutex_t registeredArgtypesMutex = PTHREAD_MUTEX_INITIALIZER;
 
-    SocketStringKV functions[64];
+    EndpointStringKV functions[64];
     pthread_mutex_t functionsMutex = PTHREAD_MUTEX_INITIALIZER;
 }
-$cc proc getFunctions {void* socket} char* {
+$cc proc getFunctions {char* endpoint} char* {
     pthread_mutex_lock(&functionsMutex);
     for (int i = 0; i < 64; i++) {
-        if (functions[i].key == socket) {
+        if (strcmp(functions[i].key, endpoint) == 0) {
             char* result = functions[i].value;
             pthread_mutex_unlock(&functionsMutex);
             return result ? result : "";
@@ -98,10 +100,10 @@ $cc proc getFunctions {void* socket} char* {
     pthread_mutex_unlock(&functionsMutex);
     return "";
 }
-$cc proc getRegisteredArgtypes {void* socket} char* {
+$cc proc getRegisteredArgtypes {char* endpoint} char* {
     pthread_mutex_lock(&registeredArgtypesMutex);
     for (int i = 0; i < 64; i++) {
-        if (registeredArgtypes[i].key == socket) {
+        if (strcmp(registeredArgtypes[i].key, endpoint) == 0) {
             char* result = registeredArgtypes[i].value;
             pthread_mutex_unlock(&registeredArgtypesMutex);
             return result ? result : "";
@@ -110,17 +112,16 @@ $cc proc getRegisteredArgtypes {void* socket} char* {
     pthread_mutex_unlock(&registeredArgtypesMutex);
     return "";
 }
-$cc proc setFunctions {void* socket char* value} void {
+$cc proc setFunctions {char* endpoint char* value} void {
     pthread_mutex_lock(&functionsMutex);
 
-    // Find or create entry for this socket
     int slot = -1;
     for (int i = 0; i < 64; i++) {
-        if (functions[i].key == socket) {
+        if (strcmp(functions[i].key, endpoint) == 0) {
             slot = i;
             break;
         }
-        if (functions[i].key == NULL && slot == -1) {
+        if (functions[i].key[0] == '\0' && slot == -1) {
             slot = i;
         }
     }
@@ -130,26 +131,25 @@ $cc proc setFunctions {void* socket char* value} void {
         FOLK_ERROR("setFunctions: No free slots\n");
     }
 
-    // Free old value and store new one
     if (functions[slot].value) {
         free(functions[slot].value);
     }
-    functions[slot].key = socket;
+    strncpy(functions[slot].key, endpoint, ENDPOINT_MAX - 1);
+    functions[slot].key[ENDPOINT_MAX - 1] = '\0';
     functions[slot].value = strdup(value);
 
     pthread_mutex_unlock(&functionsMutex);
 }
-$cc proc setRegisteredArgtypes {void* socket char* value} void {
+$cc proc setRegisteredArgtypes {char* endpoint char* value} void {
     pthread_mutex_lock(&registeredArgtypesMutex);
 
-    // Find or create entry for this socket
     int slot = -1;
     for (int i = 0; i < 64; i++) {
-        if (registeredArgtypes[i].key == socket) {
+        if (strcmp(registeredArgtypes[i].key, endpoint) == 0) {
             slot = i;
             break;
         }
-        if (registeredArgtypes[i].key == NULL && slot == -1) {
+        if (registeredArgtypes[i].key[0] == '\0' && slot == -1) {
             slot = i;
         }
     }
@@ -159,19 +159,19 @@ $cc proc setRegisteredArgtypes {void* socket char* value} void {
         FOLK_ERROR("setRegisteredArgtypes: No free slots\n");
     }
 
-    // Free old value and store new one
     if (registeredArgtypes[slot].value) {
         free(registeredArgtypes[slot].value);
     }
-    registeredArgtypes[slot].key = socket;
+    strncpy(registeredArgtypes[slot].key, endpoint, ENDPOINT_MAX - 1);
+    registeredArgtypes[slot].key[ENDPOINT_MAX - 1] = '\0';
     registeredArgtypes[slot].value = strdup(value);
 
     pthread_mutex_unlock(&registeredArgtypesMutex);
 }
 
-set zmq [$cc compile]
+set impl [$cc compile]
 
-proc Uvx args {zmq UVX} {
+proc Uvx args {impl UVX} {
     set endpoint "ipc:///tmp/uvx-[clock milliseconds]-[expr {int(rand() * 100000)}].ipc"
 
     set harnessCode [subst -nocommands -nobackslashes {
@@ -196,6 +196,12 @@ def __register_argtype__(type_name, deserializer_code):
 fn_signatures = {}
 def __register_function__(fn_name, *fn_argtypes):
     fn_signatures[fn_name] = fn_argtypes
+
+def __exec__(code, filename="<string>", lineno="1"):
+    lineno = int(lineno)
+    padded = '\n' * (lineno - 1) + code
+    compiled = compile(padded, filename, 'exec')
+    exec(compiled, globals())
 
 while True:
     try:
@@ -251,46 +257,46 @@ while True:
 
     # Return a library that runs internal state through the Folk db so
     # it can be called from any thread.
-    return [library create uvx {zmq endpoint} {
+    return [library create uvx {impl endpoint} {
 
-variable zmq
+variable impl
 variable endpoint
 # We need to boot a new socket when this library is loaded onto a new
 # thread. Do that now.
-variable socket [$zmq zmqSocket REQ]
+variable socket [$impl zmqSocket REQ]
 # This should only actually connect when actually invoked.
-$zmq zmqConnect $socket $endpoint
+$impl zmqConnect $socket $endpoint
 
 proc getFunctions {} {
-    variable zmq; variable socket
-    return [$zmq getFunctions $socket] }
+    variable impl; variable endpoint
+    return [$impl getFunctions $endpoint] }
 proc getRegisteredArgtypes {} {
-    variable zmq; variable socket
-    return [$zmq getRegisteredArgtypes $socket]
+    variable impl; variable endpoint
+    return [$impl getRegisteredArgtypes $endpoint]
 }
 proc registerFunction {fnName fnInfo} {
-    variable zmq; variable socket
-    set functions [$zmq getFunctions $socket]
+    variable impl; variable endpoint
+    set functions [$impl getFunctions $endpoint]
     dict set functions $fnName $fnInfo
-    $zmq setFunctions $socket $functions
+    $impl setFunctions $endpoint $functions
 }
 proc registerArgtype {typeName serializer} {
-    variable zmq; variable socket
-    set argtypes [$zmq getRegisteredArgtypes $socket]
+    variable impl; variable endpoint
+    set argtypes [$impl getRegisteredArgtypes $endpoint]
     dict set argtypes $typeName $serializer
-    $zmq setRegisteredArgtypes $socket $argtypes
+    $impl setRegisteredArgtypes $endpoint $argtypes
 }
 
 proc unknown {fnName args} {
-    variable zmq; variable socket
-    # We need normal `unknown` to call methods on $zmq, so need to
+    variable impl; variable socket
+    # We need normal `unknown` to call methods on $impl, so need to
     # pass it through to ::unknown.
-    if {$fnName eq $zmq} {
+    if {$fnName eq $impl} {
         tailcall ::unknown $fnName {*}$args
     }
 
     # Send function name first
-    $zmq zmqSendMore $socket $fnName
+    $impl zmqSendMore $socket $fnName
 
     # Check if this function has registered types
     set functions [getFunctions]
@@ -304,29 +310,33 @@ proc unknown {fnName args} {
             # Check if this is a custom argtype
             if {[dict exists $registeredArgtypes $schema]} {
                 set serializerCode [dict get $registeredArgtypes $schema]
-                apply [list {zmq socket arg} $serializerCode] $zmq $socket $arg
+                apply [list {zmq socket arg} $serializerCode] $impl $socket $arg
             } else {
                 # Use JSON encoding
                 set encoded [json::encode $arg $schema]
-                $zmq zmqSendMore $socket $encoded
+                $impl zmqSendMore $socket $encoded
             }
         }
 
     } else {
         # No type info, send args as strings
-        foreach arg $args { $zmq zmqSendMore $socket $arg }
+        foreach arg $args { $impl zmqSendMore $socket $arg }
     }
 
     # Send terminator.
-    $zmq zmqSend $socket "" 0
+    $impl zmqSend $socket "" 0
 
-    set response [$zmq zmqRecvMulti $socket]
+    set response [$impl zmqRecvMulti $socket]
 
     lassign $response status value
     if {$status eq "error"} { error $value }
     return [json::decode $value]
 }
-proc exec {code} { return [unknown "exec" [undent $code]] }
+proc exec {code} {
+    lassign [info source $code] file line
+    if {$file eq ""} { set file "<unknown>"; set line 1 }
+    return [unknown "__exec__" [undent $code] $file $line]
+}
 proc eval {code} { return [unknown "eval" $code] }
 
 proc argtype {typeName serializer deserializer} {
@@ -336,6 +346,9 @@ proc argtype {typeName serializer deserializer} {
     __register_argtype__ $typeName $deserializer
 }
 proc def {fnName argSpec body} {
+    lassign [info source $body] file line
+    if {$file eq ""} { set file "<unknown>"; set line 1 }
+
     # Parse argument specification: {Type1 name1 Type2 name2 ...}
     set argNames {}
     set argTypes {}
@@ -359,8 +372,8 @@ proc def {fnName argSpec body} {
     if {[string trim $indentedBody] eq ""} {
         set indentedBody "    pass\n"
     }
-    exec "def $fnName\([join $argNames ", "]):
-$indentedBody"
+    # line - 1 because the def header line takes the place of the opening brace
+    unknown "__exec__" "def $fnName\([join $argNames ", "]):\n$indentedBody" $file [::expr {$line - 1}]
 }
     }]
 }
