@@ -148,6 +148,7 @@ When /keyboard/ is a keyboard device {
 
             set now $([clock milliseconds] / 1000.0)
             set options [dict create timestamp $now]
+            if {$mods & 1} { dict set options shift 1 }
             set modKeyNotHeld [expr {$mods <= 1}] ;# excluding Shift
             if {$keychar ne "" && $modKeyNotHeld} {
                 dict set options printable $keychar
