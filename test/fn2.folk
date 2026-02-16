@@ -1,5 +1,6 @@
 Assert! when {
     puts "when: [__threadId]"
+    set this [__threadId]
 
     Assert! we are active
     When we are active {

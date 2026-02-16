@@ -636,25 +636,11 @@ static int exitFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
     long exitCode; Jim_GetLong(interp, argv[1], &exitCode);
 
-    // Stop and await all other threads. If we just do a normal exit,
-    // then other threads are likely to crash the program first by
-    // trying to access freed stuff.
-    for (int i = 0; i < threadCount; i++) {
-        if (threads[i].tid == 0) { continue; }
-        if (&threads[i] == self) { continue; }
-
-        char buf[10000]; traceItem(buf, sizeof(buf), threads[i].currentItem);
-
-        pthread_kill(threads[i].pthread, SIGUSR1);
-        pthread_cancel(threads[i].pthread);
-    }
-    for (int i = 0; i < threadCount; i++) {
-        if (threads[i].tid == 0) { continue; }
-        if (&threads[i] == self) { continue; }
-        pthread_join(threads[i].pthread, NULL);
-    }
-
-    exit(exitCode);
+    // Use _exit to skip atexit handlers and avoid crashing threads
+    // that are in non-cancellation-safe code (like dlopen).
+    // Ignore SIGTRAP so pthread_cancel doesn't cause EXC_BREAKPOINT.
+    signal(SIGTRAP, SIG_IGN);
+    _exit(exitCode);
 
     return JIM_OK;
 }
