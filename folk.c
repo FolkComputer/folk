@@ -639,6 +639,10 @@ static int exitFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     // Use _exit to skip atexit handlers and avoid crashing threads
     // that are in non-cancellation-safe code (like dlopen).
     // Ignore SIGTRAP so pthread_cancel doesn't cause EXC_BREAKPOINT.
+    fflush(stdout);
+    fflush(stderr);
+    close(STDOUT_FILENO);
+    close(STDERR_FILENO);
     signal(SIGTRAP, SIG_IGN);
     _exit(exitCode);
 
