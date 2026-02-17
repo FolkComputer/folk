@@ -1,0 +1,29 @@
+# Test that struct field accessors with array return types
+# can be imported into another C lib (the return type needs
+# to be decayed from e.g. double[3] to double* in function
+# pointer declarations).
+
+set cc [C]
+$cc struct Vec {
+    double v[3];
+}
+$cc struct Pose {
+    double R[3][3];
+    double t[3][1];
+}
+set lib1 [$cc compile]
+
+# This should compile without error -- the imported
+# function pointers for Vec_v, Pose_R, Pose_t must have
+# decayed (pointer) return types, not array return types.
+set dd [C]
+$dd extend $lib1
+$dd proc getR00 {Jim_Obj* p} double {
+    return Pose_R(interp, p, 0)[0];
+}
+set lib2 [$dd compile]
+
+set pose [dict create R {1 0 0 0 1 0 0 0 1} t {0 0 0}]
+assert {[$lib2 getR00 $pose] == 1.0}
+
+Exit! 0

@@ -778,7 +778,8 @@ C method import {srclib srcname {_as {}} {destname {}}} {
     set arglist [dict get $procinfo arglist]
 
     set addr [dict get [set "::$srclib __addrs"] $srcname]
-    $self code "$rtype (*$destname) ([join $arglist {, }]) = ($rtype (*) ([join $arglist {, }])) $addr;"
+    regsub {\[\d*\]} $rtype * decayedRtype
+    $self code "$decayedRtype (*$destname) ([join $arglist {, }]) = ($decayedRtype (*) ([join $arglist {, }])) $addr;"
 }
 
 C method string_toupper_first {s} {
