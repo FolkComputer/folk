@@ -582,6 +582,31 @@ static void statementAddChildMatch(Db* db, Statement* stmt, MatchRef child) {
                     &stmt->childMatches, child.val);
 }
 
+bool matchAddParentStatement(Db* db, Match* match, StatementRef parentRef) {
+    Statement* stmt = statementAcquire(db, parentRef);
+    if (stmt == NULL) return false;
+
+    MatchRef mref = matchRef(db, match);
+
+    pthread_mutex_lock(&stmt->childMatchesMutex);
+    if (stmt->childMatches == NULL) {
+        pthread_mutex_unlock(&stmt->childMatchesMutex);
+        statementRelease(db, stmt);
+        return false;
+    }
+    statementAddChildMatch(db, stmt, mref);
+
+    pthread_mutex_lock(&stmt->destructorSetMutex);
+    pthread_mutex_lock(&match->destructorSetMutex);
+    destructorSetInherit(&match->destructorSet, &stmt->destructorSet);
+    pthread_mutex_unlock(&match->destructorSetMutex);
+    pthread_mutex_unlock(&stmt->destructorSetMutex);
+
+    pthread_mutex_unlock(&stmt->childMatchesMutex);
+    statementRelease(db, stmt);
+    return true;
+}
+
 void statementAddDestructor(Statement* stmt, Destructor* d) {
     pthread_mutex_lock(&stmt->destructorSetMutex);
     destructorSetAdd(&stmt->destructorSet, d);

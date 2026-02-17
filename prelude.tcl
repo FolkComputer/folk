@@ -679,6 +679,34 @@ proc QueryOne! {args} {
 
     return [lindex $results 0]
 }
+proc Expect {args} {
+    upvar __envStack __envStack
+    set sema [semaCreate]
+    On unmatch { semaDestroy $sema }
+    When {*}$args { puts "GOt $args ($sema)"; semaPost $sema }
+
+    set results [Query! {*}$args]
+    while {[llength $results] != 1} {
+        puts "Await on ($sema) for $args"
+        semaWait $sema
+        puts "Done await for $args"
+        set results [Query! {*}$args]
+    }
+    set result [lindex $results 0]
+
+    # Split: complete old match (stays alive via When parent),
+    # create new match parented by When + expected statement.
+    # Pre-Expect children survive expected statement retraction.
+    __splitMatch [dict get $result __ref]
+
+    set callerWhenRef [__parentWhenRef]
+    On unmatch { Restart! $callerWhenRef }
+
+    dict for {k v} $result {
+        if {$k eq "__ref"} continue
+        uplevel 1 [list set $k $v]
+    }
+}
 proc ForEach! {args} {
     set body [lindex $args end]
     set pattern [lreplace $args end end]

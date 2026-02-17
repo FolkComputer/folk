@@ -1,0 +1,29 @@
+fn Get {} {
+    Expect the step is /step/
+    return $step
+}
+
+Hold! -key counter Claim the counter is 0
+sleep 0.5
+When {
+    set i [dict get [QueryOne! the counter is /i/] i]
+    if {$i == 6} { Exit! 0 }
+
+    set step [Get]
+    puts "STEP $step"
+    Hold! -key counter Claim the counter is [+ $i $step]
+    On unmatch {
+        puts stderr "GOODBYE!"
+    }
+}
+
+Hold! the step is 1
+sleep 0.5
+
+Hold! the step is 2
+sleep 0.5
+
+Hold! the step is 3
+sleep 0.5
+
+Hold! the step is 0

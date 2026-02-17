@@ -9,6 +9,7 @@
 #include <inttypes.h>
 #include <signal.h>
 #include <setjmp.h>
+#include <fcntl.h>
 
 #if __has_include ("tracy/TracyC.h")
 #include "tracy/TracyC.h"
@@ -632,6 +633,143 @@ static int setpgrpFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
         return JIM_ERR;
     }
 }
+static int __matchAddParentStatementFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 2);
+    if (self->currentMatch == NULL) {
+        Jim_SetResultString(interp, "No current match", -1);
+        return JIM_ERR;
+    }
+
+    StatementRef ref;
+    assert(sscanf(Jim_String(argv[1]), "s%d:%d", &ref.idx, &ref.gen) == 2);
+
+    if (!matchAddParentStatement(db, self->currentMatch, ref)) {
+        Jim_SetResultString(interp, "Statement no longer exists or already removed", -1);
+        return JIM_ERR;
+    }
+
+    return JIM_OK;
+}
+
+static _Atomic uint64_t semaCounter = 0;
+
+static int semaCreateFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    char name[64];
+    uint64_t id = semaCounter++;
+    snprintf(name, sizeof(name), "/folk_sem_%d_%llu", getpid(), (unsigned long long)id);
+    sem_t* sem = sem_open(name, O_CREAT | O_EXCL, 0600, 0);
+    assert(sem != SEM_FAILED);
+    sem_unlink(name);
+    char handle[64];
+    snprintf(handle, sizeof(handle), "<sem:%p>", (void*)sem);
+    Jim_SetResultString(interp, handle, -1);
+    return JIM_OK;
+}
+static int semaPostFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 2);
+    sem_t* sem;
+    sscanf(Jim_String(argv[1]), "<sem:%p>", (void**)&sem);
+    sem_post(sem);
+    return JIM_OK;
+}
+static int semaWaitFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 2);
+    sem_t* sem;
+    sscanf(Jim_String(argv[1]), "<sem:%p>", (void**)&sem);
+    while (sem_wait(sem) != 0) { perror("semwait"); }
+    return JIM_OK;
+}
+static int semaDestroyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 2);
+    sem_t* sem;
+    sscanf(Jim_String(argv[1]), "<sem:%p>", (void**)&sem);
+    sem_close(sem);
+    return JIM_OK;
+}
+
+static int __parentWhenRefFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 1);
+    if (self->currentItem.op != RUN_WHEN) {
+        Jim_SetResultString(interp, "", -1);
+        return JIM_OK;
+    }
+    StatementRef ref = self->currentItem.runWhen.when;
+    char ret[100];
+    snprintf(ret, 100, "s%d:%d", ref.idx, ref.gen);
+    Jim_SetResultString(interp, ret, strlen(ret));
+    return JIM_OK;
+}
+
+static Clause* unwhenizeClause(Clause* whenClause);
+static void pushRunWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef stmtRef);
+
+static int restartWhenFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 2);
+    StatementRef whenRef;
+    if (sscanf(Jim_String(argv[1]), "s%d:%d", &whenRef.idx, &whenRef.gen) != 2) {
+        return JIM_OK;
+    }
+
+    Statement* when = statementAcquire(db, whenRef);
+    if (when == NULL) return JIM_OK;
+
+    Clause* whenClause = statementClause(when);
+    Clause* pattern = unwhenizeClause(whenClause);
+
+    if (pattern->nTerms == 0) {
+        pushRunWhenBlock(whenRef, pattern, STATEMENT_REF_NULL);
+    } else {
+        ResultSet* results = dbQuery(db, pattern);
+        for (int i = 0; i < results->nResults; i++) {
+            pushRunWhenBlock(whenRef, pattern, results->results[i]);
+        }
+        free(results);
+    }
+
+    clauseFreeBorrowed(pattern);
+    statementRelease(db, when);
+    return JIM_OK;
+}
+
+// Completes the current match and creates a new one parented by
+// the When statement and the given statement. Subsequent child
+// statements will belong to the new match.
+static int __splitMatchFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 2);
+    if (self->currentMatch == NULL) {
+        Jim_SetResultString(interp, "No current match", -1);
+        return JIM_ERR;
+    }
+    if (self->currentItem.op != RUN_WHEN) {
+        Jim_SetResultString(interp, "Not in a When block", -1);
+        return JIM_ERR;
+    }
+
+    StatementRef stmtRef;
+    if (sscanf(Jim_String(argv[1]), "s%d:%d", &stmtRef.idx, &stmtRef.gen) != 2) {
+        Jim_SetResultString(interp, "Invalid statement ref", -1);
+        return JIM_ERR;
+    }
+
+    // Complete and release old match. It stays alive because its
+    // parent (the When statement) is still alive.
+    matchCompleted(self->currentMatch);
+    matchRelease(db, self->currentMatch);
+
+    // Create new match parented by both the When stmt and the
+    // expected stmt.
+    StatementRef whenRef = self->currentItem.runWhen.when;
+    StatementRef parents[] = { whenRef, stmtRef };
+    self->currentMatch = dbInsertMatch(db, 2, parents,
+                                       self->currentAtomicallyVersion,
+                                       self->index);
+    if (!self->currentMatch) {
+        Jim_SetResultString(interp, "Failed to create new match", -1);
+        return JIM_ERR;
+    }
+    return JIM_OK;
+}
+
 static int exitFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
     long exitCode; Jim_GetLong(interp, argv[1], &exitCode);
@@ -682,6 +820,16 @@ static void interpBoot() {
 
     Jim_CreateCommand(interp, "__setFreshAtomicallyVersionOnKey", __setFreshAtomicallyVersionOnKeyFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__currentAtomicallyVersion", __currentAtomicallyVersionFunc, NULL, NULL);
+
+    Jim_CreateCommand(interp, "__matchAddParentStatement", __matchAddParentStatementFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__parentWhenRef", __parentWhenRefFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__splitMatch", __splitMatchFunc, NULL, NULL);
+
+    Jim_CreateCommand(interp, "semaCreate", semaCreateFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "semaPost", semaPostFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "semaWait", semaWaitFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "semaDestroy", semaDestroyFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "Restart!", restartWhenFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "setpgrp", setpgrpFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Exit!", exitFunc, NULL, NULL);

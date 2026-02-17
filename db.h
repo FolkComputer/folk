@@ -84,6 +84,8 @@ void matchSetAtomicallyVersion(Match* m, AtomicallyVersion* a);
 
 void matchAddDestructor(Match* m, Destructor* d);
 
+bool matchAddParentStatement(Db* db, Match* match, StatementRef parentRef);
+
 void matchCompleted(Match* m);
 void matchRemoveSelf(Db* db, Match* m);
 

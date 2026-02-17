@@ -1,0 +1,27 @@
+When {
+    Expect $this is some kind of /animal/
+
+    When $this is some kind of dog {
+        puts stderr hi1
+        Expect $this should be running
+        puts stderr hi2
+        On unmatch {
+            # Success! We got unmatched when the runner statment we
+            # depended on with Expect went away.
+            Exit! 0
+        }
+
+        sleep 0.5
+        Retract! $this should be running
+    }
+}
+
+Assert! $this should be running
+
+sleep 0.5
+
+# We want to test that Expect fires OK even for statements that aren't
+# in the DB yet when Expect is called (Expect should block until that
+# statement appears).
+puts stderr ok
+Claim $this is some kind of dog
