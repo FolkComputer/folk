@@ -403,20 +403,20 @@ Camera Controls
           </li>
 
           <li id="refineCalibrationLi" style="display: $[expr {$::thisNode in {"folk-hex" "folk-omar" "gadget-pink"} ? "''" : "none"}]">
-            <h3>Interactively refine calibration on the table.</h3>
+            <h3>Interactively refine calibration.</h3>
 
-            <p>Start table refinement: <button id="table-refinement-submit">Start Table Refinement</button></p>
+            <p>Start interactive refine: <button id="interactively-refine-submit">Start Interactive Refine</button></p>
             <script>
-              document.getElementById('table-refinement-submit').addEventListener('click', (e) => {
+              document.getElementById('interactively-refine-submit').addEventListener('click', (e) => {
                 // HACK: duplicated code from above
                 const mm = document.getElementById("tag-side-length-mm").value;
                 if (mm === "" || isNaN(mm)) {
-                  alert("Error: You need to type in a valid inner side length (mm) of your board tags before clicking Start Table Refinement.");
+                  alert("Error: You need to type in a valid inner side length (mm) of your board tags before clicking Start Interactive Refine.");
                   return;
                 }
                 ws.hold('start calibration', tcl`
                   Claim the printed calibration tag size is \${mm} mm
-                  Wish to do table refinement
+                  Wish to do interactive refinement
                 `, 'builtin-programs/calibrate/calibrate.folk');
               });
             </script>

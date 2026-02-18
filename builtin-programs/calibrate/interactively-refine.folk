@@ -1,4 +1,4 @@
-# table-refine.folk --
+# interactively-refine.folk --
 #
 #     Implements table-oriented projector-camera end-to-end
 #     calibration step.
@@ -115,7 +115,7 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
      display /display/ has intrinsics /displayIntrinsics/ &\
      display /display/ has width /displayWidth/ height /displayHeight/ &\
      the calibration is /calibration/ &\
-     /someone/ wishes to do table refinement {
+     /someone/ wishes to do interactive refinement {
 
     fn makeAprilTagDetector
     set tagDetector [makeAprilTagDetector "tagStandard52h13" 2.0 3]
