@@ -107,8 +107,7 @@ $cc proc estimateBoardPose {Intrinsics cameraIntrinsics
 set boardLib [$cc compile]
 
 When the AprilTag detector maker is /makeAprilTagDetector/ &\
-     the calibration unit model is /unitModel/ &\
-     the calibration isPrintedTag is /isPrintedTag/ &\
+     the calibration model library is /modelLib/ &\
      the printed calibration tag size is /printedSideLengthMm/ mm &\
      camera /camera/ has intrinsics /cameraIntrinsics/ &\
      camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
@@ -125,11 +124,8 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
         ::math::linearalgebra::sub ::math::linearalgebra::add
 
     set printedSideLengthM [/ $printedSideLengthMm 1000.0]
-    set model [dict create]
-    dict for {id tag} $unitModel {
-        dict set model $id c [scale $printedSideLengthM [dict get $tag c]]
-        dict set model $id p [scale $printedSideLengthM [dict get $tag p]]
-    }
+    set model [$modelLib scaleModel [$modelLib unitModel] \
+                   $printedSideLengthM]
 
     fn innerToOuter {center corner} {
         package require linalg
@@ -152,7 +148,7 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
         set detectedPrintedTagCorners [list]
         foreach tag $tags {
             set id [dict get $tag id]
-            if {![{*}$isPrintedTag $id]} { continue }
+            if {![$modelLib isPrintedTag $id]} { continue }
 
             lappend modelPrintedTagCorners {*}[dict get $model $id p]
             lappend detectedPrintedTagCorners {*}[dict get $tag p]
@@ -172,7 +168,7 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
 
         # Project a bunch of tags based on the pose estimate.
         dict for {id modelTag} $model {
-            if {[{*}$isPrintedTag $id]} { continue }
+            if {[$modelLib isPrintedTag $id]} { continue }
 
             set modelInnerCorners [lreverse [dict get $modelTag p]]
             set modelCenter [dict get $modelTag c]
