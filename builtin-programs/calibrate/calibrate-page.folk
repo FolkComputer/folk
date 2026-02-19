@@ -1,15 +1,11 @@
 When the print library is /printLib/ &\
      the programToPs is /programToPs/ &\
      the calibration matLib is /matLib/ &\
-     the calibration isProjectedTag is /isProjectedTag/ &\
-     the calibration isPrintedTag is /isPrintedTag/ &\
-     the calibration unit model is /UNIT_MODEL/ &\
+     the calibration model library is /modelLib/ &\
      the calibration estimateHomography is /estimateHomography/ {
 
 fn programToPs
 fn estimateHomography
-fn isProjectedTag
-fn isPrintedTag
 
 fn makeCalibrationBoardPdf {model tagSideLengthPs} {
     package require linalg
@@ -48,7 +44,7 @@ fn makeCalibrationBoardPdf {model tagSideLengthPs} {
 
         [set tagIdx -1]
         [join [lmap {id modelTag} $model {
-            if {![isPrintedTag $id]} { continue }
+            if {![$modelLib isPrintedTag $id]} { continue }
             incr tagIdx
 
             set modelInnerTopLeft [lindex [dict get $modelTag p] 3]
@@ -147,7 +143,7 @@ fn makeExampleProgramPng {} {
 Wish the web server handles route "/calibrate" with hidden true handler {
     package require base64
 
-    set calibrationBoardPdf [makeCalibrationBoardPdf $UNIT_MODEL 70]
+    set calibrationBoardPdf [makeCalibrationBoardPdf [$modelLib unitModel] 70]
 
     set exampleProgramPng [makeExampleProgramPng]
 

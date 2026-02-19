@@ -1,0 +1,157 @@
+# model.folk --
+#
+#     Defines datatype and operations for calibration model.
+
+Claim the calibration model library is [library create modelLib {
+    package require linalg
+    namespace import ::math::linearalgebra::scale \
+        ::math::linearalgebra::add
+
+    variable ROWS 3
+    variable COLS 5
+    proc rows {} { variable ROWS; return $ROWS }
+    proc cols {} { variable COLS; return $COLS }
+    # A model is a dictionary whose keys are tag IDs and where each
+    # value is a dictionary with keys `c` and `p` which are model
+    # points (x, y).
+    proc unitModel {} {
+        variable ROWS; variable COLS
+        set UNIT_MODEL [dict create]
+
+        set tagSideLength 1.0
+        set tagOuterLength [expr {$tagSideLength * 10/6}]
+        set pad [expr {$tagSideLength / 2}]
+        for {set row 0} {$row < $ROWS} {incr row} {
+            for {set col 0} {$col < $COLS} {incr col} {
+                set id [expr {48600 + $row*$COLS + $col}]
+                set modelX [expr {($tagOuterLength + $pad)*$col}]
+                set modelY [expr {($tagOuterLength + $pad)*$row}]
+                # Now modelX and modelY are the top-left outer corner of
+                # the tag.
+                set modelX [expr {$modelX + ($tagOuterLength - $tagSideLength)/2}]
+                set modelY [expr {$modelY + ($tagOuterLength - $tagSideLength)/2}]
+                # Now modelX and modelY are the top-left inner corner of
+                # the tag.
+                set modelTopLeft [list $modelX $modelY]
+                set modelTopRight [list [+ $modelX $tagSideLength] $modelY]
+                set modelBottomRight [list [+ $modelX $tagSideLength] [+ $modelY $tagSideLength]]
+                set modelBottomLeft [list $modelX [+ $modelY $tagSideLength]]
+                set modelTag [dict create \
+                                  c [scale 0.5 [add $modelTopLeft $modelBottomRight]] \
+                                  p [list $modelBottomLeft $modelBottomRight \
+                                              $modelTopRight $modelTopLeft]]
+                dict set UNIT_MODEL $id $modelTag
+            }
+        }
+        return $UNIT_MODEL
+    }
+    # Tags with isPrintedTag will get projected to PostScript points
+    # and printed; tags with isProjectedTag will get projected to
+    # Vulkan points and rendered on projector.
+
+    # Tag operations.
+    # ---------------
+
+    proc isCalibrationTag {id} {
+        variable ROWS; variable COLS
+        return $($id >= 48600 && $id < 48600 + $ROWS*$COLS)
+    }
+    proc isPrintedTag {id} {
+        if {![isCalibrationTag $id]} { return false }
+        set idx [- $id 48600]
+        return [expr {$idx % 2 == 0}] ;# for checkerboard
+    }
+    proc isProjectedTag {id} {
+        if {![isCalibrationTag $id]} { return false }
+        return [expr {![isPrintedTag $id]}]
+    }
+
+    proc isVersionTag {id} {
+        if {![isProjectedTag $id]} { return false }
+        set idx [- $id 48600]
+        return [expr {$idx % 4 == 1}] ;# for checkerboard
+    }
+
+    # Model operations.
+    # -----------------
+
+    # Takes a model object (dictionary of tag ID => {p, c}) and
+    # rotates version tags according to version.
+    proc updateModelVersion {model version} {
+        foreach id [dict keys $model] {
+            if {![isVersionTag $id]} {
+                continue
+            }
+            # This is a version tag. Rotate it.
+            set p [dict get $model $id p]
+            set rotatedCorners [list]
+            for {set i 0} {$i < 4} {incr i} {
+                lappend rotatedCorners [lindex $p [expr {($i + $version) % 4}]]
+            }
+            dict set model $id p $rotatedCorners
+        }
+        return $model
+    }
+    proc scaleModel {model scale} {
+        set ret [dict create]
+        dict for {id tag} $model {
+            dict set ret $id c [scale $scale [dict get $tag c]]
+            dict set ret $id p [scale $scale [dict get $tag p]]
+        }
+        return $ret
+    }
+
+    proc lsort-indices {itemL} {
+        set pairL [list]
+        foreach item $itemL {
+            lappend pairL [list $item [llength $pairL]]
+        }
+        set indexL [list]
+        foreach pair [lsort -index 0 -real $pairL] {
+            lappend indexL [lindex $pair 1]
+        }
+        set indexL
+    }
+    # Find a version tag that the camera saw and check its rotation to
+    # figure out the model version that we're seeing.
+    proc detectVersionFromProjectedTags {projectedTags} {
+        # Find any version tag. If none were detected, then abort
+        # and wait until a later frame.
+        dict for {id tag} $projectedTags {
+            if {[isVersionTag $id]} {
+                set versionTagId $id
+                break
+            }
+        }
+        if {![info exists versionTagId]} { return {} }
+
+        set getTagAngle {{tag} {
+            set p [dict get $tag p]
+            expr {atan2(-1 * ([lindex $p 1 1] - [lindex $p 0 1]),
+                        [lindex $p 1 0] - [lindex $p 0 0])}
+        }}
+        set versionTagAngle [apply $getTagAngle [dict get $projectedTags $versionTagId]]
+
+        # Compare angle to angle of any other projected tag.
+        if {[dict size $projectedTags] < 2} { return {} }
+        dict for {id projectedTag} $projectedTags {
+            if {![isVersionTag $id]} {
+                set otherTagAngle [apply $getTagAngle $projectedTag]
+                break
+            }
+        }
+        if {![info exists otherTagAngle]} { return {} }
+
+        set versionAngle [expr {$versionTagAngle - $otherTagAngle}]
+        # Rotations corresponding to versions 0, 1, 2, 3:
+        set possibleVersions \
+            [list 1  0 \
+                 0  1 \
+                 -1  0 \
+                 0 -1]
+        # Which of the possibleVersions is versionAngle closest to?
+        return [lindex [lsort-indices [lmap {x y} $possibleVersions {
+            expr {sqrt(($x - cos($versionAngle))**2 + ($y - sin($versionAngle))**2)}
+        }]] 0]
+    }
+}]

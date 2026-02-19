@@ -144,7 +144,6 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
         set aprilTime [time {
             set tags [$tagDetector detect $frame]
         }]
-        puts "Saw tags : $tags"
 
         package require linalg
         namespace import ::math::linearalgebra::matmul
@@ -158,10 +157,7 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
             lappend modelPrintedTagCorners {*}[dict get $model $id p]
             lappend detectedPrintedTagCorners {*}[dict get $tag p]
         }
-        if {[llength $detectedPrintedTagCorners] < 4} {
-            puts "not enough detected"
-            return
-        }
+        if {[llength $detectedPrintedTagCorners] < 4} { return }
 
         # Do a single board-wide pose estimate.
         set pose [$boardLib estimateBoardPose $cameraIntrinsics \
@@ -177,7 +173,6 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
         # Project a bunch of tags based on the pose estimate.
         dict for {id modelTag} $model {
             if {[{*}$isPrintedTag $id]} { continue }
-            puts "  display $id"
 
             set modelInnerCorners [lreverse [dict get $modelTag p]]
             set modelCenter [dict get $modelTag c]

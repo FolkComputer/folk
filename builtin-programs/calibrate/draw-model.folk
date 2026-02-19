@@ -1,0 +1,143 @@
+When display /display/ has width /displayWidth/ height /displayHeight/ &\
+     the calibration matLib is /matLib/ &\
+     the calibration model library is /modelLib/ &\
+     the calibration estimateHomography is /estimateHomography/ &\
+     the calibration poses max is /calibrationPosesMax/ &\
+     the calibration poses are /calibrationPoses/ &\
+     the calibration cycle time is /cycleTime/ &\
+     /someone/ wishes to draw calibration model /model/ \
+         using model-to-display homography /H_modelToDisplay/ {
+
+    fn estimateHomography
+
+    package require linalg
+    namespace import ::math::linearalgebra::scale \
+        ::math::linearalgebra::add ::math::linearalgebra::sub
+
+    fn innerToOuter {center corner {s 1.66666667}} {
+        set r [sub $corner $center]
+        return [add $center [scale $s $r]]
+    }
+
+    set ROWS [$modelLib rows]; set COLS [$modelLib cols]
+
+    set topLeftTag     [dict get $model [expr {48600 + 0*$COLS + 0}]]
+    set topRightTag    [dict get $model [expr {48600 + 0*$COLS + $COLS-1}]]
+    set bottomRightTag [dict get $model [expr {48600 + ($ROWS-1)*$COLS + $COLS-1}]]
+    set bottomLeftTag  [dict get $model [expr {48600 + ($ROWS-1)*$COLS + 0}]]
+
+    set boardBorderScale [expr {1.66666667 * 2}]
+    set boardTopLeft    [innerToOuter [dict get $topLeftTag c]     [lindex [dict get $topLeftTag p]     3] $boardBorderScale]
+    set boardTopRight   [innerToOuter [dict get $topRightTag c]    [lindex [dict get $topRightTag p]    2] $boardBorderScale]
+    set boardBottomRight [innerToOuter [dict get $bottomRightTag c] [lindex [dict get $bottomRightTag p] 1] $boardBorderScale]
+    set boardBottomLeft [innerToOuter [dict get $bottomLeftTag c]  [lindex [dict get $bottomLeftTag p]  0] $boardBorderScale]
+
+    set boardToClipSpaceCorners \
+        [list [list 0 0 -1 -1] \
+             [list $displayWidth 0 1 -1] \
+             [list $displayWidth $displayHeight 1 1] \
+             [list 0 $displayHeight -1 1]]
+    set boardCanvasToClipSpace [estimateHomography $boardToClipSpaceCorners]
+
+    set board [list $this board]
+    set boardCanvas [list $board canvas]
+    Wish the GPU creates canvas $boardCanvas \
+        with width $displayWidth height $displayHeight
+    When the GPU has created canvas $boardCanvas with /...opts/ {
+        Claim $board has canvas $boardCanvas with {*}$opts
+    }
+    Claim $board has canvas projection $boardCanvasToClipSpace
+
+    set bgColor [list 1 1 1 1]
+
+    When $board has canvas /any/ with /...wiOpts/ {
+        package require linalg
+        namespace import ::math::linearalgebra::scale \
+            ::math::linearalgebra::add ::math::linearalgebra::sub \
+            ::math::linearalgebra::norm
+
+        # White backdrop on board:
+        Wish the GPU draws pipeline "fillTriangle" onto canvas $boardCanvas \
+            with arguments [list {{1 0 0} {0 1 0} {0 0 1}} \
+                                [list -1 -1] [list 1 -1] [list 1 1] $bgColor] \
+            layer 99
+        Wish the GPU draws pipeline "fillTriangle" onto canvas $boardCanvas \
+            with arguments [list {{1 0 0} {0 1 0} {0 0 1}} \
+                                [list -1 -1] [list 1 1] [list -1 1] $bgColor] \
+            layer 99
+
+        # Draw AprilTags on board:
+        dict for {id modelTag} $model {
+            if {![$modelLib isProjectedTag $id]} { continue }
+
+            set modelInnerCorners [lreverse [dict get $modelTag p]]
+            set modelCenter [dict get $modelTag c]
+
+            set displayOuterCorners [lmap modelInnerCorner $modelInnerCorners {
+                set modelOuterCorner [innerToOuter $modelCenter $modelInnerCorner]
+                $matLib applyHomography $H_modelToDisplay $modelOuterCorner
+            }]
+            Wish to draw an AprilTag onto $board with \
+                id $id corners $displayOuterCorners background $bgColor \
+                layer 100
+        }
+
+        # White backdrop across whole projector area to hopefully make
+        # the projected tags pop out more:
+        set surfaceToClip {{1 0 0} {0 1 0} {0 0 1}}
+        set p0 [list -1 -1]
+        set p1 [list 1 -1]
+        set p2 [list 1 1]
+        set p3 [list -1 1]
+        Wish the GPU draws pipeline "fillTriangle" with arguments \
+            [list $surfaceToClip $p1 $p2 $p3 $bgColor] layer 99
+        Wish the GPU draws pipeline "fillTriangle" with arguments \
+            [list $surfaceToClip $p0 $p1 $p3 $bgColor] layer 99
+
+        set sides \
+            [list \
+                 [list $boardTopLeft $boardTopRight] \
+                 [list $boardBottomRight $boardBottomLeft] \
+                 [list $boardBottomLeft $boardTopLeft] \
+                 [list $boardTopRight $boardBottomRight]]
+
+        set text "[llength $calibrationPoses]/$calibrationPosesMax poses ([expr {round($cycleTime*1000)}] ms)"
+        foreach p {add norm sub scale matmul
+            getelem transpose determineSVD shape mkIdentity show
+            solvePGauss crossproduct getcol setcol unitLengthVector det
+        } {
+            namespace import ::math::linearalgebra::$p
+        }
+
+        foreach side $sides {
+            lassign $side start end
+            set displayStart [$matLib applyHomography $H_modelToDisplay $start]
+            set displayEnd   [$matLib applyHomography $H_modelToDisplay $end]
+
+            set v [sub $displayEnd $displayStart]
+            set displayRadians [expr {atan2(-1*[lindex $v 1], [lindex $v 0])}]
+            set displayCenter [scale 0.5 [add $displayStart $displayEnd]]
+            if {![info exists textScale]} {
+                set textScale [/ [norm $v] 20]
+            }
+
+            Wish to draw text onto $board with text $text \
+                radians $displayRadians position $displayCenter \
+                anchor top color black layer 100 scale $textScale
+        }
+
+        # Now draw the board image (which has the projected tags) onto
+        # the display:
+        set displayToClip \
+           [list [list 1 0 0] \
+                 [list 0 1 0] \
+                 [list 0 0 1]]
+
+        Wish the GPU draws pipeline "image" with arguments \
+            [list [list $displayWidth $displayHeight] \
+                 $displayToClip \
+                 [dict get $wiOpts texture] \
+                 [list -1 -1] [list 1 -1] [list 1 1] [list -1 1]] \
+            layer 100
+    }
+}
