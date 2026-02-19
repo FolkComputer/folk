@@ -104,19 +104,39 @@ $cc proc estimateBoardPose {Intrinsics cameraIntrinsics
     matd_destroy(ctw);
     return ret;
 }
+
+$cc cflags -I./vendor/cmpfit
+$cc include "mpfit.h"
+$cc include "mpfit.c"
+$cc proc funct {int m int n double* x
+                double* fvec double** dvec
+                void* userdata} void {
+    Jim_Obj* jimFunct = (Jim_Obj*) userdata;
+    // FIXME: Not sure how to call jimFunct (it's an object like
+    // `apply {{x} { ...}}` and we want to call it with $x). Set the m
+    // values of fvec to the list returned by JimEvalObj.
+    fvec = Jim_EvalObj(interp, jimFunct, x);
+}
+$cc proc fit {int m double[12] x Jim_Obj* jimFunct} void {
+    mpfit(funct,
+          m, // Number of example point pairs
+          // Number of parameters to optimize:
+          12, x,
+          NULL, jimFunct, NULL, &result);
+}
+
 set boardLib [$cc compile]
 
 When the AprilTag detector maker is /makeAprilTagDetector/ &\
      the calibration model library is /modelLib/ &\
+     the calibration estimateHomography is /estimateHomography/ &\
      the printed calibration tag size is /printedSideLengthMm/ mm &\
-     camera /camera/ has intrinsics /cameraIntrinsics/ &\
      camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
-     display /display/ has intrinsics /displayIntrinsics/ &\
      display /display/ has width /displayWidth/ height /displayHeight/ &\
-     the calibration is /calibration/ &\
      /someone/ wishes to do interactive refinement {
 
     fn makeAprilTagDetector
+    fn estimateHomography
     set tagDetector [makeAprilTagDetector "tagStandard52h13" 2.0 3]
 
     package require linalg
@@ -124,23 +144,10 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
         ::math::linearalgebra::sub ::math::linearalgebra::add
 
     set printedSideLengthM [/ $printedSideLengthMm 1000.0]
-    set model [$modelLib scaleModel [$modelLib unitModel] \
-                   $printedSideLengthM]
+    set model0 [$modelLib scaleModel [$modelLib unitModel] \
+                    $printedSideLengthM]
 
-    fn innerToOuter {center corner} {
-        package require linalg
-        namespace import ::math::linearalgebra::scale \
-            ::math::linearalgebra::sub ::math::linearalgebra::add
-
-        set r [sub $corner $center]
-        return [add $center [scale [expr {sqrt(50)/sqrt(18)}] $r]]
-    }
-
-    When -serially camera $camera has frame /frame/ at timestamp /frameTimestamp/ {
-        set aprilTime [time {
-            set tags [$tagDetector detect $frame]
-        }]
-
+    When /someone/ wishes to display refining model /model/ using calibration /calibration/ {
         package require linalg
         namespace import ::math::linearalgebra::matmul
 
@@ -166,53 +173,96 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
         set R_cameraToDisplay [dict get $calibration R_cameraToProjector]
         set t_cameraToDisplay [dict get $calibration t_cameraToProjector]
 
-        # Project a bunch of tags based on the pose estimate.
-        dict for {id modelTag} $model {
-            if {[$modelLib isPrintedTag $id]} { continue }
+        # Compute model-to-display homography from pose via correspondences
+        # of the detected printed tag corners:
+        set correspondences [lmap mc $modelPrintedTagCorners {
+            set v [list {*}$mc 0]
+            set camPt [add [matmul $R_boardToCamera $v] $t_boardToCamera]
+            set dispPt [add [matmul $R_cameraToDisplay $camPt] $t_cameraToDisplay]
+            set dp [$poseLib project $displayIntrinsics \
+                        $displayWidth $displayHeight $dispPt]
+            list {*}$mc {*}$dp
+        }]
+        set H_modelToDisplay [estimateHomography $correspondences]
 
-            set modelInnerCorners [lreverse [dict get $modelTag p]]
-            set modelCenter [dict get $modelTag c]
-            set modelOuterCorners [lmap modelInnerCorner $modelInnerCorners {
-                innerToOuter $modelCenter $modelInnerCorner
-            }]
-
-            set projectorOuterCorners [lmap modelOuterCorner $modelOuterCorners {
-                set v [list {*}$modelOuterCorner 0]
-                set cameraOuterCorner [add [matmul $R_boardToCamera $v] \
-                                           $t_boardToCamera]
-                set projectorOuterCorner [add [matmul $R_cameraToDisplay $cameraOuterCorner] \
-                                              $t_cameraToDisplay]
-                $poseLib project $displayIntrinsics \
-                    $displayWidth $displayHeight $projectorOuterCorner
-            }]
-
-            Hold! -key $id Wish to draw an AprilTag onto $display with \
-                id $id corners $projectorOuterCorners background [list 1 1 1 1] \
-                layer 100
-        }
-        # White backdrop to hopefully make the projected tags pop out more:
-        Hold! -key backdrop Wish to draw a quad onto $display with \
-            p0 [list 0 0] p1 [list $displayWidth 0] \
-            p2 [list $displayWidth $displayHeight] p3 [list 0 $displayHeight] \
-            color white layer 99
+        Wish to draw calibration model $model \
+            using model-to-display homography $H_modelToDisplay
     }
 
-    # TODO: are we stable?
+    fn AwaitNextCameraFrame! {frameTimestampVar} {
+        upvar $frameTimestampVar frameTimestamp
+        set prevFrameTimestamp $frameTimestamp
 
-    # Later: do we see projected tags? record all data
+        do {
+            after 8
 
-    # we want new camera and projector intrinsics + extrinsics that minimize ....
+            set frames [Query! camera $camera has frame /frame/ at timestamp /frameTimestamp/]
+            if {[llength $frames] < 1} { continue }
+            set frameResult [lindex $frames end]
+            dict with frameResult {}
+        } while {$frameTimestamp <= $prevFrameTimestamp}
 
-    # given printed tags, the new extrinsics+intrinsics let you generate projector coordinates which you can match against the board-homography-expected projector coordinates.
-    # how do we know the board-homography-expected projector coordinates?
-    # well, what are the projector-space coordinates of the printed tags?
+        return $frame
+    }
 
-    # printed tags in camera space (camera xy) -> pose estimate (camera xyz) -> transform (projector xyz) -> project (projector xy) -> homogrpahy shift to projected tags (projector xy)
+    # The actual refinement process. We will have the user hold up the
+    # board in a sequence of whatever poses they want. When the board
+    # is stable for a couple seconds, we say that's a pose, and we
+    # start refinement with respect to that pose.
+    #
+    # Once the calibration is refined with respect to the pose, the
+    # user can move the board to a different pose. They can stop
+    # whenever they want.
+    set poses [list]
+    while true {
+        set frame [AwaitNextCameraFrame! frameTimestamp]
+        set aprilTime [time {
+            set tags [$tagDetector detect $frame]
+        }]
 
-    # use projected and printed tags to compute homography. this does not depend on calibration
-    # printed tags in camera space (camera xy) -> homography -> printed tags in projector space (projector xy)
+        # Record all the printed tags seen by the camera in $tags.
+        
+        # FIXME: Do we have a valid new pose: are the seen $tags far
+        # enough from previous pose's $tags, and have the $tags been
+        # stable for a while?
 
-    # Later later: Feed to LM along with original calib data
+        # TODO: Compute homography; use it to predict projected tag
+        # positions.
+
+        # If so, then refine the parameters around this pose. This
+        # will block for a while and run the interior function a lot
+        # (10 times? 100 times?).
+        set version 0
+        set x [unravel $calibration]
+        set x [$boardLib fit $x [list apply {x} {
+            upvar version version
+            # This is the function that gets evaluated on each
+            # iteration of the Levenberg-Marquardt optimization loop.
+
+            set calibration [ravel $x]
+            set model [$modelLib updateModelVersion $model $version]
+            # This will cause the tags to be rendered by the other
+            # process.
+            Hold! Wish to display refining model $model using calibration $calibration
+
+            # Loop until we see the version we just rendered.
+            do {
+                AwaitNextCameraFrame! frameTimestamp
+                set tags [$tagDetector detect $frame]
+
+                # FIXME: Check the version.
+            } while {}
+
+            # TODO: Need to check that the user has kept the board 'still
+            # enough' to the original `frame` that kicked off this
+            # pose refinement. If not, then abort.
+
+            # FIXME: Compute residuals for each tag. (how far away is
+            # the tag from where we'd expect it to be from the
+            # homography?) Return that list of residuals.
+        }]]
+        set calibration [ravel $x]
+    }
 }
 
 }
