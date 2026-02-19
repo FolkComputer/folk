@@ -20,30 +20,6 @@ foreach p {add norm sub scale matmul
     namespace import ::math::linearalgebra::$p
 }
 
-
-namespace import ::math::mean
-fn meanPoseDifference {pose1 pose2} {
-    set tags1 [dict get $pose1 tags]
-    set tags2 [dict get $pose2 tags]
-
-    set diffsum 0.0
-    set ndiffs 0
-    dict for {id tag} $tags1 {
-        # We cheat and only count printed tags so we don't have to
-        # deal with versioning.
-        if {![isPrintedTag $id]} { continue }
-        if {![dict exists $tags2 $id]} { continue }
-
-        lassign [dict get $tag c] x1 y1
-        lassign [dict get $tags2 $id c] x2 y2
-        set diffsum [expr {$diffsum + sqrt(($x1 - $x2)*($x1 - $x2) + ($y1 - $y2)*($y1 - $y2))}]
-        incr ndiffs
-    }
-    if {$ndiffs == 0} { return Inf }
-    return [expr {$diffsum / $ndiffs}]
-}
-Claim the calibration meanPoseDifference is [fn meanPoseDifference]
-
 Hold! -key {calibration poses max} \
     Claim the calibration poses max is 10
 
@@ -380,7 +356,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         foreach seenPose [lrange $seenPoses 0 end-1] {
             # Decreasing this threshold to 1 helps with data
             # accuracy. TODO: Use an _older_ frame?
-            if {[meanPoseDifference $pose $seenPose] > 5} {
+            if {[$modelLib meanTagsDifference $pose(tags) $seenPose(tags)] > 5} {
                 return
             }
         }
@@ -393,7 +369,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         set calibrationPoses [dict get [lindex [Query! the calibration poses are /calibrationPoses/] 0] calibrationPoses]
         if {[llength $calibrationPoses] > 0} {
             set prevCalibrationPose [lindex $calibrationPoses end]
-            if {[meanPoseDifference $pose $prevCalibrationPose] < 50} {
+            if {[$modelLib meanTagsDifference $pose(tags) $prevCalibrationPose(tags)] < 50} {
                 return
             }
         }
@@ -557,7 +533,7 @@ fn zhangUnrefinedCalibrate {name width height Hs} {
                 extrinsics $extrinsics]
 }
 
-fn setCameraToProjectorExtrinsics {calibrationVar calibrationPoses} {
+fn setCameraToProjectorExtrinsics {modelLib calibrationVar calibrationPoses} {
     # Use the "Kabsch algorithm" (https://nghiaho.com/?page_id=671;
     # https://zpl.fi/aligning-point-patterns-with-kabsch-umeyama-algorithm/)
     # to find the rotation and translation from 3D camera-space to 3D
@@ -627,7 +603,7 @@ fn setCameraToProjectorExtrinsics {calibrationVar calibrationPoses} {
 # a list of N pose dictionaries. Each pose dictionary includes `tags`
 # from a camera detection, `model` with coordinates in meters,
 # `H_modelToDisplay`.
-fn unrefinedCalibrateCameraAndProjector {matLib calibrationPoses} {
+fn unrefinedCalibrateCameraAndProjector {modelLib matLib calibrationPoses} {
     package require linalg
     namespace import ::math::linearalgebra::det
     namespace import ::math::linearalgebra::scale
@@ -703,11 +679,12 @@ fn unrefinedCalibrateCameraAndProjector {matLib calibrationPoses} {
     set calibration [dict create \
                          camera $cameraCalibration \
                          projector $projectorCalibration]
-    setCameraToProjectorExtrinsics calibration $calibrationPoses
+    setCameraToProjectorExtrinsics $modelLib calibration $calibrationPoses
     return $calibration
 }
 
-When the calibration matLib is /matLib/ &\
+When the calibration model library is /modelLib/ &\
+     the calibration matLib is /matLib/ &\
      the calibration poses max is /calibrationPosesMax/ &\
      the calibration poses are /calibrationPoses/ &\
      /nobody/ claims the calibration is /anything/ &\
@@ -720,13 +697,14 @@ When the calibration matLib is /matLib/ &\
         return
     }
 
-    set calibration [unrefinedCalibrateCameraAndProjector $matLib $calibrationPoses]
+    set calibration [unrefinedCalibrateCameraAndProjector $modelLib $matLib \
+                         $calibrationPoses]
     puts "======== Unrefined calibration ========="
     puts $calibration
     puts ""
 
     set calibration [{*}$refineCalibration \
-                         [fn isPrintedTag] [fn isProjectedTag] $matLib \
+                         $modelLib $matLib \
                          $calibrationPoses $calibration]
     puts "======== Refined calibration intrinsics ========="
 

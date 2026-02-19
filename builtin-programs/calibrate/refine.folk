@@ -539,11 +539,8 @@ fn refineMonoCalibration {calibration} {
     return $calibration
 }
 
-fn refineCalibration {isPrintedTag isProjectedTag matLib 
+fn refineCalibration {modelLib matLib 
                       calibrationPoses calibration} {
-    fn isPrintedTag
-    fn isProjectedTag
-
     # We start by individually refining the mono calibration of
     # the camera and the mono calibration of the projector.
 
@@ -559,7 +556,7 @@ fn refineCalibration {isPrintedTag isProjectedTag matLib
           set modelPoints [list]
           set points [list]
           dict for {id tag} [dict get $pose tags] {
-              if {[isPrintedTag $id]} continue
+              if {[$modelLib isPrintedTag $id]} continue
               lappend modelPoints {*}[lmap corner [dict get $pose model $id p] {
                   list {*}$corner 0.0
               }]
@@ -597,7 +594,7 @@ fn refineCalibration {isPrintedTag isProjectedTag matLib
           set modelPoints [list]
           set points [list]
           dict for {id tag} [dict get $pose tags] {
-              if {![isProjectedTag $id]} continue
+              if {![$modelLib isProjectedTag $id]} continue
               foreach modelCorner [dict get $pose model $id p] {
                   lappend modelPoints [list {*}$modelCorner 0.0]
                   lappend points [$matLib applyHomography $H_modelToProjector $modelCorner]
@@ -622,7 +619,8 @@ fn refineCalibration {isPrintedTag isProjectedTag matLib
         }]
 
     # Reconstruct camera->projector extrinsics after refinement.
-    setCameraToProjectorExtrinsics calibration $calibrationPoses
+    setCameraToProjectorExtrinsics $modelLib \
+                          calibration $calibrationPoses
 
     # Now we do stereo refinement of the reprojection error
     # of the entire system, including all intrinsics and
@@ -655,7 +653,7 @@ fn refineCalibration {isPrintedTag isProjectedTag matLib
         dict for {id tag} [dict get $pose tags] {
             # We only look at _projected_ tags & they have to be
             # in `tags`, so were actually detected by the camera.
-            if {![isProjectedTag $id]} continue
+            if {![$modelLib isProjectedTag $id]} continue
             for {set j 0} {$j < 4} {incr j} {
                 set modelCorner [lindex [dict get $pose model $id p] $j]
                 lappend modelPoints [list {*}$modelCorner 0.0]

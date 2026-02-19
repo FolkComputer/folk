@@ -101,17 +101,6 @@ Claim the calibration model library is [library create modelLib {
         return $ret
     }
 
-    proc lsort-indices {itemL} {
-        set pairL [list]
-        foreach item $itemL {
-            lappend pairL [list $item [llength $pairL]]
-        }
-        set indexL [list]
-        foreach pair [lsort -index 0 -real $pairL] {
-            lappend indexL [lindex $pair 1]
-        }
-        set indexL
-    }
     # Find a version tag that the camera saw and check its rotation to
     # figure out the model version that we're seeing.
     proc detectVersionFromProjectedTags {projectedTags} {
@@ -153,5 +142,23 @@ Claim the calibration model library is [library create modelLib {
         return [lindex [lsort-indices [lmap {x y} $possibleVersions {
             expr {sqrt(($x - cos($versionAngle))**2 + ($y - sin($versionAngle))**2)}
         }]] 0]
+    }
+
+    proc meanTagsDifference {tags1 tags2} {
+        set diffsum 0.0
+        set ndiffs 0
+        dict for {id tag} $tags1 {
+            # We cheat and only count printed tags so we don't have to
+            # deal with versioning.
+            if {![isPrintedTag $id]} { continue }
+            if {![dict exists $tags2 $id]} { continue }
+
+            lassign [dict get $tag c] x1 y1
+            lassign [dict get $tags2 $id c] x2 y2
+            set diffsum [expr {$diffsum + sqrt(($x1 - $x2)*($x1 - $x2) + ($y1 - $y2)*($y1 - $y2))}]
+            incr ndiffs
+        }
+        if {$ndiffs == 0} { return Inf }
+        return [expr {$diffsum / $ndiffs}]
     }
 }]
