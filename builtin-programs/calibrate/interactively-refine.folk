@@ -230,9 +230,14 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
     set model0 [$modelLib scaleModel [$modelLib unitModel] \
                     $printedSideLengthM]
 
-    When /someone/ wishes to draw refining model /model/ using calibration /calibration/ {
+    When /someone/ wishes to draw refining model /model/ onto detected tags /tags/ \
+                             using calibration /calibration/ {
         package require linalg
         namespace import ::math::linearalgebra::matmul
+        puts stderr "RENDER0"
+
+        set cameraIntrinsics [dict get $calibration camera intrinsics]
+        set displayIntrinsics [dict get $calibration projector intrinsics]
 
         set modelPrintedTagCorners [list]
         set detectedPrintedTagCorners [list]
@@ -268,8 +273,10 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
         }]
         set H_modelToDisplay [estimateHomography $correspondences]
 
+        puts stderr "RENDER"
         Wish to draw calibration model $model \
-            using model-to-display homography $H_modelToDisplay
+            using model-to-display homography $H_modelToDisplay \
+            with message "Hello!"
     }
 
     fn AwaitNextCameraFrame! {frameTimestampVar} {
@@ -333,6 +340,7 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
     # Once the calibration is refined with respect to the pose, the
     # user can move the board to a different pose. They can stop
     # whenever they want.
+    set model $model0
     set poses [list]
     set frameTimestamp 0
     while true {
@@ -366,7 +374,7 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
 
         # Ideal camera positions for each projected tag corner.
         set idealCameraCorners [list]
-        dict for {id modelTag} $model0 {
+        dict for {id modelTag} $model {
             if {![$modelLib isProjectedTag $id]} { continue }
             foreach modelCorner [dict get $modelTag p] {
                 lappend idealCameraCorners \
@@ -382,39 +390,76 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
         # (10 times? 100 times?).
         set version 0
         set x [unravel $calibration]
-        set x [$boardLib fit $m [llength $x] $x [list apply {x} {
+        set x [$boardLib fit $m [llength $x] $x [list apply {{x} {
+            upvar modelLib modelLib
+            upvar tagDetector tagDetector
+
+            upvar tags tags
             upvar calibration calibration
+            upvar model model
             upvar version version
+            upvar frameTimestamp frameTimestamp
             # This block gets run on each iteration of the
             # Levenberg-Marquardt optimization loop.
+
+            puts stderr "ITER"
 
             ravelInto calibration $x
             set model [$modelLib updateModelVersion $model $version]
             # This will cause the tags to be rendered by the other
             # process.
-            Hold! Wish to draw refining model $model using calibration $calibration
+            Hold! Wish to draw refining model $model onto detected tags $tags \
+                  using calibration $calibration
 
             # Loop until we see the version we just wished to draw.
             set expectedVersion [expr {$version % 4}]
-            do {
-                AwaitNextCameraFrame! frameTimestamp
+            set detectedVersion {}
+            while {$detectedVersion != $expectedVersion} {
+                set frame [AwaitNextCameraFrame! frameTimestamp]
                 set tags [$tagDetector detect $frame]
 
                 set detectedVersion [$modelLib detectVersionFromDetectedTags $tags]
-            } while {$detectedVersion != $expectedVersion}
+            }
 
             # TODO: Need to check that the user has kept the board 'still
             # enough' to the original `frame` that kicked off this
             # pose refinement. If not, then abort.
 
-            # FIXME: Compute residuals for each projected tag. (how
-            # far away is the tag from where we'd expect it to be from
-            # the homography?) Return that list of residuals.
+            # Compute residuals: detected position - ideal position for
+            # each projected tag corner (using H_mc from outer scope).
+            upvar idealCameraCorners idealCameraCorners
+
+            set detectedById [dict create]
+            foreach tag $tags {
+                set id [dict get $tag id]
+                if {[$modelLib isProjectedTag $id]} {
+                    dict set detectedById $id [dict get $tag p]
+                }
+            }
+
+            set residuals [list]
+            set ci 0
+            dict for {id modelTag} $model {
+                if {![$modelLib isProjectedTag $id]} { continue }
+                set nCorners [llength [dict get $modelTag p]]
+                for {set i 0} {$i < $nCorners} {incr i} {
+                    set ideal [lindex $idealCameraCorners $ci]; incr ci
+                    if {[dict exists $detectedById $id]} {
+                        set det [lindex [dict get $detectedById $id] $i]
+                        lappend residuals \
+                            [- [lindex $det 0] [lindex $ideal 0]] \
+                            [- [lindex $det 1] [lindex $ideal 1]]
+                    } else {
+                        lappend residuals 0.0 0.0
+                    }
+                }
+            }
+            return $residuals
 
             # If we have barely-not-enough detected projected tags, then
             # fill in some using homography from the ones we did
             # detect. If we have none, we should backtrack.
-        }]]
+        }}]]
         ravelInto calibration $x
     }
 }

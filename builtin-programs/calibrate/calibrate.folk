@@ -96,10 +96,16 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     # Project calibration tags based on the current model-to-display
     # homography (which gets dynamically updated as you move the board
     # around):
-    When the calibration model-to-display homography is /H_modelToDisplay/ \
+    When the calibration poses are /poses/ &\
+         the calibration poses max is /posesMax/ &\
+         the calibration poses are /calibrationPoses/ &\
+         the calibration cycle time is /cycleTime/ &\
+         the calibration model-to-display homography is /H_modelToDisplay/ \
              with /...modelToDisplayOpts/ {
+        set message "[llength $poses]/$posesMax poses ([expr {round($cycleTime*1000)}] ms)"
         Wish to draw calibration model [dict get $modelToDisplayOpts model] \
-            using model-to-display homography $H_modelToDisplay
+            using model-to-display homography $H_modelToDisplay \
+            with message $message
     }
 
     # This is made a function so it can also be called by the Web page
@@ -228,7 +234,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         if {[dict size $projectedTags] == 0} { return }
 
         if {$version != -1} {
-            set detectedVersion [$modelLib detectVersionFromDetectedTags $projectedTags]
+            set detectedVersion [$modelLib detectVersionFromDetectedTags $tags]
             # If the detected version does not correspond to version
             # mod 4, then we should abort and wait until a later
             # frame to proceed.

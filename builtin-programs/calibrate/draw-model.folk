@@ -2,11 +2,9 @@ When display /display/ has width /displayWidth/ height /displayHeight/ &\
      the calibration matLib is /matLib/ &\
      the calibration model library is /modelLib/ &\
      the calibration estimateHomography is /estimateHomography/ &\
-     the calibration poses max is /calibrationPosesMax/ &\
-     the calibration poses are /calibrationPoses/ &\
-     the calibration cycle time is /cycleTime/ &\
      /someone/ wishes to draw calibration model /model/ \
-         using model-to-display homography /H_modelToDisplay/ {
+        using model-to-display homography /H_modelToDisplay/ \
+        with message /calibrationMessage/ {
 
     fn estimateHomography
 
@@ -101,7 +99,6 @@ When display /display/ has width /displayWidth/ height /displayHeight/ &\
                  [list $boardBottomLeft $boardTopLeft] \
                  [list $boardTopRight $boardBottomRight]]
 
-        set text "[llength $calibrationPoses]/$calibrationPosesMax poses ([expr {round($cycleTime*1000)}] ms)"
         foreach p {add norm sub scale matmul
             getelem transpose determineSVD shape mkIdentity show
             solvePGauss crossproduct getcol setcol unitLengthVector det
@@ -121,7 +118,7 @@ When display /display/ has width /displayWidth/ height /displayHeight/ &\
                 set textScale [/ [norm $v] 20]
             }
 
-            Wish to draw text onto $board with text $text \
+            Wish to draw text onto $board with text $calibrationMessage \
                 radians $displayRadians position $displayCenter \
                 anchor top color black layer 100 scale $textScale
         }
