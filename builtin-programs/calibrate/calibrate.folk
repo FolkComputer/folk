@@ -228,7 +228,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         if {[dict size $projectedTags] == 0} { return }
 
         if {$version != -1} {
-            set detectedVersion [$modelLib detectVersionFromProjectedTags $projectedTags]
+            set detectedVersion [$modelLib detectVersionFromDetectedTags $projectedTags]
             # If the detected version does not correspond to version
             # mod 4, then we should abort and wait until a later
             # frame to proceed.

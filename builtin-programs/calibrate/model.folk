@@ -103,10 +103,10 @@ Claim the calibration model library is [library create modelLib {
 
     # Find a version tag that the camera saw and check its rotation to
     # figure out the model version that we're seeing.
-    proc detectVersionFromProjectedTags {projectedTags} {
+    proc detectVersionFromDetectedTags {detectedTags} {
         # Find any version tag. If none were detected, then abort
         # and wait until a later frame.
-        dict for {id tag} $projectedTags {
+        dict for {id tag} $detectedTags {
             if {[isVersionTag $id]} {
                 set versionTagId $id
                 break
@@ -114,18 +114,18 @@ Claim the calibration model library is [library create modelLib {
         }
         if {![info exists versionTagId]} { return {} }
 
-        set getTagAngle {{tag} {
+        local proc getTagAngle {tag} {
             set p [dict get $tag p]
             expr {atan2(-1 * ([lindex $p 1 1] - [lindex $p 0 1]),
                         [lindex $p 1 0] - [lindex $p 0 0])}
-        }}
-        set versionTagAngle [apply $getTagAngle [dict get $projectedTags $versionTagId]]
+        }
+        set versionTagAngle [getTagAngle $detectedTags($versionTagId)]
 
         # Compare angle to angle of any other projected tag.
-        if {[dict size $projectedTags] < 2} { return {} }
-        dict for {id projectedTag} $projectedTags {
-            if {![isVersionTag $id]} {
-                set otherTagAngle [apply $getTagAngle $projectedTag]
+        if {[dict size $detectedTags] < 2} { return {} }
+        dict for {id detectedTag} $detectedTags {
+            if {[isProjectedTag $id] && ![isVersionTag $id]} {
+                set otherTagAngle [getTagAngle $detectedTag]
                 break
             }
         }

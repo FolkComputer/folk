@@ -110,19 +110,46 @@ $cc include "mpfit.h"
 $cc include "mpfit.c"
 $cc proc funct {int m int n double* x
                 double* fvec double** dvec
-                void* userdata} void {
+                void* userdata} int {
     Jim_Obj* jimFunct = (Jim_Obj*) userdata;
-    // FIXME: Not sure how to call jimFunct (it's an object like
-    // `apply {{x} { ...}}` and we want to call it with $x). Set the m
-    // values of fvec to the list returned by JimEvalObj.
-    fvec = Jim_EvalObj(interp, jimFunct, x);
+
+    // Build xList from x[0..n-1].
+    Jim_Obj* xList = Jim_NewListObj(interp, NULL, 0);
+    for (int i = 0; i < n; i++) {
+        Jim_ListAppendElement(interp, xList, Jim_NewDoubleObj(interp, x[i]));
+    }
+
+    // Expand jimFunct (already an arg list) and append xList, then eval.
+    int prefixLen = Jim_ListLength(interp, jimFunct);
+    Jim_Obj* objv[prefixLen + 1];
+    for (int i = 0; i < prefixLen; i++) {
+        __ENSURE_OK(Jim_ListIndex(interp, jimFunct, i, &objv[i], JIM_NONE));
+    }
+    objv[prefixLen] = xList;
+    __ENSURE_OK(Jim_EvalObjVector(interp, prefixLen + 1, objv));
+
+    // Unpack result list into fvec[0..m-1].
+    Jim_Obj* result = Jim_GetResult(interp);
+    FOLK_ENSURE(Jim_ListLength(interp, result) == m);
+    for (int i = 0; i < m; i++) {
+        Jim_Obj* elem;
+        __ENSURE_OK(Jim_ListIndex(interp, result, i, &elem, JIM_NONE));
+        __ENSURE_OK(Jim_GetDouble(interp, elem, &fvec[i]));
+    }
+    return 0;
 }
-$cc proc fit {int m double[12] x Jim_Obj* jimFunct} void {
+$cc proc fit {int m int n double[] x Jim_Obj* jimFunct} Jim_Obj* {
+    mp_result result = {0};
     mpfit(funct,
-          m, // Number of example point pairs
-          // Number of parameters to optimize:
-          12, x,
-          NULL, jimFunct, NULL, &result);
+          m, // Number of residuals.
+          n, x, // Parameters to optimize.
+          NULL, (void*) jimFunct, NULL, &result);
+
+    Jim_Obj* xList = Jim_NewListObj(interp, NULL, 0);
+    for (int i = 0; i < n; i++) {
+        Jim_ListAppendElement(interp, xList, Jim_NewDoubleObj(interp, x[i]));
+    }
+    return xList;
 }
 
 set boardLib [$cc compile]
@@ -130,6 +157,7 @@ set boardLib [$cc compile]
 When the AprilTag detector maker is /makeAprilTagDetector/ &\
      the calibration model library is /modelLib/ &\
      the calibration estimateHomography is /estimateHomography/ &\
+     the calibration matLib is /matLib/ &\
      the printed calibration tag size is /printedSideLengthMm/ mm &\
      camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      display /display/ has width /displayWidth/ height /displayHeight/ &\
@@ -147,7 +175,7 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
     set model0 [$modelLib scaleModel [$modelLib unitModel] \
                     $printedSideLengthM]
 
-    When /someone/ wishes to display refining model /model/ using calibration /calibration/ {
+    When /someone/ wishes to draw refining model /model/ using calibration /calibration/ {
         package require linalg
         namespace import ::math::linearalgebra::matmul
 
@@ -205,6 +233,42 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
         return $frame
     }
 
+    # Calibration -> flat list of parameters `x`.
+    fn unravel {calibration} {
+        set intrNames {fx cx fy cy k1 k2}
+        set x [list]
+        # Append the camera intrinsics.
+        foreach intrName $intrNames {
+            lappend x [dict get $calibration camera intrinsics $intrName]
+        }
+        # Append the projector intrinsics.
+        foreach intrName $intrNames {
+            lappend x [dict get $calibration projector intrinsics $intrName]
+        }
+        # Append the camera->projector extrinsics.
+        lappend x {*}[rotationMatrixToRotationVector \
+            [dict get $calibration R_cameraToProjector]]
+        lappend x {*}[dict get $calibration t_cameraToProjector]
+    }
+    # Flat list of parameters `x` -> update calibration.
+    fn ravelInto {calibrationVar x} {
+        upvar $calibrationVar calibration
+        set intrNames {fx cx fy cy k1 k2}
+        set i 0
+        foreach intrName $intrNames {
+            dict set calibration camera intrinsics $intrName [lindex $x $i]
+            incr i
+        }
+        foreach intrName $intrNames {
+            dict set calibration projector intrinsics $intrName [lindex $x $i]
+            incr i
+        }
+        dict set calibration R_cameraToProjector \
+            [rotationVectorToRotationMatrix [lrange $x $i $i+2]]
+        incr i 3
+        dict set calibration t_cameraToProjector [lrange $x $i $i+2]
+    }
+
     # The actual refinement process. We will have the user hold up the
     # board in a sequence of whatever poses they want. When the board
     # is stable for a couple seconds, we say that's a pose, and we
@@ -222,46 +286,79 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
 
         # Record all the printed tags seen by the camera in $tags.
         
-        # FIXME: Do we have a valid new pose: are the seen $tags far
+        # TODO: Do we have a valid new pose: are the seen $tags far
         # enough from previous pose's $tags, and have the $tags been
         # stable for a while?
 
-        # TODO: Compute homography; use it to predict projected tag
-        # positions.
+        # Collect correspondences: detected model corners -> camera
+        # corners for all printed tags seen this frame.
+        set printedCorrespondences [list]
+        foreach tag $tags {
+            set id [dict get $tag id]
+            if {![$modelLib isPrintedTag $id]} { continue }
+            foreach modelCorner [dict get $model0 $id p] \
+                    camCorner [dict get $tag p] {
+                lappend printedCorrespondences \
+                    [list {*}$modelCorner {*}$camCorner]
+            }
+        }
+        if {[llength $printedCorrespondences] < 4} { continue }
+
+        # H_mc: model xy -> camera xy.
+        set H_mc [estimateHomography $printedCorrespondences]
+
+        # Ideal camera positions for each projected tag corner.
+        set idealCameraCorners [list]
+        dict for {id modelTag} $model0 {
+            if {![$modelLib isProjectedTag $id]} { continue }
+            foreach modelCorner [dict get $modelTag p] {
+                lappend idealCameraCorners \
+                    [$matLib applyHomography $H_mc $modelCorner]
+            }
+        }
+
+        # 2 residuals (dx, dy) per projected tag corner.
+        set m [expr {[llength $idealCameraCorners] * 2}]
 
         # If so, then refine the parameters around this pose. This
         # will block for a while and run the interior function a lot
         # (10 times? 100 times?).
         set version 0
         set x [unravel $calibration]
-        set x [$boardLib fit $x [list apply {x} {
+        set x [$boardLib fit $m [llength $x] $x [list apply {x} {
+            upvar calibration calibration
             upvar version version
-            # This is the function that gets evaluated on each
-            # iteration of the Levenberg-Marquardt optimization loop.
+            # This block gets run on each iteration of the
+            # Levenberg-Marquardt optimization loop.
 
-            set calibration [ravel $x]
+            ravelInto calibration $x
             set model [$modelLib updateModelVersion $model $version]
             # This will cause the tags to be rendered by the other
             # process.
-            Hold! Wish to display refining model $model using calibration $calibration
+            Hold! Wish to draw refining model $model using calibration $calibration
 
-            # Loop until we see the version we just rendered.
+            # Loop until we see the version we just wished to draw.
+            set expectedVersion [expr {$version % 4}]
             do {
                 AwaitNextCameraFrame! frameTimestamp
                 set tags [$tagDetector detect $frame]
 
-                # FIXME: Check the version.
-            } while {}
+                set detectedVersion [$modelLib detectVersionFromDetectedTags $tags]
+            } while {$detectedVersion != $expectedVersion}
 
             # TODO: Need to check that the user has kept the board 'still
             # enough' to the original `frame` that kicked off this
             # pose refinement. If not, then abort.
 
-            # FIXME: Compute residuals for each tag. (how far away is
-            # the tag from where we'd expect it to be from the
-            # homography?) Return that list of residuals.
+            # FIXME: Compute residuals for each projected tag. (how
+            # far away is the tag from where we'd expect it to be from
+            # the homography?) Return that list of residuals.
+
+            # If we have barely-not-enough detected projected tags, then
+            # fill in some using homography from the ones we did
+            # detect. If we have none, we should backtrack.
         }]]
-        set calibration [ravel $x]
+        ravelInto calibration $x
     }
 }
 
