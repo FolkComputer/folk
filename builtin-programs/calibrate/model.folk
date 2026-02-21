@@ -122,7 +122,7 @@ Claim the calibration model library is [library create modelLib {
         if {![info exists versionTagId]} { return {} }
 
         # Compare angle to angle of any other projected tag.
-        if {[dict size $detectedTags] < 2} { return {} }
+        if {[llength $detectedTags] < 2} { return {} }
         foreach detectedTag $detectedTags {
             set id [dict get $detectedTag id]
             if {[isProjectedTag $id] && ![isVersionTag $id]} {

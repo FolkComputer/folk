@@ -234,7 +234,6 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
                              using calibration /calibration/ {
         package require linalg
         namespace import ::math::linearalgebra::matmul
-        puts stderr "RENDER0"
 
         set cameraIntrinsics [dict get $calibration camera intrinsics]
         set displayIntrinsics [dict get $calibration projector intrinsics]
@@ -273,7 +272,6 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
         }]
         set H_modelToDisplay [estimateHomography $correspondences]
 
-        puts stderr "RENDER"
         Wish to draw calibration model $model \
             using model-to-display homography $H_modelToDisplay \
             with message "Hello!"
@@ -405,6 +403,7 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
             puts stderr "ITER"
 
             ravelInto calibration $x
+            incr version
             set model [$modelLib updateModelVersion $model $version]
             # This will cause the tags to be rendered by the other
             # process.
@@ -419,6 +418,7 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
                 set tags [$tagDetector detect $frame]
 
                 set detectedVersion [$modelLib detectVersionFromDetectedTags $tags]
+                puts stderr "Expect $expectedVersion ; Detect $detectedVersion"
             }
 
             # TODO: Need to check that the user has kept the board 'still
