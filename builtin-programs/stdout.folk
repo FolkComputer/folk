@@ -21,7 +21,9 @@ while true {
         string compare [dict get $a program] [dict get $b program]
     }}} [Query! /program/ has program code /programCode/]]
 
-    set lines {}
+    # Build groups: dict mapping dirname -> list of {status basename}
+    set groups [dict create]
+    set groupOrder {}
     foreach result $results {
         set program [dict get $result program]
         set programCode [dict get $result programCode]
@@ -33,16 +35,46 @@ while true {
 
         set errors [Query! $program has error /err/ with info /info/]
 
+        set dir [file dirname $program]
+        set base [file rootname [file tail $program]]
+
         if {[llength $errors] > 0} {
             set status "\033\[31m!\033\[0m"
+            set coloredBase "\033\[31m$base\033\[0m"
         } elseif {$incompleteCount == 0} {
             set status "\033\[32m✓\033\[0m"
+            set coloredBase "\033\[32m$base\033\[0m"
         } else {
             set spinIdx [expr {([clock milliseconds] / 100) % 4}]
-            set status [lindex {| / - \\} $spinIdx]
+            set status "\033\[33m[lindex {| / - \\} $spinIdx]\033\[0m"
+            set coloredBase "\033\[33m$base\033\[0m"
         }
 
-        lappend lines "$status $program"
+        if {![dict exists $groups $dir]} {
+            lappend groupOrder $dir
+        }
+        dict lappend groups $dir [list $status $coloredBase]
+    }
+
+    # Collapse groups with multiple members onto one line.
+    set lines {}
+    foreach dir $groupOrder {
+        set members [dict get $groups $dir]
+        if {[llength $members] == 1} {
+            lassign [lindex $members 0] status base
+            if {$dir eq "."} {
+                lappend lines "$status $base"
+            } else {
+                lappend lines "$status $dir/$base"
+            }
+        } else {
+            set parts {}
+            foreach member $members {
+                lassign $member status base
+                lappend parts "${status} $base"
+            }
+            lappend lines "$dir/  [join $parts {  }]"
+        }
     }
 
     if {[llength $lines] > $maxLines} {
