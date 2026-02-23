@@ -623,6 +623,18 @@ static int __currentAtomicallyVersionFunc(Jim_Interp *interp, int argc, Jim_Obj 
     return JIM_OK;
 }
 
+static int dup2Func(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 3);
+    long newfd; Jim_GetLong(interp, argv[1], &newfd);
+    int oldfd = Jim_AioFilehandle(interp, argv[2]);
+    if (oldfd == -1) { return JIM_ERR; }
+    int ret = dup2(oldfd, (int)newfd);
+    if (ret == -1) {
+        Jim_SetResultString(interp, strerror(errno), -1);
+        return JIM_ERR;
+    }
+    return JIM_OK;
+}
 static int setpgrpFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     int ret = setpgrp();
     if (ret != -1) {
@@ -683,6 +695,7 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "__setFreshAtomicallyVersionOnKey", __setFreshAtomicallyVersionOnKeyFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__currentAtomicallyVersion", __currentAtomicallyVersionFunc, NULL, NULL);
 
+    Jim_CreateCommand(interp, "dup2", dup2Func, NULL, NULL);
     Jim_CreateCommand(interp, "setpgrp", setpgrpFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Exit!", exitFunc, NULL, NULL);
 

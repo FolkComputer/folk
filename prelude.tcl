@@ -102,6 +102,8 @@ proc captureEnvStack {} {
     return [list {*}[uplevel set __envStack] $env]
 }
 
+set ::localStdoutsAndStderrs [dict create]
+
 proc applyBlock {body envStack} {
     set env [dict merge {*}$envStack]
     foreach name [dict keys $env] {
@@ -117,6 +119,21 @@ proc applyBlock {body envStack} {
 
     dict set env __envStack $envStack
     dict set env __env $env
+
+    set this [dict getdef $env this <unknown>]
+    if {[dict exists $::localStdoutsAndStderrs $this]} {
+        lassign [dict get $::localStdoutsAndStderrs $this] \
+            localStdout localStderr
+    } else {
+        set escapedThis [regsub -all -- / $this __]
+        set localStdout [open /tmp/$escapedThis.stdout w]
+        $localStdout buffering none
+        set localStderr [open /tmp/$escapedThis.stderr w]
+        $localStderr buffering none
+        dict set ::localStdoutsAndStderrs $this \
+            [list $localStdout $localStderr]
+    }
+    dup2 1 $localStdout; dup2 2 $localStderr
 
     set names [dict keys $env]
     set values [dict values $env]
