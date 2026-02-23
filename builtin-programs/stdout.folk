@@ -1,8 +1,7 @@
 # Manage stdout for Folk.
 
-$::realStdout buffering none
-$::realStdout puts "Folk Computer (pid [pid])
-========================"
+$::realStdout puts "Folk Computer (pid [pid])"
+$::realStdout puts ""
 
 # TODO: Don't print the below if we're not literally at a terminal (if
 # we're running on systemd, for instance.)
@@ -60,21 +59,12 @@ while true {
     set lines {}
     foreach dir $groupOrder {
         set members [dict get $groups $dir]
-        if {[llength $members] == 1} {
-            lassign [lindex $members 0] status base
-            if {$dir eq "."} {
-                lappend lines "$status $base"
-            } else {
-                lappend lines "$status $dir/$base"
-            }
-        } else {
-            set parts {}
-            foreach member $members {
-                lassign $member status base
-                lappend parts "${status} $base"
-            }
-            lappend lines "$dir/  [join $parts {  }]"
+        set parts {}
+        foreach member $members {
+            lassign $member status base
+            lappend parts "${status} $base"
         }
+        lappend lines "$dir/  [join $parts {  }]"
     }
 
     if {[llength $lines] > $maxLines} {
