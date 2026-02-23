@@ -1,43 +1,57 @@
 # Manage stdout for Folk.
 
+$::realStdout buffering none
 $::realStdout puts "Folk Computer (pid [pid])
 ========================"
 
 # TODO: Don't print the below if we're not literally at a terminal (if
 # we're running on systemd, for instance.)
 
+set termRows 24
+catch { set termRows [lindex [exec stty size] 0] }
+set maxLines [expr {$termRows - 4}]
+
+# Save cursor position at the start of the program list area.
+$::realStdout puts -nonewline "\033\[s"
+
 while true {
     after 30 ;# Wake up every 30ms.
-    set results [Query! /program/ has program code /programCode/]
-    # FIXME: Sort results alphabetically by `program`.
+
+    set results [lsort -command {apply {{a b} {
+        string compare [dict get $a program] [dict get $b program]
+    }}} [Query! /program/ has program code /programCode/]]
+
+    set lines {}
     foreach result $results {
-        set runners [Query! when $result(programCode) with environment [list [list this $program]]]
+        set program [dict get $result program]
+        set programCode [dict get $result programCode]
+
+        set runners [Query! when $programCode with environment [list [list this $program]]]
         if {[llength $runners] != 1} { continue }
         set runner [lindex $runners 0]
         set incompleteCount [__statementIncompleteChildMatchesCount [dict get $runner __ref]]
-        # FIXME: If complete (incompleteCount == 0), show green.
-        # FIXME: If not complete, show spinner.
-        # FIXME: Also: query for & show errors.
+
+        set errors [Query! $program has error /err/ with info /info/]
+
+        if {[llength $errors] > 0} {
+            set status "\033\[31m!\033\[0m"
+        } elseif {$incompleteCount == 0} {
+            set status "\033\[32m✓\033\[0m"
+        } else {
+            set spinIdx [expr {([clock milliseconds] / 100) % 4}]
+            set status [lindex {| / - \\} $spinIdx]
+        }
+
+        lappend lines "$status $program"
     }
+
+    if {[llength $lines] > $maxLines} {
+        set lines [lrange $lines 0 [expr {$maxLines - 1}]]
+    }
+
+    $::realStdout puts -nonewline "\033\[u"
+    foreach line $lines {
+        $::realStdout puts -nonewline "$line\033\[K\n"
+    }
+    $::realStdout puts -nonewline "\033\[J"
 }
-
-# Hold! -key stdout-prev-lines Claim the stdout prev lines are 0
-
-# When the collected results for [list /program/ has program code /any/] are /results/ {
-#     set text [join [lsort $results] \n]
-#     set newLines [llength [split $text \n]]
-
-#     set prevLines [dict getdef [lindex [Query! the stdout prev lines are /n/] 0] n 0]
-#     if {$prevLines > 0} {
-#         # Move up to start of previous block and clear each line
-#         $::realStdout puts -nonewline "\033\[${prevLines}F"
-#         for {set i 0} {$i < $prevLines} {incr i} {
-#             $::realStdout puts -nonewline "\033\[2K\n"
-#         }
-#         # Move back up to start of block to overwrite
-#         $::realStdout puts -nonewline "\033\[${prevLines}F"
-#     }
-
-#     $::realStdout puts $text
-#     Hold! -key stdout-prev-lines Claim the stdout prev lines are $newLines
-# }
