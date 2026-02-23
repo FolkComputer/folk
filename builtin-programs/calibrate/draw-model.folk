@@ -1,12 +1,9 @@
 When display /display/ has width /displayWidth/ height /displayHeight/ &\
-     the calibration matLib is /matLib/ &\
+     the calibration matrix library is /matLib/ &\
      the calibration model library is /modelLib/ &\
-     the calibration estimateHomography is /estimateHomography/ &\
      /someone/ wishes to draw calibration model /model/ \
         using model-to-display homography /H_modelToDisplay/ \
         with message /calibrationMessage/ {
-
-    fn estimateHomography
 
     package require linalg
     namespace import ::math::linearalgebra::scale \
@@ -35,7 +32,7 @@ When display /display/ has width /displayWidth/ height /displayHeight/ &\
              [list $displayWidth 0 1 -1] \
              [list $displayWidth $displayHeight 1 1] \
              [list 0 $displayHeight -1 1]]
-    set boardCanvasToClipSpace [estimateHomography $boardToClipSpaceCorners]
+    set boardCanvasToClipSpace [$matLib estimateHomography $boardToClipSpaceCorners]
 
     set board [list $this board]
     set boardCanvas [list $board canvas]

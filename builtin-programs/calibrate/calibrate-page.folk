@@ -1,11 +1,9 @@
 When the print library is /printLib/ &\
      the programToPs is /programToPs/ &\
-     the calibration matLib is /matLib/ &\
-     the calibration model library is /modelLib/ &\
-     the calibration estimateHomography is /estimateHomography/ {
+     the calibration matrix library is /matLib/ &\
+     the calibration model library is /modelLib/ {
 
 fn programToPs
-fn estimateHomography
 
 fn makeCalibrationBoardPdf {model tagSideLengthPs} {
     package require linalg
@@ -18,7 +16,7 @@ fn makeCalibrationBoardPdf {model tagSideLengthPs} {
 
     set tagOuterLengthPs [expr {$tagSideLengthPs * 10/6}]
 
-    set H_modelToPs [estimateHomography [subst {
+    set H_modelToPs [$matLib estimateHomography [subst {
         {1 1 $tagSideLengthPs $tagSideLengthPs}
         {1 0 $tagSideLengthPs 0}
         {0 1 0 $tagSideLengthPs}
@@ -176,6 +174,11 @@ Wish the web server handles route "/calibrate" with hidden true handler {
          const self = uuidv4();
 
          const ws = new FolkWS(document.getElementById('status'));
+         ws.send(`
+    On unmatch {
+        Hold! -on builtin-programs/calibrate/calibrate.folk -key {start calibration} {}
+    }
+         `);
         </script>
 
         <ol>

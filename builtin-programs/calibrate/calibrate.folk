@@ -28,12 +28,9 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      the AprilTag detector maker is /makeAprilTagDetector/ &\
      the image library is /imageLib/ &\
      the calibration model library is /modelLib/ &\
-     the calibration matLib is /matLib/ &\
-     the calibration estimateHomography is /estimateHomography/ &\
+     the calibration matrix library is /matLib/ &\
      the printed calibration tag size is /printedSideLengthMm/ mm &\
      /someone/ wishes to calibrate {
-
-    fn estimateHomography
 
     fn makeAprilTagDetector
     set calibrationTagDetector [makeAprilTagDetector "tagStandard52h13" 2.0 3]
@@ -118,7 +115,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         set tagSideLengthPixels [expr {$tagSideLengthPixels * $scale}]
 
         # TODO: Center this on the projector area.
-        set H_modelToDisplay [estimateHomography [subst {
+        set H_modelToDisplay [$matLib estimateHomography [subst {
             {$printedSideLengthM $printedSideLengthM $tagSideLengthPixels $tagSideLengthPixels}
             {$printedSideLengthM 0 $tagSideLengthPixels 0}
             {0 $printedSideLengthM 0 $tagSideLengthPixels}
@@ -198,7 +195,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         }
         # Describes how tags from the model that were printed
         # ended up mapping to camera coordinates.
-        set H_modelToCameraViaPs [estimateHomography $printedPointPairs]
+        set H_modelToCameraViaPs [$matLib estimateHomography $printedPointPairs]
 
         # Map the bounds of the board to camera coordinates, so we can
         # check if projected tags are inside the board.
@@ -255,7 +252,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         }
 
         # puts "point pairs (camera -> display): {$projectedPointPairs}"
-        set H_cameraToDisplay [estimateHomography $projectedPointPairs]
+        set H_cameraToDisplay [$matLib estimateHomography $projectedPointPairs]
         if {abs([::math::linearalgebra::det $H_cameraToDisplay]) < 0.001} {
             # Garbage homography that just shrinks the points way down
             # (https://stackoverflow.com/questions/10972438/detecting-garbage-homographies-from-findhomography-in-opencv).
@@ -635,7 +632,7 @@ fn unrefinedCalibrateCameraAndProjector {modelLib matLib calibrationPoses} {
                 }
         }
 
-        set H [estimateHomography $pointPairs]
+        set H [$matLib estimateHomography $pointPairs]
         if {[det $H] < 0} {
             set H [scale -1 $H]
         }
@@ -690,14 +687,11 @@ fn unrefinedCalibrateCameraAndProjector {modelLib matLib calibrationPoses} {
 }
 
 When the calibration model library is /modelLib/ &\
-     the calibration matLib is /matLib/ &\
+     the calibration matrix library is /matLib/ &\
      the calibration poses max is /calibrationPosesMax/ &\
      the calibration poses are /calibrationPoses/ &\
      /nobody/ claims the calibration is /anything/ &\
-     the calibration estimateHomography is /estimateHomography/ &\
      the calibration refiner is /refineCalibration/ {
-
-    fn estimateHomography
 
     if {[llength $calibrationPoses] < $calibrationPosesMax} {
         return

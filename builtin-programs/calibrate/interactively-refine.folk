@@ -192,13 +192,9 @@ $cc proc funct {int m int n double* x
 }
 $cc proc fit {int m int n double[] x Jim_Obj* jimFunct} Jim_Obj* {
     mp_result result = {0};
-    mp_config config = {0};
-    config.xtol = 1e-12;
-    config.ftol = 1e-15;
 
     mp_par pars[18];  // One for each parameter
     memset(pars, 0, sizeof(pars));
-
     // Set larger relative step sizes
     for (int i = 0; i < 18; i++) {
         pars[i].relstep = 1e-3;  // Default is ~1e-7, try 1e-3 to 1e-2
@@ -210,7 +206,6 @@ $cc proc fit {int m int n double[] x Jim_Obj* jimFunct} Jim_Obj* {
           pars, NULL, (void*) jimFunct, &result);
     fprintf(stderr, "next niter=%d, nfev=%d, status=%d, pid=%d ;\n    orignorm=%f, bestnorm=%f\n", result.niter, result.nfev, result.status, gettid(),
             result.orignorm, result.bestnorm);
-    
 
     Jim_Obj* xList = Jim_NewListObj(interp, NULL, 0);
     for (int i = 0; i < n; i++) {
@@ -223,15 +218,13 @@ set boardLib [$cc compile]
 
 When the AprilTag detector maker is /makeAprilTagDetector/ &\
      the calibration model library is /modelLib/ &\
-     the calibration estimateHomography is /estimateHomography/ &\
-     the calibration matLib is /matLib/ &\
+     the calibration matrix library is /matLib/ &\
      the printed calibration tag size is /printedSideLengthMm/ mm &\
      camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      display /display/ has width /displayWidth/ height /displayHeight/ &\
      /someone/ wishes to do interactive refinement {
 
     fn makeAprilTagDetector
-    fn estimateHomography
     set tagDetector [makeAprilTagDetector "tagStandard52h13" 2.0 3]
 
     package require linalg
@@ -286,7 +279,7 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
                         $displayWidth $displayHeight $dispPt]
             list {*}$mc {*}$dp
         }]
-        set H_modelToDisplay [estimateHomography $correspondences]
+        set H_modelToDisplay [$matLib estimateHomography $correspondences]
 
         Wish to draw calibration model $model \
             using model-to-display homography $H_modelToDisplay \
@@ -302,47 +295,32 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
             set frames [Query! camera $camera has frame /frame/ at timestamp /frameTimestamp/]
             if {[llength $frames] < 1} { continue }
             set frameResult [lindex $frames end]
-            dict with frameResult {}
+            set frameTimestamp $frameResult(frameTimestamp)
         }
-        return $frame
+        return $frameResult(frame)
     }
 
-
-
-    # Calibration -> flat list of parameters `x`.
+    set intrNames {fx cx fy cy k1 k2}
+    # Calibration -> flat list of 18 parameters `x`.
     fn unravel {calibration} {
-        set intrNames {fx cx fy cy k1 k2}
-        set x [list]
-        # Append the camera intrinsics.
-        foreach intrName $intrNames {
-            lappend x [dict get $calibration camera intrinsics $intrName]
-        }
-        # Append the projector intrinsics.
-        foreach intrName $intrNames {
-            lappend x [dict get $calibration projector intrinsics $intrName]
-        }
-        # Append the camera->projector extrinsics.
-        lappend x {*}[rotationMatrixToRotationVector \
-            [dict get $calibration R_cameraToProjector]]
-        lappend x {*}[dict get $calibration t_cameraToProjector]
+        list \
+            {*}[lmap n $intrNames { dict get $calibration camera intrinsics $n }] \
+            {*}[lmap n $intrNames { dict get $calibration projector intrinsics $n }] \
+            {*}[rotationMatrixToRotationVector [dict get $calibration R_cameraToProjector]] \
+            {*}[dict get $calibration t_cameraToProjector]
     }
-    # Flat list of parameters `x` -> update calibration.
+    # Flat list of 18 parameters `x` -> update calibration.
     fn ravelInto {calibrationVar x} {
         upvar $calibrationVar calibration
-        set intrNames {fx cx fy cy k1 k2}
-        set i 0
-        foreach intrName $intrNames {
-            dict set calibration camera intrinsics $intrName [lindex $x $i]
-            incr i
+        foreach n $intrNames v [lrange $x 0 5] {
+            dict set calibration camera intrinsics $n $v
         }
-        foreach intrName $intrNames {
-            dict set calibration projector intrinsics $intrName [lindex $x $i]
-            incr i
+        foreach n $intrNames v [lrange $x 6 11] {
+            dict set calibration projector intrinsics $n $v
         }
         dict set calibration R_cameraToProjector \
-            [rotationVectorToRotationMatrix [lrange $x $i $i+2]]
-        incr i 3
-        dict set calibration t_cameraToProjector [lrange $x $i $i+2]
+            [rotationVectorToRotationMatrix [lrange $x 12 14]]
+        dict set calibration t_cameraToProjector [lrange $x 15 17]
     }
 
     set calibration [dict get [QueryOne! the calibration is /calibration/] calibration]
@@ -377,18 +355,7 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
         set version 0
         set x0 [unravel $calibration]
         puts stderr "x0=($x0)"
-        set x [$boardLib fit $m [llength $x0] $x0 [list apply {{x} {
-            upvar modelLib modelLib
-            upvar matLib matLib
-            upvar tagDetector tagDetector
-
-            upvar tags0 tags0
-            upvar calibration calibration
-            upvar m m
-            upvar model0 model0
-            upvar model model
-            upvar version version
-            upvar frameTimestamp frameTimestamp
+        set x [$boardLib fit $m [llength $x0] $x0 [fn funct {x} {
             # This block gets run on each iteration of the
             # Levenberg-Marquardt optimization loop.
 
@@ -447,7 +414,7 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
                 }
             }
             if {[llength $printedCorrespondences] < 4} { continue }
-            set H_mc [estimateHomography $printedCorrespondences]
+            set H_mc [$matLib estimateHomography $printedCorrespondences]
 
             set idealCameraCorners [list]
             dict for {id modelTag} $model {
@@ -478,7 +445,7 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
                         [list {*}$modelCorner {*}$projCorner]
                 }
             }
-            set H_mp [estimateHomography $projCorrespondences]
+            set H_mp [$matLib estimateHomography $projCorrespondences]
 
             set residuals [list]
             set ci 0
@@ -500,14 +467,14 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
             }
             puts stderr "Residuals: ($residuals)"
             return $residuals
-
-            # If we have barely-not-enough detected projected tags, then
-            # fill in some using homography from the ones we did
-            # detect. If we have none, we should backtrack.
-        }}]]
+        }]]
         puts stderr "Old x: ($x0)"
         puts stderr "New x: ($x)"
         ravelInto calibration $x
+
+        Hold! -save -on calibration -key calibration \
+            Claim the calibration is $calibration
+
         break
     }
 }

@@ -133,13 +133,13 @@ $cc code {
     static void refineHomography(int nPointPairs, float pointPairs[][4],
                                  matd_t *H);
 }
-$cc proc estimateHomographyImpl {int nPointPairs float[][4] pointPairs} matd_t* {
+$cc proc estimateHomography {float[nPointPairs][4] pointPairs} matd_t* {
     matd_t *H = estimateHomographyBaseImpl(nPointPairs, pointPairs);
     refineHomography(nPointPairs, pointPairs, H);
     return H;
 }
 
-$cc proc estimateHomographyBaseImpl {int nPointPairs float[][4] pointPairs} matd_t* {
+$cc proc estimateHomographyBaseImpl {float[nPointPairs][4] pointPairs} matd_t* {
     float xys[nPointPairs][2];
     float uvs[nPointPairs][2];
     for (int i = 0; i < nPointPairs; i++) {
@@ -247,11 +247,5 @@ $cc proc matdMul {matd_t* a matd_t* b} matd_t* {
 }
 $cc endcflags ./vendor/apriltag/build/libapriltag.so
 set matLib [$cc compile]
-Claim the calibration matLib is $matLib
+Claim the calibration matrix library is $matLib
 
-# HACK: wrapper because we have to give the array length as a separate
-# arg (at least for now).
-fn estimateHomography {pointPairs} {
-    $matLib estimateHomographyImpl [llength $pointPairs] $pointPairs
-}
-Claim the calibration estimateHomography is [fn estimateHomography]

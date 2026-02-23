@@ -49,7 +49,9 @@ proc csubst {s} {
     join $result ""
 }
 ::proc cstyle {type name} {
-    if {[regexp {([^\[]+)(\[\d*\](\[\d*\])?)$} $type -> basetype arraysuffix]} {
+    if {[regexp {([^\[]+)(\[[^\]]*\](\[[^\]]*\])?)$} $type -> basetype arraysuffix]} {
+        # Normalize any named dimension (identifier) to [] for the C declaration.
+        regsub {\[[a-zA-Z_]\w*\]} $arraysuffix {[]} arraysuffix
         list $basetype $name$arraysuffix
     } else {
         list $type $name
@@ -161,26 +163,38 @@ class C {
                         __ENSURE(sscanf(Jim_String($obj), "($argtype) 0x%p", &$argname) == 1);
                     }}
                 }
-            } elseif {[regexp {(^[^\[]+)\[(\d*)\]$} $argtype -> basetype arraylen]} {
-                # note: arraylen can be ""
+            } elseif {[regexp {(^[^\[]+)\[([^\]]*)\]$} $argtype -> basetype arraylen]} {
+                # note: arraylen can be "" or a named identifier
                 if {$basetype eq "char"} { expr {{
                     char $argname[$arraylen]; memcpy($argname, Jim_String($obj), $arraylen);
-                }} } else { expr {{
-                    int $[set argname]_objc = Jim_ListLength(interp, $obj);
-                    $basetype $argname[$[set argname]_objc];
+                }} } else {
+                    if {[regexp {^[a-zA-Z_]} $arraylen]} {
+                        set countvar $arraylen
+                    } else {
+                        set countvar ${argname}_objc
+                    }
+                    expr {{
+                    int $countvar = Jim_ListLength(interp, $obj);
+                    $basetype $argname[$countvar];
                     {
-                        for (int i = 0; i < $[set argname]_objc; i++) {
+                        for (int i = 0; i < $countvar; i++) {
                             $[$self arg $basetype ${argname}_i "Jim_ListGetIndex(interp, $obj, i)"]
                             $argname[i] = $[set argname]_i;
                         }
                     }
                 }} }
-            } elseif {[regexp {(^[^\[]+)\[(\d*)\]\[(\d*)\]$} $argtype -> basetype arraylen arraylen2]} {
+            } elseif {[regexp {(^[^\[]+)\[([^\]]*)\]\[(\d*)\]$} $argtype -> basetype arraylen arraylen2]} {
+                # If arraylen is a named identifier, expose it as that C variable name.
+                if {[regexp {^[a-zA-Z_]} $arraylen]} {
+                    set countvar $arraylen
+                } else {
+                    set countvar ${argname}_objc
+                }
                 expr {{
-                    int $[set argname]_objc = Jim_ListLength(interp, $obj);
-                    $basetype $argname[$[set argname]_objc][$arraylen2];
+                    int $countvar = Jim_ListLength(interp, $obj);
+                    $basetype $argname[$countvar][$arraylen2];
                     {
-                        for (int j = 0; j < $[set argname]_objc; j++) {
+                        for (int j = 0; j < $countvar; j++) {
                             $[$self arg $basetype\[\] ${argname}_j "Jim_ListGetIndex(interp, $obj, j)"]
                             memcpy(${argname}[j], ${argname}_j, sizeof(${argname}_j));
                         }
@@ -533,6 +547,14 @@ C method proc {name arguments rtype body} {
     set loadargs [list]
     foreach {argtype argname} $arguments {
         lassign [typestyle $argtype $argname] argtype argname
+
+        # If type has a named first dimension (e.g. int[n] or float[n][4]),
+        # inject that dimension as an implicit int parameter before the array.
+        if {[regexp {^[^\[]+\[([a-zA-Z_]\w*)\]} $argtype -> dimname]} {
+            lappend arglist "int $dimname"
+            lappend argnames $dimname
+        }
+
         lappend arglist [join [cstyle $argtype $argname] " "]
         lappend argnames $argname
 
