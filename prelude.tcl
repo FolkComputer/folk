@@ -1,8 +1,16 @@
-stdout buffering line
+# This file gets re-evaluated on every new Tcl interpreter that spins
+# up, so multiple times, possibly in parallel, possibly even late in
+# the lifetime of the Folk system.
+#
+# It's sort of the only place you can create genuine globals that you
+# can guarantee will be available on any Folk process/block.
 
 lappend ::auto_path "./vendor"
 source "lib/c.tcl"
 source "lib/math.tcl"
+
+set ::realStdout [open /dev/fd/1 w]
+set ::realStderr [open /dev/fd/2 w]
 
 proc unknown {cmdName args} {
     if {[regexp {<C:([^ ]+)>} $cmdName -> cid]} {
@@ -126,14 +134,14 @@ proc applyBlock {body envStack} {
             localStdout localStderr
     } else {
         set escapedThis [regsub -all -- / $this __]
-        set localStdout [open /tmp/$escapedThis.stdout w]
-        $localStdout buffering none
-        set localStderr [open /tmp/$escapedThis.stderr w]
+        set localStdout [open /tmp/$escapedThis.stdout a]
+        $localStdout buffering line
+        set localStderr [open /tmp/$escapedThis.stderr a]
         $localStderr buffering none
         dict set ::localStdoutsAndStderrs $this \
             [list $localStdout $localStderr]
     }
-    dup2 1 $localStdout; dup2 2 $localStderr
+    dup2 $localStdout 1; dup2 $localStderr 2
 
     set names [dict keys $env]
     set values [dict values $env]

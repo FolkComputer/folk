@@ -625,8 +625,8 @@ static int __currentAtomicallyVersionFunc(Jim_Interp *interp, int argc, Jim_Obj 
 
 static int dup2Func(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 3);
-    long newfd; Jim_GetLong(interp, argv[1], &newfd);
-    int oldfd = Jim_AioFilehandle(interp, argv[2]);
+    int oldfd = Jim_AioFilehandle(interp, argv[1]);
+    long newfd; Jim_GetLong(interp, argv[2], &newfd);
     if (oldfd == -1) { return JIM_ERR; }
     int ret = dup2(oldfd, (int)newfd);
     if (ret == -1) {
@@ -1650,7 +1650,7 @@ int main(int argc, char** argv) {
     cpu_set_t cs; CPU_ZERO(&cs);
     sched_getaffinity(0, sizeof(cs), &cs);
     int cpuCount = CPU_COUNT(&cs);
-    printf("main: CPU_COUNT = %d\n", cpuCount);
+    // printf("main: CPU_COUNT = %d\n", cpuCount);
     assert(cpuCount >= 2);
 
     int cpuUsableCount = cpuCount - 1; // will exclude CPU 0 later.

@@ -1,0 +1,43 @@
+# Manage stdout for Folk.
+
+$::realStdout puts "Folk Computer (pid [pid])
+========================"
+
+# TODO: Don't print the below if we're not literally at a terminal (if
+# we're running on systemd, for instance.)
+
+while true {
+    after 30 ;# Wake up every 30ms.
+    set results [Query! /program/ has program code /programCode/]
+    # FIXME: Sort results alphabetically by `program`.
+    foreach result $results {
+        set runners [Query! when $result(programCode) with environment [list [list this $program]]]
+        if {[llength $runners] != 1} { continue }
+        set runner [lindex $runners 0]
+        set incompleteCount [__statementIncompleteChildMatchesCount [dict get $runner __ref]]
+        # FIXME: If complete (incompleteCount == 0), show green.
+        # FIXME: If not complete, show spinner.
+        # FIXME: Also: query for & show errors.
+    }
+}
+
+# Hold! -key stdout-prev-lines Claim the stdout prev lines are 0
+
+# When the collected results for [list /program/ has program code /any/] are /results/ {
+#     set text [join [lsort $results] \n]
+#     set newLines [llength [split $text \n]]
+
+#     set prevLines [dict getdef [lindex [Query! the stdout prev lines are /n/] 0] n 0]
+#     if {$prevLines > 0} {
+#         # Move up to start of previous block and clear each line
+#         $::realStdout puts -nonewline "\033\[${prevLines}F"
+#         for {set i 0} {$i < $prevLines} {incr i} {
+#             $::realStdout puts -nonewline "\033\[2K\n"
+#         }
+#         # Move back up to start of block to overwrite
+#         $::realStdout puts -nonewline "\033\[${prevLines}F"
+#     }
+
+#     $::realStdout puts $text
+#     Hold! -key stdout-prev-lines Claim the stdout prev lines are $newLines
+# }
