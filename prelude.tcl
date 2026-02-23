@@ -558,7 +558,7 @@ proc When {args} {
         # statement ref has any match children that are incomplete. If
         # so, then die.
         set prologue {
-            if {[__isWhenOfCurrentMatchAlreadyRunning]} {
+            if {[__whenOfCurrentMatchIncompleteChildMatchesCount] > 1} {
                 return
             }
         }

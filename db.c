@@ -546,31 +546,22 @@ int statementSourceLineNumber(Statement* stmt) {
     return stmt->sourceLineNumber;
 }
 
-bool statementHasOtherIncompleteChildMatch(Db* db, Statement* stmt, MatchRef otherThan) {
-    bool hasIncompleteChildMatch = false;
+int statementIncompleteChildMatchesCount(Db* db, Statement* stmt) {
+    int count = 0;
 
     pthread_mutex_lock(&stmt->childMatchesMutex);
-    if (stmt->childMatches == NULL) {
-        hasIncompleteChildMatch = false; goto done;
-    }
+    if (stmt->childMatches == NULL) { goto done; }
     for (size_t i = 0; i < stmt->childMatches->nEdges; i++) {
         MatchRef childRef = { .val = stmt->childMatches->edges[i] };
-        if (childRef.val == otherThan.val) { continue; }
-
         Match* child = matchAcquire(db, childRef);
         if (child != NULL) {
-            if (!child->isCompleted) {
-                hasIncompleteChildMatch = true;
-                matchRelease(db, child);
-                goto done;
-            } else {
-                matchRelease(db, child);
-            }
+            if (!child->isCompleted) { count++; }
+            matchRelease(db, child);
         }
     }
- done:    
+ done:
     pthread_mutex_unlock(&stmt->childMatchesMutex);
-    return hasIncompleteChildMatch;
+    return count;
 }
 
 static bool matchChecker(void* db, uint64_t ref) {
