@@ -1,19 +1,27 @@
 # Manage stdout for Folk.
 
-$::realStdout puts "Folk Computer (pid [pid])"
+$::realStdout puts "Welcome to Folk Computer (pid [pid])."
+$::realStdout puts "Web interface at: http://$::thisNode:4273/"
 $::realStdout puts ""
 
 # TODO: Don't print the below if we're not literally at a terminal (if
 # we're running on systemd, for instance.)
 
 set termRows 24
-catch { set termRows [lindex [exec stty size] 0] }
+set termCols 80
+catch { lassign [exec stty size] termRows termCols }
 set maxLines [expr {$termRows - 4}]
+
+# Visible length of a string (strips ANSI escape sequences).
+proc visLen {s} {
+    regsub -all {\033\[[0-9;]*[a-zA-Z]} $s {} s
+    string length $s
+}
 
 set prevLineCount 0
 
 while true {
-    after 30 ;# Wake up every 30ms.
+    after 40 ;# Wake up every 40ms.
 
     set results [lsort -command {apply {{a b} {
         string compare [dict get $a program] [dict get $b program]
@@ -43,7 +51,7 @@ while true {
             set status "\033\[32m✓\033\[0m"
             set coloredBase "\033\[32m$base\033\[0m"
         } else {
-            set spinIdx [expr {([clock milliseconds] / 100) % 4}]
+            set spinIdx [expr {([clock milliseconds] / 80) % 4}]
             set status "\033\[33m[lindex {| / - \\} $spinIdx]\033\[0m"
             set coloredBase "\033\[33m$base\033\[0m"
         }
@@ -54,16 +62,26 @@ while true {
         dict lappend groups $dir [list $status $coloredBase]
     }
 
-    # Collapse groups with multiple members onto one line.
+    # Build lines, word-wrapping each group's entries to fit termCols.
     set lines {}
     foreach dir $groupOrder {
         set members [dict get $groups $dir]
-        set parts {}
+        set prefix "$dir/  "
+        set indent [string repeat " " [visLen $prefix]]
+        set line $prefix
         foreach member $members {
             lassign $member status base
-            lappend parts "${status} $base"
+            set word "${status} $base"
+            if {[visLen $line] == [visLen $prefix]} {
+                append line $word
+            } elseif {[visLen $line] + 2 + [visLen $word] > $termCols} {
+                lappend lines $line
+                set line "$indent$word"
+            } else {
+                append line "  $word"
+            }
         }
-        lappend lines "$dir/  [join $parts {  }]"
+        lappend lines $line
     }
 
     if {[llength $lines] > $maxLines} {
