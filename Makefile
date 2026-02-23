@@ -83,7 +83,7 @@ deps:
 	make -C vendor/jimtcl
 
 	cmake -B vendor/apriltag/build -S vendor/apriltag -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON
-	cmake --build vendor/apriltag/build
+	cmake --build vendor/apriltag/build --target apriltag
 
 	if [ ! -f vendor/wslay/Makefile ]; then \
 		cd vendor/wslay && autoreconf -i && automake && autoconf && ./configure; \
