@@ -100,6 +100,24 @@ Claim the calibration model library is [library create modelLib {
         }
         return $ret
     }
+    proc countProjectedTags {model} {
+        set i 0
+        dict for {id tag} $model {
+            if {[isProjectedTag $id]} { incr i }
+        }
+        return $i
+    }
+
+    # Detected tag-list operations.
+    # -----------------------------
+    proc filterProjectedTagsInDetectedTags {detectedTags} {
+        return [lmap tag $detectedTags {
+            if {![isProjectedTag $tag(id)]} {
+                continue
+            }
+            set tag
+        }]
+    }
 
     # Find a version tag that the camera saw and check its rotation to
     # figure out the model version that we're seeing.
