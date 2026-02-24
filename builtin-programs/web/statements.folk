@@ -27,8 +27,6 @@ When the db library is /dbLib/ {
         }]
     } }
 
-
-
     html [subst {
         <html>
         <head>
