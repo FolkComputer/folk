@@ -1,11 +1,14 @@
-# Manage stdout for Folk.
+# Manage terminal UI for Folk.
 
-$::realStdout puts "Welcome to Folk Computer (pid [pid])."
+$::realStdout puts "Folk Computer (pid [pid])."
 $::realStdout puts "Web interface at: http://$::thisNode:4273/"
 $::realStdout puts ""
 
-# TODO: Don't print the below if we're not literally at a terminal (if
-# we're running on systemd, for instance.)
+# Don't run the watcher process if we're not literally at a terminal
+# (if we're running on systemd, for instance.)
+if {$::env(TERM) eq "dumb"} {
+    return
+}
 
 set termRows 24
 set termCols 80
@@ -13,15 +16,17 @@ catch { lassign [exec stty size] termRows termCols }
 set maxLines [expr {$termRows - 4}]
 
 # Visible length of a string (strips ANSI escape sequences).
-proc visLen {s} {
+fn visLen {s} {
     regsub -all {\033\[[0-9;]*[a-zA-Z]} $s {} s
     string length $s
 }
 
 set prevLineCount 0
-
+set startMs [clock milliseconds]
 while true {
-    after 40 ;# Wake up every 40ms.
+    set elapsedMs [expr {[clock milliseconds] - $startMs}]
+    set settled [expr {$elapsedMs > 60000}]
+    after [expr {$settled ? 500 : 40}]
 
     set results [lsort -command {apply {{a b} {
         string compare [dict get $a program] [dict get $b program]
@@ -51,8 +56,12 @@ while true {
             set status "\033\[32m✓\033\[0m"
             set coloredBase "\033\[32m$base\033\[0m"
         } else {
-            set spinIdx [expr {([clock milliseconds] / 80) % 4}]
-            set status "\033\[33m[lindex {| / - \\} $spinIdx]\033\[0m"
+            if {$settled} {
+                set status "\033\[33m·\033\[0m"
+            } else {
+                set spinIdx [expr {([clock milliseconds] / 80) % 4}]
+                set status "\033\[33m[lindex {| / - \\} $spinIdx]\033\[0m"
+            }
             set coloredBase "\033\[33m$base\033\[0m"
         }
 
@@ -83,9 +92,8 @@ while true {
         }
         lappend lines $line
     }
-
     if {[llength $lines] > $maxLines} {
-        set lines [lrange $lines 0 [expr {$maxLines - 1}]]
+        set lines [lrange $lines 0 $maxLines-1]
     }
 
     if {$prevLineCount > 0} {
