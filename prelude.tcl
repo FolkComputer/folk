@@ -9,6 +9,8 @@ lappend ::auto_path "./vendor"
 source "lib/c.tcl"
 source "lib/math.tcl"
 
+set pid [pid]
+
 proc unknown {cmdName args} {
     if {[regexp {<C:([^ ]+)>} $cmdName -> cid]} {
         # Allow C libraries to be callable from any thread, because we
@@ -109,7 +111,7 @@ proc captureEnvStack {} {
 
 set ::localStdoutsAndStderrs [dict create]
 
-proc applyBlock {body envStack} {
+proc applyBlock {body envStack} {pid} {
     set env [dict merge {*}$envStack]
     foreach name [dict keys $env] {
         if {[string index $name 0] eq "^"} {
@@ -131,17 +133,16 @@ proc applyBlock {body envStack} {
             localStdout localStderr
     } else {
         set escapedThis [regsub -all -- / $this __]
-        set localStdout [open /tmp/$escapedThis.stdout a]
+        set localStdout [open /tmp/$pid.$escapedThis.stdout a]
         $localStdout buffering line
-        set localStderr [open /tmp/$escapedThis.stderr a]
+        set localStderr [open /tmp/$pid.$escapedThis.stderr a]
         $localStderr buffering none
         dict set ::localStdoutsAndStderrs $this \
             [list $localStdout $localStderr]
     }
-    # Stomp over whatever current stdout and stderr are, in favor of
-    # these local fds, so all subsequent calls to puts/fprintf/printf
-    # will go to the local stdout and stderr.
-    dup2 $localStdout 1; dup2 $localStderr 2
+    # Install thread-local stdout/stderr so all subsequent write()/puts/
+    # fprintf/printf calls go to the local files for this $this.
+    __installLocalStdoutAndStderr $localStdout $localStderr
 
     set names [dict keys $env]
     set values [dict values $env]
@@ -748,7 +749,7 @@ set ::thisNode [info hostname]
 # TODO: Save ::thisNode and check if it's changed.
 
 if {[__isTracyEnabled]} {
-    set tracyCid "tracy_[pid]"
+    set tracyCid "tracy_$pid"
     set ::tracyLib "<C:$tracyCid>"
     set tracySo "/tmp/$tracyCid.so"
     proc tracyCompile {} {tracyCid} {

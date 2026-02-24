@@ -9,6 +9,7 @@
 #include <inttypes.h>
 #include <signal.h>
 #include <setjmp.h>
+#include <sys/syscall.h>
 
 #if __has_include ("tracy/TracyC.h")
 #include "tracy/TracyC.h"
@@ -26,6 +27,30 @@
 
 int realStdout = -1;
 int realStderr = -1;
+
+// Per-thread stdout/stderr fds, set when a when-body redirects its output.
+// write() checks these instead of using fd 1/2 directly.
+__thread int threadLocalStdout = -1;
+__thread int threadLocalStderr = -1;
+
+// On Linux, we override write() as a strong symbol that takes priority over
+// libc's weak symbol. On macOS, __DATA,__interpose in the main executable is
+// silently ignored by dyld (it only works in dylibs). Instead, folk_interpose.dylib
+// (linked dynamically) contains the __interpose section and calls back here via
+// folkGetFdOverride() to perform the per-thread fd substitution.
+#ifdef __APPLE__
+int folkGetFdOverride(int fd) {
+    if (fd == STDOUT_FILENO && threadLocalStdout != -1) return threadLocalStdout;
+    else if (fd == STDERR_FILENO && threadLocalStderr != -1) return threadLocalStderr;
+    return fd;
+}
+#else
+ssize_t write(int fd, const void *buf, size_t count) {
+    if (fd == STDOUT_FILENO && threadLocalStdout != -1) fd = threadLocalStdout;
+    else if (fd == STDERR_FILENO && threadLocalStderr != -1) fd = threadLocalStderr;
+    return (ssize_t)syscall(SYS_write, fd, buf, count);
+}
+#endif
 
 ThreadControlBlock threads[THREADS_MAX];
 int _Atomic threadCount;
@@ -638,16 +663,13 @@ static int __currentAtomicallyVersionFunc(Jim_Interp *interp, int argc, Jim_Obj 
     return JIM_OK;
 }
 
-static int dup2Func(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+static int __installLocalStdoutAndStderrFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 3);
-    int oldfd = Jim_AioFilehandle(interp, argv[1]);
-    long newfd; Jim_GetLong(interp, argv[2], &newfd);
-    if (oldfd == -1) { return JIM_ERR; }
-    int ret = dup2(oldfd, (int)newfd);
-    if (ret == -1) {
-        Jim_SetResultString(interp, strerror(errno), -1);
-        return JIM_ERR;
-    }
+    int stdoutfd = Jim_AioFilehandle(interp, argv[1]);
+    int stderrfd = Jim_AioFilehandle(interp, argv[2]);
+    if (stdoutfd == -1 || stderrfd == -1) { return JIM_ERR; }
+    threadLocalStdout = stdoutfd;
+    threadLocalStderr = stderrfd;
     return JIM_OK;
 }
 static int setpgrpFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
@@ -717,7 +739,7 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "__setFreshAtomicallyVersionOnKey", __setFreshAtomicallyVersionOnKeyFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__currentAtomicallyVersion", __currentAtomicallyVersionFunc, NULL, NULL);
 
-    Jim_CreateCommand(interp, "dup2", dup2Func, NULL, NULL);
+    Jim_CreateCommand(interp, "__installLocalStdoutAndStderr", __installLocalStdoutAndStderrFunc, NULL, NULL);
     Jim_CreateCommand(interp, "setpgrp", setpgrpFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Exit!", exitFunc, NULL, NULL);
 
