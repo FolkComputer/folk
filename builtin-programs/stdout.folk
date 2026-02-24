@@ -1,7 +1,8 @@
 # Manage terminal UI for Folk.
 
 $::realStdout puts "Folk Computer (pid [pid])."
-$::realStdout puts "Web interface at: http://$::thisNode:4273/"
+set host $([string match "*.local" $::thisNode] ? $::thisNode : "$::thisNode.local")
+$::realStdout puts "Web interface at: http://$host:4273/"
 $::realStdout puts ""
 $::realStdout flush
 
