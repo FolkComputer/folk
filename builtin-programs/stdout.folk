@@ -36,7 +36,6 @@ while true {
 
     # Build groups: dict mapping dirname -> list of {status basename}
     set groups [dict create]
-    set groupOrder {}
     foreach result $results {
         set program [dict get $result program]
         set programCode [dict get $result programCode]
@@ -67,16 +66,12 @@ while true {
             set coloredBase "\033\[33m$base\033\[0m"
         }
 
-        if {![dict exists $groups $dir]} {
-            lappend groupOrder $dir
-        }
         dict lappend groups $dir [list $status $coloredBase]
     }
 
     # Build lines, word-wrapping each group's entries to fit termCols.
     set lines {}
-    foreach dir $groupOrder {
-        set members [dict get $groups $dir]
+    dict for {dir members} $groups {
         set prefix "$dir/  "
         set indent [string repeat " " [visLen $prefix]]
         set line $prefix
