@@ -1,11 +1,5 @@
 # This program gets directly evaluated at the top level.
 
-set localStdout [open /tmp/[pid].boot__folk.stdout a]
-$localStdout buffering line
-set localStderr [open /tmp/[pid].boot__folk.stderr a]
-$localStderr buffering none
-__installLocalStdoutAndStderr $localStdout $localStderr
-
 apply {{} {
     # We setpgrp so that all subprocesses spawned by Folk, even ones
     # that outlive Folk itself, can be killed later by their PGID (the
@@ -33,6 +27,12 @@ apply {{} {
     # in case we're running as root:
     catch { exec chown folk folk.pid }
 }}
+
+set localStdout [open /tmp/[pid].boot__folk.stdout a]
+$localStdout buffering line
+set localStderr [open /tmp/[pid].boot__folk.stderr a]
+$localStderr buffering none
+__installLocalStdoutAndStderr $localStdout $localStderr
 
 Assert! when /__this/ has program code /__programCode/ {
     SayWithSource $__this 1 0 {} {} \
