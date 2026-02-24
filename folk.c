@@ -24,6 +24,9 @@
 #include "common.h"
 #include "sysmon.h"
 
+int realStdout = -1;
+int realStderr = -1;
+
 ThreadControlBlock threads[THREADS_MAX];
 int _Atomic threadCount;
 __thread ThreadControlBlock* self;
@@ -677,6 +680,12 @@ static void interpBoot() {
     interp = Jim_CreateInterp();
     Jim_RegisterCoreCommands(interp);
     Jim_InitStaticExtensions(interp);
+
+    assert(realStdout != -1 && realStderr != -1);
+    Jim_AioMakeChannelFromFd(interp, realStdout, 1);
+    Jim_SetVariableStr(interp, "::realStdout", Jim_GetResult(interp));
+    Jim_AioMakeChannelFromFd(interp, realStderr, 1);
+    Jim_SetVariableStr(interp, "::realStderr", Jim_GetResult(interp));
 
     Jim_CreateCommand(interp, "Assert!", AssertFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Retract!", RetractFunc, NULL, NULL);
@@ -1649,6 +1658,11 @@ int main(int argc, char** argv) {
     // Do all setup.
 
     // Jim_Allocator = webDebugAllocator;
+
+    // Save stdout and stderr once, globally, because prelude in each
+    // thread will stomp them.
+    realStdout = dup(1);
+    realStderr = dup(2);
 
     // Set up database.
     db = dbNew();

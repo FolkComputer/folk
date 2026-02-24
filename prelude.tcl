@@ -9,9 +9,6 @@ lappend ::auto_path "./vendor"
 source "lib/c.tcl"
 source "lib/math.tcl"
 
-set ::realStdout [open /dev/fd/1 w]
-set ::realStderr [open /dev/fd/2 w]
-
 proc unknown {cmdName args} {
     if {[regexp {<C:([^ ]+)>} $cmdName -> cid]} {
         # Allow C libraries to be callable from any thread, because we
@@ -141,6 +138,9 @@ proc applyBlock {body envStack} {
         dict set ::localStdoutsAndStderrs $this \
             [list $localStdout $localStderr]
     }
+    # Stomp over whatever current stdout and stderr are, in favor of
+    # these local fds, so all subsequent calls to puts/fprintf/printf
+    # will go to the local stdout and stderr.
     dup2 $localStdout 1; dup2 $localStderr 2
 
     set names [dict keys $env]
