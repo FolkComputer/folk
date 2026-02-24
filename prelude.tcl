@@ -140,6 +140,9 @@ proc applyBlock {body envStack} {pid} {
         dict set ::localStdoutsAndStderrs $this \
             [list $localStdout $localStderr]
     }
+    # Flush before installing so any buffered data from the previous
+    # program drains to the correct fd before we switch.
+    stdout flush
     # Install thread-local stdout/stderr so all subsequent write()/puts/
     # fprintf/printf calls go to the local files for this $this.
     __installLocalStdoutAndStderr $localStdout $localStderr
