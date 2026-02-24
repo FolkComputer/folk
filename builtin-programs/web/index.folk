@@ -1,3 +1,48 @@
+When the collected results for [list /someone/ wishes the web server handles route /route/ with /...options/] are /handlers/ {
+    # Generate navigation from all route handlers.
+    set navLinks [list]
+    foreach handler $handlers {
+      set route $handler(route)
+      if {[dict getdef $handler(options) hidden false]} { continue }
+      if {$route eq "/"} { continue }
+
+      # Filter out routes with non-optional capture groups.
+      # Check if route has capturing groups (not non-capturing (?:...)).
+      set hasCapturingGroup [regexp {\([^?]} $route]
+      # Check if ANY group is non-optional (has ) not followed by ?).
+      set hasNonOptionalGroup [regexp {\)[^?]} $route]
+      if {$hasCapturingGroup && $hasNonOptionalGroup} { continue }
+
+      # Remove all regex patterns and capture groups for the href and
+      # display name.
+      set route [regsub -all {\([^)]*\)} $route ""]
+      set route [regsub -all {\[[^\]]*\]} $route ""]
+      # Convert escaped dots to plain dots first
+      set route [regsub -all {\\.} $route "."]
+      # Remove wildcard patterns like .* and .+
+      set route [regsub -all {\.\*} $route ""]
+      set route [regsub -all {\.\+} $route ""]
+      # Remove other regex metacharacters (but not .)
+      set route [regsub -all {[\\?*+^]} $route ""]
+      set route [regsub {\$$} $route ""]
+      set route [regsub {\$\s*$} $route ""]
+
+      # Create a nice display name from the route.
+      set displayName [string trim $route "/"]
+      set displayName [string map {"-" " " ".pdf" "" "_" " "} $displayName]
+      set displayName [string totitle $displayName]
+
+      set nav [dict getdef $handler(options) nav $displayName]
+      lappend navLinks "<a href=\"$route\">$nav</a>"
+    }
+
+    Claim the web navigation HTML is [subst {
+      <nav>
+        [join $navLinks "\n          "]
+      </nav>
+    }]
+}
+
 Wish the web server handles route "/" with handler {
     fn emitHtmlForProgramList {programList label} {
         set prettyLabel [string map {- " "} $label]
@@ -76,6 +121,7 @@ Wish the web server handles route "/" with handler {
             </script>
         </head>
         <body>
+        [dict get [QueryOne! the web navigation HTML is /nav/] nav]
         [HtmlWhen the collected results for [list /programName/ has program code /programCode/] \
                   are /programs/ {
             emitHtmlForPrograms $programs

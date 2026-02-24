@@ -9,13 +9,6 @@ When the db library is /dbLib/ {
         <link rel="stylesheet" href="/style.css">
         <title>Statement Holds</title>
       </head>
-      <nav>
-        <a href="/"><button>Statements</button></a>
-        <a href="/new"><button>New program</button></a>
-        <a href="/programs">Running programs</a>
-        <a href="/threads">Threads</a>
-        <a href="/trace">Trace</a>
-      </nav>
       <h1>Statement Holds</h1>
       <ol>
         [join [lmap holdObj $holds {
