@@ -1,6 +1,5 @@
 if {[catch {exec which sclang}]} {
-    puts stderr "music: sclang doesn't exist; not running."
-    return
+    error "music: sclang doesn't exist; not running."
 }
 
 set musicDir $::env(HOME)/music

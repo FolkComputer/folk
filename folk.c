@@ -10,6 +10,7 @@
 #include <signal.h>
 #include <setjmp.h>
 #include <sys/syscall.h>
+#include <fcntl.h>
 
 #if __has_include ("tracy/TracyC.h")
 #include "tracy/TracyC.h"
@@ -39,9 +40,18 @@ __thread int threadLocalStderr = -1;
 // (linked dynamically) contains the __interpose section and calls back here via
 // folkGetFdOverride() to perform the per-thread fd substitution.
 #ifdef __APPLE__
+// Called by folk_interpose.dylib for every write()/printf()/etc. call.
+// fd 1/2 are redirected to /dev/null in main() so that NSLog and other
+// system frameworks see a non-TTY and suppress their stderr output.
+// We route all legitimate writes back to the saved realStdout/realStderr
+// (or to the per-thread per-program file when inside a when-body).
 int folkGetFdOverride(int fd) {
-    if (fd == STDOUT_FILENO && threadLocalStdout != -1) return threadLocalStdout;
-    else if (fd == STDERR_FILENO && threadLocalStderr != -1) return threadLocalStderr;
+    if (fd == STDOUT_FILENO) {
+        return threadLocalStdout != -1 ? threadLocalStdout : realStdout;
+    }
+    if (fd == STDERR_FILENO) {
+        return threadLocalStderr != -1 ? threadLocalStderr : realStderr;
+    }
     return fd;
 }
 #else
@@ -1681,10 +1691,19 @@ int main(int argc, char** argv) {
 
     // Jim_Allocator = webDebugAllocator;
 
-    // Save stdout and stderr once, globally, because prelude in each
-    // thread will stomp them.
+    // Save stdout and stderr once, globally.
     realStdout = dup(1);
     realStderr = dup(2);
+
+#ifdef __APPLE__
+    // Redirect fd 1/2 to /dev/null so system frameworks (NSLog, AppKit, etc.)
+    // see a non-TTY and suppress their stderr output. All legitimate writes go
+    // through folk_interpose.dylib -> folkGetFdOverride -> realStdout/realStderr.
+    int devnull = open("/dev/null", O_WRONLY);
+    dup2(devnull, STDOUT_FILENO);
+    dup2(devnull, STDERR_FILENO);
+    close(devnull);
+#endif
 
     // Set up database.
     db = dbNew();
