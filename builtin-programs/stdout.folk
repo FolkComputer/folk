@@ -3,6 +3,7 @@
 $::realStdout puts "Folk Computer (pid [pid])."
 $::realStdout puts "Web interface at: http://$::thisNode:4273/"
 $::realStdout puts ""
+$::realStdout flush
 
 # Don't run the watcher process if we're not literally at a terminal
 # (if we're running on systemd, for instance.)
