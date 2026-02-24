@@ -1,4 +1,4 @@
-Wish the web server handles route "/programs" with handler {
+Wish the web server handles route "/" with handler {
     fn emitHtmlForProgramList {programList label} {
         set prettyLabel [string map {- " "} $label]
         set prettyLabel [string totitle $prettyLabel]:
