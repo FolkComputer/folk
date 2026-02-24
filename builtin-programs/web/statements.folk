@@ -1,6 +1,6 @@
 When the db library is /dbLib/ {
   set db [__db]
-  Wish the web server handles route "/" with handler {
+  Wish the web server handles route "/statements" with handler {
     set l [list]
     # You need to use the Simple form so it doesn't auto-claimize it.
     set results [QuerySimple! false /...terms/]
