@@ -19,7 +19,7 @@ set maxLines [expr {$termRows - 4}]
 
 # Visible length of a string (strips ANSI escape sequences).
 fn visLen {s} {
-    regsub -all {\033\[[0-9;]*[a-zA-Z]} $s {} s
+    regsub -all {\x1b\[[0-9;]*[a-zA-Z]} $s {} s
     string length $s
 }
 
@@ -80,7 +80,7 @@ while true {
             set word "${status} $base"
             if {[visLen $line] == [visLen $prefix]} {
                 append line $word
-            } elseif {[visLen $line] + 2 + [visLen $word] > $termCols} {
+            } elseif {[visLen $line] + 3 + [visLen $word] > $termCols} {
                 lappend lines $line
                 set line "$indent$word"
             } else {
