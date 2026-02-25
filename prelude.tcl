@@ -110,9 +110,11 @@ proc captureEnvStack {} {
 }
 
 set ::localStdoutsAndStderrs [dict create]
+$::realStdout buffering line
+$::realStderr buffering none
 
 rename exec __exec
-proc exec {args} {
+proc ::exec {args} {
     # For background exec (ending with &), redirect stdout and stderr
     # to the current thread-local output files so the subprocess's
     # output lands in the right per-program /tmp/ file.

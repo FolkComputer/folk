@@ -143,15 +143,14 @@ void outputRedirectionInit(void) {
     realStdout = dup(1);
     realStderr = dup(2);
 
-#ifdef __APPLE__
-    // Redirect fd 1/2 to /dev/null so system frameworks (NSLog, AppKit, etc.)
-    // see a non-TTY and suppress their stderr output. All legitimate writes go
-    // through folk_interpose.dylib -> folkGetFdOverride -> realStdout/realStderr.
+    // Redirect fd 1/2 to /dev/null so system frameworks (NSLog,
+    // AppKit, etc.)  see a non-TTY and suppress their stderr
+    // output. All legitimate writes go through folk_interpose.dylib
+    // -> folkGetFdOverride, or to realStdout/realStderr.
     int devnull = open("/dev/null", O_WRONLY);
     dup2(devnull, STDOUT_FILENO);
     dup2(devnull, STDERR_FILENO);
     close(devnull);
-#endif
 }
 
 void installLocalStdoutAndStderr(int stdoutfd, int stderrfd) {
