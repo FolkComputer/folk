@@ -110,10 +110,11 @@ proc captureEnvStack {} {
     return [list {*}[uplevel set __envStack] $env]
 }
 
-set ::localStdoutsAndStderrs [dict create]
+$::realStdout buffering line
+$::realStderr buffering none
 
 rename exec __exec
-proc exec {args} {
+proc ::exec {args} {
     # For background exec (ending with &), redirect stdout and stderr
     # to the current thread-local output files so the subprocess's
     # output lands in the right per-program /tmp/ file.
@@ -145,27 +146,12 @@ proc applyBlock {body envStack} {pid} {
     dict set env __env $env
 
     set this [dict getdef $env this <unknown>]
-    if {[dict exists $::localStdoutsAndStderrs $this]} {
-        lassign [dict get $::localStdoutsAndStderrs $this] \
-            localStdout localStderr
-    } else {
-        set escapedThis [regsub -all -- / $this __]
-        set localStdout [open /tmp/$pid.$escapedThis.stdout a]
-        $localStdout buffering line
-        set localStderr [open /tmp/$pid.$escapedThis.stderr a]
-        $localStderr buffering none
-        dict set ::localStdoutsAndStderrs $this \
-            [list $localStdout $localStderr]
-    }
     # Flush before installing so any buffered data from the previous
     # program drains to the correct fd before we switch.
     stdout flush
     # Install thread-local stdout/stderr so all subsequent write()/puts/
     # fprintf/printf calls go to the local files for this $this.
-    __installLocalStdoutAndStderr $localStdout $localStderr
-    # Also store in globals so the exec wrapper can find them.
-    set ::_folk_localStdout $localStdout
-    set ::_folk_localStderr $localStderr
+    __installLocalStdoutAndStderr $this
 
     set names [dict keys $env]
     set values [dict values $env]

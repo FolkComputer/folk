@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <assert.h>
+#include <pthread.h>
 #include <sys/syscall.h>
 
 #ifdef FOLK_INTERPOSE_DYLIB
@@ -143,15 +144,14 @@ void outputRedirectionInit(void) {
     realStdout = dup(1);
     realStderr = dup(2);
 
-#ifdef __APPLE__
-    // Redirect fd 1/2 to /dev/null so system frameworks (NSLog, AppKit, etc.)
-    // see a non-TTY and suppress their stderr output. All legitimate writes go
-    // through folk_interpose.dylib -> folkGetFdOverride -> realStdout/realStderr.
+    // Redirect fd 1/2 to /dev/null so system frameworks (NSLog,
+    // AppKit, etc.)  see a non-TTY and suppress their stderr
+    // output. All legitimate writes go through folk_interpose.dylib
+    // -> folkGetFdOverride, or to realStdout/realStderr.
     int devnull = open("/dev/null", O_WRONLY);
     dup2(devnull, STDOUT_FILENO);
     dup2(devnull, STDERR_FILENO);
     close(devnull);
-#endif
 }
 
 void installLocalStdoutAndStderr(int stdoutfd, int stderrfd) {
@@ -159,12 +159,61 @@ void installLocalStdoutAndStderr(int stdoutfd, int stderrfd) {
     threadLocalStderr = stderrfd;
 }
 
+#define PROGRAM_FDS_MAX 1024
+typedef struct { char *name; int stdoutfd; int stderrfd; } ProgramFds;
+static pthread_mutex_t programFdsMutex = PTHREAD_MUTEX_INITIALIZER;
+static ProgramFds programFdsTable[PROGRAM_FDS_MAX];
+static int programFdsCount = 0;
+
+static void escapeProgramName(const char *in, char *out, size_t outlen) {
+    size_t j = 0;
+    for (size_t i = 0; in[i] != '\0'; i++) {
+        if (in[i] == '/') {
+            if (j + 2 < outlen - 1) { out[j++] = '_'; out[j++] = '_'; }
+        } else {
+            if (j < outlen - 1) out[j++] = in[i];
+        }
+    }
+    out[j] = '\0';
+}
+
 static int __installLocalStdoutAndStderrFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    assert(argc == 3);
-    int stdoutfd = Jim_AioFilehandle(interp, argv[1]);
-    int stderrfd = Jim_AioFilehandle(interp, argv[2]);
+    assert(argc == 2);
+    const char *this = Jim_String(argv[1]);
+
+    pthread_mutex_lock(&programFdsMutex);
+    int stdoutfd = -1, stderrfd = -1;
+    for (int i = 0; i < programFdsCount; i++) {
+        if (strcmp(programFdsTable[i].name, this) == 0) {
+            stdoutfd = programFdsTable[i].stdoutfd;
+            stderrfd = programFdsTable[i].stderrfd;
+            break;
+        }
+    }
+    if (stdoutfd == -1 && programFdsCount < PROGRAM_FDS_MAX) {
+        char escaped[2048];
+        escapeProgramName(this, escaped, sizeof(escaped));
+        char path[4096];
+        snprintf(path, sizeof(path), "/tmp/%d.%s.stdout", (int)getpid(), escaped);
+        stdoutfd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        snprintf(path, sizeof(path), "/tmp/%d.%s.stderr", (int)getpid(), escaped);
+        stderrfd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        programFdsTable[programFdsCount].name = strdup(this);
+        programFdsTable[programFdsCount].stdoutfd = stdoutfd;
+        programFdsTable[programFdsCount].stderrfd = stderrfd;
+        programFdsCount++;
+    }
+    pthread_mutex_unlock(&programFdsMutex);
+
     if (stdoutfd == -1 || stderrfd == -1) { return JIM_ERR; }
     installLocalStdoutAndStderr(stdoutfd, stderrfd);
+
+    // Set ::_folk_localStdout/Stderr as non-owning channels for the exec wrapper.
+    Jim_AioMakeChannelFromFd(interp, stdoutfd, 0);
+    Jim_SetVariableStr(interp, "::_folk_localStdout", Jim_GetResult(interp));
+    Jim_AioMakeChannelFromFd(interp, stderrfd, 0);
+    Jim_SetVariableStr(interp, "::_folk_localStderr", Jim_GetResult(interp));
+
     return JIM_OK;
 }
 
