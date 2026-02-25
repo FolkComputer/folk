@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include <unistd.h>
 #include <fcntl.h>
+#include <stdio.h>
 #include <assert.h>
 #include <sys/syscall.h>
 
@@ -63,6 +64,38 @@ ssize_t write(int fd, const void *buf, size_t count) {
 }
 #endif
 
+// Override printf/fprintf/puts/fwrite in the main binary so that
+// JIT-compiled .so files loaded via dlopen find our versions first
+// (via flat-namespace / RTLD_DEFAULT lookup) and their output is
+// properly redirected through write().
+//
+// On Linux this also bypasses glibc's hidden __libc_write that
+// stdio uses internally and would otherwise escape our write() override.
+int printf(const char *fmt, ...) {
+    char buf[4096];
+    va_list args;
+    va_start(args, fmt);
+    int n = vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    if (n > 0) write(STDOUT_FILENO, buf, n < (int)sizeof(buf) ? n : (int)sizeof(buf) - 1);
+    return n;
+}
+
+int fprintf(FILE *stream, const char *fmt, ...) {
+    char buf[4096];
+    va_list args;
+    va_start(args, fmt);
+    int n = vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    if (n > 0) write(fileno(stream), buf, n < (int)sizeof(buf) ? n : (int)sizeof(buf) - 1);
+    return n;
+}
+
+size_t fwrite(const void *buf, size_t size, size_t count, FILE *stream) {
+    write(fileno(stream), buf, size * count);
+    return count;
+}
+
 void outputRedirectionInit(void) {
     // Save stdout and stderr once, globally.
     realStdout = dup(1);
@@ -79,13 +112,17 @@ void outputRedirectionInit(void) {
 #endif
 }
 
+void installLocalStdoutAndStderr(int stdoutfd, int stderrfd) {
+    threadLocalStdout = stdoutfd;
+    threadLocalStderr = stderrfd;
+}
+
 static int __installLocalStdoutAndStderrFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 3);
     int stdoutfd = Jim_AioFilehandle(interp, argv[1]);
     int stderrfd = Jim_AioFilehandle(interp, argv[2]);
     if (stdoutfd == -1 || stderrfd == -1) { return JIM_ERR; }
-    threadLocalStdout = stdoutfd;
-    threadLocalStderr = stderrfd;
+    installLocalStdoutAndStderr(stdoutfd, stderrfd);
     return JIM_OK;
 }
 

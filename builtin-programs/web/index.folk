@@ -24,14 +24,18 @@ Wish the web server handles route "/" with handler {
             }
             set outLen [string length $out]
             set errLen [string length $err]
+
             set outputSuffix ""
+            if {$item(programName) ne "sysmon.c"} {
+                set outputSuffix "(<a href='/program/$item(programName)'>source</a>)"
+            }
             if {$outLen > 0} { append outputSuffix " <span style='font-size: 0.75em; color: #888'>${outLen}b out</span>" }
             if {$errLen > 0} { append outputSuffix " <span style='font-size: 0.75em; color: #c00'>${errLen}b err</span>" }
             set displayName [regsub {^builtin-programs/} $item(programName) ""]
             set summaryStyle [expr {$outputHtml eq "" ? "style='list-style: none'" : ""}]
             lappend returnList [subst {
                 <li id="program-[string map {{ } -} $item(programName)]"><details>
-                  <summary $summaryStyle>$displayName (<a href="/program/$item(programName)">source</a>)$outputSuffix</summary>
+                  <summary $summaryStyle>$displayName $outputSuffix</summary>
                   $outputHtml
                 </details></li>
             }]
@@ -57,6 +61,7 @@ Wish the web server handles route "/" with handler {
                 default { lappend rp $match }
             }
         }
+        lappend vp {programName "sysmon.c"}
 
         return [join [list \
             [emitHtmlForProgramList $rp "real-programs"] \
