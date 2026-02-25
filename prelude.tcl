@@ -124,7 +124,7 @@ proc exec {args} {
             2>@ $::_folk_localStderr \
             &]
     }
-    uplevel 1 [list __exec {*}$args]
+    tailcall __exec {*}$args
 }
 
 proc applyBlock {body envStack} {pid} {
