@@ -41,4 +41,4 @@ When /someone/ wishes to load the CRAFT text detector &\
     fn CRAFT {im} { return [$py detectTextBoxes $im] }
     Claim the CRAFT text detector is [fn CRAFT]
 }
-}
+
