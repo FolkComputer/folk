@@ -9,12 +9,13 @@
 #include <inttypes.h>
 #include <signal.h>
 #include <setjmp.h>
+#include <sys/syscall.h>
+#include <fcntl.h>
 
 #if __has_include ("tracy/TracyC.h")
 #include "tracy/TracyC.h"
 #endif
 
-#define JIM_EMBEDDED
 #include <jim.h>
 
 #include "vendor/c11-queues/mpmc_queue.h"
@@ -23,6 +24,7 @@
 #include "db.h"
 #include "common.h"
 #include "sysmon.h"
+#include "output-redirection.h"
 
 ThreadControlBlock threads[THREADS_MAX];
 int _Atomic threadCount;
@@ -555,7 +557,20 @@ static int __currentMatchRefFunc(Jim_Interp *interp, int argc, Jim_Obj *const *a
     Jim_SetResultString(interp, ret, strlen(ret));
     return JIM_OK;
 }
-static int __isWhenOfCurrentMatchAlreadyRunningFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+static int __statementIncompleteChildMatchesCountFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 2);
+    StatementRef ref;
+    assert(sscanf(Jim_String(argv[1]), "s%d:%d", &ref.idx, &ref.gen) == 2);
+    Statement* stmt = statementAcquire(db, ref);
+    if (stmt == NULL) {
+        Jim_SetResultInt(interp, 0);
+        return JIM_OK;
+    }
+    Jim_SetResultInt(interp, statementIncompleteChildMatchesCount(db, stmt));
+    statementRelease(db, stmt);
+    return JIM_OK;
+}
+static int __whenOfCurrentMatchIncompleteChildMatchesCountFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 1);
     StatementRef whenRef = STATEMENT_REF_NULL;
     mutexLock(&self->currentItemMutex);
@@ -573,8 +588,7 @@ static int __isWhenOfCurrentMatchAlreadyRunningFunc(Jim_Interp *interp, int argc
         return JIM_OK;
     }
 
-    MatchRef currentMatchRef = matchRef(db, self->currentMatch);
-    Jim_SetResultBool(interp, statementHasOtherIncompleteChildMatch(db, when, currentMatchRef));
+    Jim_SetResultInt(interp, statementIncompleteChildMatchesCount(db, when));
 
     statementRelease(db, when);
     return JIM_OK;
@@ -654,6 +668,8 @@ static void interpBoot() {
     Jim_RegisterCoreCommands(interp);
     Jim_InitStaticExtensions(interp);
 
+    outputRedirectionInterpSetup(interp);
+
     Jim_CreateCommand(interp, "Assert!", AssertFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Retract!", RetractFunc, NULL, NULL);
     Jim_CreateCommand(interp, "HoldStatementGlobally!", HoldStatementGloballyFunc, NULL, NULL);
@@ -672,7 +688,8 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "__variableNameIsNonCapturing", __variableNameIsNonCapturingFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__startsWithDollarSign", __startsWithDollarSignFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__currentMatchRef", __currentMatchRefFunc, NULL, NULL);
-    Jim_CreateCommand(interp, "__isWhenOfCurrentMatchAlreadyRunning", __isWhenOfCurrentMatchAlreadyRunningFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__statementIncompleteChildMatchesCount", __statementIncompleteChildMatchesCountFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__whenOfCurrentMatchIncompleteChildMatchesCount", __whenOfCurrentMatchIncompleteChildMatchesCountFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__isInSubscription", __isInSubscriptionFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "__isTracyEnabled", __isTracyEnabledFunc, NULL, NULL);
@@ -1624,6 +1641,8 @@ int main(int argc, char** argv) {
 
     // Jim_Allocator = webDebugAllocator;
 
+    outputRedirectionInit();
+
     // Set up database.
     db = dbNew();
 
@@ -1637,7 +1656,7 @@ int main(int argc, char** argv) {
     cpu_set_t cs; CPU_ZERO(&cs);
     sched_getaffinity(0, sizeof(cs), &cs);
     int cpuCount = CPU_COUNT(&cs);
-    printf("main: CPU_COUNT = %d\n", cpuCount);
+    // printf("main: CPU_COUNT = %d\n", cpuCount);
     assert(cpuCount >= 2);
 
     int cpuUsableCount = cpuCount - 1; // will exclude CPU 0 later.
@@ -1652,7 +1671,7 @@ int main(int argc, char** argv) {
         // interpreter. It's just pure C. It's also guaranteed(?) to
         // not run more than every few milliseconds, so it's ok to let
         // it run on the free core.
-        sysmonInit(cpuUsableCount > 18 ? 18 : cpuUsableCount);
+        sysmonInit(cpuUsableCount > 5 ? 5 : cpuUsableCount);
         pthread_t sysmonTh;
         pthread_create(&sysmonTh, NULL, sysmonMain, NULL);
     }

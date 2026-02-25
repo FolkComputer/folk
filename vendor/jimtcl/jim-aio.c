@@ -1005,6 +1005,11 @@ int Jim_AioFilehandle(Jim_Interp *interp, Jim_Obj *command)
     return -1;
 }
 
+int Jim_AioMakeChannelFromFd(Jim_Interp *interp, int fd, int keepopen)
+{
+    return JimMakeChannel(interp, fd, NULL, "aio.handle%ld", 0, keepopen ? AIO_KEEPOPEN : 0) ? JIM_OK : JIM_ERR;
+}
+
 static int aio_cmd_getfd(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
     AioFile *af = Jim_CmdPrivData(interp);

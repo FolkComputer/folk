@@ -1,4 +1,5 @@
-puts "boot: Boot (PID [pid])"
+# This program gets directly evaluated at the top level.
+
 apply {{} {
     # We setpgrp so that all subprocesses spawned by Folk, even ones
     # that outlive Folk itself, can be killed later by their PGID (the
@@ -26,6 +27,8 @@ apply {{} {
     # in case we're running as root:
     catch { exec chown folk folk.pid }
 }}
+
+__installLocalStdoutAndStderr "boot.folk"
 
 Assert! when /__this/ has program code /__programCode/ {
     SayWithSource $__this 1 0 {} {} \

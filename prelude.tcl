@@ -1,8 +1,15 @@
-stdout buffering line
+# This file gets re-evaluated on every new Tcl interpreter that spins
+# up, so multiple times, possibly in parallel, possibly even late in
+# the lifetime of the Folk system.
+#
+# It's sort of the only place you can create genuine globals that you
+# can guarantee will be available on any Folk process/block.
 
 lappend ::auto_path "./vendor"
 source "lib/c.tcl"
 source "lib/math.tcl"
+
+set pid [pid]
 
 proc unknown {cmdName args} {
     if {[regexp {<C:([^ ]+)>} $cmdName -> cid]} {
@@ -102,7 +109,28 @@ proc captureEnvStack {} {
     return [list {*}[uplevel set __envStack] $env]
 }
 
-proc applyBlock {body envStack} {
+$::realStdout buffering line
+$::realStderr buffering none
+
+rename exec __exec
+proc ::exec {args} {
+    # For background exec (ending with &), redirect stdout and stderr
+    # to the current thread-local output files so the subprocess's
+    # output lands in the right per-program /tmp/ file.
+    if {[lindex $args end] eq "&" && \
+            [info exists ::_folk_localStdout] && \
+            [info exists ::_folk_localStderr]} {
+        set hasStdout [lsearch -regexp $args {^>@}]
+        set hasStderr [lsearch -regexp $args {^2>@}]
+        set insertions {}
+        if {$hasStdout == -1} { lappend insertions >@ $::_folk_localStdout }
+        if {$hasStderr == -1} { lappend insertions 2>@ $::_folk_localStderr }
+        set args [lreplace $args end end {*}$insertions &]
+    }
+    tailcall __exec {*}$args
+}
+
+proc applyBlock {body envStack} {pid} {
     set env [dict merge {*}$envStack]
     foreach name [dict keys $env] {
         if {[string index $name 0] eq "^"} {
@@ -117,6 +145,14 @@ proc applyBlock {body envStack} {
 
     dict set env __envStack $envStack
     dict set env __env $env
+
+    set this [dict getdef $env this <unknown>]
+    # Flush before installing so any buffered data from the previous
+    # program drains to the correct fd before we switch.
+    stdout flush
+    # Install thread-local stdout/stderr so all subsequent write()/puts/
+    # fprintf/printf calls go to the local files for this $this.
+    __installLocalStdoutAndStderr $this
 
     set names [dict keys $env]
     set values [dict values $env]
@@ -533,7 +569,7 @@ proc When {args} {
         # statement ref has any match children that are incomplete. If
         # so, then die.
         set prologue {
-            if {[__isWhenOfCurrentMatchAlreadyRunning]} {
+            if {[__whenOfCurrentMatchIncompleteChildMatchesCount] > 1} {
                 return
             }
         }
@@ -723,7 +759,7 @@ set ::thisNode [info hostname]
 # TODO: Save ::thisNode and check if it's changed.
 
 if {[__isTracyEnabled]} {
-    set tracyCid "tracy_[pid]"
+    set tracyCid "tracy_$pid"
     set ::tracyLib "<C:$tracyCid>"
     set tracySo "/tmp/$tracyCid.so"
     proc tracyCompile {} {tracyCid} {
