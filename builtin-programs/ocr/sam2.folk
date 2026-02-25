@@ -49,30 +49,22 @@ When the image uvx argtype definer is /defineImageArgtype/ {
         set cc [C]
         $cc extend $imageLib
         $cc proc maskToImage {Jim_Obj* mask} Image {
-            int height;
-            Jim_ListLength(interp, mask, &height);
-
+            int height = Jim_ListLength(interp, mask);
             int width = 0;
             if (height > 0) {
-                Jim_Obj *firstRow;
-                Jim_ListIndex(interp, mask, 0, &firstRow);
-                Jim_ListLength(interp, firstRow, &width);
+                Jim_Obj *firstRow = Jim_ListGetIndex(interp, mask, 0);
+                width = Jim_ListLength(interp, firstRow);
             }
 
             Image result = imageNew(width, height, 1, 0);
-
             for (int y = 0; y < height; y++) {
-                Jim_Obj *row;
-                Jim_ListIndex(interp, mask, y, &row);
+                Jim_Obj *row = Jim_ListGetIndex(interp, mask, y);
                 for (int x = 0; x < width; x++) {
-                    Jim_Obj *elem;
-                    Jim_ListIndex(interp, row, x, &elem);
-                    long val;
-                    Jim_GetLong(interp, elem, &val);
-                    result.data[y * result.bytesPerRow + x] = val ? 255 : 0;
+                    Jim_Obj *elem = Jim_ListGetIndex(interp, row, x);
+                    double val; Jim_GetDouble(interp, elem, &val);
+                    result.data[y * result.bytesPerRow + x] = val > 0.5 ? 255 : 0;
                 }
             }
-
             return result;
         }
         set maskToImageLib [$cc compile]

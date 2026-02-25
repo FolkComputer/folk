@@ -121,7 +121,6 @@ proc ::exec {args} {
     if {[lindex $args end] eq "&" && \
             [info exists ::_folk_localStdout] && \
             [info exists ::_folk_localStderr]} {
-        puts $::realStderr "Exec intercepting: $args"
         set hasStdout [lsearch -regexp $args {^>@}]
         set hasStderr [lsearch -regexp $args {^2>@}]
         set insertions {}
