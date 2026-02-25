@@ -28,9 +28,10 @@ Wish the web server handles route "/" with handler {
             if {$outLen > 0} { append outputSuffix " <span style='font-size: 0.75em; color: #888'>${outLen}b out</span>" }
             if {$errLen > 0} { append outputSuffix " <span style='font-size: 0.75em; color: #c00'>${errLen}b err</span>" }
             set displayName [regsub {^builtin-programs/} $item(programName) ""]
+            set summaryStyle [expr {$outputHtml eq "" ? "style='list-style: none'" : ""}]
             lappend returnList [subst {
                 <li id="program-[string map {{ } -} $item(programName)]"><details>
-                  <summary>$displayName (<a href="/program/$item(programName)">source</a>)$outputSuffix</summary>
+                  <summary $summaryStyle>$displayName (<a href="/program/$item(programName)">source</a>)$outputSuffix</summary>
                   $outputHtml
                 </details></li>
             }]
