@@ -1671,7 +1671,7 @@ int main(int argc, char** argv) {
         // interpreter. It's just pure C. It's also guaranteed(?) to
         // not run more than every few milliseconds, so it's ok to let
         // it run on the free core.
-        sysmonInit(cpuUsableCount > 18 ? 18 : cpuUsableCount);
+        sysmonInit(cpuUsableCount > 5 ? 5 : cpuUsableCount);
         pthread_t sysmonTh;
         pthread_create(&sysmonTh, NULL, sysmonMain, NULL);
     }
