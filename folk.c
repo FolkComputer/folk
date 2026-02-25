@@ -16,7 +16,6 @@
 #include "tracy/TracyC.h"
 #endif
 
-#define JIM_EMBEDDED
 #include <jim.h>
 
 #include "vendor/c11-queues/mpmc_queue.h"
@@ -25,42 +24,7 @@
 #include "db.h"
 #include "common.h"
 #include "sysmon.h"
-
-int realStdout = -1;
-int realStderr = -1;
-
-// Per-thread stdout/stderr fds, set when a when-body redirects its output.
-// write() checks these instead of using fd 1/2 directly.
-__thread int threadLocalStdout = -1;
-__thread int threadLocalStderr = -1;
-
-// On Linux, we override write() as a strong symbol that takes priority over
-// libc's weak symbol. On macOS, __DATA,__interpose in the main executable is
-// silently ignored by dyld (it only works in dylibs). Instead, folk_interpose.dylib
-// (linked dynamically) contains the __interpose section and calls back here via
-// folkGetFdOverride() to perform the per-thread fd substitution.
-#ifdef __APPLE__
-// Called by folk_interpose.dylib for every write()/printf()/etc. call.
-// fd 1/2 are redirected to /dev/null in main() so that NSLog and other
-// system frameworks see a non-TTY and suppress their stderr output.
-// We route all legitimate writes back to the saved realStdout/realStderr
-// (or to the per-thread per-program file when inside a when-body).
-int folkGetFdOverride(int fd) {
-    if (fd == STDOUT_FILENO) {
-        return threadLocalStdout != -1 ? threadLocalStdout : realStdout;
-    }
-    if (fd == STDERR_FILENO) {
-        return threadLocalStderr != -1 ? threadLocalStderr : realStderr;
-    }
-    return fd;
-}
-#else
-ssize_t write(int fd, const void *buf, size_t count) {
-    if (fd == STDOUT_FILENO && threadLocalStdout != -1) fd = threadLocalStdout;
-    else if (fd == STDERR_FILENO && threadLocalStderr != -1) fd = threadLocalStderr;
-    return (ssize_t)syscall(SYS_write, fd, buf, count);
-}
-#endif
+#include "output-redirection.h"
 
 ThreadControlBlock threads[THREADS_MAX];
 int _Atomic threadCount;
@@ -673,15 +637,6 @@ static int __currentAtomicallyVersionFunc(Jim_Interp *interp, int argc, Jim_Obj 
     return JIM_OK;
 }
 
-static int __installLocalStdoutAndStderrFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    assert(argc == 3);
-    int stdoutfd = Jim_AioFilehandle(interp, argv[1]);
-    int stderrfd = Jim_AioFilehandle(interp, argv[2]);
-    if (stdoutfd == -1 || stderrfd == -1) { return JIM_ERR; }
-    threadLocalStdout = stdoutfd;
-    threadLocalStderr = stderrfd;
-    return JIM_OK;
-}
 static int setpgrpFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     int ret = setpgrp();
     if (ret != -1) {
@@ -713,11 +668,7 @@ static void interpBoot() {
     Jim_RegisterCoreCommands(interp);
     Jim_InitStaticExtensions(interp);
 
-    assert(realStdout != -1 && realStderr != -1);
-    Jim_AioMakeChannelFromFd(interp, realStdout, 1);
-    Jim_SetVariableStr(interp, "::realStdout", Jim_GetResult(interp));
-    Jim_AioMakeChannelFromFd(interp, realStderr, 1);
-    Jim_SetVariableStr(interp, "::realStderr", Jim_GetResult(interp));
+    outputRedirectionInterpSetup(interp);
 
     Jim_CreateCommand(interp, "Assert!", AssertFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Retract!", RetractFunc, NULL, NULL);
@@ -749,7 +700,6 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "__setFreshAtomicallyVersionOnKey", __setFreshAtomicallyVersionOnKeyFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__currentAtomicallyVersion", __currentAtomicallyVersionFunc, NULL, NULL);
 
-    Jim_CreateCommand(interp, "__installLocalStdoutAndStderr", __installLocalStdoutAndStderrFunc, NULL, NULL);
     Jim_CreateCommand(interp, "setpgrp", setpgrpFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Exit!", exitFunc, NULL, NULL);
 
@@ -1691,19 +1641,7 @@ int main(int argc, char** argv) {
 
     // Jim_Allocator = webDebugAllocator;
 
-    // Save stdout and stderr once, globally.
-    realStdout = dup(1);
-    realStderr = dup(2);
-
-#ifdef __APPLE__
-    // Redirect fd 1/2 to /dev/null so system frameworks (NSLog, AppKit, etc.)
-    // see a non-TTY and suppress their stderr output. All legitimate writes go
-    // through folk_interpose.dylib -> folkGetFdOverride -> realStdout/realStderr.
-    int devnull = open("/dev/null", O_WRONLY);
-    dup2(devnull, STDOUT_FILENO);
-    dup2(devnull, STDERR_FILENO);
-    close(devnull);
-#endif
+    outputRedirectionInit();
 
     // Set up database.
     db = dbNew();

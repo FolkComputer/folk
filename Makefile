@@ -16,7 +16,7 @@ else
 	LINKER := cc
 endif
 
-folk: workqueue.o db.o trie.o sysmon.o epoch.o folk.o \
+folk: workqueue.o db.o trie.o sysmon.o epoch.o folk.o output-redirection.o \
 	vendor/c11-queues/mpmc_queue.o vendor/c11-queues/memory.o \
 	vendor/jimtcl/libjim.a $(TRACY_TARGET) CFLAGS $(INTERPOSE_DYLIB)
 
@@ -38,10 +38,11 @@ folk: workqueue.o db.o trie.o sysmon.o epoch.o folk.o \
 		-D_GNU_SOURCE $(CFLAGS) $(BUILTIN_CFLAGS) \
 		$< -I./vendor/jimtcl -I./vendor/tracy/public
 
-folk_interpose.dylib: folk_interpose.c
+folk_interpose.dylib: output-redirection.c
 	cc -dynamiclib -undefined dynamic_lookup \
 		-install_name @executable_path/folk_interpose.dylib \
 		-O2 -g -fno-omit-frame-pointer \
+		-DFOLK_INTERPOSE_DYLIB \
 		-o $@ $<
 
 .PHONY: test clean deps
@@ -78,7 +79,7 @@ debug: folk
 	fi
 
 clean:
-	rm -f folk *.o vendor/tracy/public/TracyClient.o vendor/c11-queues/*.o
+	rm -f folk *.o *.dylib vendor/tracy/public/TracyClient.o vendor/c11-queues/*.o
 distclean: clean
 	make -C vendor/jimtcl distclean
 	rm -rf vendor/apriltag/build

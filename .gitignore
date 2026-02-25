@@ -2,6 +2,8 @@ folk
 folk.pid
 *.o
 folk.dSYM
+folk_interpose.dylib
+folk_interpose.dylib.dSYM
 CFLAGS
 .DS_Store
 play
