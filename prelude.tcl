@@ -111,6 +111,22 @@ proc captureEnvStack {} {
 
 set ::localStdoutsAndStderrs [dict create]
 
+rename exec __exec
+proc exec {args} {
+    # For background exec (ending with &), redirect stdout and stderr
+    # to the current thread-local output files so the subprocess's
+    # output lands in the right per-program /tmp/ file.
+    if {[lindex $args end] eq "&" && \
+            [info exists ::_folk_localStdout] && \
+            [info exists ::_folk_localStderr]} {
+        set args [lreplace $args end end \
+            >@ $::_folk_localStdout \
+            2>@ $::_folk_localStderr \
+            &]
+    }
+    uplevel 1 [list __exec {*}$args]
+}
+
 proc applyBlock {body envStack} {pid} {
     set env [dict merge {*}$envStack]
     foreach name [dict keys $env] {
@@ -146,6 +162,9 @@ proc applyBlock {body envStack} {pid} {
     # Install thread-local stdout/stderr so all subsequent write()/puts/
     # fprintf/printf calls go to the local files for this $this.
     __installLocalStdoutAndStderr $localStdout $localStderr
+    # Also store in globals so the exec wrapper can find them.
+    set ::_folk_localStdout $localStdout
+    set ::_folk_localStderr $localStderr
 
     set names [dict keys $env]
     set values [dict values $env]
