@@ -1,4 +1,9 @@
-When the image uvx argtype definer is /defineImageArgtype/ {
+When when the CRAFT text detector is /any/ /any/ with environment /any/ {
+    Wish -keep 500ms to load the CRAFT text detector
+}
+
+When /someone/ wishes to load the CRAFT text detector &\
+     the image uvx argtype definer is /defineImageArgtype/ {
     fn defineImageArgtype
 
     set py [Uvx --with pillow --with "git+https://github.com/osnr/craft-text-detector.git"]
@@ -35,4 +40,5 @@ When the image uvx argtype definer is /defineImageArgtype/ {
 
     fn CRAFT {im} { return [$py detectTextBoxes $im] }
     Claim the CRAFT text detector is [fn CRAFT]
+}
 }
