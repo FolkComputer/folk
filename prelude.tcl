@@ -120,10 +120,13 @@ proc ::exec {args} {
     if {[lindex $args end] eq "&" && \
             [info exists ::_folk_localStdout] && \
             [info exists ::_folk_localStderr]} {
-        set args [lreplace $args end end \
-            >@ $::_folk_localStdout \
-            2>@ $::_folk_localStderr \
-            &]
+        puts $::realStderr "Exec intercepting: $args"
+        set hasStdout [lsearch -regexp $args {^>@}]
+        set hasStderr [lsearch -regexp $args {^2>@}]
+        set insertions {}
+        if {$hasStdout == -1} { lappend insertions >@ $::_folk_localStdout }
+        if {$hasStderr == -1} { lappend insertions 2>@ $::_folk_localStderr }
+        set args [lreplace $args end end {*}$insertions &]
     }
     tailcall __exec {*}$args
 }
