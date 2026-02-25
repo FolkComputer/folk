@@ -1,0 +1,45 @@
+When the image uvx argtype definer is /defineImageArgtype/ {
+    fn defineImageArgtype
+
+    set py [Uvx --with pillow --with torch --with numpy \
+                --with huggingface_hub \
+                --with "git+https://github.com/facebookresearch/sam2.git"]
+
+    defineImageArgtype $py
+
+    $py exec {
+        print(f"sam2: Boot", file=sys.stderr)
+
+        import torch
+        import numpy as np
+        from sam2.sam2_image_predictor import SAM2ImagePredictor
+        import sys
+
+        if torch.cuda.is_available():
+            device = "cuda"
+        elif torch.backends.mps.is_available():
+            device = "mps"
+        else:
+            device = "cpu"
+
+        print(f"sam2: Loading.", file=sys.stderr)
+        predictor = SAM2ImagePredictor.from_pretrained("facebook/sam2.1-hiera-large", device=device)
+        print(f"sam2: Using device: {device}", file=sys.stderr, flush=True)
+    }
+
+    $py def segment {Image image} {
+        image_np = np.array(image.convert("RGB"))
+        with torch.inference_mode():
+            predictor.set_image(image_np)
+            masks, scores, _ = predictor.predict(
+                point_coords=None,
+                point_labels=None,
+                multimask_output=True,
+            )
+        best = int(scores.argmax())
+        return {"mask": masks[best].tolist(), "score": float(scores[best])}
+    }
+
+    fn SAM2 {im} { return [$py segment $im] }
+    Claim the SAM2 segmenter is [fn SAM2]
+}
