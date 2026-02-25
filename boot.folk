@@ -28,11 +28,7 @@ apply {{} {
     catch { exec chown folk folk.pid }
 }}
 
-set localStdout [open /tmp/[pid].boot__folk.stdout a]
-$localStdout buffering line
-set localStderr [open /tmp/[pid].boot__folk.stderr a]
-$localStderr buffering none
-__installLocalStdoutAndStderr $localStdout $localStderr
+__installLocalStdoutAndStderr "boot.folk"
 
 Assert! when /__this/ has program code /__programCode/ {
     SayWithSource $__this 1 0 {} {} \
