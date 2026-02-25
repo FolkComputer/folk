@@ -7,6 +7,7 @@ Wish the web server handles route "/" with handler {
     }
 
     fn emitHtmlForProgramList {programList label} {
+        set programList [lsort -command {apply {{a b} {string compare $a(programName) $b(programName)}}} $programList]
         set prettyLabel [string map {- " "} $label]
         set prettyLabel [string totitle $prettyLabel]:
         set returnList [list "<details open data-label='$label' data-count='[llength $programList]'><summary>$prettyLabel ([llength $programList])</summary>"]
@@ -29,13 +30,20 @@ Wish the web server handles route "/" with handler {
             if {$item(programName) ne "sysmon.c"} {
                 set outputSuffix "(<a href='/program/$item(programName)'>source</a>)"
             }
-            if {$outLen > 0} { append outputSuffix " <span style='font-size: 0.75em; color: #888'>${outLen}b out</span>" }
-            if {$errLen > 0} { append outputSuffix " <span style='font-size: 0.75em; color: #c00'>${errLen}b err</span>" }
+            if {$outLen > 0} { append outputSuffix " <span style='font-size: 0.75em; color: #888'>${outLen}b stdout</span>" }
+            if {$errLen > 0} { append outputSuffix " <span style='font-size: 0.75em; color: #888'>${errLen}b stderr</span>" }
+            set errors [Query! $item(programName) has error /err/ with info /info/]
+            foreach e $errors {
+                append outputHtml "<pre style='margin: 0.25em 0 0 1em; padding: 0.25em 0.5em; font-size: 0.85em; white-space: pre-wrap; border-left: 3px solid #c00; color: #c00'>[htmlEscape $e(err)]</pre>"
+            }
+            set errCount [llength $errors]
             set displayName [regsub {^builtin-programs/} $item(programName) ""]
+            set nameStyle [expr {$errCount > 0 ? "style='color: #c00'" : ""}]
+            if {$errCount > 0} { append outputSuffix " (<span style='font-size: 0.75em; color: #c00'>${errCount} errors</span>)" }
             set summaryStyle [expr {$outputHtml eq "" ? "style='list-style: none'" : ""}]
             lappend returnList [subst {
                 <li id="program-[string map {{ } -} $item(programName)]"><details>
-                  <summary $summaryStyle>$displayName $outputSuffix</summary>
+                  <summary $summaryStyle><span $nameStyle>$displayName</span> $outputSuffix</summary>
                   $outputHtml
                 </details></li>
             }]
