@@ -2,6 +2,8 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <string.h>
+#include <stdarg.h>
 #include <assert.h>
 #include <sys/syscall.h>
 
@@ -19,9 +21,49 @@ static ssize_t redirectWrite(int fd, const void *buf, size_t count) {
 #pragma clang diagnostic pop
 }
 
+static int replacePrintf(const char *fmt, ...) {
+    char buf[4096];
+    va_list args;
+    va_start(args, fmt);
+    int n = vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    if (n > 0) redirectWrite(STDOUT_FILENO, buf, n < (int)sizeof(buf) ? n : (int)sizeof(buf) - 1);
+    return n;
+}
+
+static int replaceFprintf(FILE *stream, const char *fmt, ...) {
+    char buf[4096];
+    va_list args;
+    va_start(args, fmt);
+    int n = vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    if (n > 0) redirectWrite(fileno(stream), buf, n < (int)sizeof(buf) ? n : (int)sizeof(buf) - 1);
+    return n;
+}
+
+static int replacePuts(const char *s) {
+    size_t len = strlen(s);
+    char buf[4096];
+    if (len + 1 < sizeof(buf)) {
+        memcpy(buf, s, len);
+        buf[len] = '\n';
+        redirectWrite(STDOUT_FILENO, buf, len + 1);
+    }
+    return 1;
+}
+
+static size_t replaceFwrite(const void *buf, size_t size, size_t count, FILE *stream) {
+    redirectWrite(fileno(stream), buf, size * count);
+    return count;
+}
+
 typedef struct { void *replacer; void *replacee; } interpose_t;
 static interpose_t write_interpose[] __attribute__((section("__DATA,__interpose"), used)) = {
-    { (void *)redirectWrite, (void *)write }
+    { (void *)redirectWrite,  (void *)write   },
+    { (void *)replacePrintf,  (void *)printf  },
+    { (void *)replaceFprintf, (void *)fprintf },
+    { (void *)replacePuts,    (void *)puts    },
+    { (void *)replaceFwrite,  (void *)fwrite  },
 };
 
 #else
