@@ -9,12 +9,13 @@
 #include <inttypes.h>
 #include <signal.h>
 #include <setjmp.h>
+#include <sys/syscall.h>
+#include <fcntl.h>
 
 #if __has_include ("tracy/TracyC.h")
 #include "tracy/TracyC.h"
 #endif
 
-#define JIM_EMBEDDED
 #include <jim.h>
 
 #include "vendor/c11-queues/mpmc_queue.h"
@@ -23,6 +24,7 @@
 #include "db.h"
 #include "common.h"
 #include "sysmon.h"
+#include "output-redirection.h"
 
 ThreadControlBlock threads[THREADS_MAX];
 int _Atomic threadCount;
@@ -555,7 +557,20 @@ static int __currentMatchRefFunc(Jim_Interp *interp, int argc, Jim_Obj *const *a
     Jim_SetResultString(interp, ret, strlen(ret));
     return JIM_OK;
 }
-static int __isWhenOfCurrentMatchAlreadyRunningFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+static int __statementIncompleteChildMatchesCountFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 2);
+    StatementRef ref;
+    assert(sscanf(Jim_String(argv[1]), "s%d:%d", &ref.idx, &ref.gen) == 2);
+    Statement* stmt = statementAcquire(db, ref);
+    if (stmt == NULL) {
+        Jim_SetResultInt(interp, 0);
+        return JIM_OK;
+    }
+    Jim_SetResultInt(interp, statementIncompleteChildMatchesCount(db, stmt));
+    statementRelease(db, stmt);
+    return JIM_OK;
+}
+static int __whenOfCurrentMatchIncompleteChildMatchesCountFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 1);
     StatementRef whenRef = STATEMENT_REF_NULL;
     mutexLock(&self->currentItemMutex);
@@ -573,8 +588,7 @@ static int __isWhenOfCurrentMatchAlreadyRunningFunc(Jim_Interp *interp, int argc
         return JIM_OK;
     }
 
-    MatchRef currentMatchRef = matchRef(db, self->currentMatch);
-    Jim_SetResultBool(interp, statementHasOtherIncompleteChildMatch(db, when, currentMatchRef));
+    Jim_SetResultInt(interp, statementIncompleteChildMatchesCount(db, when));
 
     statementRelease(db, when);
     return JIM_OK;
@@ -636,25 +650,15 @@ static int exitFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
     long exitCode; Jim_GetLong(interp, argv[1], &exitCode);
 
-    // Stop and await all other threads. If we just do a normal exit,
-    // then other threads are likely to crash the program first by
-    // trying to access freed stuff.
-    for (int i = 0; i < threadCount; i++) {
-        if (threads[i].tid == 0) { continue; }
-        if (&threads[i] == self) { continue; }
-
-        char buf[10000]; traceItem(buf, sizeof(buf), threads[i].currentItem);
-
-        pthread_kill(threads[i].pthread, SIGUSR1);
-        pthread_cancel(threads[i].pthread);
-    }
-    for (int i = 0; i < threadCount; i++) {
-        if (threads[i].tid == 0) { continue; }
-        if (&threads[i] == self) { continue; }
-        pthread_join(threads[i].pthread, NULL);
-    }
-
-    exit(exitCode);
+    // Use _exit to skip atexit handlers and avoid crashing threads
+    // that are in non-cancellation-safe code (like dlopen).
+    // Ignore SIGTRAP so pthread_cancel doesn't cause EXC_BREAKPOINT.
+    fflush(stdout);
+    fflush(stderr);
+    close(STDOUT_FILENO);
+    close(STDERR_FILENO);
+    signal(SIGTRAP, SIG_IGN);
+    _exit(exitCode);
 
     return JIM_OK;
 }
@@ -663,6 +667,8 @@ static void interpBoot() {
     interp = Jim_CreateInterp();
     Jim_RegisterCoreCommands(interp);
     Jim_InitStaticExtensions(interp);
+
+    outputRedirectionInterpSetup(interp);
 
     Jim_CreateCommand(interp, "Assert!", AssertFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Retract!", RetractFunc, NULL, NULL);
@@ -682,7 +688,8 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "__variableNameIsNonCapturing", __variableNameIsNonCapturingFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__startsWithDollarSign", __startsWithDollarSignFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__currentMatchRef", __currentMatchRefFunc, NULL, NULL);
-    Jim_CreateCommand(interp, "__isWhenOfCurrentMatchAlreadyRunning", __isWhenOfCurrentMatchAlreadyRunningFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__statementIncompleteChildMatchesCount", __statementIncompleteChildMatchesCountFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__whenOfCurrentMatchIncompleteChildMatchesCount", __whenOfCurrentMatchIncompleteChildMatchesCountFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__isInSubscription", __isInSubscriptionFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "__isTracyEnabled", __isTracyEnabledFunc, NULL, NULL);
@@ -1634,6 +1641,8 @@ int main(int argc, char** argv) {
 
     // Jim_Allocator = webDebugAllocator;
 
+    outputRedirectionInit();
+
     // Set up database.
     db = dbNew();
 
@@ -1647,7 +1656,7 @@ int main(int argc, char** argv) {
     cpu_set_t cs; CPU_ZERO(&cs);
     sched_getaffinity(0, sizeof(cs), &cs);
     int cpuCount = CPU_COUNT(&cs);
-    printf("main: CPU_COUNT = %d\n", cpuCount);
+    // printf("main: CPU_COUNT = %d\n", cpuCount);
     assert(cpuCount >= 2);
 
     int cpuUsableCount = cpuCount - 1; // will exclude CPU 0 later.

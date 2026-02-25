@@ -23,6 +23,8 @@
 #
 #
 
+error "FIXME: terminal.folk not currently working."
+
 source lib/terminal.tcl
 
 # WIP: Needs to finish being fixed for folk2.

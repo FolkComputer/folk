@@ -109,6 +109,7 @@ $cc proc initDraw {char* display uint32_t width uint32_t height uint32_t refresh
         GLFWwindow* window;
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         window = glfwCreateWindow(width, height, "Folk", NULL, NULL);
+        FOLK_ENSURE(window != NULL);
         if (glfwCreateWindowSurface(*instance_ptr(), window, NULL, &surface) != VK_SUCCESS) {
             FOLK_ERROR("Failed to create GLFW window surface");
         }

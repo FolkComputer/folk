@@ -146,7 +146,8 @@ $ make remote FOLK_REMOTE_NODE=<your-remote-hostname-here>
 ```
 
 On your laptop Web browser, go to http://<your-remote-hostname>.local:4273 --
-you should see the Folk web page with the live statement set.
+you should see all active Folk programs. Check out the Statements page
+as well to see all statements in the database.
 
 ### Printer support
 

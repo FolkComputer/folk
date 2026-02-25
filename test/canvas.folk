@@ -85,6 +85,7 @@ local proc LoadProgram! {programFilename} {
 }
 
 apply {{} {
+    set __envStack [list]
     LoadProgram! builtin-programs/gpu/textures.folk
     LoadProgram! builtin-programs/gpu/canvases.folk
     LoadProgram! builtin-programs/draw/color-map.folk

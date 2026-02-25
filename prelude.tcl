@@ -1,9 +1,16 @@
-stdout buffering line
+# This file gets re-evaluated on every new Tcl interpreter that spins
+# up, so multiple times, possibly in parallel, possibly even late in
+# the lifetime of the Folk system.
+#
+# It's sort of the only place you can create genuine globals that you
+# can guarantee will be available on any Folk process/block.
 
 lappend ::auto_path "./vendor"
 source "lib/c.tcl"
 source "lib/math.tcl"
 source "lib/text.tcl"
+
+set pid [pid]
 
 proc unknown {cmdName args} {
     if {[regexp {<C:([^ ]+)>} $cmdName -> cid]} {
@@ -103,7 +110,9 @@ proc captureEnvStack {} {
     return [list {*}[uplevel set __envStack] $env]
 }
 
-proc applyBlock {body envStack} {
+set ::localStdoutsAndStderrs [dict create]
+
+proc applyBlock {body envStack} {pid} {
     set env [dict merge {*}$envStack]
     foreach name [dict keys $env] {
         if {[string index $name 0] eq "^"} {
@@ -118,6 +127,26 @@ proc applyBlock {body envStack} {
 
     dict set env __envStack $envStack
     dict set env __env $env
+
+    set this [dict getdef $env this <unknown>]
+    if {[dict exists $::localStdoutsAndStderrs $this]} {
+        lassign [dict get $::localStdoutsAndStderrs $this] \
+            localStdout localStderr
+    } else {
+        set escapedThis [regsub -all -- / $this __]
+        set localStdout [open /tmp/$pid.$escapedThis.stdout a]
+        $localStdout buffering line
+        set localStderr [open /tmp/$pid.$escapedThis.stderr a]
+        $localStderr buffering none
+        dict set ::localStdoutsAndStderrs $this \
+            [list $localStdout $localStderr]
+    }
+    # Flush before installing so any buffered data from the previous
+    # program drains to the correct fd before we switch.
+    stdout flush
+    # Install thread-local stdout/stderr so all subsequent write()/puts/
+    # fprintf/printf calls go to the local files for this $this.
+    __installLocalStdoutAndStderr $localStdout $localStderr
 
     set names [dict keys $env]
     set values [dict values $env]
@@ -500,7 +529,7 @@ proc When {args} {
         # statement ref has any match children that are incomplete. If
         # so, then die.
         set prologue {
-            if {[__isWhenOfCurrentMatchAlreadyRunning]} {
+            if {[__whenOfCurrentMatchIncompleteChildMatchesCount] > 1} {
                 return
             }
         }
@@ -690,7 +719,7 @@ set ::thisNode [info hostname]
 # TODO: Save ::thisNode and check if it's changed.
 
 if {[__isTracyEnabled]} {
-    set tracyCid "tracy_[pid]"
+    set tracyCid "tracy_$pid"
     set ::tracyLib "<C:$tracyCid>"
     set tracySo "/tmp/$tracyCid.so"
     proc tracyCompile {} {tracyCid} {

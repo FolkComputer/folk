@@ -1,5 +1,10 @@
 ifeq ($(shell uname -s),Linux)
 	override BUILTIN_CFLAGS += -Wl,--export-dynamic
+else
+	# folk_interpose.dylib holds the __interpose section for write() redirection.
+	# (dyld only processes __interpose from dylibs, not from the main executable.)
+	INTERPOSE_DYLIB = folk_interpose.dylib
+	INTERPOSE_LDFLAGS = -Wl,-rpath,@executable_path ./folk_interpose.dylib
 endif
 
 ifneq (,$(filter -DTRACY_ENABLE,$(CFLAGS)))
@@ -11,15 +16,15 @@ else
 	LINKER := cc
 endif
 
-folk: workqueue.o db.o trie.o sysmon.o epoch.o folk.o \
+folk: workqueue.o db.o trie.o sysmon.o epoch.o folk.o output-redirection.o \
 	vendor/c11-queues/mpmc_queue.o vendor/c11-queues/memory.o \
-	vendor/jimtcl/libjim.a $(TRACY_TARGET) CFLAGS
+	vendor/jimtcl/libjim.a $(TRACY_TARGET) CFLAGS $(INTERPOSE_DYLIB)
 
 	$(LINKER) -g -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) -o$@ \
 		$(CFLAGS) $(BUILTIN_CFLAGS) \
 		-L./vendor/jimtcl \
 		$(filter %.o %.a,$^) \
-		-ljim -lm -lssl -lcrypto -lz
+		-ljim -lm -lssl -lcrypto -lz $(INTERPOSE_LDFLAGS)
 	if [ "$$(uname)" = "Darwin" ]; then \
 		dsymutil $@; \
 	fi
@@ -32,6 +37,13 @@ folk: workqueue.o db.o trie.o sysmon.o epoch.o folk.o \
 	cc -c -O2 -g -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) -o$@  \
 		-D_GNU_SOURCE $(CFLAGS) $(BUILTIN_CFLAGS) \
 		$< -I./vendor/jimtcl -I./vendor/tracy/public
+
+folk_interpose.dylib: output-redirection.c
+	cc -dynamiclib -undefined dynamic_lookup \
+		-install_name @executable_path/folk_interpose.dylib \
+		-O2 -g -fno-omit-frame-pointer \
+		-DFOLK_INTERPOSE_DYLIB \
+		-o $@ $<
 
 .PHONY: test clean deps
 test: folk
@@ -67,7 +79,7 @@ debug: folk
 	fi
 
 clean:
-	rm -f folk *.o vendor/tracy/public/TracyClient.o vendor/c11-queues/*.o
+	rm -f folk *.o *.dylib vendor/tracy/public/TracyClient.o vendor/c11-queues/*.o
 distclean: clean
 	make -C vendor/jimtcl distclean
 	rm -rf vendor/apriltag/build
@@ -83,7 +95,7 @@ deps:
 	make -C vendor/jimtcl
 
 	cmake -B vendor/apriltag/build -S vendor/apriltag -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON
-	cmake --build vendor/apriltag/build
+	cmake --build vendor/apriltag/build --target apriltag
 
 	if [ ! -f vendor/wslay/Makefile ]; then \
 		cd vendor/wslay && autoreconf -i && automake && autoconf && ./configure; \

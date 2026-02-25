@@ -2,6 +2,7 @@
 
 #include <unistd.h>
 #include <stdio.h>
+#include <fcntl.h>
 
 #include <time.h>
 #include <sys/time.h>
@@ -22,6 +23,8 @@
 
 #include "common.h"
 #include "epoch.h"
+
+extern void installLocalStdoutAndStderr(int stdoutfd, int stderrfd);
 
 // TODO: declare these in folk.h or something.
 extern ThreadControlBlock threads[];
@@ -270,6 +273,15 @@ void *sysmonMain(void *ptr) {
 #endif
 
     epochThreadInit();
+
+    {
+        char path[256];
+        snprintf(path, sizeof(path), "/tmp/%d.sysmon.c.stdout", getpid());
+        int outfd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        snprintf(path, sizeof(path), "/tmp/%d.sysmon.c.stderr", getpid());
+        int errfd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        installLocalStdoutAndStderr(outfd, errfd);
+    }
 
     tick = 0;
     gethostname(thisNode, sizeof(thisNode));

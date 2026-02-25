@@ -57,8 +57,7 @@ AtomicallyVersion* statementAtomicallyVersion(Statement* stmt);
 char* statementSourceFileName(Statement* stmt);
 int statementSourceLineNumber(Statement* stmt);
 
-bool statementHasOtherIncompleteChildMatch(Db* db, Statement* stmt,
-                                           MatchRef otherThan);
+int statementIncompleteChildMatchesCount(Db* db, Statement* stmt);
 
 void statementAddDestructor(Statement* stmt, Destructor* d);
 void statementInheritDestructors(Statement* stmt, Statement* fromStmt);

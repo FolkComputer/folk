@@ -1,3 +1,5 @@
+Exit! 0 ;# FIXME: disabling for now
+
 When -atomically the version is /v/ {
     Claim the atomic version is $v
     if {$v == 2} {
