@@ -272,7 +272,7 @@ while True:
 }]
 
     exec $UVX {*}$args \
-        python -u -c $harnessCode 2>@stderr &
+        python -u -c $harnessCode &
 
     # Return a library that runs internal state through the Folk db so
     # it can be called from any thread.
