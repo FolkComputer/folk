@@ -221,6 +221,13 @@ proceed as though it's "f4:73:35:93:7f:9d" (it's important that you
 turn it into lowercase).)
 
 
+#### Python support
+
+To use the Python FFI and the builtin recognition programs (CRAFT,
+TrOCR, SAM2), you should [install
+uv](https://docs.astral.sh/uv/getting-started/installation/) such that
+the `uvx` command is available.
+
 ## Development tools
 
 ### Address Sanitizer
@@ -724,21 +731,9 @@ isn't meeting timing
   destructors/atomicallyversions
   - warn if sysmon is too slow?
 - make RAM/metrics page to not clutter up stdout
-- make errors page
+- ~~make errors page~~
 - remove Hold and Atomically limits
 - automatic default calibration so you can drag stuff around on laptop
-- automatically allow optional fields on `with`
+- automatically allow optional fields on `with` (or add object pattern-matching?)
 - try to maximize cpu usage
 - dual camera calibration -> ML
-
-### zeromq kill handling
-socket per thread would be ideal -- or socket per When burst
-
-flip directionality so python subproc is the server
-
-detect if send or recv fails and then .... ?
-
-when thread is killed (due to page flip or whatever), clean up the
-socket???
-
-or -- at top of unknown, handle _whatever_ the socket state is. i gue
