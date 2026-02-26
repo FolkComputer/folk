@@ -2,69 +2,59 @@ set UVX "$::env(HOME)/.local/bin/uvx"
 if {![file exists $UVX]} { set UVX "uvx" }
 
 set cc [C]
-$cc endcflags -lzmq
-$cc include <zmq.h>
+$cc include <sys/socket.h>
+$cc include <sys/un.h>
+$cc include <unistd.h>
 $cc include <pthread.h>
 $cc include <string.h>
+$cc include <stdlib.h>
 
-$cc code {
-    static void *zmq_context = NULL;
-}
-$cc proc zmqInit {} void {
-    if (zmq_context == NULL) {
-        zmq_context = zmq_ctx_new();
+$cc proc sockConnect {char* path} int {
+    for (int i = 0; i < 200; i++) {
+        int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+        if (fd < 0) { usleep(1000000); continue; }
+        struct sockaddr_un addr;
+        memset(&addr, 0, sizeof(addr));
+        addr.sun_family = AF_UNIX;
+        strncpy(addr.sun_path, path, sizeof(addr.sun_path) - 1);
+        if (connect(fd, (struct sockaddr*)&addr, sizeof(addr)) == 0) {
+            return fd;
+        }
+        close(fd);
+        usleep(1000000);
     }
+    Jim_SetResultString(interp, "sockConnect: failed to connect", -1);
+    return -1;
 }
 
-$cc proc zmqSocket {char* socketType} void* {
-    zmqInit();
-    int type;
-    if (strcmp(socketType, "REQ") == 0) {
-        type = ZMQ_REQ;
-    } else if (strcmp(socketType, "REP") == 0) {
-        type = ZMQ_REP;
-    } else {
-        Jim_SetResultString(interp, "Invalid socket type", -1);
-        return NULL;
-    }
-    return zmq_socket(zmq_context, type);
-}
-$cc proc zmqConnect {void* socket char* endpoint} int {
-    return zmq_connect(socket, endpoint);
+$cc proc sockSendStr {int fd char* data} void {
+    uint32_t len = (uint32_t)strlen(data);
+    write(fd, &len, 4);
+    if (len > 0) write(fd, data, len);
 }
 
-$cc proc zmqSend {void* socket char* data int flags} int {
-    int ret = zmq_send(socket, data, strlen(data), flags);
-    FOLK_ENSURE(ret != -1);
-    return ret;
-}
-$cc proc zmqSendMore {void* socket char* data} int {
-    int ret = zmq_send(socket, data, strlen(data), ZMQ_SNDMORE);
-    FOLK_ENSURE(ret != -1);
-    return ret;
-}
-
-$cc proc zmqRecvMulti {void* socket} Jim_Obj* {
+$cc proc sockRecvMulti {int fd} Jim_Obj* {
     Jim_Obj *result = Jim_NewListObj(interp, NULL, 0);
-    int more = 1;
-
-    while (more) {
-        zmq_msg_t msg;
-        zmq_msg_init(&msg);
-        zmq_msg_recv(&msg, socket, 0);
-
-        size_t size = zmq_msg_size(&msg);
-        char *data = (char*)zmq_msg_data(&msg);
-
-        Jim_Obj *part = Jim_NewStringObj(interp, data, size);
-        Jim_ListAppendElement(interp, result, part);
-
-        size_t more_size = sizeof(more);
-        zmq_getsockopt(socket, ZMQ_RCVMORE, &more, &more_size);
-
-        zmq_msg_close(&msg);
+    while (1) {
+        uint32_t len = 0;
+        int got = 0;
+        while (got < 4) {
+            int n = read(fd, ((char*)&len) + got, 4 - got);
+            if (n <= 0) return result;
+            got += n;
+        }
+        if (len == 0) break;
+        char *buf = (char*)malloc(len + 1);
+        got = 0;
+        while ((uint32_t)got < len) {
+            int n = read(fd, buf + got, len - got);
+            if (n <= 0) { free(buf); return result; }
+            got += n;
+        }
+        buf[len] = '\0';
+        Jim_ListAppendElement(interp, result, Jim_NewStringObj(interp, buf, len));
+        free(buf);
     }
-
     return result;
 }
 
@@ -172,21 +162,47 @@ $cc proc setRegisteredArgtypes {char* endpoint char* value} void {
 set impl [$cc compile]
 
 proc Uvx args {impl UVX} {
-    set endpoint "ipc:///tmp/uvx-[clock milliseconds]-[expr {int(rand() * 100000)}].ipc"
+    set endpoint "/tmp/uvx-[clock milliseconds]-[expr {int(rand() * 100000)}].sock"
 
     set harnessCode [subst -nocommands -nobackslashes {
 import sys
-import zmq
+import socket
+import struct
 import json
 
-context = zmq.Context()
-socket = context.socket(zmq.REP)
-socket.bind('$endpoint')
+def recv_frame(conn):
+    hdr = b''
+    while len(hdr) < 4:
+        chunk = conn.recv(4 - len(hdr))
+        if not chunk:
+            raise ConnectionError("Connection closed")
+        hdr += chunk
+    length = struct.unpack('I', hdr)[0]
+    if length == 0:
+        return b''
+    data = b''
+    while len(data) < length:
+        chunk = conn.recv(length - len(data))
+        if not chunk:
+            raise ConnectionError("Connection closed")
+        data += chunk
+    return data
+
+def send_frame(conn, data):
+    if isinstance(data, str):
+        data = data.encode('utf-8')
+    conn.sendall(struct.pack('I', len(data)))
+    if data:
+        conn.sendall(data)
+
+server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+server.bind('$endpoint')
+server.listen(1)
 
 # Storage for argtype deserializers and function signatures
 registered_argtypes = {}
 def __register_argtype__(type_name, deserializer_code):
-    # Store deserializer as a function that takes socket
+    # Store deserializer as a function that takes conn
     # Indent the deserializer code and wrap in a function
     indented = '\n'.join('    ' + line for line in deserializer_code.split('\n'))
     func_code = f"def _deserialize_{type_name}(socket):\n{indented}"
@@ -203,10 +219,11 @@ def __exec__(code, filename="<string>", lineno="1"):
     compiled = compile(padded, filename, 'exec')
     exec(compiled, globals())
 
+conn, _ = server.accept()
 while True:
     try:
         # Read function name
-        fn_name = socket.recv().decode('utf-8')
+        fn_name = recv_frame(conn).decode('utf-8')
 
         # Look up function in globals, locals, or builtins
         func = (globals().get(fn_name) or
@@ -222,37 +239,39 @@ while True:
             fn_argtypes = fn_signatures[fn_name]
             for argtype in fn_argtypes:
                 if argtype in registered_argtypes:
-                    # Use registered deserializer, giving it direct socket access
-                    deserialized = registered_argtypes[argtype](socket)
+                    # Use registered deserializer, giving it direct conn access
+                    deserialized = registered_argtypes[argtype](conn)
                     parsed_args.append(deserialized)
                 else:
                     # Standard JSON decode
-                    arg = socket.recv()
+                    arg = recv_frame(conn)
                     try:
                         parsed_args.append(json.loads(arg))
                     except (json.JSONDecodeError, ValueError):
                         parsed_args.append(arg)
             # Consume terminator
-            socket.recv()
+            recv_frame(conn)
         else:
-            # No signature info, read until terminator
-            # Pass arguments as strings without JSON parsing for safety
-            more = socket.getsockopt(zmq.RCVMORE)
-            while more:
-                arg = socket.recv()
-                more = socket.getsockopt(zmq.RCVMORE)
-                if more or len(arg) > 0:  # Not the terminator
-                    parsed_args.append(arg.decode('utf-8'))
+            # No signature info, read until empty terminator frame
+            while True:
+                arg = recv_frame(conn)
+                if len(arg) == 0:
+                    break
+                parsed_args.append(arg.decode('utf-8'))
 
         result = func(*parsed_args)
-        socket.send_multipart([b"ok", json.dumps(result).encode('utf-8')])
+        send_frame(conn, b"ok")
+        send_frame(conn, json.dumps(result).encode('utf-8'))
+        send_frame(conn, b"")
 
     except Exception as e:
         import traceback
-        socket.send_multipart([b"error", traceback.format_exc().encode('utf-8')])
+        send_frame(conn, b"error")
+        send_frame(conn, traceback.format_exc().encode('utf-8'))
+        send_frame(conn, b"")
 }]
 
-    exec $UVX --with pyzmq {*}$args \
+    exec $UVX {*}$args \
         python -u -c $harnessCode 2>@stderr &
 
     # Return a library that runs internal state through the Folk db so
@@ -263,9 +282,8 @@ variable impl
 variable endpoint
 # We need to boot a new socket when this library is loaded onto a new
 # thread. Do that now.
-variable socket [$impl zmqSocket REQ]
-# This should only actually connect when actually invoked.
-$impl zmqConnect $socket $endpoint
+variable socket [$impl sockConnect $endpoint]
+if {$socket < 0} { error "Uvx: failed to connect to Python at $endpoint" }
 
 proc getFunctions {} {
     variable impl; variable endpoint
@@ -296,7 +314,7 @@ proc unknown {fnName args} {
     }
 
     # Send function name first
-    $impl zmqSendMore $socket $fnName
+    $impl sockSendStr $socket $fnName
 
     # Check if this function has registered types
     set functions [getFunctions]
@@ -310,23 +328,23 @@ proc unknown {fnName args} {
             # Check if this is a custom argtype
             if {[dict exists $registeredArgtypes $schema]} {
                 set serializerCode [dict get $registeredArgtypes $schema]
-                apply [list {zmq socket arg} $serializerCode] $impl $socket $arg
+                apply [list {socket arg} $serializerCode] $socket $arg
             } else {
                 # Use JSON encoding
                 set encoded [json::encode $arg $schema]
-                $impl zmqSendMore $socket $encoded
+                $impl sockSendStr $socket $encoded
             }
         }
 
     } else {
         # No type info, send args as strings
-        foreach arg $args { $impl zmqSendMore $socket $arg }
+        foreach arg $args { $impl sockSendStr $socket $arg }
     }
 
     # Send terminator.
-    $impl zmqSend $socket "" 0
+    $impl sockSendStr $socket ""
 
-    set response [$impl zmqRecvMulti $socket]
+    set response [$impl sockRecvMulti $socket]
 
     lassign $response status value
     if {$status eq "error"} { error $value }

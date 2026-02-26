@@ -115,34 +115,43 @@ Claim the image library is $imageLib
 fn defineImageArgtype {uvx} {
     set cc [C]
     $cc extend $imageLib
-    $cc endcflags -lzmq
-    $cc include <zmq.h>
-    $cc proc zmqSendImage {void* socket Image im} void {
+    $cc include <unistd.h>
+    $cc proc sockSendImage {int fd Image im} void {
         // Image must be contiguous for now (TODO: copy if not)
         FOLK_ENSURE(im.bytesPerRow == im.width * im.components);
 
-        zmq_send(socket, &im.width, sizeof(im.width), ZMQ_SNDMORE);
-        zmq_send(socket, &im.height, sizeof(im.height), ZMQ_SNDMORE);
-        zmq_send(socket, &im.components, sizeof(im.components), ZMQ_SNDMORE);
-        zmq_send(socket, &im.bytesPerRow, sizeof(im.bytesPerRow), ZMQ_SNDMORE);
+        uint32_t len;
 
-        size_t dataLen = im.height * im.bytesPerRow;
-        zmq_send(socket, im.data, dataLen, ZMQ_SNDMORE);
+        len = sizeof(im.width);
+        write(fd, &len, 4); write(fd, &im.width, sizeof(im.width));
+
+        len = sizeof(im.height);
+        write(fd, &len, 4); write(fd, &im.height, sizeof(im.height));
+
+        len = sizeof(im.components);
+        write(fd, &len, 4); write(fd, &im.components, sizeof(im.components));
+
+        len = sizeof(im.bytesPerRow);
+        write(fd, &len, 4); write(fd, &im.bytesPerRow, sizeof(im.bytesPerRow));
+
+        size_t dataLen = (size_t)im.height * im.bytesPerRow;
+        len = (uint32_t)dataLen;
+        write(fd, &len, 4); write(fd, im.data, dataLen);
     }
     set lib [$cc compile]
 
-    $uvx argtype Image "$lib zmqSendImage \$socket \$arg" {
+    $uvx argtype Image "$lib sockSendImage \$socket \$arg" {
         import struct
         from PIL import Image
 
         # Receive image properties
-        width = struct.unpack('I', socket.recv())[0]
-        height = struct.unpack('I', socket.recv())[0]
-        components = struct.unpack('i', socket.recv())[0]
-        bytesPerRow = struct.unpack('I', socket.recv())[0]
+        width = struct.unpack('I', recv_frame(socket))[0]
+        height = struct.unpack('I', recv_frame(socket))[0]
+        components = struct.unpack('i', recv_frame(socket))[0]
+        bytesPerRow = struct.unpack('I', recv_frame(socket))[0]
 
         # Receive image data
-        data = socket.recv()
+        data = recv_frame(socket)
 
         # Convert to PIL Image directly from buffer
         if components == 1:
