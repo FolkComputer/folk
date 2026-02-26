@@ -16,6 +16,9 @@ When the png library is /pngLib/ &\
         im.save(path)
         return path
     }
-    $uvx saveToDisk $im
-    Exit! 0
+    When {
+        $uvx saveToDisk $im
+        Exit! 0
+    }
+    sleep 1000 ;# to force When to run on other thread
 }

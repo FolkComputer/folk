@@ -169,6 +169,7 @@ import sys
 import socket
 import struct
 import json
+import threading
 
 def recv_frame(conn):
     hdr = b''
@@ -197,7 +198,7 @@ def send_frame(conn, data):
 
 server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 server.bind('$endpoint')
-server.listen(1)
+server.listen(5)
 
 # Storage for argtype deserializers and function signatures
 registered_argtypes = {}
@@ -219,56 +220,60 @@ def __exec__(code, filename="<string>", lineno="1"):
     compiled = compile(padded, filename, 'exec')
     exec(compiled, globals())
 
-conn, _ = server.accept()
-while True:
-    try:
-        # Read function name
-        fn_name = recv_frame(conn).decode('utf-8')
+def handle_conn(conn):
+    while True:
+        try:
+            # Read function name
+            fn_name = recv_frame(conn).decode('utf-8')
 
-        # Look up function in globals, locals, or builtins
-        func = (globals().get(fn_name) or
-                locals().get(fn_name) or
-                getattr(__builtins__, fn_name, None))
+            # Look up function in globals, locals, or builtins
+            func = (globals().get(fn_name) or
+                    locals().get(fn_name) or
+                    getattr(__builtins__, fn_name, None))
 
-        if func is None:
-            raise NameError(f"name '{fn_name}' is not defined")
+            if func is None:
+                raise NameError(f"name '{fn_name}' is not defined")
 
-        # Parse arguments based on function signature if available
-        parsed_args = []
-        if fn_name in fn_signatures:
-            fn_argtypes = fn_signatures[fn_name]
-            for argtype in fn_argtypes:
-                if argtype in registered_argtypes:
-                    # Use registered deserializer, giving it direct conn access
-                    deserialized = registered_argtypes[argtype](conn)
-                    parsed_args.append(deserialized)
-                else:
-                    # Standard JSON decode
+            # Parse arguments based on function signature if available
+            parsed_args = []
+            if fn_name in fn_signatures:
+                fn_argtypes = fn_signatures[fn_name]
+                for argtype in fn_argtypes:
+                    if argtype in registered_argtypes:
+                        # Use registered deserializer, giving it direct conn access
+                        deserialized = registered_argtypes[argtype](conn)
+                        parsed_args.append(deserialized)
+                    else:
+                        # Standard JSON decode
+                        arg = recv_frame(conn)
+                        try:
+                            parsed_args.append(json.loads(arg))
+                        except (json.JSONDecodeError, ValueError):
+                            parsed_args.append(arg)
+                # Consume terminator
+                recv_frame(conn)
+            else:
+                # No signature info, read until empty terminator frame
+                while True:
                     arg = recv_frame(conn)
-                    try:
-                        parsed_args.append(json.loads(arg))
-                    except (json.JSONDecodeError, ValueError):
-                        parsed_args.append(arg)
-            # Consume terminator
-            recv_frame(conn)
-        else:
-            # No signature info, read until empty terminator frame
-            while True:
-                arg = recv_frame(conn)
-                if len(arg) == 0:
-                    break
-                parsed_args.append(arg.decode('utf-8'))
+                    if len(arg) == 0:
+                        break
+                    parsed_args.append(arg.decode('utf-8'))
 
-        result = func(*parsed_args)
-        send_frame(conn, b"ok")
-        send_frame(conn, json.dumps(result).encode('utf-8'))
-        send_frame(conn, b"")
+            result = func(*parsed_args)
+            send_frame(conn, b"ok")
+            send_frame(conn, json.dumps(result).encode('utf-8'))
+            send_frame(conn, b"")
 
-    except Exception as e:
-        import traceback
-        send_frame(conn, b"error")
-        send_frame(conn, traceback.format_exc().encode('utf-8'))
-        send_frame(conn, b"")
+        except Exception as e:
+            import traceback
+            send_frame(conn, b"error")
+            send_frame(conn, traceback.format_exc().encode('utf-8'))
+            send_frame(conn, b"")
+
+while True:
+    conn, _ = server.accept()
+    threading.Thread(target=handle_conn, args=(conn,), daemon=True).start()
 }]
 
     exec $UVX {*}$args \
