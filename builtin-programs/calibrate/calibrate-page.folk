@@ -415,7 +415,7 @@ Camera Controls
                 }
                 ws.hold('start calibration', tcl`
                   Claim the printed calibration tag size is \${mm} mm
-                  Wish to do interactive refinement
+                  Wish to interactively refine calibration
                 `, 'builtin-programs/calibrate/calibrate.folk');
               });
             </script>

@@ -67,7 +67,7 @@ set entireFrameDetector [makeAprilTagDetector $tagFamily 2.0 1]
 set incrementalDetector [makeAprilTagDetector $tagFamily 1.5 1]
 
 # Entire-frame tag detector:
-When /nobody/ wishes to calibrate &\
+When /nobody/ wishes to calibrate & /nobody/ wishes to interactively refine calibration &\
      -serially camera /camera/ has frame /frame/ at timestamp /frameTs/ {
     tracy zoneBegin
     tracy zoneName "entireFrameDetect: $frameTs"
@@ -84,7 +84,7 @@ When /nobody/ wishes to calibrate &\
 
 # Incremental tag detector (looks at regions where there were tags
 # seen recently):
-When /nobody/ wishes to calibrate &\
+When /nobody/ wishes to calibrate & /nobody/ wishes to interactively refine calibration &\
      the image library is /imageLib/ &\
      -serially camera /camera/ has frame /frame/ at timestamp /frameTs/ {
     tracy zoneBegin

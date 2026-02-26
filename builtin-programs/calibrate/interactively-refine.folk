@@ -222,24 +222,12 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
      the printed calibration tag size is /printedSideLengthMm/ mm &\
      camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      display /display/ has width /displayWidth/ height /displayHeight/ &\
-     /someone/ wishes to do interactive refinement {
-
-    fn makeAprilTagDetector
-    set tagDetector [makeAprilTagDetector "tagStandard52h13" 2.0 3]
-
-    package require linalg
-    namespace import ::math::linearalgebra::scale \
-        ::math::linearalgebra::sub ::math::linearalgebra::add \
-        ::math::linearalgebra::transpose ::math::linearalgebra::getelem \
-        ::math::linearalgebra::norm ::math::linearalgebra::getcol \
-        ::math::linearalgebra::mkIdentity ::math::linearalgebra::matmul
-
-    set printedSideLengthM [/ $printedSideLengthMm 1000.0]
-    set model0 [$modelLib scaleModel [$modelLib unitModel] \
-                    $printedSideLengthM]
+     /someone/ wishes to interactively refine calibration {
 
     When /someone/ wishes to draw refining model /model/ onto detected tags /tags/ \
-                             using calibration /calibration/ {
+                             using calibration /calibration/ &\
+         the collected results for [list /someone/ wishes to draw refining label /label/] \
+             are /labels/ {
         package require linalg
         namespace import ::math::linearalgebra::matmul \
             ::math::linearalgebra::add
@@ -249,8 +237,7 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
 
         set modelPrintedTagCorners [list]
         set detectedPrintedTagCorners [list]
-        foreach tag $tags {
-            set id [dict get $tag id]
+        dict for {id tag} $tags {
             if {![$modelLib isPrintedTag $id]} { continue }
 
             lappend modelPrintedTagCorners {*}[dict get $model $id p]
@@ -283,7 +270,7 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
 
         Wish to draw calibration model $model \
             using model-to-display homography $H_modelToDisplay \
-            with message "Hello!"
+            with message [join [lmap r $labels {dict get $r label}] " "]
     }
 
     fn AwaitNextCameraFrame! {frameTimestampVar} {
@@ -323,6 +310,20 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
         dict set calibration t_cameraToProjector [lrange $x 15 17]
     }
 
+    fn makeAprilTagDetector
+    set tagDetector [makeAprilTagDetector "tagStandard52h13" 2.0 3]
+
+    package require linalg
+    namespace import ::math::linearalgebra::scale \
+        ::math::linearalgebra::sub ::math::linearalgebra::add \
+        ::math::linearalgebra::transpose ::math::linearalgebra::getelem \
+        ::math::linearalgebra::norm ::math::linearalgebra::getcol \
+        ::math::linearalgebra::mkIdentity ::math::linearalgebra::matmul
+
+    set printedSideLengthM [/ $printedSideLengthMm 1000.0]
+    set model0 [$modelLib scaleModel [$modelLib unitModel] \
+                    $printedSideLengthM]
+
     set calibration [dict get [QueryOne! the calibration is /calibration/] calibration]
     # The actual refinement process. We will have the user hold up the
     # board in a sequence of whatever poses they want. When the board
@@ -332,26 +333,111 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
     # Once the calibration is refined with respect to the pose, the
     # user can move the board to a different pose. They can stop
     # whenever they want.
-    set model $model0
     set poses [list]
     set frameTimestamp 0
     while true {
         set frame [AwaitNextCameraFrame! frameTimestamp]
         set aprilTime [time {
-            set tags0 [$tagDetector detect $frame]
+            set detectedTags0 [dict create]
+            foreach tag [$tagDetector detect $frame] {
+                dict set detectedTags0 $tag(id) $tag
+            }
         }]
-        if {[llength $tags0] < 8} { continue }
+        if {[dict size $detectedTags0] < 8} {
+            puts stderr "Not enough tags: [dict size $detectedTags0]"
+            continue
+        }
 
-        # TODO: Do we have a valid new pose: are the seen $tags far
-        # enough from previous pose's $tags, and have the $tags been
-        # stable for a while?
+        # Do our best (given current calibration) to draw projected
+        # tags on the board to match the printed tags. We wouldn't
+        # really need this, I guess, except this is also what'll
+        # display the label (set next).
+        Hold! -keep 32ms Wish to draw refining model $model0 \
+            onto detected tags $detectedTags0 \
+            using calibration $calibration
+
+        # We don't want to start a new pose right on top of a pose we
+        # just recorded. The user should have to move the board a bit.
+        if {[llength $poses] > 0} {
+            # Are the seen $tags far enough from previous pose's
+            # $tags?
+            set lastPose [lindex $poses end]
+            if {[$modelLib meanTagsDifference $detectedTags0 $lastPose(detectedTags0)] < 50} {
+                # Not far enough from previous pose.
+                Hold! -key label Wish to draw refining label "Move board farther!"
+                continue
+            }
+        }
+
+        # We want the user to keep the board still, so don't start
+        # refining over a pose until it's been stable for a few
+        # seconds.
+        if {![info exists prevDetectedTags0] ||
+            [set diff [$modelLib meanTagsDifference $detectedTags0 $prevDetectedTags0]] > 5} {
+            # Not close enough to previous frame for us to trust
+            # that the board is held still. Reset.
+            set prevDetectedTags0 $detectedTags0
+            set prevDetectedTags0Timestamp $frameTimestamp
+
+            set diffLabel ""
+            if {[info exists diff]} { set diffLabel "(moved $diff pixels)" }
+            Hold! -key label Wish to draw refining label \
+                "Keep still! $diffLabel"
+            continue
+        } elseif {$frameTimestamp - $prevDetectedTags0Timestamp < 4} {
+            set timeSincePrevDetectedTags0 $($frameTimestamp - $prevDetectedTags0Timestamp)
+            Hold! -key label Wish to draw refining label \
+                "Keep still for $(round((4.0 - $timeSincePrevDetectedTags0))) sec"
+            continue
+        }
+        Hold! -key label Wish to draw refining label \
+            "Keep still. Refining..."
+
+        set idealCameraCorners [apply {{} {
+            upvar modelLib modelLib; upvar matLib matLib
+            upvar model0 model0
+            upvar detectedTags0 detectedTags0
+
+            # Collect correspondences: list of {x0 y0 x1 y1}, pairs of
+            # detected model corner & camera corner for all printed
+            # tags seen this frame.
+            set printedCorrespondences [list]
+            dict for {id tag} $detectedTags0 {
+                if {![$modelLib isPrintedTag $id]} { continue }
+                foreach modelCorner [dict get $model0 $id p] \
+                        camCorner [dict get $tag p] {
+                    lappend printedCorrespondences \
+                        [list {*}$modelCorner {*}$camCorner]
+                }
+            }
+            if {[llength $printedCorrespondences] < 4} { continue }
+
+            # H_mc: homography from model xy to camera xy.
+            # Used to find ideal camera positions for projected tags.
+            set H_mc [$matLib estimateHomography $printedCorrespondences]
+
+            # idealCameraCorners: tag id -> list of 4 {x y}.
+            set idealCameraCorners [dict create]
+            dict for {id modelTag} $model0 {
+                if {![$modelLib isProjectedTag $id]} { continue }
+                dict set idealCameraCorners $id \
+                    [lmap modelCorner $modelTag(p) {
+                        $matLib applyHomography $H_mc $modelCorner
+                    }]
+            }
+            return $idealCameraCorners
+        }}]
+
+        set pose [dict create detectedTags0 $detectedTags0 \
+                      idealCameraCorners $idealCameraCorners]
 
         # 2 residuals (dx, dy) per projected tag corner.
-        set m [expr {[$modelLib countProjectedTags $model] * 4 * 2}]
+        set projectedTagsCount [$modelLib countProjectedTags $model0]
+        set m [expr {$projectedTagsCount * 4 * 2}]
 
-        # If so, then refine the parameters around this pose. This
-        # will block for a while and run the interior function a lot
-        # (10 times? 100 times?).
+        # Refine the parameters with respect to this pose. This will
+        # block for a while and run the interior function a lot (10
+        # times? 100 times?).
         set version 0
         set x0 [unravel $calibration]
         puts stderr "x0=($x0)"
@@ -366,10 +452,12 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
             incr version
             set model [$modelLib updateModelVersion $model0 $version]
 
-            # This will cause the tags to be rendered by the other
-            # process.
-            Hold! Wish to draw refining model $model onto detected tags $tags0 \
-                  using calibration $calibration
+            # This will cause the new model version to be rendered by
+            # the other process. Note that this assumes that the user
+            # hasn't moved the calibration board from the pose $tags0.
+            Hold! Wish to draw refining model $model \
+                onto detected tags $detectedTags0 \
+                using calibration $calibration
 
             # Loop until we see the version we just wished to draw.
             set expectedVersion [expr {$version % 4}]
@@ -382,64 +470,27 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
                 }
 
                 set frame [AwaitNextCameraFrame! frameTimestamp]
-                set tags [$tagDetector detect $frame]
+                set detectedTags [$tagDetector detect $frame]
 
-                set detectedProjectedTagsCount [llength [$modelLib filterProjectedTagsInDetectedTags $tags]]
-                set m1 [expr {4 * 2 * $detectedProjectedTagsCount}]
-                if {$m1 < $m / 2} {
-                    puts stderr "Failure: Can only get $m1 residuals (from $detectedProjectedTagsCount tags), not $m"
+                set detectedProjectedTagsCount [llength [$modelLib filterProjectedTagsInDetectedTags $detectedTags]]
+                if {$detectedProjectedTagsCount < $projectedTagsCount / 2} {
+                    puts stderr "Failure: Only seeing $detectedProjectedTagsCount of $projectedTagsCount projected tags"
                     continue
                 } else {
-                    puts stderr "Success: Enough residuals"
+                    puts stderr "Success: Seeing $detectedProjectedTagsCount of $projectedTagsCount projected tags"
                 }
-
-                set detectedVersion [$modelLib detectVersionFromDetectedTags $tags]
+                set detectedVersion [$modelLib detectVersionFromDetectedTags $detectedTags]
             }
 
             # Compute residuals: detected position - ideal position for
             # each projected tag corner.
 
-            # H_mc: model xy -> camera xy.
-            # Used to find ideal camera positions for projected tags.
-            # Collect correspondences: detected model corners -> camera
-            # corners for all printed tags seen this frame.
-            set printedCorrespondences [list]
-            foreach tag $tags {
-                set id [dict get $tag id]
-                if {![$modelLib isPrintedTag $id]} { continue }
-                foreach modelCorner [dict get $model $id p] \
-                        camCorner [dict get $tag p] {
-                    lappend printedCorrespondences \
-                        [list {*}$modelCorner {*}$camCorner]
-                }
-            }
-            if {[llength $printedCorrespondences] < 4} { continue }
-            set H_mc [$matLib estimateHomography $printedCorrespondences]
-
-            set idealCameraCorners [list]
-            dict for {id modelTag} $model {
-                if {![$modelLib isProjectedTag $id]} { continue }
-                foreach modelCorner [dict get $modelTag p] {
-                    lappend idealCameraCorners \
-                        [$matLib applyHomography $H_mc $modelCorner]
-                }
-            }
-
-            set detectedById [dict create]
-            foreach tag $tags {
-                set id [dict get $tag id]
-                if {[$modelLib isProjectedTag $id]} {
-                    dict set detectedById $id [dict get $tag p]
-                }
-            }
-
             # H_mp: model xy -> projector xy.
-            # Used to infill projected tags that we didn't detect.
+            # Used to infill projected tags that we didn't detect this frame.
             set projCorrespondences [list]
-            foreach tag $tags {
-                set id [dict get $tag id]
-                if {![$modelLib isProjectedTag $id]} { continue }
-                foreach modelCorner [dict get $model $id p] \
+            foreach tag $detectedTags {
+                if {![$modelLib isProjectedTag $tag(id)]} { continue }
+                foreach modelCorner [dict get $model $tag(id) p] \
                         projCorner [dict get $tag p] {
                     lappend projCorrespondences \
                         [list {*}$modelCorner {*}$projCorner]
@@ -447,15 +498,20 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
             }
             set H_mp [$matLib estimateHomography $projCorrespondences]
 
+            set detectedCornersById [dict create]
+            foreach tag $detectedTags {
+                dict set detectedById $tag(id) $tag(p)
+            }
+
             set residuals [list]
-            set ci 0
             dict for {id modelTag} $model {
                 if {![$modelLib isProjectedTag $id]} { continue }
                 set nCorners [llength [dict get $modelTag p]]
                 for {set i 0} {$i < $nCorners} {incr i} {
-                    set ideal [lindex $idealCameraCorners $ci]; incr ci
-                    if {[dict exists $detectedById $id]} {
-                        set det [lindex [dict get $detectedById $id] $i]
+                    set idealIdx [expr {[$modelLib isVersionTag $id] ? ($i + $version) % 4 : $i}]
+                    set ideal [lindex [dict get $idealCameraCorners $id] $idealIdx]
+                    if {[dict exists $detectedCornersById $id]} {
+                        set det [lindex $detectedCornersById($id) $i]
                     } else {
                         set det [$matLib applyHomography $H_mp \
                                      [lindex [dict get $modelTag p] $i]]
