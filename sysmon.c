@@ -2,6 +2,7 @@
 
 #include <unistd.h>
 #include <stdio.h>
+#include <fcntl.h>
 
 #include <time.h>
 #include <sys/time.h>
@@ -22,6 +23,8 @@
 
 #include "common.h"
 #include "epoch.h"
+
+extern void installLocalStdoutAndStderr(int stdoutfd, int stderrfd);
 
 // TODO: declare these in folk.h or something.
 extern ThreadControlBlock threads[];
@@ -146,18 +149,7 @@ void sysmon() {
         }
     }
 
-    // Keep a log of the last 3 notBlockedWorkersCount values
-    static int notBlockedWorkersLog[3] = {100, 100, 100}; // Initialize high to avoid early spawns
-    notBlockedWorkersLog[0] = notBlockedWorkersLog[1];
-    notBlockedWorkersLog[1] = notBlockedWorkersLog[2];
-    notBlockedWorkersLog[2] = notBlockedWorkersCount;
-
-    // TODO: Use NCPUS for this.
-    if (notBlockedWorkersLog[0] < targetNotBlockedWorkersCount &&
-        notBlockedWorkersLog[1] < targetNotBlockedWorkersCount &&
-        notBlockedWorkersLog[2] < targetNotBlockedWorkersCount) {
-        // All 3 recent samples show too many threads blocked on I/O.
-        // Let's pull in another one to occupy a CPU and do Folk work.
+    if (notBlockedWorkersCount < targetNotBlockedWorkersCount) {
         workerReactivateOrSpawn(currentMs, targetNotBlockedWorkersCount);
     }
 #endif
@@ -270,6 +262,15 @@ void *sysmonMain(void *ptr) {
 #endif
 
     epochThreadInit();
+
+    {
+        char path[256];
+        snprintf(path, sizeof(path), "/tmp/%d.sysmon.c.stdout", getpid());
+        int outfd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        snprintf(path, sizeof(path), "/tmp/%d.sysmon.c.stderr", getpid());
+        int errfd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        installLocalStdoutAndStderr(outfd, errfd);
+    }
 
     tick = 0;
     gethostname(thisNode, sizeof(thisNode));

@@ -94,3 +94,29 @@ proc lsort-indices {itemL} {
     }
     set indexL
 }
+
+namespace eval ::math {
+    proc min {args} {
+        if {[llength $args] == 0} { error "min: No args" }
+        set min infinity
+        foreach arg $args { if {$arg < $min} { set min $arg } }
+        return $min
+    }
+    proc max {args} {
+        if {[llength $args] == 0} { error "max: No args" }
+        set max -infinity
+        foreach arg $args { if {$arg > $max} { set max $arg } }
+        return $max
+    }
+    proc mean {val args} {
+        set sum $val
+        set N [ expr { [ llength $args ] + 1 } ]
+        foreach val $args {
+            set sum [ expr { $sum + $val } ]
+        }
+        set mean [expr { double($sum) / $N }]
+    }
+    proc sin {x} { expr {sin($x)} }
+    proc cos {x} { expr {cos($x)} }
+}
+namespace import ::math::*

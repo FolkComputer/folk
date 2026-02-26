@@ -146,7 +146,8 @@ $ make remote FOLK_REMOTE_NODE=<your-remote-hostname-here>
 ```
 
 On your laptop Web browser, go to http://<your-remote-hostname>.local:4273 --
-you should see the Folk web page with the live statement set.
+you should see all active Folk programs. Check out the Statements page
+as well to see all statements in the database.
 
 ### Printer support
 
@@ -219,6 +220,13 @@ and connect.
 proceed as though it's "f4:73:35:93:7f:9d" (it's important that you
 turn it into lowercase).)
 
+
+#### Python support
+
+To use the Python FFI and the builtin recognition programs (CRAFT,
+TrOCR, SAM2), you should [install
+uv](https://docs.astral.sh/uv/getting-started/installation/) such that
+the `uvx` command is available.
 
 ## Development tools
 
@@ -709,34 +717,23 @@ isn't meeting timing
 ### other stuff
 - stereo calibration
 - run segmentation model
-- **editor cutoff bug**
-- **editor 132 keyboard stops responding?**
-- recsale camera slice to have correct aspect ratio
+- ~~rescale camera slice to have correct aspect ratio~~
 - debug memory leaks
   - are we ever freeing AtomicallyVersion? -- no, but this isn't the
     main memory leak (not enough allocated)
   - not destructors
   - also not camera images
   - also not jim allocations
-- bug where camera slices halt / slow down animation
-  - animation blinky
+- ~~bug where camera slices halt / slow down animation~~
+  - ~~animation blinky~~
 - gadget-platinum outline blink
-- ~~remaining blink on clock time~~
-  - ~~the problem is that the _root_ match has no atomic marker attached
-    in the db (the When the clock time is /t/), which means that any
-    direct child statements don't get made if they aren't made before
-    the root match is revoked.~~
-    - ~~we need to also find a way to pin the root match~~
 - slowdown where sysmon starts taking forever bc of endless chains of
   destructors/atomicallyversions
   - warn if sysmon is too slow?
 - make RAM/metrics page to not clutter up stdout
-- make errors page
+- ~~make errors page~~
 - remove Hold and Atomically limits
 - automatic default calibration so you can drag stuff around on laptop
-- automatically allow optional fields on `with`
+- automatically allow optional fields on `with` (or add object pattern-matching?)
 - try to maximize cpu usage
 - dual camera calibration -> ML
-- ~~scan for invariant violation (statement w/o trie entry)~~
-  - ~~look at trie (make separate trie walker that gives us the interior pointer
-    to examine)~~

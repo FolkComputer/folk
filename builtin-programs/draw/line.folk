@@ -36,6 +36,7 @@ When the color map is /colorMap/ &\
      /p/ has canvas projection /surfaceToClip/ &\
      /someone/ wishes to draw a line onto /p/ with /...options/ {
 
+    set layer [dict getdef $options layer 0]
     set points [dict get $options points]
     set width [dict get $options width]
     set color [dict get $options color]
@@ -50,5 +51,5 @@ When the color map is /colorMap/ &\
     }
 
     Wish the GPU draws pipeline "line" onto canvas $id \
-        with instances $instances
+        with instances $instances layer $layer
 }

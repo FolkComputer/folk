@@ -1,0 +1,329 @@
+When the image library is /imageLib/ {
+set cc [C]
+$cc extend $imageLib
+$cc endcflags -lturbojpeg
+$cc include <stdlib.h>
+$cc include <string.h>
+
+$cc struct Jpeg {
+    uint8_t* start;
+    size_t length;
+}
+
+$cc code {
+    #undef EXTERN
+    #include <turbojpeg.h>
+    #include <stdint.h>
+
+    void
+jpeg(FILE* dest, uint8_t* data, uint32_t components, uint32_t bytesPerRow, uint32_t width, uint32_t height, int quality)
+{
+    tjhandle handle = tjInitCompress();
+    if (handle == NULL) {
+        FOLK_ERROR("jpeg: Failed to initialize compressor");
+    }
+
+    unsigned char* jpegBuf = NULL;
+    unsigned long jpegSize = 0;
+    int pixelFormat;
+    uint8_t* srcData;
+    int pitch;
+
+    if (components == 1) {
+        // Convert grayscale to RGB to maintain original behavior
+        srcData = malloc(width * height * 3);
+        for (size_t i = 0; i < height; i++) {
+            for (size_t j = 0; j < width; j++) {
+                uint8_t gray = data[i * bytesPerRow + j];
+                srcData[(i * width + j) * 3 + 0] = gray;
+                srcData[(i * width + j) * 3 + 1] = gray;
+                srcData[(i * width + j) * 3 + 2] = gray;
+            }
+        }
+        pixelFormat = TJPF_RGB;
+        pitch = width * 3;
+    } else if (components == 3) {
+        if (bytesPerRow == width * 3) {
+            // Data is contiguous, use directly
+            srcData = data;
+        } else {
+            // Need to copy to contiguous buffer
+            srcData = malloc(width * height * 3);
+            for (size_t i = 0; i < height; i++) {
+                memcpy(srcData + i * width * 3, data + i * bytesPerRow, width * 3);
+            }
+        }
+        pixelFormat = TJPF_RGB;
+        pitch = width * 3;
+    } else {
+        tjDestroy(handle);
+        FOLK_ERROR("jpeg: Unsupported number of components: %d", components);
+    }
+
+    int ret = tjCompress2(handle, srcData, width, pitch, height, pixelFormat,
+                          &jpegBuf, &jpegSize, TJSAMP_444, quality, TJFLAG_FASTDCT);
+
+    if (components == 1 || (components == 3 && bytesPerRow != width * 3)) {
+        free(srcData);
+    }
+
+    if (ret != 0) {
+        tjDestroy(handle);
+        FOLK_ERROR("jpeg: Compression failed: %s", tjGetErrorStr());
+    }
+
+    fwrite(jpegBuf, 1, jpegSize, dest);
+    tjFree(jpegBuf);
+    tjDestroy(handle);
+}
+
+}
+
+$cc proc jpegDimensions {Jpeg jpeg} Jim_Obj* {
+    tjhandle handle = tjInitDecompress();
+    if (handle == NULL) {
+        FOLK_ERROR("jpegDimensions: Failed to initialize decompressor");
+    }
+    int width, height, subsamp, colorspace;
+    if (tjDecompressHeader3(handle, jpeg.start, jpeg.length, &width, &height, &subsamp, &colorspace) != 0) {
+        tjDestroy(handle);
+        FOLK_ERROR("jpegDimensions: Failed to read header: %s", tjGetErrorStr());
+    }
+    tjDestroy(handle);
+    Jim_Obj* elems[2];
+    elems[0] = Jim_NewIntObj(interp, width);
+    elems[1] = Jim_NewIntObj(interp, height);
+    return Jim_NewListObj(interp, elems, 2);
+}
+
+$cc proc jpegData {Jpeg jpeg} Jim_Obj* {
+    return Jim_NewStringObj(interp, (char *)jpeg.start, jpeg.length);
+}
+
+$cc proc saveAsJpeg {Image im char* filename} void {
+    FILE* out = fopen(filename, "w");
+    FOLK_ENSURE(out != NULL);
+    jpeg(out, im.data, im.components, im.bytesPerRow, im.width, im.height, 100);
+    fclose(out);
+}
+
+$cc proc loadJpeg {char* filename} Image {
+    FILE* file = fopen(filename, "rb");
+    if (!file) {
+        FOLK_ERROR("Error opening file: %s", filename);
+    }
+
+    // Read entire file into buffer
+    fseek(file, 0, SEEK_END);
+    long fileSize = ftell(file);
+    fseek(file, 0, SEEK_SET);
+
+    unsigned char* jpegBuf = malloc(fileSize);
+    if (fread(jpegBuf, 1, fileSize, file) != fileSize) {
+        fclose(file);
+        FOLK_ERROR("Error reading file: %s", filename);
+    }
+    fclose(file);
+
+    tjhandle handle = tjInitDecompress();
+    if (handle == NULL) {
+        free(jpegBuf);
+        FOLK_ERROR("loadJpeg: Failed to initialize decompressor");
+    }
+
+    int width, height, jpegSubsamp, jpegColorspace;
+    if (tjDecompressHeader3(handle, jpegBuf, fileSize, &width, &height,
+                            &jpegSubsamp, &jpegColorspace) != 0) {
+        free(jpegBuf);
+        tjDestroy(handle);
+        FOLK_ERROR("loadJpeg: Failed to read header: %s", tjGetErrorStr());
+    }
+
+    // Determine output format based on colorspace
+    int pixelFormat = (jpegColorspace == TJCS_GRAY) ? TJPF_GRAY : TJPF_RGB;
+    int components = (jpegColorspace == TJCS_GRAY) ? 1 : 3;
+
+    Image ret;
+    ret.width = width;
+    ret.height = height;
+    ret.components = components;
+    ret.bytesPerRow = ret.width * ret.components;
+    ret.data = malloc(ret.bytesPerRow * ret.height);
+
+    if (tjDecompress2(handle, jpegBuf, fileSize, ret.data, width, 0, height,
+                      pixelFormat, 0) != 0) {
+        free(jpegBuf);
+        free(ret.data);
+        tjDestroy(handle);
+        FOLK_ERROR("loadJpeg: Decompression failed: %s", tjGetErrorStr());
+    }
+
+    free(jpegBuf);
+    tjDestroy(handle);
+
+    return ret;
+}
+
+$cc proc jpegSubimage {Jpeg jpeg double x double y double subwidth double subheight} Jpeg {
+    tjhandle handle = tjInitTransform();
+    if (handle == NULL) {
+        FOLK_ERROR("jpegSubimage: Failed to init transform");
+    }
+
+    int width, height, subsamp, colorspace;
+    if (tjDecompressHeader3(handle, jpeg.start, jpeg.length, &width, &height, &subsamp, &colorspace) != 0) {
+        tjDestroy(handle);
+        FOLK_ERROR("jpegSubimage: Failed to read header: %s", tjGetErrorStr());
+    }
+
+    int mcuWidth, mcuHeight;
+    switch (subsamp) {
+        case TJSAMP_GRAY: mcuWidth = 8; mcuHeight = 8; break;
+        case TJSAMP_444: mcuWidth = 8; mcuHeight = 8; break;
+        case TJSAMP_422: mcuWidth = 16; mcuHeight = 8; break;
+        case TJSAMP_420: mcuWidth = 16; mcuHeight = 16; break;
+        case TJSAMP_440: mcuWidth = 8; mcuHeight = 16; break;
+        case TJSAMP_411: mcuWidth = 32; mcuHeight = 8; break;
+        default:
+            tjDestroy(handle);
+            FOLK_ERROR("jpegSubimage: Unsupported subsampling: %d", subsamp);
+    }
+
+    if ((int)x % mcuWidth != 0 || (int)y % mcuHeight != 0) {
+        tjDestroy(handle);
+        FOLK_ERROR("jpegSubimage: Crop start not aligned to MCU: %d %d", (int)x, (int)y);
+    }
+
+    int startX = ((int)x / mcuWidth) * mcuWidth;
+    int startY = ((int)y / mcuHeight) * mcuHeight;
+
+    if ((int)subwidth % mcuWidth != 0 || (int)subheight % mcuHeight != 0) {
+        tjDestroy(handle);
+        FOLK_ERROR("jpegSubimage: Crop size not aligned to MCU: %d %d", (int)subwidth, (int)subheight);
+    }
+
+    int endX = startX + (int)subwidth;
+    int endY = startY + (int)subheight;
+
+    if (endX > width) endX = width;
+    if (endY > height) endY = height;
+
+    int cropWidth = ((endX - startX) / mcuWidth) * mcuWidth;
+    int cropHeight = ((endY - startY) / mcuHeight) * mcuHeight;
+
+    if (cropWidth <= 0 || cropHeight <= 0) {
+        tjDestroy(handle);
+        FOLK_ERROR("jpegSubimage: Invalid crop size after MCU alignment");
+    }
+
+    tjregion region = { .x = startX, .y = startY, .w = cropWidth, .h = cropHeight };
+    tjtransform transform;
+    memset(&transform, 0, sizeof(transform));
+    transform.r = region;
+    transform.op = TJXOP_NONE;
+    transform.options = TJXOPT_CROP;
+
+    // Pre-allocate buffer with worst-case size
+    unsigned long outSize = tjBufSize(cropWidth, cropHeight, TJSAMP_444);
+    unsigned char* outBuf = malloc(outSize);
+    if (!outBuf) {
+        tjDestroy(handle);
+        FOLK_ERROR("jpegSubimage: malloc failed");
+    }
+
+    if (tjTransform(handle, jpeg.start, jpeg.length, 1, &outBuf, &outSize, &transform, TJFLAG_NOREALLOC) != 0) {
+        tjDestroy(handle);
+        free(outBuf);
+        FOLK_ERROR("jpegSubimage: Transform failed: %s", tjGetErrorStr());
+    }
+
+    tjDestroy(handle);
+
+    return (Jpeg) {
+        .start = outBuf,
+        .length = outSize
+    };
+}
+
+$cc proc jpegDecompressGray {Jpeg jpeg int width int height int uniq} Image {
+    tjhandle handle = tjInitDecompress();
+    if (handle == NULL) {
+        FOLK_ERROR("cameraDecompressGray: Failed to initialize decompressor");
+    }
+
+    Image dest = imageNew(width, height, 1, uniq);
+    int ret = tjDecompress2(handle, jpeg.start, jpeg.length,
+                            dest.data, width, 0, height, TJPF_GRAY, 0);
+    if (ret != 0) {
+        // Check if this is just a warning (e.g., "extraneous bytes before marker")
+        // or a fatal error. Warnings are common with webcam MJPEG streams.
+        int errCode = tjGetErrorCode(handle);
+        if (errCode == TJERR_FATAL) {
+            tjDestroy(handle);
+            FOLK_ERROR("cameraDecompressGray: Decompression failed: %s", tjGetErrorStr());
+        }
+        // For warnings, continue with the (possibly partially corrupted) image
+        // fprintf(stderr, "cameraDecompressGray: Warning: %s", tjGetErrorStr());
+    }
+
+    tjDestroy(handle);
+    return dest;
+}
+
+$cc proc jpegDecompressWarpedQuad {Jpeg jpeg double[4][2] imVertices
+                                   int outWidth int outHeight} Image {
+    // Get JPEG info for MCU alignment
+    tjhandle h = tjInitDecompress();
+    int jpegW, jpegH, subsamp, cs;
+    tjDecompressHeader3(h, jpeg.start, jpeg.length, &jpegW, &jpegH, &subsamp, &cs);
+    tjDestroy(h);
+
+    int mcuW = 16, mcuH = 16;
+
+    // Bounding box of quad vertices, snapped to MCU grid
+    double minX = imVertices[0][0], maxX = minX;
+    double minY = imVertices[0][1], maxY = minY;
+    for (int i = 1; i < 4; i++) {
+        if (imVertices[i][0] < minX) minX = imVertices[i][0];
+        if (imVertices[i][0] > maxX) maxX = imVertices[i][0];
+        if (imVertices[i][1] < minY) minY = imVertices[i][1];
+        if (imVertices[i][1] > maxY) maxY = imVertices[i][1];
+    }
+    int bx = ((int)minX / mcuW) * mcuW;
+    int by = ((int)minY / mcuH) * mcuH;
+    if (bx < 0) bx = 0;
+    if (by < 0) by = 0;
+    int bw = (((int)(maxX + 1) - bx + mcuW - 1) / mcuW) * mcuW;
+    int bh = (((int)(maxY + 1) - by + mcuH - 1) / mcuH) * mcuH;
+    if (bx + bw > jpegW) bw = ((jpegW - bx) / mcuW) * mcuW;
+    if (by + bh > jpegH) bh = ((jpegH - by) / mcuH) * mcuH;
+
+    // Lossless crop to bounding box
+    Jpeg bbox = jpegSubimage(jpeg, bx, by, bw, bh);
+
+    // Decompress cropped JPEG
+    h = tjInitDecompress();
+    int cw, ch, cs2, cs3;
+    tjDecompressHeader3(h, bbox.start, bbox.length, &cw, &ch, &cs2, &cs3);
+    uint8_t* data = malloc(cw * 3 * ch);
+    tjDecompress2(h, bbox.start, bbox.length, data, cw, 0, ch, TJPF_RGB, 0);
+    tjDestroy(h);
+    free(bbox.start);
+
+    Image bboxImage = { .width = cw, .height = ch, .components = 3,
+                         .bytesPerRow = cw * 3, .data = data, .uniq = 0 };
+
+    // Adjust vertices relative to crop origin and warp
+    double adj[4][2];
+    for (int i = 0; i < 4; i++) {
+        adj[i][0] = imVertices[i][0] - bx;
+        adj[i][1] = imVertices[i][1] - by;
+    }
+    Image result = warpQuad(bboxImage, adj, outWidth, outHeight);
+    free(data);
+    return result;
+}
+
+set jpegLib [$cc compile]
+Claim the jpeg library is $jpegLib
+}

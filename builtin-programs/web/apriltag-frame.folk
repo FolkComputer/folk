@@ -1,4 +1,4 @@
-When the image library is /imageLib/ {
+When the jpeg library is /jpegLib/ {
     Wish the web server handles route {/apriltag-frame} with handler {
         set frames [Query! camera /cam/ has frame /im/ at timestamp /ts/]
         set frame [lindex $frames end]
@@ -6,7 +6,7 @@ When the image library is /imageLib/ {
             StatementAcquire! $__ref
 
             set filename "/tmp/web-image-frame.jpg"
-            $imageLib saveAsJpeg $im $filename
+            $jpegLib saveAsJpeg $im $filename
             set fsize [file size $filename]
             set fd [open $filename r]
             fconfigure $fd -translation binary

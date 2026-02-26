@@ -1,0 +1,21 @@
+Wish the web server handles route {/program/(.*)$} with handler {
+    set programName $1
+    set match [QueryOne! $programName has program code /programCode/]
+    if {$match eq ""} {
+        html "<html><body>Program not found: [htmlEscape $programName]</body></html>"
+        return
+    }
+
+    html [subst {
+        <html>
+        <head>
+            <title>[htmlEscape $programName]</title>
+            <link rel="stylesheet" href="/style.css">
+        </head>
+        <body>
+        <h1>[htmlEscape $programName]</h1>
+        <pre><code>[htmlEscape $match(programCode)]</code></pre>
+        </body>
+        </html>
+    }]
+}
