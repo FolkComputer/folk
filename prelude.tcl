@@ -147,13 +147,13 @@ proc applyBlock {body envStack} {pid} {
     dict set env __envStack $envStack
     dict set env __env $env
 
-    set this [dict getdef $env this <unknown>]
+    set ::this [dict getdef $env this <unknown>]
     # Flush before installing so any buffered data from the previous
     # program drains to the correct fd before we switch.
     stdout flush
     # Install thread-local stdout/stderr so all subsequent write()/puts/
     # fprintf/printf calls go to the local files for this $this.
-    __installLocalStdoutAndStderr $this
+    __installLocalStdoutAndStderr $::this
 
     set names [dict keys $env]
     set values [dict values $env]
@@ -165,8 +165,8 @@ proc evaluateBlock {whenBody envStack} {
         applyBlock $whenBody $envStack
     } on error {err opts} {
         set errorInfo [dict get $opts -errorinfo]
-        set this [lindex $errorInfo 1]
-        puts stderr "\nError in $this: $err\n  [errorInfo $err $errorInfo]"
+        set this $([info exists ::this] ? $::this : [lindex $errorInfo 1])
+        puts stderr "\nError while running $this: $err\n  [errorInfo $err $errorInfo]"
         if {[__isInSubscription]} {
             # Can't Say inside of a subscription, so Hold! instead
             # (TODO: might be a better way?)
