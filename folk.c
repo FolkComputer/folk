@@ -26,6 +26,8 @@
 #include "sysmon.h"
 #include "output-redirection.h"
 
+#define FATAL(...) do { dprintf(realStderr, __VA_ARGS__); exit(1); } while(0)
+
 ThreadControlBlock threads[THREADS_MAX];
 int _Atomic threadCount;
 __thread ThreadControlBlock* self;
@@ -43,14 +45,13 @@ void globalWorkQueuePush(WorkQueueItem item) {
     WorkQueueItem* pushee = malloc(sizeof(item));
     *pushee = item;
     if (!mpmc_queue_push(&globalWorkQueue, pushee)) {
-        fprintf(stderr, "globalWorkQueuePush: failed\n");
         while (mpmc_queue_available(&globalWorkQueue)) {
             WorkQueueItem* x;
             mpmc_queue_pull(&globalWorkQueue, (void **)&x);
             char s[1000]; traceItem(s, 1000, *x);
-            fprintf(stderr, "(%.200s)\n", s);
+            dprintf(realStderr, "(%.200s)\n", s);
         }
-        exit(1);
+        FATAL("globalWorkQueuePush: failed\n");
     }
     globalWorkQueueSize++;
 }
@@ -705,8 +706,7 @@ static void interpBoot() {
 
     if (Jim_EvalFile(interp, "prelude.tcl") == JIM_ERR) {
         Jim_MakeErrorMessage(interp);
-        fprintf(stderr, "prelude: %s\n", Jim_GetString(Jim_GetResult(interp), NULL));
-        exit(1);
+        FATAL("prelude: %s\n", Jim_GetString(Jim_GetResult(interp), NULL));
     }
 }
 void eval(const char* code) {
@@ -715,7 +715,7 @@ void eval(const char* code) {
     int error = Jim_Eval(interp, code);
     if (error == JIM_ERR) {
         Jim_MakeErrorMessage(interp);
-        fprintf(stderr, "eval: (%s) -> (%s)\n", code, Jim_GetString(Jim_GetResult(interp), NULL));
+        fprintf(stderr, "eval: %s\n", Jim_GetString(Jim_GetResult(interp), NULL));
         Jim_FreeInterp(interp);
         exit(EXIT_FAILURE);
     }
@@ -1258,8 +1258,7 @@ void workerRun(WorkQueueItem item) {
     } else if (item.op == EVAL) {
         TracyCZoneN(ctx, "EVAL", 1); zone = ctx;
     } else {
-        fprintf(stderr, "workerRun: Unknown item type\n");
-        exit(1);
+        FATAL("workerRun: Unknown item type\n");
     }
 #endif
 
@@ -1318,9 +1317,7 @@ void workerRun(WorkQueueItem item) {
         free(code);
 
     } else {
-        fprintf(stderr, "workerRun: Unknown work item op: %d\n",
-                item.op);
-        exit(1);
+        FATAL("workerRun: Unknown work item op: %d\n", item.op);
     }
 
     self->currentItemStartTimestamp = 0;
@@ -1498,8 +1495,7 @@ void* workerMain(void* arg) {
         }
     }
     if (threadIndex == -1) {
-        fprintf(stderr, "folk: workerMain: exceeded THREADS_MAX\n");
-        exit(1);
+        FATAL("folk: workerMain: exceeded THREADS_MAX\n");
     }
     if (i >= threadCount) {
         threadCount = i + 1;

@@ -136,7 +136,7 @@ Hold! -key {calibration poses max} \
 When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      display /display/ has width /displayWidth/ height /displayHeight/ &\
      the AprilTag detector maker is /makeAprilTagDetector/ &\
-     the image library is /imageLib/ &\
+     the jpeg library is /jpegLib/ &\
      the calibration matLib is /matLib/ &\
      the calibration estimateHomography is /estimateHomography/ &\
      the printed calibration tag size is /printedSideLengthMm/ mm &\
@@ -660,7 +660,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # purposes).
         set imageName "pose-$calibrationId-[llength $calibrationPoses].jpeg"
         exec mkdir -p "$::env(HOME)/folk-calibration-poses"
-        $imageLib saveAsJpeg $frame "$::env(HOME)/folk-calibration-poses/$imageName"
+        $jpegLib saveAsJpeg $frame "$::env(HOME)/folk-calibration-poses/$imageName"
         dict set pose imageName $imageName
 
         # OK, let's save this calibration pose.

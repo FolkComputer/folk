@@ -1,0 +1,24 @@
+When { source builtin-programs/image/image-lib.folk }
+When { source builtin-programs/image/png-lib.folk }
+
+When the png library is /pngLib/ &\
+     the image uvx argtype definer is /defineImageArgtype/ {
+    set im [$pngLib loadPng "vendor/fonts/CourierPrimeCode.png"]
+
+    fn defineImageArgtype
+
+    set uvx [Uvx --with pillow]
+    defineImageArgtype $uvx
+
+    $uvx def saveToDisk {Image im} {
+        import tempfile
+        fd, path = tempfile.mkstemp(suffix='.png')
+        im.save(path)
+        return path
+    }
+    When {
+        $uvx saveToDisk $im
+        Exit! 0
+    }
+    sleep 1000 ;# to force When to run on other thread
+}

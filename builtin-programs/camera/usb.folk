@@ -4,7 +4,8 @@
 
 if {$::tcl_platform(os) ne "linux"} { return }
 
-When the image library is /imageLib/ {
+When the image library is /imageLib/ &\
+     the jpeg library is /jpegLib/ {
 
 set camc [C]
 $camc extend $imageLib
@@ -260,8 +261,7 @@ $camc proc setExposureAuto {Camera* camera} void {
 $camc cflags -Wall -Werror
 set camLib [$camc compile]
 
-When the image library is /imageLib/ &\
-     /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
+When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
     if {[string match "/sys/bus/usb/devices/*" $camera]} {
         set devicePath $camera
 
@@ -329,7 +329,7 @@ When the image library is /imageLib/ &\
 
             if {[info exists crop]} {
                 dict with crop {
-                    set croppedJpeg [$imageLib jpegSubimage $jpeg \
+                    set croppedJpeg [$jpegLib jpegSubimage $jpeg \
                                          $x $y $width $height]
                 }
                 $camLib jpegFree $jpeg
@@ -346,7 +346,7 @@ When the image library is /imageLib/ &\
             tracy zoneEnd
 
             try {
-                set frameImage [$imageLib jpegDecompressGray $croppedJpeg \
+                set frameImage [$jpegLib jpegDecompressGray $croppedJpeg \
                                     $width $height $ms]
                 Hold! -key [list camera $camera frame] \
                     Claim camera $camera has frame $frameImage at timestamp $timestamp \

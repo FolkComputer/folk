@@ -1,0 +1,167 @@
+set cc [C]
+$cc include <stdlib.h>
+$cc include <string.h>
+
+$cc struct Image {
+    uint32_t width;
+    uint32_t height;
+    int components;
+    uint32_t bytesPerRow;
+
+    // Weird: this can be mutated if you want the image to be
+    // reloaded into the GPU.
+    uint64_t uniq;
+
+    uint8_t* data;
+}
+
+# Note that this returns an image whose lifetime is tied to the original image.
+$cc proc slice {Image im double x double y double subwidth double subheight} Image {
+    uint8_t *subdata = im.data + (int)y*im.bytesPerRow + (int)x*im.components;
+    return (Image) {
+        .width = (uint32_t)subwidth,
+        .height = (uint32_t)subheight,
+        .components = im.components,
+        .bytesPerRow = im.bytesPerRow,
+        .data = subdata,
+        .uniq = im.uniq
+    };
+}
+
+$cc proc imageNew {int width int height int components int uniq} Image {
+    uint8_t* data = malloc(width*components*height);
+    return (Image) {
+        .width = width,
+        .height = height,
+        .components = components,
+        .bytesPerRow = width*components,
+        .data = data,
+        .uniq = uniq
+    };
+}
+$cc proc imageFree {Image image} void {
+    free(image.data);
+}
+
+# Note that this returns a fresh (copied) image. imVertices are
+# coordinates in im, clockwise from top-left.
+$cc proc warpQuad {Image im double[4][2] imVertices
+                   int outWidth int outHeight} Image {
+    Image out = imageNew(outWidth, outHeight, im.components, im.uniq);
+
+    // imVertices are clockwise from top-left: [TL, TR, BR, BL]
+    double tlX = imVertices[0][0], tlY = imVertices[0][1];
+    double trX = imVertices[1][0], trY = imVertices[1][1];
+    double brX = imVertices[2][0], brY = imVertices[2][1];
+    double blX = imVertices[3][0], blY = imVertices[3][1];
+
+    // For each output pixel, find corresponding source pixel using bilinear mapping
+    for (int y = 0; y < outHeight; y++) {
+        for (int x = 0; x < outWidth; x++) {
+            // Normalize output coordinates to [0, 1]
+            double u = (double)x / (outWidth - 1);
+            double v = (double)y / (outHeight - 1);
+
+            // Bilinear interpolation in quad space
+            // Top edge: lerp between TL and TR
+            // Bottom edge: lerp between BL and BR
+            // Then lerp between top and bottom
+            double topX = tlX + u * (trX - tlX);
+            double topY = tlY + u * (trY - tlY);
+            double botX = blX + u * (brX - blX);
+            double botY = blY + u * (brY - blY);
+
+            double srcX = topX + v * (botX - topX);
+            double srcY = topY + v * (botY - topY);
+
+            // Bilinear sample from source image
+            uint8_t *dstPixel = out.data + y * out.bytesPerRow + x * out.components;
+
+            int ix = (int)srcX;
+            int iy = (int)srcY;
+            double fx = srcX - ix;
+            double fy = srcY - iy;
+
+            if (ix >= 0 && ix < im.width - 1 && iy >= 0 && iy < im.height - 1) {
+                uint8_t *p00 = im.data + iy * im.bytesPerRow + ix * im.components;
+                uint8_t *p10 = p00 + im.components;
+                uint8_t *p01 = p00 + im.bytesPerRow;
+                uint8_t *p11 = p01 + im.components;
+                for (int c = 0; c < im.components; c++) {
+                    double top = p00[c] + fx * (p10[c] - p00[c]);
+                    double bot = p01[c] + fx * (p11[c] - p01[c]);
+                    dstPixel[c] = (uint8_t)(top + fy * (bot - top) + 0.5);
+                }
+            } else if (ix >= 0 && ix < im.width && iy >= 0 && iy < im.height) {
+                // Edge pixel: nearest neighbor fallback
+                uint8_t *srcPixel = im.data + iy * im.bytesPerRow + ix * im.components;
+                for (int c = 0; c < im.components; c++) {
+                    dstPixel[c] = srcPixel[c];
+                }
+            } else {
+                for (int c = 0; c < im.components; c++) {
+                    dstPixel[c] = 0;
+                }
+            }
+        }
+    }
+
+    return out;
+}
+
+set imageLib [$cc compile]
+Claim the image library is $imageLib
+
+fn defineImageArgtype {uvx} {
+    set cc [C]
+    $cc extend $imageLib
+    $cc include <unistd.h>
+    $cc proc sockSendImage {int fd Image im} void {
+        // Image must be contiguous for now (TODO: copy if not)
+        FOLK_ENSURE(im.bytesPerRow == im.width * im.components);
+
+        uint32_t len;
+
+        len = sizeof(im.width);
+        write(fd, &len, 4); write(fd, &im.width, sizeof(im.width));
+
+        len = sizeof(im.height);
+        write(fd, &len, 4); write(fd, &im.height, sizeof(im.height));
+
+        len = sizeof(im.components);
+        write(fd, &len, 4); write(fd, &im.components, sizeof(im.components));
+
+        len = sizeof(im.bytesPerRow);
+        write(fd, &len, 4); write(fd, &im.bytesPerRow, sizeof(im.bytesPerRow));
+
+        size_t dataLen = (size_t)im.height * im.bytesPerRow;
+        len = (uint32_t)dataLen;
+        write(fd, &len, 4); write(fd, im.data, dataLen);
+    }
+    set lib [$cc compile]
+
+    $uvx argtype Image "$lib sockSendImage \$socket \$arg" {
+        import struct
+        from PIL import Image
+
+        # Receive image properties
+        width = struct.unpack('I', recv_frame(socket))[0]
+        height = struct.unpack('I', recv_frame(socket))[0]
+        components = struct.unpack('i', recv_frame(socket))[0]
+        bytesPerRow = struct.unpack('I', recv_frame(socket))[0]
+
+        # Receive image data
+        data = recv_frame(socket)
+
+        # Convert to PIL Image directly from buffer
+        if components == 1:
+            img = Image.frombuffer('L', (width, height), data, 'raw', 'L', bytesPerRow, 1)
+        elif components == 3:
+            img = Image.frombuffer('RGB', (width, height), data, 'raw', 'RGB', bytesPerRow, 1)
+        else:
+            raise ValueError(f"Unsupported number of components: {components}")
+
+        return img
+    }
+}
+Claim the image uvx argtype definer is [fn defineImageArgtype]
