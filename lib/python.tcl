@@ -276,8 +276,11 @@ while True:
     threading.Thread(target=handle_conn, args=(conn,), daemon=True).start()
 }]
 
-    exec $UVX {*}$args \
-        python -u -c $harnessCode &
+    set pid [exec $UVX {*}$args \
+                 python -u -c $harnessCode &]
+    # HACK: This is a bit of Folk poking down into the library level,
+    # which is awkward.
+    catch { uplevel [list On unmatch [list kill $pid]] } res
 
     # Return a library that runs internal state through the Folk db so
     # it can be called from any thread.

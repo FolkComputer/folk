@@ -157,7 +157,7 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
 
     Subscribe: keyboard $kbPath claims key /key/ is /keyState/ with /...options/ {
         ForEach! editor $editor has viewport position /vpPos/ &\
-                 editor /editor/ has viewport size /vpSize/ &\
+                 editor $editor has viewport size /vpSize/ &\
                  editor buffer for $program is /code/ &\
                  editor $editor has max cursor x /maxCursorX/ &\
                  editor $editor has cursor /cursor/ &\
