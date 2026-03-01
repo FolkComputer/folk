@@ -145,7 +145,7 @@ or (if remote machine):
 $ make remote FOLK_REMOTE_NODE=<your-remote-hostname-here>
 ```
 
-On your laptop Web browser, go to http://<your-remote-hostname>.local:4273 --
+On your laptop Web browser, go to http://localhost:4273 (if running locally) or http://<your-remote-hostname>.local:4273 --
 you should see all active Folk programs. Check out the Statements page
 as well to see all statements in the database.
 
@@ -189,7 +189,7 @@ not the PS for it to work, probably)
 ### Projector-camera setup and calibration
 
 1. Make sure Folk is running. Go to your Folk server's Web page
-   http://whatever.local:4273/setup . Select your camera and
+   http://localhost:4273/setup (or your-hostname.local:4273/setup) . Select your camera and
    projector, using as high framerate and resolution as you're
    comfortable with.
 
@@ -200,7 +200,7 @@ not the PS for it to work, probably)
 1. Select your camera and projector at the bottom and then click
    Calibrate. Follow the calibration instructions.
 
-After calibrating, on http://whatever.local:4273/ : click New Program,
+After calibrating, on http://localhost:4273/ : click New Program,
 hit Save, drag it around. You should see the program move on your
 table as you drag it around on your laptop.
 
