@@ -609,6 +609,17 @@ C method compile {args} {
     }
     set cfile [file tempfile /tmp/cfileXXXXXX].c
 
+    if {$::tcl_platform(os) eq "darwin"} {
+        if {[catch {exec brew --prefix} brewPrefix] == 0} {
+            foreach pkg {openssl jpeg-turbo glfw} {
+                if {[catch {exec brew --prefix $pkg} pkgPrefix] == 0} {
+                    lappend cflags "-I$pkgPrefix/include"
+                    lappend endcflags "-L$pkgPrefix/lib"
+                }
+            }
+        }
+    }
+
     # A universally unique id that can be used as a global proc name
     # in every thread.
     if {$cid eq {}} {

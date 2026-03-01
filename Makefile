@@ -5,6 +5,27 @@ else
 	# (dyld only processes __interpose from dylibs, not from the main executable.)
 	INTERPOSE_DYLIB = folk_interpose.dylib
 	INTERPOSE_LDFLAGS = -Wl,-rpath,@executable_path ./folk_interpose.dylib
+
+	# MacOS Homebrew dependencies
+	BREW_PREFIX := $(shell brew --prefix 2>/dev/null)
+	ifneq ($(BREW_PREFIX),)
+		OPENSSL_PREFIX := $(shell brew --prefix openssl 2>/dev/null)
+		JPEG_TURBO_PREFIX := $(shell brew --prefix jpeg-turbo 2>/dev/null)
+		GLFW_PREFIX := $(shell brew --prefix glfw 2>/dev/null)
+
+		ifneq ($(OPENSSL_PREFIX),)
+			override BUILTIN_CFLAGS += -I$(OPENSSL_PREFIX)/include
+			INTERPOSE_LDFLAGS += -L$(OPENSSL_PREFIX)/lib
+		endif
+		ifneq ($(JPEG_TURBO_PREFIX),)
+			override BUILTIN_CFLAGS += -I$(JPEG_TURBO_PREFIX)/include
+			INTERPOSE_LDFLAGS += -L$(JPEG_TURBO_PREFIX)/lib
+		endif
+		ifneq ($(GLFW_PREFIX),)
+			override BUILTIN_CFLAGS += -I$(GLFW_PREFIX)/include
+			INTERPOSE_LDFLAGS += -L$(GLFW_PREFIX)/lib
+		endif
+	endif
 endif
 
 ifneq (,$(filter -DTRACY_ENABLE,$(CFLAGS)))
