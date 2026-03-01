@@ -2,7 +2,7 @@
 
 $::realStdout puts "Folk Computer (pid [pid])."
 set host $([string match "*.local" $::thisNode] ? $::thisNode : "$::thisNode.local")
-$::realStdout puts "Web interface at: http://$host:4273/"
+$::realStdout puts "Web interface at: http://localhost:4273/ (or http://$host:4273/)"
 $::realStdout puts ""
 $::realStdout flush
 
