@@ -75,6 +75,7 @@ local proc vktry {call} { string map {\n " "} [csubst {{
 $gpuc code {
     VkDevice device;
     static void initPlaceholderTexture();
+    #define NUM_STAGING_BUFFERS 3
 }
 
 $gpuc typedef int GpuTextureHandle
@@ -94,6 +95,13 @@ $gpuc struct GpuTextureBlock {
     VmaAllocation textureImageAllocation;
     VkImageView textureImageView;
     VkSampler textureSampler;
+
+    // Phase 1 optimization:
+    bool hasStagingBuffers;
+    VkBuffer stagingBuffers[NUM_STAGING_BUFFERS];
+    VmaAllocation stagingBufferAllocations[NUM_STAGING_BUFFERS];
+    VkFence stagingFences[NUM_STAGING_BUFFERS];
+    int currentStagingIndex;
 
     // mostly for debugging:
     char* description;
@@ -655,25 +663,38 @@ $gpuc proc updateGpuTexture {GpuTextureHandle handle Image im} void {
     FOLK_ENSURE(block->alive);
     FOLK_ENSURE(block->width == im.width && block->height == im.height);
 
-    VkFence fence = getFence();
-    size_t size = im.width * im.height * 4;
-    
-    VkBuffer stagingBuffer;
-    VmaAllocation stagingBufferAllocation;
-    createBuffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                 &stagingBuffer, &stagingBufferAllocation);
+    if (!block->hasStagingBuffers) {
+        size_t size = im.width * im.height * 4;
+        for (int i = 0; i < NUM_STAGING_BUFFERS; i++) {
+            createBuffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                         &block->stagingBuffers[i], &block->stagingBufferAllocations[i]);
+            
+            VkFenceCreateInfo fenceInfo = {0};
+            fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+            // Initially signaled so the first wait passes
+            fenceInfo.flags = VK_SIGNALED_BIT;
+            $[vktry {vkCreateFence(device, &fenceInfo, NULL, &block->stagingFences[i])}]
+        }
+        block->currentStagingIndex = 0;
+        block->hasStagingBuffers = true;
+    }
 
-    // Copy new CPU image to staging buffer
+    // Wait for the next staging buffer in the ring to be available
+    int idx = block->currentStagingIndex;
+    $[vktry {vkWaitForFences(device, 1, &block->stagingFences[idx], VK_TRUE, UINT64_MAX)}]
+    $[vktry {vkResetFences(device, 1, &block->stagingFences[idx])}]
+
+    // Copy new CPU image to the staging buffer
     {
         void* data; 
-        vmaMapMemory(vmaGetAllocator(), stagingBufferAllocation, &data);
+        vmaMapMemory(vmaGetAllocator(), block->stagingBufferAllocations[idx], &data);
         Image stagingIm = (Image) {
             .width = im.width, .height = im.height,
             .components = 4, .bytesPerRow = im.width * 4, .data = data
         };
         copyImageToRgba(im, stagingIm);
-        vmaUnmapMemory(vmaGetAllocator(), stagingBufferAllocation);
+        vmaUnmapMemory(vmaGetAllocator(), block->stagingBufferAllocations[idx]);
     }
 
     // Execute the GPU copy
@@ -705,7 +726,7 @@ $gpuc proc updateGpuTexture {GpuTextureHandle handle Image im} void {
         region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         region.imageSubresource.layerCount = 1;
         region.imageExtent = (VkExtent3D) {im.width, im.height, 1};
-        vkCmdCopyBufferToImage(commandBuffer, stagingBuffer, block->textureImage, 
+        vkCmdCopyBufferToImage(commandBuffer, block->stagingBuffers[idx], block->textureImage, 
                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
         // 3. Transition back to SHADER_READ_ONLY
@@ -718,14 +739,11 @@ $gpuc proc updateGpuTexture {GpuTextureHandle handle Image im} void {
                              VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                              0, 0, NULL, 0, NULL, 1, &barrier);
 
-        endSingleTimeCommands(commandBuffer, fence);
-
-        // Wait for copy to finish (V1 testing only, will be made async later)
-        vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
+        endSingleTimeCommands(commandBuffer, block->stagingFences[idx]);
     }
 
-    // Cleanup staging buffer
-    vmaDestroyBuffer(vmaGetAllocator(), stagingBuffer, stagingBufferAllocation);
+    // Advance ring index
+    block->currentStagingIndex = (block->currentStagingIndex + 1) % NUM_STAGING_BUFFERS;
 }
 
 $gpuc proc replaceInTextureDescriptorSet {GpuTextureHandle oldHandle GpuTextureHandle newHandle} void {
@@ -755,6 +773,17 @@ $gpuc proc freeGpuTexture {GpuTextureHandle gim} void {
     GpuTextureBlock* block = &gpuTextures[gim];
 
     replaceInTextureDescriptorSet(gim, 0);
+
+    if (block->hasStagingBuffers) {
+        for (int i = 0; i < NUM_STAGING_BUFFERS; i++) {
+#ifdef TRACY_ENABLE
+            TracyCFree(block->stagingBufferAllocations[i]);
+#endif
+            vmaDestroyBuffer(vmaGetAllocator(), block->stagingBuffers[i], block->stagingBufferAllocations[i]);
+            vkDestroyFence(device, block->stagingFences[i], NULL);
+        }
+        block->hasStagingBuffers = false;
+    }
 
 #ifdef TRACY_ENABLE
     TracyCFree(block->textureImageAllocation);

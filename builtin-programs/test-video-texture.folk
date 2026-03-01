@@ -1,6 +1,9 @@
 # test-video-texture.folk
 
+When the image library is /imageLib/ {
+
 set cc [C]
+$cc extend $imageLib
 $cc include <math.h>
 $cc include <stdlib.h>
 
@@ -65,7 +68,6 @@ $cc proc fillSimulatedVideoFrame {Image im double timeCode} void {
 set videoSimLib [$cc compile]
 
 When the GPU texture library for /drawLib/ is /gpuTexLib/ & \
-     the image library is /imageLib/ & \
      the display /any/ has width /any/ height /any/ & \
      /p/ has canvas projection /surfaceToClip/ & \
      /p/ has canvas /id/ with /...wiOptions/ {
@@ -131,4 +133,5 @@ When test-video-texture is active {
     Claim test-video-texture has canvas projection \
         [list 1.0 0.0 0.0  0.0 1.0 0.0  0.0 0.0 1.0]
     Claim test-video-texture has canvas "virtual-video-canvas" with width 1920 height 1080
+}
 }
