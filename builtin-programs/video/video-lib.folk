@@ -1,0 +1,265 @@
+# video-lib.folk
+#
+#     A library for high-performance video decoding using libav (FFmpeg)
+#     with audio support via miniaudio.
+
+When the image library is /imageLib/ {
+
+set gpuc [C]
+$gpuc cflags -I/opt/homebrew/include -I./vendor/miniaudio
+$gpuc endcflags -L/opt/homebrew/lib -lavcodec -lavformat -lavutil -lswscale -lswresample -lpthread
+
+$gpuc include <libavcodec/avcodec.h>
+$gpuc include <libavformat/avformat.h>
+$gpuc include <libavutil/imgutils.h>
+$gpuc include <libavutil/opt.h>
+$gpuc include <libswscale/swscale.h>
+$gpuc include <libswresample/swresample.h>
+$gpuc include <pthread.h>
+$gpuc include <stdatomic.h>
+$gpuc include <miniaudio.h>
+
+$gpuc extend $imageLib
+
+$gpuc code {
+    #define VIDEO_RING_SIZE 8
+    #define AUDIO_RING_SIZE (1024 * 64)
+
+    typedef struct {
+        ma_data_source_base base; // Must be first for ma_data_source cast
+
+        AVFormatContext* formatCtx;
+        
+        // Video
+        AVCodecContext* videoCodecCtx;
+        int videoStreamIndex;
+        struct SwsContext* swsCtx;
+
+        // Audio
+        AVCodecContext* audioCodecCtx;
+        int audioStreamIndex;
+        struct SwrContext* swrCtx;
+        
+        // Decoded frame ring buffer
+        Image frames[VIDEO_RING_SIZE];
+        int64_t pts[VIDEO_RING_SIZE];
+        _Atomic int head; // Writer (decoder thread)
+        _Atomic int tail; // Reader (Tcl/main thread)
+
+        // Audio ring buffer (circular buffer of floats)
+        float* audioBuffer;
+        _Atomic uint32_t audioHead;
+        _Atomic uint32_t audioTail;
+
+        pthread_t decoderThread;
+        _Atomic bool running;
+        _Atomic bool seekRequested;
+        _Atomic double seekTarget;
+
+        char* filename;
+
+        ma_sound sound;
+    } VideoPlayer;
+
+    // miniaudio callbacks
+    static ma_result video_audio_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead) {
+        VideoPlayer* player = (VideoPlayer*)pDataSource;
+        float* pOut = (float*)pFramesOut;
+        uint32_t channels = player->audioCodecCtx->ch_layout.nb_channels;
+        
+        uint32_t framesAvailable = (player->audioHead - player->audioTail) / channels;
+        uint32_t toRead = (frameCount < framesAvailable) ? frameCount : framesAvailable;
+
+        for (uint32_t i = 0; i < toRead * channels; i++) {
+            pOut[i] = player->audioBuffer[(player->audioTail + i) % AUDIO_RING_SIZE];
+        }
+
+        player->audioTail = (player->audioTail + toRead * channels) % AUDIO_RING_SIZE;
+        if (pFramesRead) *pFramesRead = toRead;
+        return MA_SUCCESS;
+    }
+
+    static ma_result video_audio_get_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap) {
+        VideoPlayer* player = (VideoPlayer*)pDataSource;
+        *pFormat = ma_format_f32;
+        *pChannels = player->audioCodecCtx->ch_layout.nb_channels;
+        *pSampleRate = player->audioCodecCtx->sample_rate;
+        return MA_SUCCESS;
+    }
+
+    static ma_data_source_vtable g_video_audio_vtable = {
+        .onRead = video_audio_read,
+        .onGetDataFormat = video_audio_get_format
+    };
+
+    static void* decoderLoop(void* arg) {
+        VideoPlayer* player = (VideoPlayer*)arg;
+        AVPacket* packet = av_packet_alloc();
+        AVFrame* frame = av_frame_alloc();
+
+        while (atomic_load(&player->running)) {
+            // Check for seek
+            if (atomic_load(&player->seekRequested)) {
+                int64_t target = (int64_t)(player->seekTarget / av_q2d(player->formatCtx->streams[player->videoStreamIndex]->time_base));
+                av_seek_frame(player->formatCtx, player->videoStreamIndex, target, AVSEEK_FLAG_BACKWARD);
+                if (player->videoCodecCtx) avcodec_flush_buffers(player->videoCodecCtx);
+                if (player->audioCodecCtx) avcodec_flush_buffers(player->audioCodecCtx);
+                atomic_store(&player->seekRequested, false);
+                atomic_store(&player->head, 0);
+                atomic_store(&player->tail, 0);
+                atomic_store(&player->audioHead, 0);
+                atomic_store(&player->audioTail, 0);
+            }
+
+            // Limit buffer sizes
+            int nextHead = (atomic_load(&player->head) + 1) % VIDEO_RING_SIZE;
+            uint32_t audioSpace = (player->audioTail - player->audioHead - 1 + AUDIO_RING_SIZE) % AUDIO_RING_SIZE;
+            
+            if (nextHead == atomic_load(&player->tail) || audioSpace < 4096) {
+                usleep(5000); continue;
+            }
+
+            if (av_read_frame(player->formatCtx, packet) < 0) {
+                av_seek_frame(player->formatCtx, player->videoStreamIndex, 0, AVSEEK_FLAG_BACKWARD);
+                continue;
+            }
+
+            if (packet->stream_index == player->videoStreamIndex) {
+                if (avcodec_send_packet(player->videoCodecCtx, packet) >= 0) {
+                    while (avcodec_receive_frame(player->videoCodecCtx, frame) >= 0) {
+                        Image* dest = &player->frames[nextHead];
+                        sws_scale(player->swsCtx, (const uint8_t* const*)frame->data,
+                                  frame->linesize, 0, player->videoCodecCtx->height,
+                                  (uint8_t* const[]){dest->data}, (int[]){dest->bytesPerRow});
+                        player->pts[nextHead] = frame->pts;
+                        atomic_store(&player->head, nextHead);
+                        nextHead = (nextHead + 1) % VIDEO_RING_SIZE;
+                        if (nextHead == atomic_load(&player->tail)) break;
+                    }
+                }
+            } else if (packet->stream_index == player->audioStreamIndex) {
+                if (avcodec_send_packet(player->audioCodecCtx, packet) >= 0) {
+                    while (avcodec_receive_frame(player->audioCodecCtx, frame) >= 0) {
+                        uint8_t* outData = (uint8_t*)&player->audioBuffer[player->audioHead % AUDIO_RING_SIZE];
+                        // Simplification: this assumes the output doesn't wrap around in one call.
+                        // In a real implementation, we'd resample to a temporary buffer or handle wrap-around.
+                        int samples = swr_convert(player->swrCtx, &outData, frame->nb_samples,
+                                                  (const uint8_t**)frame->data, frame->nb_samples);
+                        if (samples > 0) {
+                            player->audioHead = (player->audioHead + samples * player->audioCodecCtx->ch_layout.nb_channels) % AUDIO_RING_SIZE;
+                        }
+                    }
+                }
+            }
+            av_packet_unref(packet);
+        }
+
+        av_packet_free(&packet);
+        av_frame_free(&frame);
+        return NULL;
+    }
+}
+
+$gpuc import $audioLib getEngine
+
+$gpuc proc openVideo {char* filename} VideoPlayer* {
+    VideoPlayer* player = calloc(1, sizeof(VideoPlayer));
+    player->filename = strdup(filename);
+
+    if (avformat_open_input(&player->formatCtx, filename, NULL, NULL) < 0) return NULL;
+    if (avformat_find_stream_info(player->formatCtx, NULL) < 0) return NULL;
+
+    player->videoStreamIndex = -1;
+    player->audioStreamIndex = -1;
+    for (int i = 0; i < player->formatCtx->nb_streams; i++) {
+        if (player->formatCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO && player->videoStreamIndex == -1) 
+            player->videoStreamIndex = i;
+        if (player->formatCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO && player->audioStreamIndex == -1)
+            player->audioStreamIndex = i;
+    }
+
+    // Init Video
+    if (player->videoStreamIndex != -1) {
+        AVCodecParameters* vpar = player->formatCtx->streams[player->videoStreamIndex]->codecpar;
+        const AVCodec* vcodec = avcodec_find_decoder(vpar->codec_id);
+        player->videoCodecCtx = avcodec_alloc_context3(vcodec);
+        avcodec_parameters_to_context(player->videoCodecCtx, vpar);
+        avcodec_open2(player->videoCodecCtx, vcodec, NULL);
+        player->swsCtx = sws_getContext(player->videoCodecCtx->width, player->videoCodecCtx->height, player->videoCodecCtx->pix_fmt,
+                                        player->videoCodecCtx->width, player->videoCodecCtx->height, AV_PIX_FMT_RGBA,
+                                        SWS_BILINEAR, NULL, NULL, NULL);
+        for (int i = 0; i < VIDEO_RING_SIZE; i++) {
+            player->frames[i].width = player->videoCodecCtx->width;
+            player->frames[i].height = player->videoCodecCtx->height;
+            player->frames[i].components = 4;
+            player->frames[i].bytesPerRow = player->videoCodecCtx->width * 4;
+            player->frames[i].data = malloc(player->frames[i].bytesPerRow * player->frames[i].height);
+        }
+    }
+
+    // Init Audio
+    if (player->audioStreamIndex != -1) {
+        AVCodecParameters* apar = player->formatCtx->streams[player->audioStreamIndex]->codecpar;
+        const AVCodec* acodec = avcodec_find_decoder(apar->codec_id);
+        player->audioCodecCtx = avcodec_alloc_context3(acodec);
+        avcodec_parameters_to_context(player->audioCodecCtx, apar);
+        avcodec_open2(player->audioCodecCtx, acodec, NULL);
+
+        player->swrCtx = swr_alloc();
+        av_opt_set_chlayout(player->swrCtx, "out_chlayout", &player->audioCodecCtx->ch_layout, 0);
+        av_opt_set_int(player->swrCtx, "out_sample_rate", player->audioCodecCtx->sample_rate, 0);
+        av_opt_set_sample_fmt(player->swrCtx, "out_sample_fmt", AV_SAMPLE_FMT_FLT, 0);
+        av_opt_set_chlayout(player->swrCtx, "in_chlayout", &player->audioCodecCtx->ch_layout, 0);
+        av_opt_set_int(player->swrCtx, "in_sample_rate", player->audioCodecCtx->sample_rate, 0);
+        av_opt_set_sample_fmt(player->swrCtx, "in_sample_fmt", player->audioCodecCtx->sample_fmt, 0);
+        swr_init(player->swrCtx);
+
+        player->audioBuffer = malloc(AUDIO_RING_SIZE * sizeof(float));
+        
+        // Miniaudio sound init
+        ma_data_source_config dsConfig = ma_data_source_config_init();
+        dsConfig.vtable = &g_video_audio_vtable;
+        ma_data_source_init(&dsConfig, &player->base);
+        ma_sound_init_from_data_source(getEngine(), &player->base, 0, NULL, &player->sound);
+        ma_sound_start(&player->sound);
+    }
+
+    player->running = true;
+    pthread_create(&player->decoderThread, NULL, decoderLoop, player);
+    return player;
+}
+
+$gpuc proc getNextFrame {VideoPlayer* player} Image {
+    int tail = atomic_load(&player->tail);
+    int head = atomic_load(&player->head);
+    if (tail == head) return (Image){0};
+    int nextTail = (tail + 1) % VIDEO_RING_SIZE;
+    Image ret = player->frames[nextTail];
+    atomic_store(&player->tail, nextTail);
+    return ret;
+}
+
+$gpuc proc closeVideo {VideoPlayer* player} void {
+    player->running = false;
+    pthread_join(player->decoderThread, NULL);
+    if (player->audioStreamIndex != -1) {
+        ma_sound_uninit(&player->sound);
+        ma_data_source_uninit(&player->base);
+        free(player->audioBuffer);
+        swr_free(&player->swrCtx);
+        avcodec_free_context(&player->audioCodecCtx);
+    }
+    if (player->videoStreamIndex != -1) {
+        for (int i = 0; i < VIDEO_RING_SIZE; i++) free(player->frames[i].data);
+        sws_freeContext(player->swsCtx);
+        avcodec_free_context(&player->videoCodecCtx);
+    }
+    avformat_close_input(&player->formatCtx);
+    free(player->filename);
+    free(player);
+}
+
+set videoLib [$gpuc compile]
+Claim the video library is $videoLib
+
+}

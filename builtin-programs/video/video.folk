@@ -1,0 +1,88 @@
+# video.folk
+#
+#     High-level reactive API for video playback.
+
+When the video library is /videoLib/ & 
+     the GPU texture library for /drawLib/ is /gpuTexLib/ & 
+     the image library is /imageLib/ {
+
+    When /someone/ wishes to play video /path/ with /...options/ & 
+         /someone/ has canvas /id/ with /...wiOptions/ & 
+         /someone/ has canvas projection /surfaceToClip/ {
+
+        if {![file exists $path]} {
+            # Maybe claim an error here
+            return
+        }
+
+        # Lifecycle management for the decoder
+        set player [$videoLib openVideo $path]
+        if {$player == 0} { return }
+
+        Claim video $path is being decoded by $player 
+            -destructor [list $videoLib closeVideo $player]
+
+        set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
+
+        # Dimensions and positioning (similar to image.folk)
+        set x [dict getdef $options x 0]
+        set y [dict getdef $options y 0]
+        set width [dict getdef $options width 400]
+
+        # 1. Wait for first frame to initialize texture
+        When video $path is being decoded by $player {
+            set firstFrame [$videoLib getNextFrame $player]
+            if {[$imageLib Image_width $firstFrame] != 0} {
+                set gtex [$gpuTexLib copyImageToGpuTexture $firstFrame]
+                
+                # Aspect-ratio corrected height
+                set height $(double([$imageLib Image_height $firstFrame]) / [$imageLib Image_width $firstFrame] * $width)
+
+                set a [list $x $y]
+                set b [list [+ $x $width] $y]
+                set c [list [+ $x $width] [+ $y $height]]
+                set d [list $x [+ $y $height]]
+
+                Claim video $path is ready for playback on $id 
+                    with player $player texture $gtex resolution $wiResolution 
+                    coords [list $a $b $c $d] 
+                    -destructor [list $gpuTexLib freeGpuTexture $gtex]
+            } else {
+                # Poll until decoder produces something
+                after 10 {
+                    Retract video $path is being decoded by $player
+                    Assert video $path is being decoded by $player
+                }
+            }
+        }
+
+        # 2. The Playback Loop
+        When video $path is ready for playback on $id 
+             with player /player/ texture /gtex/ resolution /res/ coords /coords/ {
+            
+            Claim video $path is polling
+            When video $path is polling {
+                set frame [$videoLib getNextFrame $player]
+                if {[$imageLib Image_width $frame] != 0} {
+                    $gpuTexLib updateGpuTexture $gtex $frame
+                }
+
+                Wish the GPU draws pipeline "image" onto canvas $id with arguments 
+                    [list $res $surfaceToClip 
+                          $gtex 
+                          {*}[lrange $coords 0 3]]
+
+                # Drive the loop
+                after 1 {
+                    Retract video $path is polling
+                    Assert video $path is polling
+                }
+            }
+        }
+    }
+}
+
+# Shorthand for simple wishes
+When /someone/ wishes to play video /path/ {
+    Wish to play video $path with x 0 y 0 width 400
+}

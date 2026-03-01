@@ -1,0 +1,40 @@
+# test/video-playback.folk
+
+Assert! when we are on {
+
+    # 1. Load the video library and video statement program
+    source "builtin-programs/video/video-lib.folk"
+    source "builtin-programs/video/video.folk"
+
+    # 2. Setup mock canvas and environment
+    When we are on {
+        Claim the display "mock-display" has width 1920 height 1080
+        Claim video-playback-test has canvas projection \
+            [list 1.0 0.0 0.0  0.0 1.0 0.0  0.0 0.0 1.0]
+        Claim video-playback-test has canvas "video-test-canvas" with width 1920 height 1080
+        
+        # Trigger the video playback
+        Wish to play video "test.mp4" with x 100 y 100 width 800
+    }
+
+    # 3. Monitor the playback (headless verification)
+    When video /path/ is ready for playback on /id/ \
+         with player /player/ texture /gtex/ resolution /res/ coords /coords/ {
+        
+        puts "--- VIDEO TEST SUCCESS ---"
+        puts "Video $path is ready for playback on canvas $id"
+        puts "Texture: $gtex, Coords: $coords"
+        puts "--------------------------"
+        Exit! 0
+    }
+
+    # Time out if it doesn't match within 10s
+    When we are on {
+        sleep 10
+        puts "--- VIDEO TEST FAILED: Timeout waiting for playback ready ---"
+        Exit! 1
+    }
+
+} with environment {}
+
+Assert! we are on
