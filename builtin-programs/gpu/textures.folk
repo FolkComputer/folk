@@ -647,6 +647,87 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
 
     return block->handle;
 }
+
+$gpuc proc updateGpuTexture {GpuTextureHandle handle Image im} void {
+    GpuTextureBlock* block = &gpuTextures[handle];
+    
+    // Ensure the texture is alive and dimensions haven't changed
+    FOLK_ENSURE(block->alive);
+    FOLK_ENSURE(block->width == im.width && block->height == im.height);
+
+    VkFence fence = getFence();
+    size_t size = im.width * im.height * 4;
+    
+    VkBuffer stagingBuffer;
+    VmaAllocation stagingBufferAllocation;
+    createBuffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                 &stagingBuffer, &stagingBufferAllocation);
+
+    // Copy new CPU image to staging buffer
+    {
+        void* data; 
+        vmaMapMemory(vmaGetAllocator(), stagingBufferAllocation, &data);
+        Image stagingIm = (Image) {
+            .width = im.width, .height = im.height,
+            .components = 4, .bytesPerRow = im.width * 4, .data = data
+        };
+        copyImageToRgba(im, stagingIm);
+        vmaUnmapMemory(vmaGetAllocator(), stagingBufferAllocation);
+    }
+
+    // Execute the GPU copy
+    {
+        VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+
+        // 1. Transition from SHADER_READ_ONLY to TRANSFER_DST
+        VkImageMemoryBarrier barrier = {0};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = block->textureImage;
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.baseMipLevel = 0;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount = 1;
+        barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+        vkCmdPipelineBarrier(commandBuffer,
+                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             0, 0, NULL, 0, NULL, 1, &barrier);
+
+        // 2. Copy buffer to image
+        VkBufferImageCopy region = {0};
+        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.imageSubresource.layerCount = 1;
+        region.imageExtent = (VkExtent3D) {im.width, im.height, 1};
+        vkCmdCopyBufferToImage(commandBuffer, stagingBuffer, block->textureImage, 
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+        // 3. Transition back to SHADER_READ_ONLY
+        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+        vkCmdPipelineBarrier(commandBuffer,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                             0, 0, NULL, 0, NULL, 1, &barrier);
+
+        endSingleTimeCommands(commandBuffer, fence);
+
+        // Wait for copy to finish (V1 testing only, will be made async later)
+        vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
+    }
+
+    // Cleanup staging buffer
+    vmaDestroyBuffer(vmaGetAllocator(), stagingBuffer, stagingBufferAllocation);
+}
+
 $gpuc proc replaceInTextureDescriptorSet {GpuTextureHandle oldHandle GpuTextureHandle newHandle} void {
     // newHandle = 0 is used as a placeholder so it doesn't
     // fault if it tries to access this freed texture.

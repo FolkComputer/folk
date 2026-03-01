@@ -1,0 +1,134 @@
+# test-video-texture.folk
+
+set cc [C]
+$cc include <math.h>
+$cc include <stdlib.h>
+
+# A fast C-level frame generator simulating a video decoder
+$cc code {
+    // Helper: HSL to RGB
+    float hueToRgb(float p, float q, float t) {
+        if(t < 0.0f) t += 1.0f;
+        if(t > 1.0f) t -= 1.0f;
+        if(t < 1.0f/6.0f) return p + (q - p) * 6.0f * t;
+        if(t < 1.0f/2.0f) return q;
+        if(t < 2.0f/3.0f) return p + (q - p) * (2.0f/3.0f - t) * 6.0f;
+        return p;
+    }
+
+    // Generate a dithered pastel gradient
+    void generatePastelFrame(Image im, double timeCode) {
+        uint8_t* pixels = im.data;
+        int width = im.width;
+        int height = im.height;
+        
+        // 4x4 Bayer matrix for ordered dithering
+        const int bayer[4][4] = {
+            { 0, 8, 2, 10 },
+            { 12, 4, 14, 6 },
+            { 3, 11, 1, 9 },
+            { 15, 7, 13, 5 }
+        };
+
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                // Base HSL values
+                float h = (sin(timeCode * 0.5f) * 0.5f + 0.5f) + ((float)x / width) * 0.3f;
+                float s = 0.7f; // Pastel saturation
+                float l = 0.8f; // Pastel lightness
+
+                // Apply dither to lightness
+                float dither = (bayer[y % 4][x % 4] / 16.0f) - 0.5f;
+                l += dither * 0.15f; 
+                
+                // Keep bounds
+                if (h > 1.0f) h -= 1.0f;
+                if (l < 0.0f) l = 0.0f;
+                if (l > 1.0f) l = 1.0f;
+
+                // HSL to RGB conversion
+                float q = l < 0.5f ? l * (1.0f + s) : l + s - l * s;
+                float p = 2.0f * l - q;
+                
+                int idx = y * im.bytesPerRow + (x * 4);
+                pixels[idx + 0] = (uint8_t)(hueToRgb(p, q, h + 1.0f/3.0f) * 255);
+                pixels[idx + 1] = (uint8_t)(hueToRgb(p, q, h) * 255);
+                pixels[idx + 2] = (uint8_t)(hueToRgb(p, q, h - 1.0f/3.0f) * 255);
+                pixels[idx + 3] = 255; // Alpha
+            }
+        }
+    }
+}
+$cc proc fillSimulatedVideoFrame {Image im double timeCode} void {
+    generatePastelFrame(im, timeCode);
+}
+set videoSimLib [$cc compile]
+
+When the GPU texture library for /drawLib/ is /gpuTexLib/ & \
+     the image library is /imageLib/ & \
+     the display /any/ has width /any/ height /any/ & \
+     /p/ has canvas projection /surfaceToClip/ & \
+     /p/ has canvas /id/ with /...wiOptions/ {
+
+    set vw 512
+    set vh 512
+    set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
+    
+    # 1. Allocate the persistent CPU buffer for our "video frame"
+    set cpuBuffer [$imageLib Image_new $vw $vh 4]
+    
+    # 2. Upload it once to get a handle (creates the descriptor)
+    set gpuHandle [$gpuTexLib copyImageToGpuTexture $cpuBuffer]
+
+    # Clean up the GPU texture when the program unmatches
+    On unmatch {
+        $gpuTexLib freeGpuTexture $gpuHandle
+        $imageLib Image_free $cpuBuffer
+    }
+    
+    # Setup coordinates for a square in the middle of the table
+    set size 400
+    set x0 300
+    set y0 300
+    set a [list $x0 $y0]
+    set b [list [+ $x0 $size] $y0]
+    set c [list [+ $x0 $size] [+ $y0 $size]]
+    set d [list $x0 [+ $y0 $size]]
+
+    # 3. Start the render loop
+    set startTime [clock microseconds]
+
+    Claim simulated video is playing
+    When simulated video is playing {
+        
+        # Calculate time offset
+        set now [clock microseconds]
+        set timeCode $(double($now - $startTime) / 1000000.0)
+
+        # "Decode" the next frame into the CPU buffer
+        $videoSimLib fillSimulatedVideoFrame $cpuBuffer $timeCode
+
+        # Push the CPU buffer to the existing GPU texture
+        $gpuTexLib updateGpuTexture $gpuHandle $cpuBuffer
+
+        # Draw it!
+        Wish the GPU draws pipeline "image" onto canvas $id with arguments \
+            [list $wiResolution $surfaceToClip \
+                  $gpuHandle \
+                  $a $b $c $d]
+
+        # Trigger the next frame
+        after 16 {
+            Retract simulated video is playing
+            Assert simulated video is playing
+        }
+    }
+}
+
+# Finally, drop a token on the table to trigger the whole thing
+Wish test-video-texture is active
+When test-video-texture is active {
+    Claim test-video-texture has canvas projection \
+        [list 1.0 0.0 0.0  0.0 1.0 0.0  0.0 0.0 1.0]
+    Claim test-video-texture has canvas "virtual-video-canvas" with width 1920 height 1080
+}
