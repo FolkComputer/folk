@@ -22,15 +22,15 @@ When -noncapturing the program save directory is /saveDir/ {
             } else {
                 if {![file exists "$saveDir/$obj.folk"] &&
                     ($::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial" || $::thisNode eq "gadget-platinum" || $::thisNode eq "gadget-pink")} {
-                    # HACK: 'Page fault' to localhost, try getting page from
+                    # HACK: 'Page fault' to folk-hex, try getting page from
                     # there. Ideally we would have some general (Avahi?)
                     # way of finding the 'authoritative' node on the local
                     # network, or broadcasting out, and getting pages from
                     # there.
                     exec curl --output "$saveDir/$obj.folk" \
-                        "http://localhost:4273/printed-programs/$obj.folk" &
+                        "http://folk-hex.local:4273/printed-programs/$obj.folk" &
                     exec curl --output "$saveDir/$obj.meta.folk" \
-                        "http://localhost:4273/printed-programs/$obj.meta.folk" &
+                        "http://folk-hex.local:4273/printed-programs/$obj.meta.folk" &
                     # HACK: It won't be reloaded until you redetect the tag.
                 }
 
