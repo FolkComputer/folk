@@ -1,0 +1,52 @@
+When the image library is /imageLib/ {
+    set cc [C]
+    $cc extend $imageLib
+    $cc cflags -I[pwd]/vendor/gifdec
+    $cc endcflags [pwd]/vendor/gifdec/gifdec.o
+    $cc include "gifdec.h"
+    $cc include <stdlib.h>
+
+    $cc proc loadGif {char* filename} Jim_Obj* {
+        gd_GIF *gif = gd_open_gif(filename);
+        if (!gif) {
+            FOLK_ERROR("loadGif: Failed to open %s", filename);
+        }
+
+        Jim_Obj *framesList = Jim_NewListObj(interp, NULL, 0);
+        Jim_Obj *delaysList = Jim_NewListObj(interp, NULL, 0);
+
+        while (gd_get_frame(gif)) {
+            Image im;
+            im.width = gif->width;
+            im.height = gif->height;
+            im.components = 3;
+            im.bytesPerRow = im.width * 3;
+            im.data = malloc(im.bytesPerRow * im.height);
+            im.uniq = 0;
+
+            gd_render_frame(gif, im.data);
+
+            // Box the Image struct into a Tcl object
+            Jim_Obj *imObj;
+            $[$cc ret Image imObj im]
+            Jim_ListAppendElement(interp, framesList, imObj);
+
+            // gifdec delay is in 1/100s of a second. Convert to milliseconds.
+            Jim_ListAppendElement(interp, delaysList, Jim_NewIntObj(interp, gif->gce.delay * 10));
+        }
+
+        uint16_t w = gif->width;
+        uint16_t h = gif->height;
+        gd_close_gif(gif);
+
+        Jim_Obj *result = Jim_NewDictObj(interp, NULL, 0);
+        Jim_DictAddElement(interp, result, Jim_NewStringObj(interp, "frames", -1), framesList);
+        Jim_DictAddElement(interp, result, Jim_NewStringObj(interp, "delays", -1), delaysList);
+        Jim_DictAddElement(interp, result, Jim_NewStringObj(interp, "width", -1), Jim_NewIntObj(interp, w));
+        Jim_DictAddElement(interp, result, Jim_NewStringObj(interp, "height", -1), Jim_NewIntObj(interp, h));
+        return result;
+    }
+
+    set gifLib [$cc compile]
+    Claim the gif library is $gifLib
+}

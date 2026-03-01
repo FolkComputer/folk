@@ -1,6 +1,7 @@
 When the image library is /imageLib/ &\
      the jpeg library is /jpegLib/ &\
-     the png library is /pngLib/ {
+     the png library is /pngLib/ &\
+     the gif library is /gifLib/ {
     set cc [C]
     $cc extend $imageLib
 
@@ -65,17 +66,26 @@ When the image library is /imageLib/ &\
         set impath $im
         if {[string match "http*://*" $impath]} {
             set im /tmp/[regsub -all {\W+} $impath "_"]
-            exec curl -o$im $impath
+            if {![file exists $im]} {
+                exec curl -s -L -o$im $impath
+            }
         }
         if {[string match "*jpg" $im] ||
             [string match "*jpeg" $im] ||
-            [string match "*png" $im]} {
+            [string match "*png" $im] ||
+            [string match "*gif" $im]} {
             set path [expr {[string index $im 0] eq "/" ?
                             $im : "$::env(HOME)/folk-images/$im"}]
+            if {![file exists $path]} {
+                set path [file join [pwd] $im]
+            }
             if {[string match "*jpg" $im] || [string match "*jpeg" $im]} {
                 set im [$jpegLib loadJpeg $path]
-            } else {
+            } elseif {[string match "*png" $im]} {
                 set im [$pngLib loadPng $path]
+            } else {
+                set gif [$gifLib loadGif $path]
+                set im [lindex [dict get $gif frames] 0]
             }
             $cacheLib cachePut $impath $im
         }

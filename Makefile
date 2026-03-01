@@ -18,6 +18,7 @@ endif
 
 folk: workqueue.o db.o trie.o sysmon.o epoch.o folk.o output-redirection.o \
 	vendor/c11-queues/mpmc_queue.o vendor/c11-queues/memory.o \
+	vendor/gifdec/gifdec.o \
 	vendor/jimtcl/libjim.a $(TRACY_TARGET) CFLAGS $(INTERPOSE_DYLIB)
 
 	$(LINKER) -g -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) -o$@ \
@@ -37,6 +38,11 @@ folk: workqueue.o db.o trie.o sysmon.o epoch.o folk.o output-redirection.o \
 	cc -c -O2 -g -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) -o$@  \
 		-D_GNU_SOURCE $(CFLAGS) $(BUILTIN_CFLAGS) \
 		$< -I./vendor/jimtcl -I./vendor/tracy/public
+
+vendor/gifdec/gifdec.o: vendor/gifdec/gifdec.c vendor/gifdec/gifdec.h
+	cc -c -O2 -g -fPIC -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) -o$@ \
+		$(CFLAGS) $(BUILTIN_CFLAGS) \
+		$<
 
 folk_interpose.dylib: output-redirection.c
 	cc -dynamiclib -undefined dynamic_lookup \
@@ -79,7 +85,7 @@ debug: folk
 	fi
 
 clean:
-	rm -f folk *.o *.dylib vendor/tracy/public/TracyClient.o vendor/c11-queues/*.o
+	rm -f folk *.o *.dylib vendor/tracy/public/TracyClient.o vendor/c11-queues/*.o vendor/gifdec/*.o
 distclean: clean
 	make -C vendor/jimtcl distclean
 	rm -rf vendor/apriltag/build
