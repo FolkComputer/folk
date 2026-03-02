@@ -23,6 +23,11 @@
 #
 #
 
+if {$::tcl_platform(os) eq "darwin"} {
+    puts "terminal: TODO: Implement on MacOS"
+    return
+}
+
 error "FIXME: terminal.folk not currently working."
 
 source lib/terminal.tcl

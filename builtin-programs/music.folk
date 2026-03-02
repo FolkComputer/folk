@@ -1,3 +1,8 @@
+if {$::tcl_platform(os) eq "darwin"} {
+    puts "music: TODO: Implement on MacOS"
+    return
+}
+
 if {[catch {exec which sclang}]} {
     error "music: sclang doesn't exist; not running."
 }

@@ -3,6 +3,11 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
      the GPU VMA DLL is /vmaDll/ &\
      the GPU texture library for /drawLib/ is /gpuTextureLib/ &\
      display /any/ has width /any/ height /any/ {
+    if {$::tcl_platform(os) eq "darwin"} {
+        puts "web/textures: TODO: Implement on MacOS"
+        return
+    }
+
     set cc [C]
     $cc endcflags -lpng
     $cc cflags -I./vendor

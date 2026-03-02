@@ -2,7 +2,10 @@
 #
 #     Hardware interface with Pi webcams (libcamera).
 
-if {$::tcl_platform(os) eq "darwin"} { return }
+if {$::tcl_platform(os) eq "darwin"} {
+    puts "camera/rpi: TODO: Implement on MacOS"
+    return
+}
 
 set makeCamera {
     set cpp [C++]

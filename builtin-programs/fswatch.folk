@@ -1,3 +1,8 @@
+if {$::tcl_platform(os) eq "darwin"} {
+    puts "fswatch: TODO: Implement on MacOS"
+    return
+}
+
 # Watch for builtin-programs/ changes.
 try {
     set fd [open [list |fswatch --recursive --event Updated --event Created \

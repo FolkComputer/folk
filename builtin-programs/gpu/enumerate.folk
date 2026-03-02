@@ -1,3 +1,8 @@
+if {$::tcl_platform(os) eq "darwin"} {
+    puts "gpu/enumerate: TODO: Implement on MacOS"
+    return
+}
+
 set cc [C]
 $cc cflags -I./vendor
 $cc code {
