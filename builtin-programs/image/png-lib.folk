@@ -1,6 +1,5 @@
 When the image library is /imageLib/ {
 if {$::tcl_platform(os) eq "darwin"} {
-    puts "image/png-lib: TODO: Implement on MacOS"
     return
 }
 

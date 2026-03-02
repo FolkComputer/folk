@@ -1,5 +1,4 @@
 if {$::tcl_platform(os) eq "darwin"} {
-    puts "music: TODO: Implement on MacOS"
     return
 }
 

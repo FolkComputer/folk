@@ -24,7 +24,6 @@
 #
 
 if {$::tcl_platform(os) eq "darwin"} {
-    puts "terminal: TODO: Implement on MacOS"
     return
 }
 
