@@ -1,8 +1,8 @@
 When the image library is /imageLib/ {
     set cc [C]
     $cc extend $imageLib
-    $cc cflags -I[pwd]/vendor/gifdec
-    $cc endcflags [pwd]/vendor/gifdec/gifdec.c
+    $cc cflags -I./vendor/gifdec
+    $cc endcflags ./vendor/gifdec/gifdec.c -fPIC
     $cc include "gifdec.h"
     $cc include <stdlib.h>
 
