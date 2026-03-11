@@ -377,6 +377,12 @@ C method struct {type fields} {
     }
 
     $self include <string.h>
+
+    set hasJimObj 0
+    foreach {fieldtype fieldname} $fields {
+        if {$fieldtype eq "Jim_Obj*"} { set hasJimObj 1; break }
+    }
+
     # ptrAndLongRep.value = 1 means the data is owned by
     # the Jim_ObjType and should be freed by this
     # code. value = 0 means the data is owned externally
@@ -389,6 +395,12 @@ C method struct {type fields} {
 
         void $[set type]_freeIntRepProc(Jim_Interp* interp, Jim_Obj *objPtr) {
             if (objPtr->internalRep.ptrIntValue.int1 == 1) {
+                $[if {$hasJimObj} { subst { $type *robj = ($type *)objPtr->internalRep.ptrIntValue.ptr; } } else { list }]
+                $[join [lmap {fieldtype fieldname} $fields {
+                    if {$fieldtype eq "Jim_Obj*"} {
+                        csubst { if (robj->$fieldname) { Jim_DecrRefCount(interp, robj->$fieldname); } }
+                    } else { list }
+                }] "\n"]
                 free((char*)objPtr->internalRep.ptrIntValue.ptr);
             }
         }
@@ -396,6 +408,12 @@ C method struct {type fields} {
             dupPtr->internalRep.ptrIntValue.ptr = malloc(sizeof($type));
             dupPtr->internalRep.ptrIntValue.int1 = 1;
             memcpy(dupPtr->internalRep.ptrIntValue.ptr, srcPtr->internalRep.ptrIntValue.ptr, sizeof($type));
+            $[if {$hasJimObj} { subst { $type *robj = ($type *)dupPtr->internalRep.ptrIntValue.ptr; } } else { list }]
+            $[join [lmap {fieldtype fieldname} $fields {
+                if {$fieldtype eq "Jim_Obj*"} {
+                    csubst { if (robj->$fieldname) { Jim_IncrRefCount(robj->$fieldname); } }
+                } else { list }
+            }] "\n"]
         }
         void $[set type]_updateStringProc(Jim_Obj *objPtr) {
             $[set type] *robj = ($[set type] *) objPtr->internalRep.ptrIntValue.ptr;
@@ -413,8 +431,12 @@ C method struct {type fields} {
             objPtr->bytes = (char *) Jim_Alloc(objPtr->length + 1);
             snprintf(objPtr->bytes, objPtr->length + 1, format, $[join [lmap fieldname $fieldnames {expr {"Jim_String(robj_$fieldname)"}}] ", "]);
             $[join [lmap {fieldtype fieldname} $fields {
-                csubst {
-                    Jim_FreeNewObj(interp, robj_$fieldname);
+                if {$fieldtype eq "Jim_Obj*"} {
+                    list
+                } else {
+                    csubst {
+                        Jim_FreeNewObj(interp, robj_$fieldname);
+                    }
                 }
             }] "\n"]
         }
@@ -433,6 +455,9 @@ C method struct {type fields} {
 
                     $[$self arg $fieldtype robj_$fieldname obj_${fieldname}]
                     memcpy(&robj->$fieldname, &robj_$fieldname, sizeof(robj->$fieldname));
+                    $[if {$fieldtype eq "Jim_Obj*"} {
+                        subst { if (robj->$fieldname) { Jim_IncrRefCount(robj->$fieldname); } }
+                    } else { list }]
                 }
             }] "\n"]
 
@@ -469,14 +494,21 @@ C method struct {type fields} {
         \$argname = *(($type *)\$obj->internalRep.ptrIntValue.ptr);
     }]
 
-    $self rtype $type {
-        $robj = Jim_NewObj(interp);
-        $robj->bytes = NULL;
-        $robj->typePtr = $[set rtype]_ObjType;
-        $robj->internalRep.ptrIntValue.ptr = malloc(sizeof($[set rtype]));
-        $robj->internalRep.ptrIntValue.int1 = 1;
-        memcpy($robj->internalRep.ptrIntValue.ptr, &$rvalue, sizeof($[set rtype]));
-    }
+    $self rtype $type [csubst {
+        \$robj = Jim_NewObj(interp);
+        \$robj->bytes = NULL;
+        \$robj->typePtr = $[set type]_ObjType;
+        \$robj->internalRep.ptrIntValue.ptr = malloc(sizeof($type));
+        \$robj->internalRep.ptrIntValue.int1 = 1;
+        memcpy(\$robj->internalRep.ptrIntValue.ptr, &\$rvalue, sizeof($type));
+        $[if {$hasJimObj} { subst { $type *robj_ptr = ($type *)\$robj->internalRep.ptrIntValue.ptr; } } else { list }]
+        $[join [lmap {fieldtype fieldname} $fields {
+            if {$fieldtype eq "Jim_Obj*"} {
+                subst { if (robj_ptr->$fieldname) { Jim_IncrRefCount(robj_ptr->$fieldname); } }
+            } else { list }
+        }] "\n"]
+    }]
+
 
     # Generate Tcl getter functions for each field:
     set ns [uplevel {namespace current}]::$type

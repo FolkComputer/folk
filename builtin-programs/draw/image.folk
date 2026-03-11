@@ -85,7 +85,7 @@ When the image library is /imageLib/ &\
                 set im [$pngLib loadPng $path]
             } else {
                 set gif [$gifLib loadGif $path]
-                set im [lindex [dict get $gif frames] 0]
+                set im [lindex [$gifLib Gif_frames $gif] 0]
             }
             $cacheLib cachePut $impath $im
         }

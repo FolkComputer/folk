@@ -46,8 +46,8 @@ When the gif library is /gifLib/ {
       }
       
       set gif [dict get $gifCache $path]
-      set frames [dict get $gif frames]
-      set delays [dict get $gif delays]
+      set frames [$gifLib Gif_frames $gif]
+      set delays [$gifLib Gif_delays $gif]
       
       set totalDuration 0
       set cumulativeDelays [list]

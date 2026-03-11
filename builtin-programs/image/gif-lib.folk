@@ -6,7 +6,14 @@ When the image library is /imageLib/ {
     $cc include "gifdec.h"
     $cc include <stdlib.h>
 
-    $cc proc loadGif {char* filename} Jim_Obj* {
+    $cc struct Gif {
+        uint32_t width;
+        uint32_t height;
+        Jim_Obj* frames;
+        Jim_Obj* delays;
+    }
+
+    $cc proc loadGif {char* filename} Gif {
         gd_GIF *gif = gd_open_gif(filename);
         if (!gif) {
             FOLK_ERROR("loadGif: Failed to open %s", filename);
@@ -21,7 +28,7 @@ When the image library is /imageLib/ {
             im.height = gif->height;
             im.components = 3;
             im.bytesPerRow = im.width * 3;
-            im.data = malloc(im.bytesPerRow * im.height);
+            im.data = (uint8_t*) malloc(im.bytesPerRow * im.height);
             im.uniq = 0;
 
             gd_render_frame(gif, im.data);
@@ -35,15 +42,14 @@ When the image library is /imageLib/ {
             Jim_ListAppendElement(interp, delaysList, Jim_NewIntObj(interp, gif->gce.delay * 10));
         }
 
-        uint16_t w = gif->width;
-        uint16_t h = gif->height;
+        Gif result;
+        result.width = gif->width;
+        result.height = gif->height;
+        result.frames = framesList;
+        result.delays = delaysList;
+
         gd_close_gif(gif);
 
-        Jim_Obj *result = Jim_NewDictObj(interp, NULL, 0);
-        Jim_DictAddElement(interp, result, Jim_NewStringObj(interp, "frames", -1), framesList);
-        Jim_DictAddElement(interp, result, Jim_NewStringObj(interp, "delays", -1), delaysList);
-        Jim_DictAddElement(interp, result, Jim_NewStringObj(interp, "width", -1), Jim_NewIntObj(interp, w));
-        Jim_DictAddElement(interp, result, Jim_NewStringObj(interp, "height", -1), Jim_NewIntObj(interp, h));
         return result;
     }
 
