@@ -1,0 +1,37 @@
+When the gif library is /gifLib/ {
+  When /someone/ wishes /p/ displays gif /path/ with /...options/ &\
+       /p/ has resolved geometry /geom/ {
+
+      set gif [$gifLib loadGif $path]
+      set frames [dict get $gif frames]
+      set delays [dict get $gif delays]
+      
+      set totalDuration 0
+      set cumulativeDelays [list]
+      foreach d $delays {
+          if {$d <= 10} { set d 100 }
+          incr totalDuration $d
+          lappend cumulativeDelays $totalDuration
+      }
+
+      if {[llength $frames] == 0} { return }
+
+      if {[llength $frames] == 1} {
+          Wish $p displays image [lindex $frames 0] with {*}$options
+          return
+      }
+
+      When the clock time is /t/ {
+          set ms [expr {int($t * 1000) % $totalDuration}]
+          set frameIdx 0
+          foreach cd $cumulativeDelays {
+              if {$ms < $cd} { break }
+              incr frameIdx
+          }
+          if {$frameIdx >= [llength $frames]} { set frameIdx 0 }
+          set im [lindex $frames $frameIdx]
+          
+          Wish $p displays image $im with {*}$options
+      }
+  }
+}
