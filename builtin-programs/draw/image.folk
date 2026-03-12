@@ -2,65 +2,11 @@ When the image library is /imageLib/ &\
      the jpeg library is /jpegLib/ &\
      the png library is /pngLib/ &\
      the gif library is /gifLib/ {
-    set cc [C]
-    $cc extend $imageLib
-
-    $cc code {
-        #include <pthread.h>
-
-        typedef struct ImageCacheEntry {
-            char* name;
-            Image im;
-        } ImageCacheEntry;
-
-        ImageCacheEntry imageCache[1000];
-        pthread_rwlock_t imageCacheLock;
-    }
-    $cc proc cacheInit {} void {
-        pthread_rwlock_init(&imageCacheLock, NULL);
-    }
-    $cc proc cacheExists {char* name} bool {
-        pthread_rwlock_rdlock(&imageCacheLock);
-        for (int i = 0; i < 1000; i++) {
-            if (imageCache[i].name == NULL) break;
-            if (strcmp(imageCache[i].name, name) == 0) {
-                pthread_rwlock_unlock(&imageCacheLock);
-                return true;
-            }
-        }
-        pthread_rwlock_unlock(&imageCacheLock);
-        return false;
-    }
-    $cc proc cacheGet {char* name} Image {
-        pthread_rwlock_rdlock(&imageCacheLock);
-        for (int i = 0; i < 1000; i++) {
-            if (strcmp(imageCache[i].name, name) == 0) {
-                Image im = imageCache[i].im;
-                pthread_rwlock_unlock(&imageCacheLock);
-                return im;
-            }
-        }
-        fprintf(stderr, "cacheGet(%s) failed\n", name); exit(1);
-    }
-    $cc proc cachePut {char* name Image im} void {
-        pthread_rwlock_wrlock(&imageCacheLock);
-        for (int i = 0; i < 1000; i++) {
-            if (imageCache[i].name == NULL) {
-                imageCache[i].name = strdup(name);
-                imageCache[i].im = im;
-                break;
-            }
-        }
-        pthread_rwlock_unlock(&imageCacheLock);
-    }
-
-    set cacheLib [$cc compile]
-    $cacheLib cacheInit
-
 
     fn loadImage {im} {
-        if {[$cacheLib cacheExists $im]} {
-            return [$cacheLib cacheGet $im]
+        set results [Query! the image path $im maps to cached image /cachedIm/]
+        if {[llength $results] > 0} {
+            return [dict get [lindex $results 0] cachedIm]
         }
 
         set impath $im
@@ -87,7 +33,8 @@ When the image library is /imageLib/ &\
                 set gif [$gifLib loadGif $path]
                 set im [lindex [dict get $gif frames] 0]
             }
-            $cacheLib cachePut $impath $im
+            Hold! -key [list cache $impath] \
+                Claim the image path $impath maps to cached image $im
         }
         return $im
     }
@@ -169,7 +116,6 @@ When the image library is /imageLib/ &\
      the image loader is /loadImage/ &\
      /someone/ wishes /p/ displays image /im/ with /...options/ &\
      /p/ has resolved geometry /geom/ {
-         # TODO: Mask the tag out?
 
     # HACK: because we match partially
     if {![info exists options]} { return }
