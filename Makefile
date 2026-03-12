@@ -116,6 +116,7 @@ kill-folk:
 	sudo systemctl stop folk
 	if [ -f folk.pid ]; then \
 		OLD_PID=`cat folk.pid`; \
+		pkill -9 --pgroup $$OLD_PID; \
 		sudo pkill -9 --pgroup $$OLD_PID; \
 		while sudo pkill -0 --pgroup $$OLD_PID; do sleep 0.2; done; \
 	fi
