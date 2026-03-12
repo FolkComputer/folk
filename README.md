@@ -733,7 +733,7 @@ isn't meeting timing
 - make RAM/metrics page to not clutter up stdout
 - ~~make errors page~~
 - remove Hold and Atomically limits
-- automatic default calibration so you can drag stuff around on laptop
+- ~~automatic default calibration so you can drag stuff around on laptop~~
 - automatically allow optional fields on `with` (or add object pattern-matching?)
 - try to maximize cpu usage
 - dual camera calibration -> ML
