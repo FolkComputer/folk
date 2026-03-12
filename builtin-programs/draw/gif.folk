@@ -1,8 +1,7 @@
 When the gif library is /gifLib/ {
-  When /someone/ wishes /p/ displays gif /path/ with /...options/ &\
+  When /someone/ wishes /p/ displays gif /gif/ with /...options/ &\
        /p/ has resolved geometry /geom/ {
 
-      set gif [$gifLib loadGif $path]
       set frames [dict get $gif frames]
       set delays [dict get $gif delays]
       

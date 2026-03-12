@@ -16,13 +16,31 @@ When the png library is /pngLib/ {
     Wish an image loader is [fn pngLoader]
 }
 
-When the collected results for {/someone/ wishes an image loader is /loader/} are /loaders/ {
-    fn loadImage {im {pathOnly 0}} {
-        if {!$pathOnly} {
-            set results [Query! the image path $im maps to cached image /cachedIm/]
-            if {[llength $results] > 0} {
-                return [dict get [lindex $results 0] cachedIm]
+When the gif library is /gifLib/ {
+    fn gifLoader {im} {
+        upvar coerceToImage coerceToImage
+        if {[string match "*gif" $im]} {
+            set gif [$gifLib loadGif $im]
+            if {$coerceToImage} {
+                return [lindex [dict get $gif frames] 0]
             }
+
+            # WARNING: This is not an Image object -- it's a Gif
+            # object and requires special handling by the caller.
+            return $gif
+        }
+    }
+    Wish an image loader is [fn gifLoader]
+}
+
+
+When the collected results for {/someone/ wishes an image loader is /loader/} are /loaders/ {
+    # Pass coerceToImage = 0 if the caller is willing to handle a Gif
+    # object, not just a normal Image.
+    fn loadImage {im {coerceToImage 1}} {
+        set results [Query! the image path $im maps to cached image /cachedIm/]
+        if {[llength $results] > 0} {
+            return [dict get [lindex $results 0] cachedIm]
         }
 
         set impath $im
@@ -37,7 +55,6 @@ When the collected results for {/someone/ wishes an image loader is /loader/} ar
         if {![file exists $path]} {
             set path [file join [pwd] $im]
         }
-        if {$pathOnly} { return $path }
 
         foreach loaderResult $loaders {
             set loader [dict get $loaderResult loader]
@@ -126,24 +143,21 @@ When the image library is /imageLib/ &\
 
 When the image library is /imageLib/ &\
      the image loader is /loadImage/ &\
-     /someone/ wishes /p/ displays image /im/ with /...options/ &\
+     /someone/ wishes /p/ displays image /impath/ with /...options/ &\
      /p/ has resolved geometry /geom/ {
 
     # HACK: because we match partially
     if {![info exists options]} { return }
 
     fn loadImage
-
-    if {[string match "*gif" $im]} {
-        set im [loadImage $im true]
-        Wish $p displays gif $im with {*}$options
-        return
-    }
-
     try {
-        set im [loadImage $im]
+        set im [loadImage $impath 0]
     } on error {e opts} {
         Say $p has error $e with info $opts
+        return
+    }
+    if {[string match "*gif" $impath]} {
+        Wish $p displays gif $im with {*}$options
         return
     }
 
