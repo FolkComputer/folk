@@ -16,7 +16,7 @@ else
 	LINKER := cc
 endif
 
-folk: workqueue.o db.o trie.o sysmon.o epoch.o folk.o output-redirection.o \
+folk: workqueue.o db.o trie.o sysmon.o epoch.o folk.o output-redirection.o block-stats.o \
 	vendor/c11-queues/mpmc_queue.o vendor/c11-queues/memory.o \
 	vendor/jimtcl/libjim.a $(TRACY_TARGET) CFLAGS $(INTERPOSE_DYLIB)
 

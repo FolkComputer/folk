@@ -18,6 +18,9 @@
 
 #include <jim.h>
 
+#define STB_DS_IMPLEMENTATION
+#include "vendor/stb_ds.h"
+
 #include "vendor/c11-queues/mpmc_queue.h"
 
 #include "epoch.h"
@@ -27,6 +30,8 @@
 #include "output-redirection.h"
 
 #define FATAL(...) do { dprintf(realStderr, __VA_ARGS__); exit(1); } while(0)
+
+#include "block-stats.h"
 
 ThreadControlBlock threads[THREADS_MAX];
 int _Atomic threadCount;
@@ -686,6 +691,7 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "__isInSubscription", __isInSubscriptionFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "__isTracyEnabled", __isTracyEnabledFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__blockRuntimeStats", __blockRuntimeStatsFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "__db", __dbFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__threadId", __threadIdFunc, NULL, NULL);
@@ -787,7 +793,10 @@ static int runBlock(Clause* bodyPattern, Clause* toUnifyWith, const Term* body,
             bodyObj,
             envStackObj
         };
+        int64_t t0 = timestamp_get(CLOCK_MONOTONIC);
         error = Jim_EvalObjVector(interp, sizeof(objv)/sizeof(objv[0]), objv);
+        blockStatsUpdate(sourceFileName, sourceLineNumber,
+                         timestamp_get(CLOCK_MONOTONIC) - t0);
 
 #ifdef TRACY_ENABLE
         ___tracy_emit_zone_end(ctx);
@@ -1637,6 +1646,7 @@ int main(int argc, char** argv) {
     workQueueInit();
 
     globalWorkQueueInit();
+    blockStatsInit();
 
 #ifdef __linux__
     // Count CPUs so we can set up the thread pool to align with the
