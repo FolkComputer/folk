@@ -270,59 +270,27 @@ $cc proc jpegDecompressGray {Jpeg jpeg int width int height int uniq} Image {
     return dest;
 }
 
-$cc proc jpegDecompressWarpedQuad {Jpeg jpeg double[4][2] imVertices
-                                   int outWidth int outHeight} Image {
-    // Get JPEG info for MCU alignment
-    tjhandle h = tjInitDecompress();
-    int jpegW, jpegH, subsamp, cs;
-    tjDecompressHeader3(h, jpeg.start, jpeg.length, &jpegW, &jpegH, &subsamp, &cs);
-    tjDestroy(h);
-
-    int mcuW = 16, mcuH = 16;
-
-    // Bounding box of quad vertices, snapped to MCU grid
-    double minX = imVertices[0][0], maxX = minX;
-    double minY = imVertices[0][1], maxY = minY;
-    for (int i = 1; i < 4; i++) {
-        if (imVertices[i][0] < minX) minX = imVertices[i][0];
-        if (imVertices[i][0] > maxX) maxX = imVertices[i][0];
-        if (imVertices[i][1] < minY) minY = imVertices[i][1];
-        if (imVertices[i][1] > maxY) maxY = imVertices[i][1];
+$cc proc jpegDecompressRGB {Jpeg jpeg int width int height int uniq} Image {
+    tjhandle handle = tjInitDecompress();
+    if (handle == NULL) {
+        FOLK_ERROR("jpegDecompressRGB: Failed to initialize decompressor");
     }
-    int bx = ((int)minX / mcuW) * mcuW;
-    int by = ((int)minY / mcuH) * mcuH;
-    if (bx < 0) bx = 0;
-    if (by < 0) by = 0;
-    int bw = (((int)(maxX + 1) - bx + mcuW - 1) / mcuW) * mcuW;
-    int bh = (((int)(maxY + 1) - by + mcuH - 1) / mcuH) * mcuH;
-    if (bx + bw > jpegW) bw = ((jpegW - bx) / mcuW) * mcuW;
-    if (by + bh > jpegH) bh = ((jpegH - by) / mcuH) * mcuH;
 
-    // Lossless crop to bounding box
-    Jpeg bbox = jpegSubimage(jpeg, bx, by, bw, bh);
-
-    // Decompress cropped JPEG
-    h = tjInitDecompress();
-    int cw, ch, cs2, cs3;
-    tjDecompressHeader3(h, bbox.start, bbox.length, &cw, &ch, &cs2, &cs3);
-    uint8_t* data = malloc(cw * 3 * ch);
-    tjDecompress2(h, bbox.start, bbox.length, data, cw, 0, ch, TJPF_RGB, 0);
-    tjDestroy(h);
-    free(bbox.start);
-
-    Image bboxImage = { .width = cw, .height = ch, .components = 3,
-                         .bytesPerRow = cw * 3, .data = data, .uniq = 0 };
-
-    // Adjust vertices relative to crop origin and warp
-    double adj[4][2];
-    for (int i = 0; i < 4; i++) {
-        adj[i][0] = imVertices[i][0] - bx;
-        adj[i][1] = imVertices[i][1] - by;
+    Image dest = imageNew(width, height, 3, uniq);
+    int ret = tjDecompress2(handle, jpeg.start, jpeg.length,
+                            dest.data, width, 0, height, TJPF_RGB, 0);
+    if (ret != 0) {
+        int errCode = tjGetErrorCode(handle);
+        if (errCode == TJERR_FATAL) {
+            tjDestroy(handle);
+            FOLK_ERROR("jpegDecompressRGB: Decompression failed: %s", tjGetErrorStr());
+        }
     }
-    Image result = warpQuad(bboxImage, adj, outWidth, outHeight);
-    free(data);
-    return result;
+
+    tjDestroy(handle);
+    return dest;
 }
+
 
 set jpegLib [$cc compile]
 Claim the jpeg library is $jpegLib
