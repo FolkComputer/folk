@@ -8,6 +8,8 @@
 #include <pthread.h>
 #include <sys/syscall.h>
 
+#include "vendor/stb_ds.h"
+
 #ifdef FOLK_INTERPOSE_DYLIB
 // macOS dylib build: just the __DATA,__interpose section that redirects
 // write() calls. folkGetFdOverride() is defined in the main binary and
@@ -139,7 +141,13 @@ size_t fwrite(const void *buf, size_t size, size_t count, FILE *stream) {
     return count;
 }
 
+typedef struct { char *key; int stdoutfd; int stderrfd; } ProgramFds;
+static ProgramFds *programFdsTable = NULL;
+static pthread_rwlock_t programFdsLock = PTHREAD_RWLOCK_INITIALIZER;
+
 void outputRedirectionInit(void) {
+    sh_new_arena(programFdsTable);
+
     // Save stdout and stderr once, globally.
     realStdout = dup(1);
     realStderr = dup(2);
@@ -159,12 +167,6 @@ void installLocalStdoutAndStderr(int stdoutfd, int stderrfd) {
     threadLocalStderr = stderrfd;
 }
 
-#define PROGRAM_FDS_MAX 1024
-typedef struct { char *name; int stdoutfd; int stderrfd; } ProgramFds;
-static pthread_mutex_t programFdsMutex = PTHREAD_MUTEX_INITIALIZER;
-static ProgramFds programFdsTable[PROGRAM_FDS_MAX];
-static int programFdsCount = 0;
-
 static void escapeProgramName(const char *in, char *out, size_t outlen) {
     size_t j = 0;
     for (size_t i = 0; in[i] != '\0'; i++) {
@@ -181,16 +183,19 @@ static int __installLocalStdoutAndStderrFunc(Jim_Interp *interp, int argc, Jim_O
     assert(argc == 2);
     const char *this = Jim_String(argv[1]);
 
-    pthread_mutex_lock(&programFdsMutex);
-    int stdoutfd = -1, stderrfd = -1;
-    for (int i = 0; i < programFdsCount; i++) {
-        if (strcmp(programFdsTable[i].name, this) == 0) {
-            stdoutfd = programFdsTable[i].stdoutfd;
-            stderrfd = programFdsTable[i].stderrfd;
-            break;
-        }
-    }
-    if (stdoutfd == -1 && programFdsCount < PROGRAM_FDS_MAX) {
+    int stdoutfd, stderrfd;
+
+    // Fast path: entry already exists — look up under rlock.
+    pthread_rwlock_rdlock(&programFdsLock);
+    ProgramFds *e = shgetp_null(programFdsTable, this);
+    if (e != NULL) {
+        stdoutfd = e->stdoutfd;
+        stderrfd = e->stderrfd;
+        pthread_rwlock_unlock(&programFdsLock);
+    } else {
+        pthread_rwlock_unlock(&programFdsLock);
+
+        // Slow path: new program — open files and insert under wlock.
         char escaped[2048];
         escapeProgramName(this, escaped, sizeof(escaped));
         char path[4096];
@@ -198,12 +203,21 @@ static int __installLocalStdoutAndStderrFunc(Jim_Interp *interp, int argc, Jim_O
         stdoutfd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
         snprintf(path, sizeof(path), "/tmp/%d.%s.stderr", (int)getpid(), escaped);
         stderrfd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
-        programFdsTable[programFdsCount].name = strdup(this);
-        programFdsTable[programFdsCount].stdoutfd = stdoutfd;
-        programFdsTable[programFdsCount].stderrfd = stderrfd;
-        programFdsCount++;
+
+        pthread_rwlock_wrlock(&programFdsLock);
+        if (shgetp_null(programFdsTable, this) == NULL) {
+            ProgramFds new_entry = { .key = (char *)this,
+                                     .stdoutfd = stdoutfd, .stderrfd = stderrfd };
+            shputs(programFdsTable, new_entry);
+        } else {
+            // Another thread inserted first; close our fds and use theirs.
+            close(stdoutfd); close(stderrfd);
+            e = shgetp_null(programFdsTable, this);
+            stdoutfd = e->stdoutfd;
+            stderrfd = e->stderrfd;
+        }
+        pthread_rwlock_unlock(&programFdsLock);
     }
-    pthread_mutex_unlock(&programFdsMutex);
 
     if (stdoutfd == -1 || stderrfd == -1) { return JIM_ERR; }
     installLocalStdoutAndStderr(stdoutfd, stderrfd);
