@@ -80,14 +80,16 @@ When /nobody/ wishes to calibrate &\
     tracy zoneBegin
     tracy zoneName "entireFrameDetect: $frameTs"
 
-    set aprilTime [time {
-        set tags [$entireFrameDetector detect $frame]
-    }]
-    Hold! -key [list $this entire-frame] \
-        Claim [list $this entire-frame] detects tags $tags on camera $camera \
-        at timestamp $frameTs in time $aprilTime
-
-    tracy zoneEnd
+    try {
+        set aprilTime [time {
+            set tags [$entireFrameDetector detect $frame]
+        }]
+        Hold! -key [list $this entire-frame] \
+            Claim [list $this entire-frame] detects tags $tags on camera $camera \
+            at timestamp $frameTs in time $aprilTime
+    } finally {
+        tracy zoneEnd
+    }
 }
 
 # Incremental tag detector (looks at regions where there were tags
@@ -97,6 +99,8 @@ When /nobody/ wishes to calibrate &\
      -serially camera /camera/ has frame /frame/ at timestamp /frameTs/ {
     tracy zoneBegin
     tracy zoneName "incrementalDetect: $frameTs"
+
+    try {
 
     # Query all the existing tag detections that are out there.
     # Find the most recent detection of each tag; will use these to
@@ -154,7 +158,9 @@ When /nobody/ wishes to calibrate &\
         Claim [list $this incremental] detects tags $tags on camera $camera \
         at timestamp $frameTs in time $aprilTime
 
-    tracy zoneEnd
+    } finally {
+        tracy zoneEnd
+    }
 }
 
 # Integrate all the tag detections.
