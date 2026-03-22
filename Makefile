@@ -1,3 +1,15 @@
+# This Makefile should only be for stuff that is part of the absolute
+# core interpreter of Folk (Tcl, workqueue, trie/db, scheduler) and/or
+# stuff that absolutely needs to be global and active from process
+# start and should seep into everything (output redirection, Linux
+# capability, Tracy, block stats).
+#
+# Intuition: if something can live in 'userspace' (e.g., graphics,
+# webcam, Web server, geometry), it should not be here and should be
+# managed from userspace Folk program(s). You should think very hard
+# before adding new dependencies to this Makefile, and we should
+# probably remove more stuff (libapriltag).
+
 ifeq ($(shell uname -s),Linux)
 	override BUILTIN_CFLAGS += -Wl,--export-dynamic
 else
