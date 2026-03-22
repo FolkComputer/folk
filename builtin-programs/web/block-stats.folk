@@ -5,7 +5,6 @@ Wish the web server handles route "/block-stats" with handler {
         <head>
         <link rel="stylesheet" href="/style.css">
         <title>Block runtime stats</title>
-        <meta http-equiv="refresh" content="2">
         </head>
         <body>
         <h2>Block runtime stats (EWMA)</h2>
