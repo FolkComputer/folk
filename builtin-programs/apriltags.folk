@@ -1,5 +1,31 @@
 When the image library is /imageLib/ {
 
+# To force a rebuild: rm -rf vendor/apriltag/build
+set apriltagFresh [expr {![file exists vendor/apriltag/build/libapriltag.so]}]
+if {![file exists vendor/apriltag/build/Makefile]} {
+    puts "apriltags: Configuring libapriltag..."
+    exec cmake -B vendor/apriltag/build -S vendor/apriltag \
+        -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON \
+        -DCMAKE_C_FLAGS=-march=native \
+        >@stdout 2>@stderr
+}
+puts "apriltags: Building libapriltag..."
+exec cmake --build vendor/apriltag/build --target apriltag \
+    >@stdout 2>@stderr
+if {$apriltagFresh} {
+    if {$::tcl_platform(os) eq "linux"} {
+        exec patchelf --set-soname "[pwd]/vendor/apriltag/build/libapriltag.so.3" \
+            vendor/apriltag/build/libapriltag.so.3
+    } elseif {$::tcl_platform(os) eq "darwin"} {
+        exec install_name_tool -id @executable_path/vendor/apriltag/build/libapriltag.dylib \
+            vendor/apriltag/build/libapriltag.dylib
+        if {![file exists vendor/apriltag/build/libapriltag.so]} {
+            exec ln -sf libapriltag.dylib vendor/apriltag/build/libapriltag.so
+        }
+    }
+}
+puts "apriltags: libapriltag built."
+
 fn makeAprilTagDetector {TAG_FAMILY QUAD_DECIMATE NTHREADS} {
     set cc [C]
     $cc extend $imageLib

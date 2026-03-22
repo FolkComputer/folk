@@ -7,8 +7,7 @@
 # Intuition: if something can live in 'userspace' (e.g., graphics,
 # webcam, Web server, geometry), it should not be here and should be
 # managed from userspace Folk program(s). You should think very hard
-# before adding new dependencies to this Makefile, and we should
-# probably remove more stuff (libapriltag).
+# before adding new dependencies to this Makefile.
 
 ifeq ($(shell uname -s),Linux)
 	override BUILTIN_CFLAGS += -Wl,--export-dynamic
@@ -94,7 +93,6 @@ clean:
 	rm -f folk *.o *.dylib vendor/tracy/public/TracyClient.o vendor/c11-queues/*.o
 distclean: clean
 	make -C vendor/jimtcl distclean
-	rm -rf vendor/apriltag/build
 
 remote-clean: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make clean'
@@ -106,23 +104,6 @@ deps:
 	fi
 	make -C vendor/jimtcl
 
-	cmake -B vendor/apriltag/build -S vendor/apriltag -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON
-	cmake --build vendor/apriltag/build --target apriltag
-
-	if [ ! -f vendor/wslay/Makefile ]; then \
-		cd vendor/wslay && autoreconf -i && automake && autoconf && ./configure; \
-	fi
-	make -C vendor/wslay
-
-	if [ "$$(uname)" = "Darwin" ]; then \
-		install_name_tool -id @executable_path/vendor/apriltag/build/libapriltag.dylib vendor/apriltag/build/libapriltag.dylib; \
-		cd vendor/apriltag/build && ln -sf libapriltag.dylib libapriltag.so; cd -; \
-		install_name_tool -id @executable_path/vendor/wslay/lib/.libs/libwslay.0.dylib vendor/wslay/lib/.libs/libwslay.0.dylib; \
-	fi
-	if [ "$$(uname)" = "Linux" ]; then \
-		patchelf --set-soname "$$(pwd)/vendor/apriltag/build/libapriltag.so.3" vendor/apriltag/build/libapriltag.so.3; \
-		patchelf --set-soname "$$(pwd)/vendor/wslay/lib/.libs/libwslay.so.0" vendor/wslay/lib/.libs/libwslay.so.0; \
-	fi
 
 kill-folk:
 	sudo systemctl stop folk
