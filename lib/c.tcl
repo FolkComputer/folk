@@ -727,7 +727,9 @@ extern "C" \{
     if {[info exists ::env(ASAN_ENABLE)] && $::env(ASAN_ENABLE) != ""} {
         set asan_flags "-fsanitize=address -fsanitize-recover=address"
     }
-    set out [exec $compiler {*}$asan_flags -Wall -g -fno-omit-frame-pointer -fPIC \
+    set out [exec $compiler {*}$asan_flags -Wall -Wno-alloc-size-larger-than \
+                 -O2 -march=native -g \
+                 -fno-omit-frame-pointer -fPIC \
                  {*}$cflags $cfile -c -o [file rootname $cfile].o]
     if {[string trim $out] ne ""} {
         puts $out
