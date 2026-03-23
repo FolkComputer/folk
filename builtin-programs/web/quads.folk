@@ -141,7 +141,7 @@ Wish the web server handles route "/quads" with handler {
                     context.fillText(text, 256, 64);
 
                     const texture = new THREE.CanvasTexture(canvas);
-                    const material = new THREE.SpriteMaterial({ map: texture });
+                    const material = new THREE.SpriteMaterial({ map: texture, depthTest: false });
                     const sprite = new THREE.Sprite(material);
                     sprite.scale.set(0.2, 0.05, 1);
 
