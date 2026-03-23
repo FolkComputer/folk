@@ -1,5 +1,10 @@
 Wish the web server handles route "/block-stats" with handler {
-    set stats [lsort -real -index 1 -decreasing [__blockRuntimeStats]]
+    set stats [lsort -command {apply {{a b} {
+        lassign $a _ ewma_a count_a
+        lassign $b _ ewma_b count_b
+        expr {$ewma_b * $count_b - $ewma_a * $count_a < 0 ? -1 :
+              $ewma_b * $count_b - $ewma_a * $count_a > 0 ?  1 : 0}
+    }}} [__blockRuntimeStats]]
     html [subst {
         <html>
         <head>
