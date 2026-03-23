@@ -242,7 +242,10 @@ When the image library is /imageLib/ &\
 
         set timestamp [expr {[clock milliseconds] / 1000.0}]
         tracy zoneName "camera/rpi: $timestamp"
-        Hold! camera [list $this claims camera $cameraPath has frame $frame at timestamp $timestamp]
+        Hold! -key [list camera $cameraPath gray-frame] \
+            Claim camera $cameraPath has gray frame $frame at timestamp $timestamp
+        Hold! -key [list camera $cameraPath frame] \
+            Claim camera $cameraPath has frame $frame at timestamp $timestamp
 
         lappend oldFrames $frame
         if {[llength $oldFrames] >= 10} {

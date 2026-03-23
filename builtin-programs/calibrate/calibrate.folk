@@ -380,7 +380,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     }
 
     When the calibration poses max is /calibrationPosesMax/ &\
-         -serially camera $camera has frame /frame/ at timestamp /frameTimestamp/ {
+         -serially camera $camera has gray frame /frame/ at timestamp /frameTimestamp/ {
         # HACK: so we just lookup whatever is latest _right now_,
         # instead of subscribing.
         set calibrationStates \
