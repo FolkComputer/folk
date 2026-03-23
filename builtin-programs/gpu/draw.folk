@@ -690,6 +690,11 @@ $cc proc drawEnd {} void {
         $[vktry {vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo, inFlightFence)}]
         pthread_mutex_unlock(graphicsQueueMutex_ptr());
     }
+    // Release the descriptor set read lock now that recording is done and
+    // commands are submitted. New textures added after this point write to
+    // fresh slots that the just-submitted frame never references, so
+    // releasing early is safe for the camera/new-texture case.
+    pthread_rwlock_unlock(textureDescriptorSetLock_ptr());
     {
         VkPresentInfoKHR presentInfo = {0};
         presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -708,7 +713,6 @@ $cc proc drawEnd {} void {
     }
 
     vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
-    pthread_rwlock_unlock(textureDescriptorSetLock_ptr());
 }
 
 $cc proc poll {} void {
