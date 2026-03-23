@@ -1,0 +1,270 @@
+Wish the web server handles route "/quads" with handler {
+    html {
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Folk Quads 3D</title>
+            <script src="/lib/folk.js"></script>
+            <script type="importmap">
+            {
+                "imports": {
+                    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+                }
+            }
+            </script>
+            <style>
+                body {
+                    margin: 0;
+                    overflow: hidden;
+                    font-family: monospace;
+                }
+                #canvas-container {
+                    width: 100vw;
+                    height: 100vh;
+                }
+                #stats {
+                    position: absolute;
+                    top: 10px;
+                    left: 10px;
+                    color: white;
+                    background: rgba(0, 0, 0, 0.7);
+                    padding: 10px;
+                    border-radius: 4px;
+                    font-size: 14px;
+                    line-height: 1.6;
+                }
+            </style>
+        </head>
+        <body>
+            <div id="stats">
+                <div>Quads: <span id="quad-count">0</span></div>
+                <div>Space: <span id="camera-space">none</span></div>
+            </div>
+            <div id="canvas-container"></div>
+            <script type="module">
+                import * as THREE from 'three';
+                import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+                // Initialize scene
+                const scene = new THREE.Scene();
+                scene.background = new THREE.Color(0x1a1a1a);
+
+                // Initialize camera
+                const camera = new THREE.PerspectiveCamera(
+                    60,
+                    window.innerWidth / window.innerHeight,
+                    0.01,
+                    100
+                );
+                camera.position.set(0.5, 0.8, 1.5);
+                camera.lookAt(0, 0, 0);
+
+                // Initialize renderer
+                const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                renderer.setPixelRatio(window.devicePixelRatio);
+                document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+                // Initialize controls
+                const controls = new OrbitControls(camera, renderer.domElement);
+                controls.enableDamping = true;
+                controls.dampingFactor = 0.05;
+                controls.minDistance = 0.1;
+                controls.maxDistance = 10;
+
+                // Add lighting
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+                scene.add(ambientLight);
+
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.4);
+                directionalLight.position.set(1, 2, 1);
+                scene.add(directionalLight);
+
+                // Add grid helper (2m x 2m, 20 divisions = 10cm each)
+                const gridHelper = new THREE.GridHelper(2, 20);
+                scene.add(gridHelper);
+
+                // Add axes helper (0.5m)
+                const axesHelper = new THREE.AxesHelper(0.5);
+                scene.add(axesHelper);
+
+                // State management
+                const quadMeshes = new Map(); // tag -> { mesh, sprite }
+                let firstCameraSpace = null;
+                window.allQuads = [];
+
+                // Color generation
+                function getColorForTag(tag) {
+                    const hash = Math.abs(tag.split('').reduce((h, c) =>
+                        ((h << 5) - h) + c.charCodeAt(0), 0));
+                    const hue = (hash % 360) / 360;
+                    return new THREE.Color().setHSL(hue, 0.7, 0.6);
+                }
+
+                // Create quad mesh from vertices
+                function createQuadMesh(tag, vertices) {
+                    const geometry = new THREE.BufferGeometry();
+
+                    // vertices: [TL, TR, BR, BL]
+                    // Create two triangles: [TL, TR, BL] and [TR, BR, BL]
+                    const positions = new Float32Array([
+                        ...vertices[0], ...vertices[1], ...vertices[3], // Triangle 1
+                        ...vertices[1], ...vertices[2], ...vertices[3]  // Triangle 2
+                    ]);
+
+                    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                    geometry.computeVertexNormals();
+
+                    const color = getColorForTag(tag);
+                    const material = new THREE.MeshBasicMaterial({
+                        color,
+                        side: THREE.DoubleSide,
+                        transparent: true,
+                        opacity: 0.8
+                    });
+
+                    return new THREE.Mesh(geometry, material);
+                }
+
+                // Create label sprite
+                function createLabelSprite(text) {
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
+                    canvas.width = 512;
+                    canvas.height = 128;
+
+                    context.font = 'Bold 48px Arial';
+                    context.fillStyle = 'white';
+                    context.textAlign = 'center';
+                    context.textBaseline = 'middle';
+                    context.fillText(text, 256, 64);
+
+                    const texture = new THREE.CanvasTexture(canvas);
+                    const material = new THREE.SpriteMaterial({ map: texture });
+                    const sprite = new THREE.Sprite(material);
+                    sprite.scale.set(0.2, 0.05, 1);
+
+                    return sprite;
+                }
+
+                // Update statistics display
+                function updateStatistics(count, space) {
+                    document.getElementById('quad-count').textContent = count;
+                    document.getElementById('camera-space').textContent = space || 'none';
+                }
+
+                // Update quads in the scene
+                function updateQuads() {
+                    // Filter quads by camera space
+                    const filtered = firstCameraSpace
+                        ? window.allQuads.filter(r => r.quad && r.quad[0] === firstCameraSpace)
+                        : window.allQuads;
+
+                    const currentTags = new Set(filtered.map(r => r.tag));
+
+                    // Remove deleted quads
+                    for (const [tag, objects] of quadMeshes.entries()) {
+                        if (!currentTags.has(tag)) {
+                            scene.remove(objects.mesh);
+                            scene.remove(objects.sprite);
+                            quadMeshes.delete(tag);
+                        }
+                    }
+
+                    // Add or update quads
+                    for (const result of filtered) {
+                        const { tag, quad } = result;
+
+                        if (!quad || quad.length < 2) continue;
+
+                        const [space, vertices] = quad;
+
+                        if (!vertices || vertices.length !== 4) continue;
+
+                        const verticesKey = JSON.stringify(vertices);
+
+                        if (!quadMeshes.has(tag)) {
+                            const mesh = createQuadMesh(tag, vertices);
+                            const sprite = createLabelSprite(tag);
+
+                            // Position sprite at centroid
+                            const centroid = vertices.reduce((sum, v) =>
+                                [sum[0] + v[0]/4, sum[1] + v[1]/4, sum[2] + v[2]/4], [0, 0, 0]);
+                            sprite.position.set(...centroid);
+
+                            scene.add(mesh);
+                            scene.add(sprite);
+                            quadMeshes.set(tag, { mesh, sprite, verticesKey });
+                        } else {
+                            // Check if vertices changed
+                            const objects = quadMeshes.get(tag);
+                            if (objects.verticesKey !== verticesKey) {
+                                // Update mesh geometry
+                                const positions = new Float32Array([
+                                    ...vertices[0], ...vertices[1], ...vertices[3], // Triangle 1
+                                    ...vertices[1], ...vertices[2], ...vertices[3]  // Triangle 2
+                                ]);
+                                objects.mesh.geometry.setAttribute('position',
+                                    new THREE.BufferAttribute(positions, 3));
+                                objects.mesh.geometry.computeVertexNormals();
+
+                                // Update sprite position
+                                const centroid = vertices.reduce((sum, v) =>
+                                    [sum[0] + v[0]/4, sum[1] + v[1]/4, sum[2] + v[2]/4], [0, 0, 0]);
+                                objects.sprite.position.set(...centroid);
+
+                                // Update stored vertices key
+                                objects.verticesKey = verticesKey;
+                            }
+                        }
+                    }
+
+                    updateStatistics(quadMeshes.size, firstCameraSpace);
+                }
+
+                // Window resize handler
+                window.addEventListener('resize', () => {
+                    camera.aspect = window.innerWidth / window.innerHeight;
+                    camera.updateProjectionMatrix();
+                    renderer.setSize(window.innerWidth, window.innerHeight);
+                });
+
+                // Animation loop
+                function animate() {
+                    requestAnimationFrame(animate);
+                    controls.update();
+                    renderer.render(scene, camera);
+                }
+                animate();
+
+                // Connect to Folk
+                const ws = new FolkWS();
+
+                // Watch for camera space
+                ws.watchCollected("/someone/ wishes /node/ uses camera /camera/ with /...opts/",
+                    results => {
+                        const newSpace = results[0]?.camera || null;
+                        if (newSpace !== firstCameraSpace) {
+                            firstCameraSpace = newSpace;
+                            updateQuads();
+                        }
+                    }
+                );
+
+                // Watch for quads
+                ws.watchCollected("/someone/ claims /tag/ has quad /quad/", results => {
+                  allQuads = results.map(r => {
+                    const r1 = {...r};
+                    r1.quad = loadList(r.quad);
+                    r1.quad[1] = loadList(r1.quad[1]).map(row => loadList(row));
+                    return r1;
+                  });
+                  updateQuads();
+                });
+            </script>
+        </body>
+        </html>
+    }
+}
+
