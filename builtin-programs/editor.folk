@@ -280,10 +280,10 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                             Notify: print code $code
 
                             # Give the user some feedback
-                            Hold! -key printed-alert:$editor \
-                                Wish $editor is labelled "Printed!"
+                            Hold! -key printing-alert:$editor \
+                                Wish $editor is labelled "Printing!"
                             sleep 0.25
-                            Hold! -key printed-alert:$editor {}
+                            Hold! -key printing-alert:$editor {}
                         }
                         Control_underscore {
                             # ctrl and - (zoom out)
