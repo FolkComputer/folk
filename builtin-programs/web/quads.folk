@@ -102,6 +102,25 @@ Wish the web server handles route "/quads" with handler {
                     return new THREE.Color().setHSL(hue, 0.7, 0.6);
                 }
 
+                // Compute centroid + normal offset for a quad's
+                // vertices so the label sprite sits slightly above
+                // the surface (label has smaller Z value) instead of
+                // coplanar.
+                function quadLabelPosition(vertices) {
+                    const centroid = vertices.reduce(
+                        (sum, v) => [sum[0] + v[0]/4, sum[1] + v[1]/4, sum[2] + v[2]/4],
+                        [0, 0, 0]);
+                    const v0 = new THREE.Vector3(...vertices[0]);
+                    const v1 = new THREE.Vector3(...vertices[1]);
+                    const v3 = new THREE.Vector3(...vertices[3]);
+                    const normal = new THREE.Vector3()
+                        .crossVectors(
+                            new THREE.Vector3().subVectors(v1, v0),
+                            new THREE.Vector3().subVectors(v3, v0))
+                        .normalize();
+                    return new THREE.Vector3(...centroid).addScaledVector(normal, -0.005);
+                }
+
                 // Create quad mesh from vertices
                 function createQuadMesh(tag, vertices) {
                     const geometry = new THREE.BufferGeometry();
@@ -188,10 +207,7 @@ Wish the web server handles route "/quads" with handler {
                             const mesh = createQuadMesh(tag, vertices);
                             const sprite = createLabelSprite(tag);
 
-                            // Position sprite at centroid
-                            const centroid = vertices.reduce((sum, v) =>
-                                [sum[0] + v[0]/4, sum[1] + v[1]/4, sum[2] + v[2]/4], [0, 0, 0]);
-                            sprite.position.set(...centroid);
+                            sprite.position.copy(quadLabelPosition(vertices));
 
                             scene.add(mesh);
                             scene.add(sprite);
@@ -210,9 +226,7 @@ Wish the web server handles route "/quads" with handler {
                                 objects.mesh.geometry.computeVertexNormals();
 
                                 // Update sprite position
-                                const centroid = vertices.reduce((sum, v) =>
-                                    [sum[0] + v[0]/4, sum[1] + v[1]/4, sum[2] + v[2]/4], [0, 0, 0]);
-                                objects.sprite.position.set(...centroid);
+                                objects.sprite.position.copy(quadLabelPosition(vertices));
 
                                 // Update stored vertices key
                                 objects.verticesKey = verticesKey;
