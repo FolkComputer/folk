@@ -73,10 +73,18 @@ WorkQueueItem globalWorkQueueTake() {
     return ret;
 }
 
+// Pushes to either self or the global workqueue, depending on how
+// long the current work item has been running.
 void appropriateWorkQueuePush(WorkQueueItem item) {
     if (self) {
-        workQueuePush(self->workQueue, item);
-        return;
+        int64_t now = timestamp_get(self->clockid);
+        if (self->currentItemStartTimestamp == 0 ||
+            now - self->currentItemStartTimestamp < 1000000) {
+            // The current worker is responsive (hasn't been running that
+            // long). Push to its queue.
+            workQueuePush(self->workQueue, item);
+            return;
+        }
     }
     globalWorkQueuePush(item);
 }
