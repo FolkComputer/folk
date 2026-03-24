@@ -106,7 +106,7 @@ When /nobody/ wishes to calibrate &\
     tracy zoneBegin
     tracy zoneName "entireFrameDetect: $frameTs"
 
-    try {
+    try -signal {
         set aprilTime [time {
             set tags [$entireFrameDetector detect $frame]
         }]
@@ -126,7 +126,7 @@ When /nobody/ wishes to calibrate &\
     tracy zoneBegin
     tracy zoneName "incrementalDetect: $frameTs"
 
-    try {
+    try -signal {
 
     # Query all the existing tag detections that are out there.
     # Find the most recent detection of each tag; will use these to
