@@ -1167,10 +1167,7 @@ When the GPU texture library for $drawLib is /gpuTextureLib/ {
             {*}$hd
         }
 
-        tracy zoneBegin
-        tracy zoneName "gpu-draw-start"
         $gpu drawStart
-        tracy zoneEnd
 
         # We do the queries now (when we are about to draw) so we get
         # the most up-to-date information.
@@ -1227,10 +1224,7 @@ When the GPU texture library for $drawLib is /gpuTextureLib/ {
         # tracy plot $kDrawCount $drawCount
 
         # This blocks until the frame is actually drawn:
-        tracy zoneBegin
-        tracy zoneName "gpu-draw-end"
         $gpu drawEnd
-        tracy zoneEnd
 
         tracy frameMarkNamed $kGpu
 
