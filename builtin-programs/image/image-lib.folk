@@ -56,44 +56,42 @@ $cc proc warpQuad {Image im double[4][2] imVertices
     double blX = imVertices[3][0], blY = imVertices[3][1];
 
     // For each output pixel, find corresponding source pixel using bilinear mapping
+    double invW = (outWidth  > 1) ? 1.0 / (outWidth  - 1) : 0.0;
+    double invH = (outHeight > 1) ? 1.0 / (outHeight - 1) : 0.0;
+
     for (int y = 0; y < outHeight; y++) {
-        for (int x = 0; x < outWidth; x++) {
-            // Normalize output coordinates to [0, 1]
-            double u = (double)x / (outWidth - 1);
-            double v = (double)y / (outHeight - 1);
+        // Hoist v and y-dependent edge coords outside x-loop
+        double v = y * invH;
+        double leftX  = tlX + v * (blX - tlX);
+        double leftY  = tlY + v * (blY - tlY);
+        double rightX = trX + v * (brX - trX);
+        double rightY = trY + v * (brY - trY);
+        double stepX  = (rightX - leftX) * invW;
+        double stepY  = (rightY - leftY) * invW;
 
-            // Bilinear interpolation in quad space
-            // Top edge: lerp between TL and TR
-            // Bottom edge: lerp between BL and BR
-            // Then lerp between top and bottom
-            double topX = tlX + u * (trX - tlX);
-            double topY = tlY + u * (trY - tlY);
-            double botX = blX + u * (brX - blX);
-            double botY = blY + u * (brY - blY);
+        uint8_t *dstRow = out.data + y * out.bytesPerRow;
 
-            double srcX = topX + v * (botX - topX);
-            double srcY = topY + v * (botY - topY);
-
-            // Bilinear sample from source image
-            uint8_t *dstPixel = out.data + y * out.bytesPerRow + x * out.components;
+        double srcX = leftX, srcY = leftY;
+        for (int x = 0; x < outWidth; x++, srcX += stepX, srcY += stepY) {
+            uint8_t *dstPixel = dstRow + x * out.components;
 
             int ix = (int)srcX;
             int iy = (int)srcY;
-            double fx = srcX - ix;
-            double fy = srcY - iy;
+            // Fixed-point fractions (0..255)
+            int fx = (int)((srcX - ix) * 256);
+            int fy = (int)((srcY - iy) * 256);
 
-            if (ix >= 0 && ix < im.width - 1 && iy >= 0 && iy < im.height - 1) {
+            if (ix >= 0 && ix < (int)im.width - 1 && iy >= 0 && iy < (int)im.height - 1) {
                 uint8_t *p00 = im.data + iy * im.bytesPerRow + ix * im.components;
                 uint8_t *p10 = p00 + im.components;
                 uint8_t *p01 = p00 + im.bytesPerRow;
                 uint8_t *p11 = p01 + im.components;
                 for (int c = 0; c < im.components; c++) {
-                    double top = p00[c] + fx * (p10[c] - p00[c]);
-                    double bot = p01[c] + fx * (p11[c] - p01[c]);
-                    dstPixel[c] = (uint8_t)(top + fy * (bot - top) + 0.5);
+                    int top = p00[c] + ((fx * (p10[c] - p00[c])) >> 8);
+                    int bot = p01[c] + ((fx * (p11[c] - p01[c])) >> 8);
+                    dstPixel[c] = (uint8_t)(top + ((fy * (bot - top)) >> 8));
                 }
-            } else if (ix >= 0 && ix < im.width && iy >= 0 && iy < im.height) {
-                // Edge pixel: nearest neighbor fallback
+            } else if (ix >= 0 && ix < (int)im.width && iy >= 0 && iy < (int)im.height) {
                 uint8_t *srcPixel = im.data + iy * im.bytesPerRow + ix * im.components;
                 for (int c = 0; c < im.components; c++) {
                     dstPixel[c] = srcPixel[c];

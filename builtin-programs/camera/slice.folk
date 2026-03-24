@@ -23,11 +23,14 @@ When the image library is /imageLib/ &\
     set fWidth [$imageLib Image_width $frame]
     set fHeight [$imageLib Image_height $frame]
     # Convert quad to camera coordinates
+    tracy zoneBegin
+    tracy zoneName "quadChange"
     set q [quadChange $q $cam]
     set vertices [lmap v [$quadLib vertices $q] {
         $poseLib project $cameraIntrinsics \
             $fWidth $fHeight $v
     }]
+    tracy zoneEnd
 
     lassign [$quadLib vertices $q] topLeft topRight bottomRight bottomLeft
     # These dimensions are in meters. We have to start from these quad
@@ -55,8 +58,11 @@ When the image library is /imageLib/ &\
     set sliceWidth [expr {int($quadWidth * $pixelsPerMeter)}]
     set sliceHeight [expr {int($quadHeight * $pixelsPerMeter)}]
 
+    tracy zoneBegin
+    tracy zoneName "warpQuad"
     set slice [$imageLib warpQuad $frame $vertices \
                    $sliceWidth $sliceHeight]
+    tracy zoneEnd
     Claim $p has camera slice $slice \
         -destructor [list $imageLib imageFree $slice]
 }
