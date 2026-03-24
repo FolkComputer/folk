@@ -149,6 +149,16 @@ $cc proc textShape {Jim_Obj* viewport Jim_Obj* surfaceToClip
 
     return finishedChars;
 }
+$cc proc fontNew {Image atlasImage int gpuAtlasImage {GlyphInfo[128]} glyphInfos} Font* {
+    Font* font = (Font*) malloc(sizeof(Font));
+    font->atlasImage = atlasImage;
+    font->gpuAtlasImage = gpuAtlasImage;
+    memcpy(font->glyphInfos, glyphInfos, sizeof(font->glyphInfos));
+    return font;
+}
+$cc proc fontFree {Font* font} void {
+    free(font);
+}
 set fontLib [$cc compile]
 
 When the image loader is /loadImage/ {
@@ -186,8 +196,9 @@ When the image loader is /loadImage/ {
         Wish the GPU loads image $im as texture
         When the GPU has loaded image $im as texture /gim/ {
             puts "text: Loaded $name as GPU texture $gim"
-            Claim the GPU has font $name with data \
-                [dict create atlasImage $im gpuAtlasImage $gim glyphInfos $glyphInfos]
+            set font [$fontLib fontNew $im $gim $glyphInfos]
+            Claim the GPU has font $name with data $font \
+                -destructor [list $fontLib fontFree $font]
         }
     }
 
