@@ -38,8 +38,8 @@ $cc extend $gpuLib
 local proc vktry {call} { string map {\n " "} [csubst {{
     VkResult res = $call;
     if (res != VK_SUCCESS) {
-        fprintf(stderr, "Failed $call: %s (%d)\n",
-                VkResultToString(res), res); exit(1);
+        /* TODO: We also need to unwind all the GPU state. */
+        FOLK_ERROR("Failed $call: %s (%d)\n", VkResultToString(res), res);
     }
 }}] }
 
