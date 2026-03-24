@@ -296,8 +296,6 @@ $gpuc proc endSingleTimeCommands {VkCommandBuffer commandBuffer VkFence fence} v
 
 $gpuc code {
     static __thread VkFence _fence = VK_NULL_HANDLE;
-    static __thread VkBuffer _pendingStagingBuffer = VK_NULL_HANDLE;
-    static __thread VmaAllocation _pendingStagingBufferAllocation = VK_NULL_HANDLE;
 }
 $gpuc proc getFence {} VkFence {
     if (_fence == VK_NULL_HANDLE) {
@@ -305,17 +303,6 @@ $gpuc proc getFence {} VkFence {
         fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
         $[vktry {vkCreateFence(device, &fenceInfo, NULL, &_fence)}]
     } else {
-        // Before resetting the fence (and thus reusing the command buffer),
-        // ensure any deferred staging buffer cleanup from the last upload is done.
-        // This covers both copyImageToGpuTexture and transitionImageLayout paths.
-        if (_pendingStagingBuffer != VK_NULL_HANDLE) {
-            vkWaitForFences(device, 1, &_fence, VK_TRUE, UINT64_MAX);
-#ifdef TRACY_ENABLE
-            TracyCFree(_pendingStagingBufferAllocation);
-#endif
-            vmaDestroyBuffer(vmaGetAllocator(), _pendingStagingBuffer, _pendingStagingBufferAllocation);
-            _pendingStagingBuffer = VK_NULL_HANDLE;
-        }
         vkResetFences(device, 1, &_fence);
     }
     return _fence;
@@ -640,16 +627,22 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
                              0, 0, NULL, 0, NULL, 1, &barrier);
 
         endSingleTimeCommands(commandBuffer, fence);
+
+#ifdef TRACY_ENABLE
+        TracyCZoneN(ctx, "vkWaitForFences", 1);
+#endif
+        vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
+#ifdef TRACY_ENABLE
+        TracyCZoneEnd(ctx);
+#endif
     }
 
     addToTextureDescriptorSet(block->handle);
 
-    // Defer staging buffer cleanup to the next call (see top of function).
-    // Since uploads and draws share the same graphicsQueue (FIFO), the GPU
-    // will always execute this upload before any subsequent draw that uses
-    // the returned handle — no fence needed for correctness here.
-    _pendingStagingBuffer = stagingBuffer;
-    _pendingStagingBufferAllocation = stagingBufferAllocation;
+#ifdef TRACY_ENABLE
+    TracyCFree(stagingBufferAllocation);
+#endif
+    vmaDestroyBuffer(vmaGetAllocator(), stagingBuffer, stagingBufferAllocation);
 
     return block->handle;
 }
