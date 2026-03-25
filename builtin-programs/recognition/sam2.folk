@@ -53,7 +53,7 @@ When /someone/ wishes to load the SAM2 segmenter &\
     When the image library is /imageLib/ {
         set cc [C]
         $cc extend $imageLib
-        $cc proc maskToImage {Jim_Obj* mask} Image {
+        $cc proc maskToBinaryImage {Jim_Obj* mask} Image {
             int height = Jim_ListLength(interp, mask);
             int width = 0;
             if (height > 0) {
@@ -72,7 +72,31 @@ When /someone/ wishes to load the SAM2 segmenter &\
             }
             return result;
         }
+        $cc proc applyMaskToImage {Image im Jim_Obj* mask} Image {
+            int height = Jim_ListLength(interp, mask);
+            int width = 0;
+            if (height > 0) {
+                Jim_Obj *firstRow = Jim_ListGetIndex(interp, mask, 0);
+                width = Jim_ListLength(interp, firstRow);
+            }
+
+            Image result = imageNew(im.width, im.height, im.components, im.uniq);
+            for (int y = 0; y < height; y++) {
+                Jim_Obj *row = Jim_ListGetIndex(interp, mask, y);
+                for (int x = 0; x < width; x++) {
+                    Jim_Obj *elem = Jim_ListGetIndex(interp, row, x);
+                    double val; Jim_GetDouble(interp, elem, &val);
+                    uint8_t m = val > 0.5 ? 255 : 0;
+                    for (int c = 0; c < im.components; c++) {
+                        result.data[y * result.bytesPerRow + x * im.components + c] =
+                            m ? im.data[y * im.bytesPerRow + x * im.components + c] : 0;
+                    }
+                }
+            }
+            return result;
+        }
         set maskToImageLib [$cc compile]
         Claim the SAM2 mask-to-image library is $maskToImageLib
     }
 }
+
