@@ -47,6 +47,12 @@ $cc proc imageFree {Image image} void {
 # coordinates in im, clockwise from top-left.
 $cc proc warpQuad {Image im double[4][2] imVertices
                    int outWidth int outHeight} Image {
+    if (outWidth <= 0 || outHeight <= 0 ||
+        outWidth > (int)im.width * 4 || outHeight > (int)im.height * 4) {
+
+        FOLK_ERROR("warpQuad: bad dimensions %d x %d (source %d x %d)",
+                   outWidth, outHeight, im.width, im.height);
+    }
     Image out = imageNew(outWidth, outHeight, im.components, im.uniq);
 
     // imVertices are clockwise from top-left: [TL, TR, BR, BL]
