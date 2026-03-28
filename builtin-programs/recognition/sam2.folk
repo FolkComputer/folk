@@ -17,6 +17,7 @@ When /someone/ wishes to load the SAM2 segmenter &\
 
         import torch
         import numpy as np
+        import threading
         from sam2.sam2_image_predictor import SAM2ImagePredictor
         import sys
 
@@ -29,12 +30,13 @@ When /someone/ wishes to load the SAM2 segmenter &\
 
         print(f"sam2: Loading.", file=sys.stderr)
         predictor = SAM2ImagePredictor.from_pretrained("facebook/sam2.1-hiera-small", device=device)
+        predictor_lock = threading.Lock()
         print(f"sam2: Using device: {device}", file=sys.stderr, flush=True)
     }
 
     $py def segment {Image image {list list num} pointCoords {list num} pointLabels} {
         image_np = np.array(image.convert("RGB"))
-        with torch.inference_mode():
+        with predictor_lock, torch.inference_mode():
             predictor.set_image(image_np)
             masks, scores, _ = predictor.predict(
                 point_coords=pointCoords,
