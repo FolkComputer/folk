@@ -30,17 +30,43 @@ apply {{} {
 
 __installLocalStdoutAndStderr "boot.folk"
 
-Assert! when /__this/ has program code /__programCode/ {
-    SayWithSource $__this 1 0 {} {} \
-        when $__programCode with environment [list [list this $__this]]
+Assert! when /_this/ has program code /programCode/ {
+    if {$_this eq "builtin-programs/collect.folk"} {
+        # We don't have Collect available in boot.folk yet, since it's
+        # implemented in userspace, so we can't do the queries. Just
+        # run it always.
+        SayWithSource $_this 1 0 {} {} \
+            when $programCode with environment [list [list this $_this]]
+        return
+    }
+
+    When /nobody/ wishes program $_this does not run {
+        When /nobody/ wishes program $_this is replaced with /...anything/ {
+            SayWithSource $_this 1 0 {} {} \
+                when $programCode with environment [list [list this $_this]]
+        }
+        When /someone/ wishes program $_this is replaced with /...replacedOpts/ {
+            SayWithSource $_this 1 0 {} {} \
+                when [dict get $replacedOpts code] with environment [list [list this $_this]]
+        }
+    }
 } with environment {}
 
 local proc LoadProgram! {programFilename} {
     set fp [open $programFilename r]
+    set code [read $fp]
+    close $fp
+
+    set editedPath "$::env(HOME)/folk-data/program/[regsub {\.folk$} $programFilename {}].folk.edited"
+    if {[file exists $editedPath]} {
+        set efd [open $editedPath r]
+        set code [read $efd]
+        close $efd
+    }
+
     Hold! -on boot.folk -key [list $programFilename code] \
         -keep 100ms \
-        Claim $programFilename has program code [read $fp]
-    close $fp
+        Claim $programFilename has program code $code
 }
 foreach programFilename [list {*}[glob -nocomplain builtin-programs/*.folk] \
                              {*}[glob -nocomplain builtin-programs/*/*.folk] \
