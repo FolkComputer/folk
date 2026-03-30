@@ -69,12 +69,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
 <div class="mode-select">
   <h2>Displays</h2>
   <div style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
-    <label>
-      <input type="radio" name="display-enabled"
-             value=""
-             onchange="displayEnabledChange.call(this, event)">
-      <strong>Don't use a display</strong>
-    </label>
+    <button onclick="dontUseDisplay()"><strong>Don't use a display</strong></button>
   </div>
 
   [HtmlWhen $::thisNode has display /display/ with /...opts/ {
@@ -100,7 +95,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
     subst {
       <div style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
         <label>
-          <input type="radio" name="display-enabled"
+          <input type="checkbox" name="display-enabled"
                  $($isUsingDisplay ? "checked" : "")
                  value="$display"
                  onchange="displayEnabledChange.call(this, event)">
@@ -148,18 +143,20 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
     }
   }}]
   <script>
+   function dontUseDisplay() {
+     document.querySelectorAll('input\[type="checkbox"\]\[name="display-enabled"]:checked').forEach(cb => {
+       cb.checked = false;
+       folk.hold(`display \${cb.value}`, '',
+                 'builtin-programs/web/setup.folk', true);
+     });
+   }
    function displayEnabledChange(event) {
      const display = this.value;
      if (this.checked) {
        if (display === "glfw") {
          // glfw doesn't have any mode settings (for now).
-         folk.hold('display', `Wish \$::thisNode uses display "\${display}" with width 640 height 480 refreshRate -1`,
+         folk.hold(`display \${display}`, `Wish \$::thisNode uses display "\${display}" with width 640 height 480 refreshRate -1`,
                    'builtin-programs/web/setup.folk', true);
-
-       } else if (display === "") {
-         folk.hold('display', '',
-                   'builtin-programs/web/setup.folk', true);
-
        } else {
          const firstRefreshRateRadio = document.querySelector(
            `input\[type="radio"\]\[name^="display-refreshRate-"\]\[data-display="\${display}"]`
@@ -168,7 +165,8 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
          firstRefreshRateRadio.dispatchEvent(new Event('change'));
        }
      } else {
-       // I think this never fires?
+       folk.hold(`display \${display}`, '',
+                 'builtin-programs/web/setup.folk', true);
      }
    }
    function displayResolutionClicked(event) {
@@ -185,7 +183,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
      if (this.checked) {
        const display = this.dataset.display;
        const mode = this.value;
-       folk.hold('display', `Wish \$::thisNode uses display "\${display}" with \${mode}`,
+       folk.hold(`display \${display}`, `Wish \$::thisNode uses display "\${display}" with \${mode}`,
                  'builtin-programs/web/setup.folk', true);
      }
      event.preventDefault();
