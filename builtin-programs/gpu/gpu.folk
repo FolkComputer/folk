@@ -296,10 +296,16 @@ fn gpuInit {useGlfw} {
     set gpuLib [$gpuc compile]
 
     $gpuLib init $useGlfw
+
     Claim the GPU library is $gpuLib
 
     Claim the GPU physical device is [$gpuLib getPhysicalDevice]
     Claim the GPU device is [$gpuLib getDevice]
+}
+
+if {$::tcl_platform(os) eq "darwin"} {
+    gpuInit true
+    return
 }
 
 When $::thisNode has had displays enumerated {
