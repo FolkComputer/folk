@@ -112,6 +112,7 @@ proc captureEnvStack {} {
 
 $::realStdout buffering line
 $::realStderr buffering none
+stdout buffering line
 
 rename exec __exec
 proc ::exec {args} {
