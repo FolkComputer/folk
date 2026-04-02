@@ -1,51 +1,86 @@
-# Function to check if the device is a keyboard
-proc isKeyboard {device} {
+# Returns a dict of keyboard info (MAC-address, by-id path, etc.)
+# if the device is a keyboard, or 0 if it's not a keyboard.
+proc getKeyboardInfo {device} {
     set properties [exec udevadm info --query=property --name=$device]
-    if {$properties eq ""} {
-        return false
+    if {$properties eq {}} {
+        return 0
     }
-    set isKeyboard [string match *ID_INPUT_KEYBOARD=1* $properties]
-    return $isKeyboard
-    # TODO: Excluding mice would nice to keey the list of keyboard devices short
-    #       Alas, including mice is necessary for the Logitech K400R keyboard
-    # set isMouse [string match *ID_INPUT_MOUSE=1* $properties]
-    # return [expr {$isKeyboard && !$isMouse}]
+    if {![string match *ID_INPUT_KEYBOARD=1* $properties]} {
+        return 0
+    }
+    if {[file readable $device] == 0} {
+        puts stderr "keyboard: Device $device is not readable. Attempting to change permissions."
+        exec chmod +r $device
+    }
+
+    set info [dict create]
+
+    if {[regexp -line {^ID_PATH=([^$]+)$} $properties -> idPath]} {
+        dict set info by-id $idPath
+    }
+
+    # Read UNIQ from sysfs (usually Bluetooth MAC address) if
+    # applicable.
+    set eventName [file tail $device]
+    set uniqFile /sys/class/input/$eventName/device/uniq
+    if {[file readable $uniqFile]} {
+        set fd [open $uniqFile]
+        set uniq [string trim [read $fd]]
+        close $fd
+        if {$uniq ne {}} { dict set info uniq $uniq }
+    }
+
+    return $info
 }
 
-####
-# /dev/input/event* addresses are the ground truth for keyboard devices
+# /dev/input/event* addresses are the ground truth for keyboard
+# devices. You don't want /dev/input/by-id/* because USB keyboards
+# don't always have a stable id; you don't want /dev/input/by-path/*
+# because Bluetooth keyboards don't have a device tree path.
 #
-# This function goes through each of them and checks if they are keyboards
+# This function goes through each of them and checks if they are
+# keyboards.
+#
+# TODO: We should refresh this set every time udev (?) reports a
+# change to the set of active keyboards.
 proc walkInputEventPaths {} {
-    # set allDevices [glob -nocomplain "/dev/input/event*"]
-    set allDevices [glob -nocomplain "/dev/input/by-path/*"]
+    set allDevices [glob -nocomplain "/dev/input/event*"]
     set keyboards [list]
     foreach device $allDevices {
-        if {[isKeyboard $device]} {
-            if {[file readable $device] == 0} {
-                puts stderr "keyboard: Device $device is not readable. Attempting to change permissions."
-                # Attempt to change permissions so that the file can be read
-                exec chmod +r $device
-            }
-            lappend keyboards $device
+        set keyboardInfo [getKeyboardInfo $device]
+        if {$keyboardInfo ne 0} {
+            dict set keyboards $device $keyboardInfo
         }
     }
     return $keyboards
 }
 
 set keyboardDevices [walkInputEventPaths]
-foreach keyboard $keyboardDevices {
-    Claim $keyboard is a keyboard device
+dict for {device keyboardInfo} $keyboardDevices {
+    Claim $device is a keyboard device with {*}$keyboardInfo
 }
 
-# backwards compatibility
-When /page/ is a keyboard with path /keyboard/ {
-    Claim $page is a keyboard with path $keyboard locale us
+# For Bluetooth:
+# When a Bluetooth keyboard is connected, it appears as a
+# /dev/input/event* device and gets discovered by walkInputEventPaths
+# above with its MAC-address. If the user has declared a page as a
+# Bluetooth keyboard, we check whether a matching device was found.
+When /page/ is a Bluetooth keyboard with /...opts/ {
+    set macAddress [dict get $opts MAC-address]
+    set matches [Query! /device/ is a keyboard device with uniq $macAddress]
+    if {[llength $matches] == 0} {
+        Wish $page displays text "Bluetooth keyboard $macAddress not connected"
+    } else {
+        set device [dict get [lindex $matches 0] device]
+        Claim $page is a keyboard with path $device {*}$opts
+    }
 }
 
-When /keyboard/ is a keyboard device {
+When /device/ is a keyboard device with /...keyboardInfo/ {
     source "lib/keymap.tcl"
     set defaultKeymap [keymap load us]
+
+    puts stderr "setup keyboard device: $device ($keyboardInfo)"
 
     set cc [C]
     $cc include <linux/input.h>
@@ -74,41 +109,14 @@ When /keyboard/ is a keyboard device {
 
     set KEY_STATES [list up down repeat]
 
-    set keyboardChannel [open $keyboard r]
+    set keyboardChannel [open $device r]
     fconfigure $keyboardChannel -translation binary
 
     set keyboardFileno [$grabber getFileno $keyboardChannel]
     # $grabber setGrabDevice $keyboardFileno 1
 
-    Hold! -key [list local-keymaps $keyboard] \
-        Claim $keyboard has keymaps [dict create]
-
-    When /page/ is a keyboard with path $keyboard locale /locale/ {
-        set localKeymaps [dict getdef [lindex [Query! $keyboard has keymaps /localKeymaps/] 0] localKeymaps {}]
-        if {[dict exists $localKeymaps $locale]} {
-            return
-        }
-
-        if {![exists -command keymap]} {
-            source "lib/keymap.tcl"
-        }
-        set map [keymap load $locale]
-        dict set localKeymaps $locale $map
-        Hold! -key [list local-keymaps $keyboard] \
-            Claim $keyboard has keymaps $localKeymaps
-
-        # TODO: do this removal (it's slow and happens even when we
-        # blink out, causing cascading slowness, so skipping for now)
-
-        # On unmatch {
-        #     dict unset localKeymaps $map
-        #     Hold! [list local-keymaps $keyboard] \
-        #         Claim $keyboard has keymaps $localKeymaps
-
-        #     # keymap destroy $map
-        #     $grabber setGrabDevice $keyboardFileno [dict size $localKeymaps]
-        # }
-    }
+    Hold! -key [list local-keymaps $device] \
+        Claim keyboard $device has keymaps [dict create]
 
     set evtBytes 16
     set evtFormat iissi
@@ -126,8 +134,8 @@ When /keyboard/ is a keyboard device {
             tvSec tvUsec type code value
 
         if {$type == 0x01} { ;# EV_KEY
-            set localKeymaps [dict getdef [lindex [Query! /someone/ claims $keyboard has keymaps /localKeymaps/] \
-                                               0] localKeymaps {}]
+            set localKeymaps [dict getdef [QueryOne! keyboard $device has keymaps /localKeymaps/] \
+                                  localKeymaps {}]
 
             lassign [dict values $localKeymaps] activeKeymap
             if {$activeKeymap eq ""} {
@@ -153,7 +161,39 @@ When /keyboard/ is a keyboard device {
             if {$keychar ne "" && $modKeyNotHeld} {
                 dict set options printable $keychar
             }
-            Notify: keyboard $keyboard claims key $key is $keyState with {*}$options
+            Notify: keyboard $device claims key $key is $keyState with {*}$options
         }
     }
+}
+
+When /page/ is a keyboard with /...opts/ {
+    set device [file normalize $opts(path)]
+    Claim $page is keyboard device $device
+
+    set locale [dict getdef $opts locale us]
+
+    set localKeymaps [dict getdef [QueryOne! keyboard $device has keymaps /localKeymaps/] localKeymaps {}]
+    if {[dict exists $localKeymaps $locale]} {
+        return
+    }
+
+    if {![exists -command keymap]} {
+        source "lib/keymap.tcl"
+    }
+    set map [keymap load $locale]
+    dict set localKeymaps $locale $map
+    Hold! -key [list local-keymaps $device] \
+        Claim keyboard $device has keymaps $localKeymaps
+
+    # TODO: do this removal (it's slow and happens even when we
+    # blink out, causing cascading slowness, so skipping for now)
+
+    # On unmatch {
+    #     dict unset localKeymaps $map
+    #     Hold! [list local-keymaps $device] \
+    #         Claim $device has keymaps $localKeymaps
+
+    #     # keymap destroy $map
+    #     $grabber setGrabDevice $keyboardFileno [dict size $localKeymaps]
+    # }
 }

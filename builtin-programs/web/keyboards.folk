@@ -1,5 +1,5 @@
 Wish the web server handles route "/keyboards$" with handler {
-    set keyboards [lmap result [Query! /someone/ claims /keyboard/ is a keyboard device] {
+    set keyboards [lmap result [Query! /keyboard/ is a keyboard device with /...any/] {
         dict get $result keyboard
     }]
     html [subst {
@@ -9,6 +9,7 @@ Wish the web server handles route "/keyboards$" with handler {
           body {
               background-color: #222;
               color: whitesmoke;
+              font-family: monospace;
           }
             .kbinfo {
                 outline: 1px solid whitesmoke;
@@ -19,6 +20,23 @@ Wish the web server handles route "/keyboards$" with handler {
             }
             .path:before {
                 content: "Path: "
+            }
+            .btdevice {
+                outline: 1px solid #555;
+                border-radius: 6px;
+                margin: 6px 0;
+                padding: 10px;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            }
+            button {
+                padding: 6px 12px;
+                cursor: pointer;
+            }
+            #scan-status {
+                margin: 8px 0;
+                color: #aaa;
             }
           </style>
           </head>
@@ -38,6 +56,11 @@ Wish the web server handles route "/keyboards$" with handler {
         } }] "\n"]
         </dl>
 
+        <h2>Bluetooth Keyboards</h2>
+        <button id="scan-btn" onclick="scanBluetooth()">Scan for Bluetooth keyboards</button>
+        <div id="scan-status"></div>
+        <div id="bt-devices"></div>
+
         <script src="/lib/folk.js"></script>
         <script>
           const ws = new FolkWS(document.getElementById('status'));
@@ -52,9 +75,151 @@ Wish the web server handles route "/keyboards$" with handler {
               tcl`Notify: print code {Claim \$this is a keyboard with path \${kb}}`
             );
           }
+
+          async function scanBluetooth() {
+            const btn = document.getElementById('scan-btn');
+            const statusEl = document.getElementById('scan-status');
+            const devicesEl = document.getElementById('bt-devices');
+
+            btn.disabled = true;
+            statusEl.textContent = 'Scanning for 8 seconds...';
+            devicesEl.innerHTML = '';
+
+            try {
+              const resp = await fetch('/bluetooth/scan');
+              if (!resp.ok) throw new Error('HTTP ' + resp.status);
+              const devices = await resp.json();
+
+              statusEl.textContent = devices.length > 0
+                ? 'Found ' + devices.length + ' device(s):'
+                : 'No devices found.';
+
+              devicesEl.innerHTML = devices.map(d => {
+                const safeId = d.address.replace(/:/g, '');
+                const extra = \[d.alias, d.modalias].filter(Boolean).join(' · ');
+                return '<div class="btdevice">' +
+                  '<span><strong>' + d.name + '</strong> (' + d.address + ')' +
+                  (extra ? '<br><small style="color:#aaa">' + extra + '</small>' : '') +
+                  '</span>' +
+                  '<button onclick="pairDevice(`' + d.address + '`, this)">Pair</button>' +
+                  '<span id="pair-status-' + safeId + '"></span>' +
+                  '</div>';
+              }).join('');
+            } catch (e) {
+              statusEl.textContent = 'Scan failed: ' + e;
+            }
+
+            btn.disabled = false;
+          }
+
+          async function pairDevice(address, btn) {
+            const safeId = address.replace(/:/g, '');
+            const statusEl = document.getElementById('pair-status-' + safeId);
+            btn.disabled = true;
+            statusEl.textContent = 'Pairing...';
+
+            try {
+              const resp = await fetch('/bluetooth/pair?address=' + encodeURIComponent(address));
+              const text = await resp.text();
+              statusEl.textContent = text;
+            } catch (e) {
+              statusEl.textContent = 'Failed: ' + e;
+              btn.disabled = false;
+            }
+          }
         </script>
       </body>
       </html>
     }]
 }
 
+Wish the web server handles route "/bluetooth/scan$" with hidden true handler {
+    set output ""
+    catch {
+        set output [exec sh -c {(echo "power on"; echo "agent KeyboardOnly"; echo "default-agent"; echo "pairable on"; echo "scan on"; sleep 8; echo "scan off"; echo "devices"; echo "quit") | bluetoothctl 2>&1}]
+    }
+
+    set devices [list]
+    foreach line [split $output "\n"] {
+        set line [string trim $line]
+        # Match "[NEW] Device XX:XX:XX:XX:XX:XX Name" or "Device XX:XX:XX:XX:XX:XX Name"
+        # Skip [CHG] lines (property change events, not device announcements)
+        if {[string match {\[CHG\]*} $line]} { continue }
+        if {[regexp {Device ([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}) (.+)$} $line -> address name]} {
+            lappend devices [list $address $name]
+        }
+    }
+    # deduplicate by address
+    set seen [dict create]
+    set unique [list]
+    foreach d $devices {
+        set addr [lindex $d 0]
+        if {![dict exists $seen $addr]} {
+            dict set seen $addr 1
+            lappend unique $d
+        }
+    }
+
+    # Filter to devices that look like keyboards by checking
+    # bluetoothctl info for Icon: input-keyboard.
+    # Also extract alias and modalias for display.
+    set keyboards [list]
+    foreach d $unique {
+        set addr [lindex $d 0]
+        set info {}
+        catch { set info [exec bluetoothctl info $addr] }
+        if {[string match *input-keyboard* $info]} {
+            set alias {}
+            regexp -line {Alias: (.+)$} $info -> alias
+            set modalias {}
+            regexp -line {Modalias: (.+)$} $info -> modalias
+            lappend keyboards [list $addr [lindex $d 1] $alias $modalias]
+        }
+    }
+
+    set jsonItems [lmap d $keyboards {
+        set addr [lindex $d 0]
+        set name [lindex $d 1]
+        set alias [lindex $d 2]
+        set modalias [lindex $d 3]
+        set name [string map {\\ \\\\ "\"" \\"} $name]
+        set alias [string map {\\ \\\\ "\"" \\"} $alias]
+        set modalias [string map {\\ \\\\ "\"" \\"} $modalias]
+        subst {{"address":"$addr","name":"$name","alias":"$alias","modalias":"$modalias"}}
+    }]
+
+    json "\[[join $jsonItems ,]\]"
+}
+
+Wish the web server handles route "/bluetooth/pair" with hidden true handler {
+    set address [dict getdef $QUERY address ""]
+    if {$address eq "" || ![regexp {^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$} $address]} {
+        html "Error: invalid Bluetooth address"
+        return
+    }
+
+    set output {}
+    catch {
+        set output [exec sh -c [subst {(echo "power on"; echo "agent KeyboardOnly"; echo "default-agent"; echo "pair $address"; sleep 5; echo "trust $address"; echo "connect $address"; echo "quit") | bluetoothctl 2>&1}]]
+    }
+
+    if {[regexp {Passkey:\s*(\d+)} [regsub -all {\x1b\[[0-9;]*[a-zA-Z]} $output {}] -> passkey]} {
+        html "Type this passkey on the keyboard and press Enter: <strong style='font-size:2em'>$passkey</strong>"
+    } elseif {[string match "*Connection successful*" $output]} {
+        html "Paired, trusted, and connected successfully"
+    } elseif {[string match "*AlreadyExists*" $output] || [string match "*already paired*" $output]} {
+        set connectOutput ""
+        catch {
+            set connectOutput [exec sh -c "(echo \"connect $address\"; echo \"quit\") | bluetoothctl 2>&1"]
+        }
+        if {[string match "*Connection successful*" $connectOutput]} {
+            html "Already paired - connected successfully"
+        } else {
+            html "Already paired (connection result: $connectOutput)"
+        }
+    } elseif {[string match "*Pairing successful*" $output]} {
+        html "Paired and trusted (connecting may take a moment)"
+    } else {
+        html "Result: [string map {< &lt; > &gt;} $output]"
+    }
+}

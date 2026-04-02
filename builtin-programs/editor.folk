@@ -1,7 +1,7 @@
 # This makes all keyboards into editors automatically, so a keyboard
 # doesn't need to point at a real editor. May choose to change later, or
 # exclude keyboards that opt out.
-When /k/ is a keyboard with /...opts/ &\
+When /k/ is keyboard device /any/ &\
      /nobody/ wishes /k/ does not create an editor {
 
     Wish tag $k is stabilized
@@ -19,7 +19,7 @@ When /k/ is a keyboard with /...opts/ &\
     Claim $k has created editor $editor
     Claim $k is typing into $editor
 }
-When /k/ is a keyboard with /...opts/ &\
+When /k/ is keyboard device /any/ &\
      /nobody/ claims /k/ has created editor /any/ &\
      /k/ points up at /editor/ & /editor/ is an editor with /...opts/ {
 
@@ -149,13 +149,13 @@ Subscribe: keyboard /keyboard/ claims key Control_b is down with /...options/ {
     Notify: print code "# blank"
 }
 
-When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
+When /keyboard/ is keyboard device /kbDevice/ &\
      /keyboard/ is typing into /editor/ &\
      /editor/ is an editor with /...anything/ &\
      editor /editor/ has selected program /program/ {
     Wish $editor is outlined green
 
-    Subscribe: keyboard $kbPath claims key /key/ is /keyState/ with /...options/ {
+    Subscribe: keyboard $kbDevice claims key /key/ is /keyState/ with /...options/ {
         ForEach! editor $editor has viewport position /vpPos/ &\
                  editor $editor has viewport size /vpSize/ &\
                  editor buffer for $program is /code/ &\
