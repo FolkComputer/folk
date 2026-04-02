@@ -1,3 +1,5 @@
+try {
+
 puts "web: [__threadId] (PID [pid])"
 
 # We need to handle SIGPIPE so closing a tab doesn't crash Folk, but
@@ -293,3 +295,12 @@ while true {
     }
 }
 vwait forever
+
+} on error {e opts} {
+    puts $::realStderr "WARNING: web.folk failed to initialize;
+the web server is probably down; check /tmp/[pid]/ for log files.
+(Make sure autoconf-archive is installed.)
+------------------------------------------
+[errorInfo $e]"
+    return -options $opts $e
+}
