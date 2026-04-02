@@ -103,6 +103,18 @@ $gpuc code {
     // data structures associated with a particular texture (that we
     // will destroy when we evict that texture).
     struct GpuTextureBlock* gpuTextures;
+
+    // Deferred descriptor-set updates and resource destruction,
+    // drained once per frame on the GPU thread when the GPU is idle.
+    enum DeferredTextureOp { DEFERRED_ADD, DEFERRED_FREE };
+    struct DeferredTextureEntry {
+        enum DeferredTextureOp op;
+        GpuTextureHandle handle;
+    };
+    #define DEFERRED_QUEUE_CAP 256
+    struct DeferredTextureEntry deferredQueue[DEFERRED_QUEUE_CAP];
+    int _Atomic deferredQueueCount = 0;
+    pthread_mutex_t deferredQueueMutex = PTHREAD_MUTEX_INITIALIZER;
 }
 $gpuc proc textureManagerInit {} void {
     $[vktry volkInitialize()]
@@ -163,8 +175,6 @@ $gpuc proc textureManagerInit {} void {
 
         $[vktry {vkAllocateDescriptorSets(device, &allocInfo, textureDescriptorSet_ptr())}]
     }
-    pthread_rwlock_init(textureDescriptorSetLock_ptr(), NULL);
-
     // Initialize VMA allocator
     vmaInit(*instance_ptr(), *physicalDevice_ptr(), device,
             vkGetInstanceProcAddr,
@@ -434,54 +444,65 @@ $gpuc code [csubst {
     }
 }]
 
-$gpuc proc addToTextureDescriptorSet {GpuTextureHandle textureId} void {
-    // Write this texture+sampler to the textureDescriptorSet
-    {
+$gpuc code {
+    static void enqueueDeferredTextureOp(enum DeferredTextureOp op, GpuTextureHandle handle) {
+        pthread_mutex_lock(&deferredQueueMutex);
+        if (deferredQueueCount >= DEFERRED_QUEUE_CAP) {
+            fprintf(stderr, "gpu/textures: Deferred queue full (%d)\n", DEFERRED_QUEUE_CAP);
+            exit(1);
+        }
+        deferredQueue[deferredQueueCount++] = (struct DeferredTextureEntry){op, handle};
+        pthread_mutex_unlock(&deferredQueueMutex);
+    }
+
+    // Write a single texture slot into the descriptor set. Must only
+    // be called on the GPU thread between frames (or during init).
+    static void writeTextureDescriptor(GpuTextureHandle textureId) {
         VkDescriptorImageInfo imageInfo = {0};
         imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         imageInfo.imageView = gpuTextures[textureId].textureImageView;
         imageInfo.sampler = gpuTextures[textureId].textureSampler;
 
-        static bool _Atomic didInitializeDescriptors = false;
-        if (!didInitializeDescriptors) {
-            // Hack: if we're not using the descriptor
-            // indexing extension, we can't have a partially
-            // bound descriptor set, so we need to fill all
-            // the slots in the texture array with
-            // _something_. We just fill all slots wtih the
-            // first texture for now. See
-            // http://roar11.com/2019/06/vulkan-textures-unbound/
-            VkWriteDescriptorSet descriptorWrites[getMaxTextures()];
-            for (int i = 0; i < getMaxTextures(); i++) {
-                memset(&descriptorWrites[i], 0, sizeof(VkWriteDescriptorSet));
-                descriptorWrites[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                descriptorWrites[i].dstSet = *textureDescriptorSet_ptr();
-                descriptorWrites[i].dstBinding = 0;
-                descriptorWrites[i].dstArrayElement = i;
-                descriptorWrites[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                descriptorWrites[i].descriptorCount = 1;
-                descriptorWrites[i].pImageInfo = &imageInfo;
-            }
-            pthread_rwlock_wrlock(textureDescriptorSetLock_ptr());
-            vkUpdateDescriptorSets(device, getMaxTextures(), descriptorWrites, 0, NULL);
-            pthread_rwlock_unlock(textureDescriptorSetLock_ptr());
+        VkWriteDescriptorSet descriptorWrite = {0};
+        descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptorWrite.dstSet = *textureDescriptorSet_ptr();
+        descriptorWrite.dstBinding = 0;
+        descriptorWrite.dstArrayElement = textureId;
+        descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        descriptorWrite.descriptorCount = 1;
+        descriptorWrite.pImageInfo = &imageInfo;
 
-            didInitializeDescriptors = true;
-        } else {
-            VkWriteDescriptorSet descriptorWrite = {0};
-            descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptorWrite.dstSet = *textureDescriptorSet_ptr();
-            descriptorWrite.dstBinding = 0;
-            descriptorWrite.dstArrayElement = textureId;
-            descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            descriptorWrite.descriptorCount = 1;
-            descriptorWrite.pImageInfo = &imageInfo;
-
-            pthread_rwlock_wrlock(textureDescriptorSetLock_ptr());
-            vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
-            pthread_rwlock_unlock(textureDescriptorSetLock_ptr());
-        }
+        vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
     }
+}
+
+$gpuc proc initializeDescriptorSet {GpuTextureHandle firstTextureId} void {
+    // Hack: if we're not using the descriptor indexing extension,
+    // we can't have a partially bound descriptor set, so we need
+    // to fill all the slots in the texture array with _something_.
+    // We just fill all slots with the first texture for now. See
+    // http://roar11.com/2019/06/vulkan-textures-unbound/
+    VkDescriptorImageInfo imageInfo = {0};
+    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    imageInfo.imageView = gpuTextures[firstTextureId].textureImageView;
+    imageInfo.sampler = gpuTextures[firstTextureId].textureSampler;
+
+    VkWriteDescriptorSet descriptorWrites[getMaxTextures()];
+    for (int i = 0; i < getMaxTextures(); i++) {
+        memset(&descriptorWrites[i], 0, sizeof(VkWriteDescriptorSet));
+        descriptorWrites[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptorWrites[i].dstSet = *textureDescriptorSet_ptr();
+        descriptorWrites[i].dstBinding = 0;
+        descriptorWrites[i].dstArrayElement = i;
+        descriptorWrites[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        descriptorWrites[i].descriptorCount = 1;
+        descriptorWrites[i].pImageInfo = &imageInfo;
+    }
+    vkUpdateDescriptorSets(device, getMaxTextures(), descriptorWrites, 0, NULL);
+}
+
+$gpuc proc addToTextureDescriptorSet {GpuTextureHandle textureId} void {
+    enqueueDeferredTextureOp(DEFERRED_ADD, textureId);
 }
 
 $gpuc proc getGpuTexture {GpuTextureHandle handle} GpuTextureBlock* {
@@ -646,43 +667,88 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
 
     return block->handle;
 }
+# Replace a descriptor slot with a different texture. Must only be
+# called on the GPU thread between frames (used by canvases).
 $gpuc proc replaceInTextureDescriptorSet {GpuTextureHandle oldHandle GpuTextureHandle newHandle} void {
-    // newHandle = 0 is used as a placeholder so it doesn't
-    // fault if it tries to access this freed texture.
-    {
-        VkDescriptorImageInfo imageInfo = {0};
-        imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        imageInfo.imageView = gpuTextures[newHandle].textureImageView;
-        imageInfo.sampler = gpuTextures[newHandle].textureSampler;
+    VkDescriptorImageInfo imageInfo = {0};
+    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    imageInfo.imageView = gpuTextures[newHandle].textureImageView;
+    imageInfo.sampler = gpuTextures[newHandle].textureSampler;
 
-        VkWriteDescriptorSet descriptorWrite = {0};
-        descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        descriptorWrite.dstSet = *textureDescriptorSet_ptr();
-        descriptorWrite.dstBinding = 0;
-        descriptorWrite.dstArrayElement = oldHandle;
-        descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        descriptorWrite.descriptorCount = 1;
-        descriptorWrite.pImageInfo = &imageInfo;
+    VkWriteDescriptorSet descriptorWrite = {0};
+    descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrite.dstSet = *textureDescriptorSet_ptr();
+    descriptorWrite.dstBinding = 0;
+    descriptorWrite.dstArrayElement = oldHandle;
+    descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    descriptorWrite.descriptorCount = 1;
+    descriptorWrite.pImageInfo = &imageInfo;
 
-        pthread_rwlock_wrlock(textureDescriptorSetLock_ptr());
-        vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
-        pthread_rwlock_unlock(textureDescriptorSetLock_ptr());
-    }
+    vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
 }
-$gpuc proc freeGpuTexture {GpuTextureHandle gim} void {
-    GpuTextureBlock* block = &gpuTextures[gim];
 
-    replaceInTextureDescriptorSet(gim, 0);
+$gpuc proc freeGpuTexture {GpuTextureHandle gim} void {
+    enqueueDeferredTextureOp(DEFERRED_FREE, gim);
+}
+
+# Actually destroy a texture's GPU resources. Must only be called
+# on the GPU thread between frames when the GPU is idle.
+$gpuc code {
+    static void destroyGpuTextureResources(GpuTextureHandle gim) {
+        GpuTextureBlock* block = &gpuTextures[gim];
+
+        // Point this descriptor slot at the placeholder texture (slot 0)
+        // so later frames don't reference a destroyed image.
+        {
+            VkDescriptorImageInfo imageInfo = {0};
+            imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            imageInfo.imageView = gpuTextures[0].textureImageView;
+            imageInfo.sampler = gpuTextures[0].textureSampler;
+
+            VkWriteDescriptorSet descriptorWrite = {0};
+            descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrite.dstSet = *textureDescriptorSet_ptr();
+            descriptorWrite.dstBinding = 0;
+            descriptorWrite.dstArrayElement = gim;
+            descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptorWrite.descriptorCount = 1;
+            descriptorWrite.pImageInfo = &imageInfo;
+
+            vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
+        }
 
 #ifdef TRACY_ENABLE
-    TracyCFree(block->textureImageAllocation);
+        TracyCFree(block->textureImageAllocation);
 #endif
-    vmaDestroyImage(vmaGetAllocator(), block->textureImage, block->textureImageAllocation);
-    vkDestroySampler(device, block->textureSampler, NULL);
-    vkDestroyImageView(device, block->textureImageView, NULL);
+        vmaDestroyImage(vmaGetAllocator(), block->textureImage, block->textureImageAllocation);
+        vkDestroySampler(device, block->textureSampler, NULL);
+        vkDestroyImageView(device, block->textureImageView, NULL);
 
-    free(block->description);
-    block->alive = false;
+        free(block->description);
+        block->alive = false;
+    }
+}
+
+# Called on the GPU thread between frames, after the previous
+# frame's fence has been waited on (GPU is idle).
+$gpuc proc processDeferredTextureOps {} void {
+    pthread_mutex_lock(&deferredQueueMutex);
+    int count = deferredQueueCount;
+    struct DeferredTextureEntry localQueue[DEFERRED_QUEUE_CAP];
+    memcpy(localQueue, deferredQueue, count * sizeof(struct DeferredTextureEntry));
+    deferredQueueCount = 0;
+    pthread_mutex_unlock(&deferredQueueMutex);
+
+    for (int i = 0; i < count; i++) {
+        switch (localQueue[i].op) {
+        case DEFERRED_ADD:
+            writeTextureDescriptor(localQueue[i].handle);
+            break;
+        case DEFERRED_FREE:
+            destroyGpuTextureResources(localQueue[i].handle);
+            break;
+        }
+    }
 }
 
 $gpuc proc initPlaceholderTexture {} void {
@@ -705,6 +771,12 @@ $gpuc proc initPlaceholderTexture {} void {
     }
     GpuTextureHandle han = copyImageToGpuTexture(magentaIm);
     FOLK_ENSURE(han == 0);
+
+    // Fill all descriptor slots with the placeholder texture, then
+    // drain the queued DEFERRED_ADD for slot 0 (which is now redundant
+    // but harmless).
+    initializeDescriptorSet(han);
+    processDeferredTextureOps();
 }
 
 set gpuTextureLib [$gpuc compile]
@@ -712,6 +784,10 @@ Claim the GPU texture library for $drawLib is $gpuTextureLib
 
 # Wait until the library has been initialized by gpu.folk.
 When display /any/ has width /any/ height /any/ {
+    Wish the GPU runs frame prelude handler [list apply {{gpuTextureLib} {
+        $gpuTextureLib processDeferredTextureOps
+    }} $gpuTextureLib]
+
     When /someone/ wishes the GPU loads image /im/ as texture {
         set gtex [$gpuTextureLib copyImageToGpuTexture $im]
         Claim the GPU has loaded image $im as texture $gtex \

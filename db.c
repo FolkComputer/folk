@@ -20,6 +20,8 @@
 #include "sysmon.h"
 #include "db.h"
 
+#include "vendor/stb_ds.h"
+
 typedef struct ListOfEdgeTo {
     size_t capacityEdges;
     size_t nEdges; // This is an upper bound.
@@ -329,7 +331,7 @@ typedef struct Db {
     // overwrite out-of-date Holds for a key as soon as a newer one
     // comes in, without having to actually emit and react to the
     // statement.
-    Hold holds[512];
+    Hold* holds; // stb_ds string hash map (keyed by Hold.key)
     Mutex holdsMutex;
 
     // One for each `atomically` key.
@@ -886,6 +888,7 @@ Db* dbNew() {
 
     ret->clauseToStatementRef = trieNew();
 
+    sh_new_arena(ret->holds);
     mutexInit(&ret->holdsMutex);
 
     mutexInit(&ret->atomicallysMutex);
@@ -1417,30 +1420,11 @@ Statement* dbHoldStatement(Db* db,
 
     mutexLock(&db->holdsMutex);
 
-    Hold* hold = NULL;
-    for (int i = 0; i < sizeof(db->holds)/sizeof(db->holds[0]); i++) {
-        if (db->holds[i].key != NULL && strcmp(db->holds[i].key, key) == 0) {
-            hold = &db->holds[i];
-            break;
-        }
-    }
+    Hold* hold = shgetp_null(db->holds, key);
     if (hold == NULL) {
-        for (int i = 0; i < sizeof(db->holds)/sizeof(db->holds[0]); i++) {
-            if (db->holds[i].key == NULL) {
-                hold = &db->holds[i];
-                hold->key = strdup(key);
-                hold->version = -1;
-                break;
-            }
-        }
-    }
-
-    if (hold == NULL) {
-        fprintf(stderr, "dbHoldStatement: Ran out of hold slots:\n");
-        for (int i = 0; i < sizeof(db->holds)/sizeof(db->holds[0]); i++) {
-            fprintf(stderr, "  %d. {%s}\n", i, db->holds[i].key);
-        }
-        exit(1);
+        Hold newHold = { .key = (char*)key, .version = -1, .statement = STATEMENT_REF_NULL };
+        shputs(db->holds, newHold);
+        hold = shgetp_null(db->holds, key);
     }
 
     if (version < 0) {
@@ -1477,8 +1461,8 @@ Statement* dbHoldStatement(Db* db,
             }
         } else {
             clauseFree(clause);
-            hold->statement = STATEMENT_REF_NULL;
-            hold->key = NULL;
+            shdel(db->holds, key);
+            hold = NULL;
         }
 
 

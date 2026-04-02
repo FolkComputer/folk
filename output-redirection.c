@@ -7,6 +7,7 @@
 #include <assert.h>
 #include <pthread.h>
 #include <sys/syscall.h>
+#include <sys/stat.h>
 
 #include "vendor/stb_ds.h"
 
@@ -144,9 +145,13 @@ size_t fwrite(const void *buf, size_t size, size_t count, FILE *stream) {
 typedef struct { char *key; int stdoutfd; int stderrfd; } ProgramFds;
 static ProgramFds *programFdsTable = NULL;
 static pthread_rwlock_t programFdsLock = PTHREAD_RWLOCK_INITIALIZER;
+static char outputDir[256];
 
 void outputRedirectionInit(void) {
     sh_new_arena(programFdsTable);
+
+    snprintf(outputDir, sizeof(outputDir), "/tmp/folk-%d", (int)getpid());
+    mkdir(outputDir, 0755);
 
     // Save stdout and stderr once, globally.
     realStdout = dup(1);
@@ -199,9 +204,9 @@ static int __installLocalStdoutAndStderrFunc(Jim_Interp *interp, int argc, Jim_O
         char escaped[2048];
         escapeProgramName(this, escaped, sizeof(escaped));
         char path[4096];
-        snprintf(path, sizeof(path), "/tmp/%d.%s.stdout", (int)getpid(), escaped);
+        snprintf(path, sizeof(path), "%s/%s.stdout", outputDir, escaped);
         stdoutfd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
-        snprintf(path, sizeof(path), "/tmp/%d.%s.stderr", (int)getpid(), escaped);
+        snprintf(path, sizeof(path), "%s/%s.stderr", outputDir, escaped);
         stderrfd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
 
         pthread_rwlock_wrlock(&programFdsLock);

@@ -17,7 +17,8 @@
 #     Claim printer my-printer is the default printer
 #     Claim paper format a4 is the default paper format
 
-When the image library is /imageLib/ &\
+When libapriltag has been built &\
+     the image library is /imageLib/ &\
      the program save directory is /saveDir/ {
 
 set cc [C]

@@ -1,3 +1,5 @@
+When libapriltag has been built {
+
 set cc [C]
 
 # Represents camera or projector intrinsics, including the classic
@@ -758,4 +760,6 @@ When the quad changer is /quadChange/ &\
         Hold! -key [list $tag image] {}
     }
     # TODO: How to prevent a race if the tag returns?
+}
+
 }

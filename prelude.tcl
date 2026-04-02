@@ -112,21 +112,34 @@ proc captureEnvStack {} {
 
 $::realStdout buffering line
 $::realStderr buffering none
+stdout buffering line
 
 rename exec __exec
 proc ::exec {args} {
     # For background exec (ending with &), redirect stdout and stderr
     # to the current thread-local output files so the subprocess's
     # output lands in the right per-program /tmp/ file.
-    if {[lindex $args end] eq "&" && \
-            [info exists ::_folk_localStdout] && \
-            [info exists ::_folk_localStderr]} {
-        set hasStdout [lsearch -regexp $args {^>@}]
-        set hasStderr [lsearch -regexp $args {^2>@}]
-        set insertions {}
-        if {$hasStdout == -1} { lappend insertions >@ $::_folk_localStdout }
-        if {$hasStderr == -1} { lappend insertions 2>@ $::_folk_localStderr }
-        set args [lreplace $args end end {*}$insertions &]
+    if {[lindex $args end] eq "&"} {
+        if {[info exists ::_folk_localStdout] && [info exists ::_folk_localStderr]} {
+            set hasStdout [lsearch -regexp $args {^>@}]
+            set hasStderr [lsearch -regexp $args {^2>@}]
+            set insertions {}
+            if {$hasStdout == -1} { lappend insertions >@ $::_folk_localStdout }
+            if {$hasStderr == -1} { lappend insertions 2>@ $::_folk_localStderr }
+            set args [lreplace $args end end {*}$insertions &]
+        }
+    } else {
+        # For non-background exec, replace >@stdout / 2>@stderr with
+        # the thread-local output channels so subprocess output lands
+        # in the right per-program /tmp/ file.
+        if {[info exists ::_folk_localStdout]} {
+            set i [lsearch -exact $args {>@stdout}]
+            if {$i != -1} { set args [lreplace $args $i $i >@ $::_folk_localStdout] }
+        }
+        if {[info exists ::_folk_localStderr]} {
+            set i [lsearch -exact $args {2>@stderr}]
+            if {$i != -1} { set args [lreplace $args $i $i 2>@ $::_folk_localStderr] }
+        }
     }
     tailcall __exec {*}$args
 }
