@@ -727,8 +727,9 @@ extern "C" \{
     if {[info exists ::env(ASAN_ENABLE)] && $::env(ASAN_ENABLE) != ""} {
         set asan_flags "-fsanitize=address -fsanitize-recover=address"
     }
-    set out [exec $compiler {*}$asan_flags -Wall -Wno-unknown-warning-option -Wno-alloc-size-larger-than \
-                 -O2 -march=native -g \
+    set out [exec $compiler {*}$asan_flags -Wall \
+                 {*}$($::tcl_platform(os) eq "linux" ? [list -Wno-alloc-size-larger-than] : [list]) \
+                 -U_FORTIFY_SOURCE -O2 -march=native -g \
                  -fno-omit-frame-pointer -fPIC \
                  {*}$cflags $cfile -c -o [file rootname $cfile].o]
     if {[string trim $out] ne ""} {
