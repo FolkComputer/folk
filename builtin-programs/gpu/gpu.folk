@@ -284,6 +284,9 @@ $gpuc proc getDoesSupportShaderSampledImageArrayDynamicIndexing {} bool {
 }
 $gpuc proc getMaxTextures {} int {
     int maxTextures = physicalDeviceProperties.limits.maxPerStageDescriptorSamplers;
+    // COMBINED_IMAGE_SAMPLER counts against both sampler and sampled image limits.
+    int maxSampledImages = physicalDeviceProperties.limits.maxPerStageDescriptorSampledImages;
+    if (maxSampledImages < maxTextures) { maxTextures = maxSampledImages; }
     // If it's actually a low cap (often 16), stick with that.
     if (maxTextures < 128) { return maxTextures; }
     // HACK: for now, I don't want to deal with all the other descriptor caps etc.
