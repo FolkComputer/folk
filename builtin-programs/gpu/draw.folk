@@ -153,7 +153,8 @@ $cc proc initDraw {char* display uint32_t width uint32_t height uint32_t refresh
         for (uint32_t i = 0; i < modeCount; i++) {
             if (modeProps[i].parameters.visibleRegion.width == width &&
                 modeProps[i].parameters.visibleRegion.height == height &&
-                modeProps[i].parameters.refreshRate == refreshRate) {
+                // For some reason, refresh rate can vary by 1Hz-ish on the AnyBeam.
+                abs((int)modeProps[i].parameters.refreshRate - (int)refreshRate) < 1000) {
                 chosenMode = i;
                 break;
             }
