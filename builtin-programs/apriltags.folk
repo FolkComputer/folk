@@ -25,6 +25,7 @@ if {$apriltagFresh} {
     }
 }
 puts "apriltags: libapriltag built."
+Claim libapriltag has been built
 
 fn makeAprilTagDetector {TAG_FAMILY QUAD_DECIMATE NTHREADS} {
     set cc [C]

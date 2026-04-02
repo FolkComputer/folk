@@ -5,6 +5,8 @@
 #     cmpfit.
 #
 
+When libapriltag has been built {
+
 # From https://courses.cs.duke.edu/cps274/fall13/notes/rodrigues.pdf:
 fn rotationMatrixToRotationVector {R} {
     set A [scale 0.5 [sub $R [transpose $R]]]
@@ -706,3 +708,5 @@ fn refineCalibration {isPrintedTag isProjectedTag matLib
     return $calibration
 }
 Claim the calibration refiner is [fn refineCalibration]
+
+}
