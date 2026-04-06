@@ -808,7 +808,7 @@ fn zhangUnrefinedCalibrate {name width height Hs} {
     set intrinsics [dict create \
                         width $width height $height \
                         fx $fx fy $fy cx $cx cy $cy s $s \
-                        k1 0 k2 0]
+                        k1 0 k2 0 p1 0 p2 0]
     return [dict create \
                 name $name \
                 intrinsics $intrinsics \
