@@ -22,18 +22,23 @@ $cc struct Intrinsics {
 
     double k1;
     double k2;
+
+    double p1;
+    double p2;
 }
 
 # Intrinsics helpers:
 $cc proc distort {double fx double fy double cx double cy
-                  double k1 double k2
+                  double k1 double k2 double p1 double p2
                   double xy[2] double out[2]} void {
     double x = (xy[0] - cx)/fx;
     double y = (xy[1] - cy)/fy;
     double r2 = x*x + y*y;
-    double D = k1 * r2 + k2 * r2*r2;
-    out[0] = (x * (1.0 + D))*fx + cx;
-    out[1] = (y * (1.0 + D))*fy + cy;
+    double radial = k1 * r2 + k2 * r2*r2;
+    double dx = 2*p1*x*y + p2*(r2 + 2*x*x);
+    double dy = p1*(r2 + 2*y*y) + 2*p2*x*y;
+    out[0] = (x * (1.0 + radial) + dx)*fx + cx;
+    out[1] = (y * (1.0 + radial) + dy)*fy + cy;
 }
 $cc proc project {Intrinsics intr double width double height
                   double[3] v} Jim_Obj* {
@@ -44,7 +49,7 @@ $cc proc project {Intrinsics intr double width double height
     };
     out[0] /= out[2]; out[1] /= out[2];
     distort(intr.fx, intr.fy, intr.cx, intr.cy,
-            intr.k1, intr.k2,
+            intr.k1, intr.k2, intr.p1, intr.p2,
             out, out);
     out[0] *= width / intr.width;
     out[1] *= height / intr.height;
@@ -61,12 +66,16 @@ $cc proc rescaleAndUndistort {Intrinsics intr
     double x = in[0] * intr.width / cameraWidth;
     double y = in[1] * intr.height / cameraHeight;
 
-    x = (x - intr.cx) / intr.fx;
-    y = (y - intr.cy) / intr.fy;
-    for (int i = 0; i < 3; i++) {
+    double x0 = (x - intr.cx) / intr.fx;
+    double y0 = (y - intr.cy) / intr.fy;
+    x = x0; y = y0;
+    for (int i = 0; i < 5; i++) {
         double r2 = x*x + y*y;
-        double rad = 1.0 + intr.k1 * r2 + intr.k2 * r2*r2;
-        x /= rad; y /= rad;
+        double radial = 1.0 + intr.k1 * r2 + intr.k2 * r2*r2;
+        double dx = 2*intr.p1*x*y + intr.p2*(r2 + 2*x*x);
+        double dy = intr.p1*(r2 + 2*y*y) + 2*intr.p2*x*y;
+        x = (x0 - dx) / radial;
+        y = (y0 - dy) / radial;
     }
     out[0] = x*intr.fx + intr.cx;
     out[1] = y*intr.fy + intr.cy;
