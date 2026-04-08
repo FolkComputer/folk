@@ -1,3 +1,5 @@
+When libapriltag has been built {
+
 # We try to use the AprilTag matrix library (instead of tcllib linalg)
 # to do matrix/homography operations in the live calibration inner
 # loop, to help with performance:
@@ -255,3 +257,5 @@ fn estimateHomography {pointPairs} {
     $matLib estimateHomographyImpl [llength $pointPairs] $pointPairs
 }
 Claim the calibration estimateHomography is [fn estimateHomography]
+
+}

@@ -165,7 +165,6 @@ When the GPU library is /gpuLib/ & the GPU draw library is /drawLib/ &\
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         beginInfo.pInheritanceInfo = NULL;
 
-        pthread_rwlock_rdlock(textureDescriptorSetLock_ptr());
         $[vktry {vkBeginCommandBuffer(commandBuffer, &beginInfo)}]
 
         {
@@ -257,7 +256,6 @@ When the GPU library is /gpuLib/ & the GPU draw library is /drawLib/ &\
         }
 
         vkWaitForFences(device, 1, &boundCanvas->inFlightFence, VK_TRUE, UINT64_MAX);
-        pthread_rwlock_unlock(textureDescriptorSetLock_ptr());
 
         replaceInTextureDescriptorSet(boundCanvas->gpuTexture,
                                       boundCanvas->gpuTexture);

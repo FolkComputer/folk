@@ -157,7 +157,7 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
 
     Subscribe: keyboard $kbPath claims key /key/ is /keyState/ with /...options/ {
         ForEach! editor $editor has viewport position /vpPos/ &\
-                 editor /editor/ has viewport size /vpSize/ &\
+                 editor $editor has viewport size /vpSize/ &\
                  editor buffer for $program is /code/ &\
                  editor $editor has max cursor x /maxCursorX/ &\
                  editor $editor has cursor /cursor/ &\
@@ -280,10 +280,10 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                             Notify: print code $code
 
                             # Give the user some feedback
-                            Hold! -key printed-alert:$editor \
-                                Wish $editor is labelled "Printed!"
+                            Hold! -key printing-alert:$editor \
+                                Wish $editor is labelled "Printing!"
                             sleep 0.25
-                            Hold! -key printed-alert:$editor {}
+                            Hold! -key printing-alert:$editor {}
                         }
                         Control_underscore {
                             # ctrl and - (zoom out)
@@ -343,7 +343,7 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
 
                 # remove the edited code to restore the program to its original code
                 Hold! -on builtin-programs/programs.folk -key new-code-for:$program {}
-                file delete "$programDir/$program.folk.edited"
+                file delete "$programDir/[regsub {\.folk$} $program {}].folk.edited"
 
                 Hold! -save -key buffer-for:$program {
                     When $program has program code /originalCode/ {
@@ -389,7 +389,10 @@ Subscribe: save code on editor /editor/ {
             Wish program $program is replaced with \
             code $programCode editedTime [clock seconds]
 
-        set fp [open "$programDir/[set program].folk.edited" w]
+        set programBase [regsub {\.folk$} $program ""]
+        set editedPath "$programDir/[set programBase].folk.edited"
+        file mkdir [file dirname $editedPath]
+        set fp [open $editedPath w]
         puts -nonewline $fp $programCode
         close $fp
 

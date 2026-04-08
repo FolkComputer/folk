@@ -1,3 +1,14 @@
+# This Makefile should only be for stuff that is part of the absolute
+# core interpreter of Folk (Tcl, workqueue, trie/db, scheduler) and/or
+# stuff that absolutely needs to be global and active from process
+# start and should seep into everything (output redirection, Linux
+# capability, Tracy, block stats).
+#
+# Intuition: if something can live in 'userspace' (e.g., graphics,
+# webcam, Web server, geometry), it should not be here and should be
+# managed from userspace Folk program(s). You should think very hard
+# before adding new dependencies to this Makefile.
+
 ifeq ($(shell uname -s),Linux)
 	override BUILTIN_CFLAGS += -Wl,--export-dynamic
 else
@@ -16,7 +27,7 @@ else
 	LINKER := cc
 endif
 
-folk: workqueue.o db.o trie.o sysmon.o epoch.o folk.o output-redirection.o \
+folk: workqueue.o db.o trie.o sysmon.o epoch.o folk.o output-redirection.o block-stats.o \
 	vendor/c11-queues/mpmc_queue.o vendor/c11-queues/memory.o \
 	vendor/jimtcl/libjim.a $(TRACY_TARGET) CFLAGS $(INTERPOSE_DYLIB)
 
@@ -82,7 +93,6 @@ clean:
 	rm -f folk *.o *.dylib vendor/tracy/public/TracyClient.o vendor/c11-queues/*.o
 distclean: clean
 	make -C vendor/jimtcl distclean
-	rm -rf vendor/apriltag/build
 
 remote-clean: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make clean'
@@ -94,28 +104,12 @@ deps:
 	fi
 	make -C vendor/jimtcl
 
-	cmake -B vendor/apriltag/build -S vendor/apriltag -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON
-	cmake --build vendor/apriltag/build --target apriltag
-
-	if [ ! -f vendor/wslay/Makefile ]; then \
-		cd vendor/wslay && autoreconf -i && automake && autoconf && ./configure; \
-	fi
-	make -C vendor/wslay
-
-	if [ "$$(uname)" = "Darwin" ]; then \
-		install_name_tool -id @executable_path/vendor/apriltag/build/libapriltag.dylib vendor/apriltag/build/libapriltag.dylib; \
-		cd vendor/apriltag/build && ln -sf libapriltag.dylib libapriltag.so; cd -; \
-		install_name_tool -id @executable_path/vendor/wslay/lib/.libs/libwslay.0.dylib vendor/wslay/lib/.libs/libwslay.0.dylib; \
-	fi
-	if [ "$$(uname)" = "Linux" ]; then \
-		patchelf --set-soname "$$(pwd)/vendor/apriltag/build/libapriltag.so.3" vendor/apriltag/build/libapriltag.so.3; \
-		patchelf --set-soname "$$(pwd)/vendor/wslay/lib/.libs/libwslay.so.0" vendor/wslay/lib/.libs/libwslay.so.0; \
-	fi
 
 kill-folk:
 	sudo systemctl stop folk
 	if [ -f folk.pid ]; then \
 		OLD_PID=`cat folk.pid`; \
+		pkill -9 --pgroup $$OLD_PID; \
 		sudo pkill -9 --pgroup $$OLD_PID; \
 		while sudo pkill -0 --pgroup $$OLD_PID; do sleep 0.2; done; \
 	fi
@@ -144,11 +138,11 @@ remote-setup:
 remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make start CFLAGS="$(CFLAGS)" ASAN_ENABLE=$(ASAN_ENABLE)'
 sudo-remote: sync
-	ssh -tt $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && sudo HOME=/home/folk TRACY_SAMPLING_HZ=31000 ./folk'
+	ssh -tt $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && sudo HOME=/home/folk TRACY_SAMPLING_HZ=999 ./folk'
 debug-remote: sync
 	ssh -tt $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && gdb -ex "handle SIGUSR1 nostop" -ex "handle SIGPIPE nostop" ./folk'
 debug-sudo-remote: sync
-	ssh -tt $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && sudo HOME=/home/folk TRACY_SAMPLING_HZ=31000 gdb -ex "handle SIGUSR1 nostop" -ex "handle SIGPIPE nostop"  ./folk'
+	ssh -tt $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && sudo HOME=/home/folk TRACY_SAMPLING_HZ=999 gdb -ex "handle SIGUSR1 nostop" -ex "handle SIGPIPE nostop"  ./folk'
 valgrind-remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make && valgrind --leak-check=yes ./folk'
 heapprofile-remote: sync

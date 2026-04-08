@@ -3,22 +3,22 @@ Wish the web server handles route {/camera} with handler {
     html {
 <html>
   <body style="margin: 0 0">
-    <img id="cameraFrame" src="/camera-frame" style="max-width: 100%">
+    <canvas id="cameraCanvas" style="max-width: 100%"></canvas>
     <script>
-      let t = null;
+      const canvas = cameraCanvas;
+      const ctx = canvas.getContext('2d');
       function advanceCamera() {
-        if (t) {
-          clearTimeout(t);
-          t = null;
-        }
-        cameraFrame.src = '/camera-frame?uniq=' + Math.random()
+        const img = new Image();
+        img.onload = () => {
+          canvas.width = img.naturalWidth;
+          canvas.height = img.naturalHeight;
+          ctx.drawImage(img, 0, 0);
+          setTimeout(advanceCamera, 0);
+        };
+        img.onerror = () => setTimeout(advanceCamera, 500);
+        img.src = '/camera-frame?uniq=' + Math.random();
       }
-      cameraFrame.addEventListener('load', () => {
-        t = setTimeout(() => { advanceCamera() }, 0);
-      });
-      cameraFrame.addEventListener('error', () => {
-        t = setTimeout(() => { advanceCamera() }, 500);
-      });
+      advanceCamera();
     </script>
   </body>
 </html>

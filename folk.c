@@ -18,6 +18,9 @@
 
 #include <jim.h>
 
+#define STB_DS_IMPLEMENTATION
+#include "vendor/stb_ds.h"
+
 #include "vendor/c11-queues/mpmc_queue.h"
 
 #include "epoch.h"
@@ -25,6 +28,10 @@
 #include "common.h"
 #include "sysmon.h"
 #include "output-redirection.h"
+
+#define FATAL(...) do { dprintf(realStderr, __VA_ARGS__); exit(1); } while(0)
+
+#include "block-stats.h"
 
 ThreadControlBlock threads[THREADS_MAX];
 int _Atomic threadCount;
@@ -43,14 +50,13 @@ void globalWorkQueuePush(WorkQueueItem item) {
     WorkQueueItem* pushee = malloc(sizeof(item));
     *pushee = item;
     if (!mpmc_queue_push(&globalWorkQueue, pushee)) {
-        fprintf(stderr, "globalWorkQueuePush: failed\n");
         while (mpmc_queue_available(&globalWorkQueue)) {
             WorkQueueItem* x;
             mpmc_queue_pull(&globalWorkQueue, (void **)&x);
             char s[1000]; traceItem(s, 1000, *x);
-            fprintf(stderr, "(%.200s)\n", s);
+            dprintf(realStderr, "(%.200s)\n", s);
         }
-        exit(1);
+        FATAL("globalWorkQueuePush: failed\n");
     }
     globalWorkQueueSize++;
 }
@@ -67,18 +73,10 @@ WorkQueueItem globalWorkQueueTake() {
     return ret;
 }
 
-// Pushes to either self or the global workqueue, depending on how
-// long the current work item has been running.
 void appropriateWorkQueuePush(WorkQueueItem item) {
     if (self) {
-        int64_t now = timestamp_get(self->clockid);
-        if (self->currentItemStartTimestamp == 0 ||
-            now - self->currentItemStartTimestamp < 1000000) {
-            // The current worker is responsive (hasn't been running that
-            // long). Push to its queue.
-            workQueuePush(self->workQueue, item);
-            return;
-        }
+        workQueuePush(self->workQueue, item);
+        return;
     }
     globalWorkQueuePush(item);
 }
@@ -693,6 +691,7 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "__isInSubscription", __isInSubscriptionFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "__isTracyEnabled", __isTracyEnabledFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__blockRuntimeStats", __blockRuntimeStatsFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "__db", __dbFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__threadId", __threadIdFunc, NULL, NULL);
@@ -705,8 +704,7 @@ static void interpBoot() {
 
     if (Jim_EvalFile(interp, "prelude.tcl") == JIM_ERR) {
         Jim_MakeErrorMessage(interp);
-        fprintf(stderr, "prelude: %s\n", Jim_GetString(Jim_GetResult(interp), NULL));
-        exit(1);
+        FATAL("prelude: %s\n", Jim_GetString(Jim_GetResult(interp), NULL));
     }
 }
 void eval(const char* code) {
@@ -715,7 +713,7 @@ void eval(const char* code) {
     int error = Jim_Eval(interp, code);
     if (error == JIM_ERR) {
         Jim_MakeErrorMessage(interp);
-        fprintf(stderr, "eval: (%s) -> (%s)\n", code, Jim_GetString(Jim_GetResult(interp), NULL));
+        fprintf(stderr, "eval: %s\n", Jim_GetString(Jim_GetResult(interp), NULL));
         Jim_FreeInterp(interp);
         exit(EXIT_FAILURE);
     }
@@ -795,7 +793,10 @@ static int runBlock(Clause* bodyPattern, Clause* toUnifyWith, const Term* body,
             bodyObj,
             envStackObj
         };
+        int64_t t0 = timestamp_get(CLOCK_MONOTONIC);
         error = Jim_EvalObjVector(interp, sizeof(objv)/sizeof(objv[0]), objv);
+        blockStatsUpdate(sourceFileName, sourceLineNumber,
+                         timestamp_get(CLOCK_MONOTONIC) - t0);
 
 #ifdef TRACY_ENABLE
         ___tracy_emit_zone_end(ctx);
@@ -1258,8 +1259,7 @@ void workerRun(WorkQueueItem item) {
     } else if (item.op == EVAL) {
         TracyCZoneN(ctx, "EVAL", 1); zone = ctx;
     } else {
-        fprintf(stderr, "workerRun: Unknown item type\n");
-        exit(1);
+        FATAL("workerRun: Unknown item type\n");
     }
 #endif
 
@@ -1318,9 +1318,7 @@ void workerRun(WorkQueueItem item) {
         free(code);
 
     } else {
-        fprintf(stderr, "workerRun: Unknown work item op: %d\n",
-                item.op);
-        exit(1);
+        FATAL("workerRun: Unknown work item op: %d\n", item.op);
     }
 
     self->currentItemStartTimestamp = 0;
@@ -1498,8 +1496,7 @@ void* workerMain(void* arg) {
         }
     }
     if (threadIndex == -1) {
-        fprintf(stderr, "folk: workerMain: exceeded THREADS_MAX\n");
-        exit(1);
+        FATAL("folk: workerMain: exceeded THREADS_MAX\n");
     }
     if (i >= threadCount) {
         threadCount = i + 1;
@@ -1649,6 +1646,7 @@ int main(int argc, char** argv) {
     workQueueInit();
 
     globalWorkQueueInit();
+    blockStatsInit();
 
 #ifdef __linux__
     // Count CPUs so we can set up the thread pool to align with the

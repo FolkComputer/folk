@@ -8,6 +8,7 @@
 lappend ::auto_path "./vendor"
 source "lib/c.tcl"
 source "lib/math.tcl"
+source "lib/text.tcl"
 
 set pid [pid]
 
@@ -111,21 +112,34 @@ proc captureEnvStack {} {
 
 $::realStdout buffering line
 $::realStderr buffering none
+stdout buffering line
 
 rename exec __exec
 proc ::exec {args} {
     # For background exec (ending with &), redirect stdout and stderr
     # to the current thread-local output files so the subprocess's
     # output lands in the right per-program /tmp/ file.
-    if {[lindex $args end] eq "&" && \
-            [info exists ::_folk_localStdout] && \
-            [info exists ::_folk_localStderr]} {
-        set hasStdout [lsearch -regexp $args {^>@}]
-        set hasStderr [lsearch -regexp $args {^2>@}]
-        set insertions {}
-        if {$hasStdout == -1} { lappend insertions >@ $::_folk_localStdout }
-        if {$hasStderr == -1} { lappend insertions 2>@ $::_folk_localStderr }
-        set args [lreplace $args end end {*}$insertions &]
+    if {[lindex $args end] eq "&"} {
+        if {[info exists ::_folk_localStdout] && [info exists ::_folk_localStderr]} {
+            set hasStdout [lsearch -regexp $args {^>@}]
+            set hasStderr [lsearch -regexp $args {^2>@}]
+            set insertions {}
+            if {$hasStdout == -1} { lappend insertions >@ $::_folk_localStdout }
+            if {$hasStderr == -1} { lappend insertions 2>@ $::_folk_localStderr }
+            set args [lreplace $args end end {*}$insertions &]
+        }
+    } else {
+        # For non-background exec, replace >@stdout / 2>@stderr with
+        # the thread-local output channels so subprocess output lands
+        # in the right per-program /tmp/ file.
+        if {[info exists ::_folk_localStdout]} {
+            set i [lsearch -exact $args {>@stdout}]
+            if {$i != -1} { set args [lreplace $args $i $i >@ $::_folk_localStdout] }
+        }
+        if {[info exists ::_folk_localStderr]} {
+            set i [lsearch -exact $args {2>@stderr}]
+            if {$i != -1} { set args [lreplace $args $i $i 2>@ $::_folk_localStderr] }
+        }
     }
     tailcall __exec {*}$args
 }
@@ -146,13 +160,13 @@ proc applyBlock {body envStack} {pid} {
     dict set env __envStack $envStack
     dict set env __env $env
 
-    set this [dict getdef $env this <unknown>]
+    set ::this [dict getdef $env this <unknown>]
     # Flush before installing so any buffered data from the previous
     # program drains to the correct fd before we switch.
     stdout flush
     # Install thread-local stdout/stderr so all subsequent write()/puts/
     # fprintf/printf calls go to the local files for this $this.
-    __installLocalStdoutAndStderr $this
+    __installLocalStdoutAndStderr $::this
 
     set names [dict keys $env]
     set values [dict values $env]
@@ -164,8 +178,8 @@ proc evaluateBlock {whenBody envStack} {
         applyBlock $whenBody $envStack
     } on error {err opts} {
         set errorInfo [dict get $opts -errorinfo]
-        set this [lindex $errorInfo 1]
-        puts stderr "\nError in $this: $err\n  [errorInfo $err $errorInfo]"
+        set this $([info exists ::this] ? $::this : [lindex $errorInfo 1])
+        puts stderr "\nError while running $this: $err\n  [errorInfo $err $errorInfo]"
         if {[__isInSubscription]} {
             # Can't Say inside of a subscription, so Hold! instead
             # (TODO: might be a better way?)
@@ -283,40 +297,6 @@ namespace eval ::library {
         return "<library:$tclfile>"
     }
     namespace ensemble create
-}
-
-namespace eval ::math {
-    proc min {args} {
-        if {[llength $args] == 0} { error "min: No args" }
-        set min infinity
-        foreach arg $args { if {$arg < $min} { set min $arg } }
-        return $min
-    }
-    proc max {args} {
-        if {[llength $args] == 0} { error "max: No args" }
-        set max -infinity
-        foreach arg $args { if {$arg > $max} { set max $arg } }
-        return $max
-    }
-    proc mean {val args} {
-        set sum $val
-        set N [ expr { [ llength $args ] + 1 } ]
-        foreach val $args {
-            set sum [ expr { $sum + $val } ]
-        }
-        set mean [expr { double($sum) / $N }]
-    }
-    proc sin {x} { expr {sin($x)} }
-    proc cos {x} { expr {cos($x)} }
-}
-namespace import ::math::*
-
-proc lseq count {
-    set ret [list]
-    for {set i 0} {$i < $count} {incr i} {
-        lappend ret $i
-    }
-    return $ret
 }
 
 proc baretime body { string map {" microseconds per iteration" ""} [uplevel [list time $body]] }
@@ -860,6 +840,8 @@ if {[__isTracyEnabled]} {
 }
 
 signal handle SIGUSR1
+
+source "lib/python.tcl"
 
 # For backward-compatibility:
 proc Assert {args} {

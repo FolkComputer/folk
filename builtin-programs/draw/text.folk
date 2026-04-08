@@ -77,7 +77,23 @@ $cc proc textShape {Jim_Obj* viewport Jim_Obj* surfaceToClip
         lineWidth += font->glyphInfos[charOrFallback(font, text[i])].advance * em;
     }
 
-    Jim_Obj* finishedChars = Jim_NewListObj(interp, NULL, 0);
+    // Get the string representations of the shared per-label args once,
+    // before the loop, so we don't call Jim_GetString (which may trigger
+    // UpdateStringOfDouble for every float) N times per glyph.
+    const char* sc_str    = Jim_GetString(surfaceToClip, NULL);
+    const char* color_str = Jim_GetString(color, NULL);
+    const char* vp_str    = Jim_GetString(viewport, NULL);
+    float atlas_w = (float)font->atlasImage.width;
+    float atlas_h = (float)font->atlasImage.height;
+
+    // Build the instances list as a pre-formatted Tcl list string.
+    // Each element is a brace-enclosed instance: {{sc} {atlas} {color} {vp} {a} {b} {c} {d} n}
+    // This avoids Jim ever calling UpdateStringOfList / ListElementQuotingType on instances.
+    int textLen = strlen(text);
+    int bufSize = (textLen + 1) * 320;
+    char* buf = (char*)malloc(bufSize);
+    int pos = 0;
+    int needSpace = 0;
 
     // Relative character position (relative to (0, 0), not rotated).
     float relCharX = 0;
@@ -104,50 +120,52 @@ $cc proc textShape {Jim_Obj* viewport Jim_Obj* surfaceToClip
             vec2f combinedOffset = vec2f_add(blockStart, rotatedLineOffset);
             vec2f charPos = vec2f_add(combinedOffset, vec2f_rotate((vec2f) { relCharX, relCharY }, radians));
 
-            // Now, we'll append the character to the list of finished characters.
-            Jim_Obj* atlasv[] = {
-                // left
-                Jim_NewDoubleObj(interp, (glyphInfo->atlasBounds[0] / font->atlasImage.width)),
-                // bottom
-                Jim_NewDoubleObj(interp, (glyphInfo->atlasBounds[1] / font->atlasImage.height)),
-                // right
-                Jim_NewDoubleObj(interp, (glyphInfo->atlasBounds[2] / font->atlasImage.width)),
-                // top
-                Jim_NewDoubleObj(interp, (glyphInfo->atlasBounds[3] / font->atlasImage.height))
-            };
-
             float left = glyphInfo->planeBounds[0] * em;
             float bottom = glyphInfo->planeBounds[1] * em;
             float right = glyphInfo->planeBounds[2] * em;
             float top = glyphInfo->planeBounds[3] * em;
 
-            vec2f topLeft = vec2f_add(charPos, vec2f_rotate((vec2f) {left, -top}, radians));
-            vec2f topRight = vec2f_add(charPos, vec2f_rotate((vec2f) {right, -top}, radians));
+            vec2f topLeft     = vec2f_add(charPos, vec2f_rotate((vec2f) {left,  -top},    radians));
+            vec2f topRight    = vec2f_add(charPos, vec2f_rotate((vec2f) {right, -top},    radians));
             vec2f bottomRight = vec2f_add(charPos, vec2f_rotate((vec2f) {right, -bottom}, radians));
-            vec2f bottomLeft =vec2f_add(charPos, vec2f_rotate((vec2f) {left, -bottom}, radians));
+            vec2f bottomLeft  = vec2f_add(charPos, vec2f_rotate((vec2f) {left,  -bottom}, radians));
 
-            Jim_Obj* glyphItems[] = {
-                surfaceToClip,
+            if (needSpace) buf[pos++] = ' ';
+            needSpace = 1;
 
-                Jim_NewListObj(interp, atlasv, sizeof(atlasv)/sizeof(atlasv[0])),
-                color,
-                viewport,
-                vec2f_toObj(topLeft),
-                vec2f_toObj(topRight),
-                vec2f_toObj(bottomRight),
-                vec2f_toObj(bottomLeft),
-
-                Jim_NewIntObj(interp, font->gpuAtlasImage),
-            };
-            Jim_Obj* instance = Jim_NewListObj(interp, glyphItems, sizeof(glyphItems)/sizeof(glyphItems[0]));
-            Jim_ListAppendElement(interp, finishedChars, instance);
+            pos += snprintf(buf + pos, bufSize - pos,
+                "{{%s} {%g %g %g %g} {%s} {%s} {%g %g} {%g %g} {%g %g} {%g %g} %d}",
+                sc_str,
+                glyphInfo->atlasBounds[0] / atlas_w,
+                glyphInfo->atlasBounds[1] / atlas_h,
+                glyphInfo->atlasBounds[2] / atlas_w,
+                glyphInfo->atlasBounds[3] / atlas_h,
+                color_str,
+                vp_str,
+                topLeft.x,     topLeft.y,
+                topRight.x,    topRight.y,
+                bottomRight.x, bottomRight.y,
+                bottomLeft.x,  bottomLeft.y,
+                font->gpuAtlasImage);
         }
 
         // Advance to next character position.
         relCharX += glyphInfo->advance * em;
     }
 
-    return finishedChars;
+    Jim_Obj* result = Jim_NewStringObj(interp, buf, pos);
+    free(buf);
+    return result;
+}
+$cc proc fontNew {Image atlasImage int gpuAtlasImage {GlyphInfo[128]} glyphInfos} Font* {
+    Font* font = (Font*) malloc(sizeof(Font));
+    font->atlasImage = atlasImage;
+    font->gpuAtlasImage = gpuAtlasImage;
+    memcpy(font->glyphInfos, glyphInfos, sizeof(font->glyphInfos));
+    return font;
+}
+$cc proc fontFree {Font* font} void {
+    free(font);
 }
 set fontLib [$cc compile]
 
@@ -186,8 +204,9 @@ When the image loader is /loadImage/ {
         Wish the GPU loads image $im as texture
         When the GPU has loaded image $im as texture /gim/ {
             puts "text: Loaded $name as GPU texture $gim"
-            Claim the GPU has font $name with data \
-                [dict create atlasImage $im gpuAtlasImage $gim glyphInfos $glyphInfos]
+            set font [$fontLib fontNew $im $gim $glyphInfos]
+            Claim the GPU has font $name with data $font \
+                -destructor [list $fontLib fontFree $font]
         }
     }
 

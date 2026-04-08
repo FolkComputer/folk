@@ -1,9 +1,26 @@
+try {
+
 puts "web: [__threadId] (PID [pid])"
 
 # We need to handle SIGPIPE so closing a tab doesn't crash Folk, but
 # we don't want to block/ignore, because that will cause child
 # processes to also block/ignore and behave weirdly.
 signal handle SIGPIPE
+
+# To force a rebuild: rm vendor/wslay/Makefile
+set wslayFresh [expr {![file exists vendor/wslay/lib/.libs/libwslay.a]}]
+if {![file exists vendor/wslay/Makefile]} {
+    puts "web: Configuring libwslay..."
+    exec sh -c {cd vendor/wslay && autoreconf -i && automake && autoconf && ./configure} \
+        >@stdout 2>@stderr
+}
+puts "web: Building libwslay..."
+exec make -C vendor/wslay >@stdout 2>@stderr
+if {$wslayFresh && $::tcl_platform(os) eq "linux"} {
+    exec patchelf --set-soname "[pwd]/vendor/wslay/lib/.libs/libwslay.so.0" \
+        vendor/wslay/lib/.libs/libwslay.so.0
+}
+puts "web: libwslay built."
 
 source "lib/ws.tcl"
 # We export wsLib so that other threads can emit messages onto
@@ -278,3 +295,12 @@ while true {
     }
 }
 vwait forever
+
+} on error {e opts} {
+    puts $::realStderr "WARNING: web.folk failed to initialize;
+the web server is probably down; check /tmp/folk-[pid]/ for log files.
+(Make sure libtool and autoconf-archive are installed.)
+------------------------------------------
+[errorInfo $e]"
+    return -options $opts $e
+}

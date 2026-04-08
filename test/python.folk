@@ -1,0 +1,38 @@
+set uvx [Uvx]
+
+set result [$uvx eval "2 + 2"]
+puts "2 + 2 = $result"
+assert {$result == 4}
+
+set result [$uvx eval "'hello' + ' world'"]
+puts "'hello' + ' world' = $result"
+assert {$result eq "hello world"}
+
+set result [$uvx eval "\[1, 2, 3, 4, 5\]"]
+puts "\[1, 2, 3, 4, 5\] = $result"
+
+if {[catch {$uvx eval "1/0"} err]} {
+    puts "Caught as expected: $err"
+} else {
+    error "Should have caught division by zero error"
+}
+
+# Test def with list argument
+$uvx def sumList {{list num} numbers} {
+    return sum(numbers)
+}
+
+set result [$uvx sumList [list 1 2 3 4 5]]
+puts "sumList(\[1 2 3 4 5\]) = $result"
+assert {$result == 15}
+
+# Test def with list of strings
+$uvx def getFirst {list items} {
+    return items[0]
+}
+
+set result [$uvx getFirst [list "hello" "world"]]
+puts "getFirst(\[hello world\]) = $result"
+assert {$result eq "hello"}
+
+Exit! 0

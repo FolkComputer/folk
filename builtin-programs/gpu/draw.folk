@@ -38,8 +38,8 @@ $cc extend $gpuLib
 local proc vktry {call} { string map {\n " "} [csubst {{
     VkResult res = $call;
     if (res != VK_SUCCESS) {
-        fprintf(stderr, "Failed $call: %s (%d)\n",
-                VkResultToString(res), res); exit(1);
+        /* TODO: We also need to unwind all the GPU state. */
+        FOLK_ERROR("Failed $call: %s (%d)\n", VkResultToString(res), res);
     }
 }}] }
 
@@ -153,7 +153,8 @@ $cc proc initDraw {char* display uint32_t width uint32_t height uint32_t refresh
         for (uint32_t i = 0; i < modeCount; i++) {
             if (modeProps[i].parameters.visibleRegion.width == width &&
                 modeProps[i].parameters.visibleRegion.height == height &&
-                modeProps[i].parameters.refreshRate == refreshRate) {
+                // For some reason, refresh rate can vary by 1Hz-ish on the AnyBeam.
+                abs((int)modeProps[i].parameters.refreshRate - (int)refreshRate) < 1000) {
                 chosenMode = i;
                 break;
             }
@@ -375,19 +376,22 @@ defineVulkanHandleType $cc VkShaderModule
 # bytecode).
 $cc proc createShaderModule {Jim_Obj* codeObj} VkShaderModule {
     int codeObjc = Jim_ListLength(interp, codeObj);
-    uint32_t code[codeObjc];
+    uint32_t* code = malloc(codeObjc * sizeof(uint32_t));
     for (int i = 0; i < codeObjc; i++) {
         Jim_Obj* codeObjv = Jim_ListGetIndex(interp, codeObj, i);
-        Jim_GetLong(interp, codeObjv, (long *)&code[i]);
+        long val;
+        Jim_GetLong(interp, codeObjv, &val);
+        code[i] = (uint32_t)val;
     }
 
     VkShaderModuleCreateInfo createInfo = {0};
-    createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;                
-    createInfo.codeSize = codeObjc * sizeof(code[0]);
+    createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    createInfo.codeSize = codeObjc * sizeof(uint32_t);
     createInfo.pCode = code;
 
     VkShaderModule shaderModule;
     $[vktry {vkCreateShaderModule(device, &createInfo, NULL, &shaderModule)}]
+    free(code);
     return shaderModule;
 }
 
@@ -407,7 +411,6 @@ $cc code {
 $cc define {
     VkDescriptorSetLayout textureDescriptorSetLayout;
     VkDescriptorSet textureDescriptorSet;
-    pthread_rwlock_t textureDescriptorSetLock;
 }
 $cc struct Pipeline {
     VkPipeline pipeline;
@@ -587,7 +590,6 @@ $cc proc drawStart {} void {
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     beginInfo.pInheritanceInfo = NULL;
-    pthread_rwlock_rdlock(textureDescriptorSetLock_ptr());
     $[vktry {vkBeginCommandBuffer(commandBuffer, &beginInfo)}]
 
     {
@@ -705,7 +707,6 @@ $cc proc drawEnd {} void {
     }
 
     vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
-    pthread_rwlock_unlock(textureDescriptorSetLock_ptr());
 }
 
 $cc proc poll {} void {
@@ -891,7 +892,7 @@ proc makeGpu {gpuLib drawLib} { return [library create gpu {gpuLib drawLib} {
                 int (*encode)(Jim_Interp* interp, Jim_Obj* obj, uint8_t out[128]);
             } PushConstantsEncoder;
 
-            static __thread uint8_t argsBuf[128];
+            static uint8_t argsBuf[128];
         }]
         $cc include <stddef.h>
         $cc proc getArgsSize {} int { return sizeof(Args); }
@@ -1160,10 +1161,7 @@ When the GPU texture library for $drawLib is /gpuTextureLib/ {
             {*}$hd
         }
 
-        tracy zoneBegin
-        tracy zoneName "gpu-draw-start"
         $gpu drawStart
-        tracy zoneEnd
 
         # We do the queries now (when we are about to draw) so we get
         # the most up-to-date information.
@@ -1220,10 +1218,7 @@ When the GPU texture library for $drawLib is /gpuTextureLib/ {
         # tracy plot $kDrawCount $drawCount
 
         # This blocks until the frame is actually drawn:
-        tracy zoneBegin
-        tracy zoneName "gpu-draw-end"
         $gpu drawEnd
-        tracy zoneEnd
 
         tracy frameMarkNamed $kGpu
 

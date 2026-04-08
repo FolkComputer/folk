@@ -1,5 +1,32 @@
 When the image library is /imageLib/ {
 
+# To force a rebuild: rm -rf vendor/apriltag/build
+set apriltagFresh [expr {![file exists vendor/apriltag/build/libapriltag.so]}]
+if {![file exists vendor/apriltag/build/Makefile]} {
+    puts "apriltags: Configuring libapriltag..."
+    exec cmake -B vendor/apriltag/build -S vendor/apriltag \
+        -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON \
+        -DCMAKE_C_FLAGS=-march=native \
+        >@stdout 2>@stderr
+}
+puts "apriltags: Building libapriltag..."
+exec cmake --build vendor/apriltag/build --target apriltag \
+    >@stdout 2>@stderr
+if {$apriltagFresh} {
+    if {$::tcl_platform(os) eq "linux"} {
+        exec patchelf --set-soname "[pwd]/vendor/apriltag/build/libapriltag.so.3" \
+            vendor/apriltag/build/libapriltag.so.3
+    } elseif {$::tcl_platform(os) eq "darwin"} {
+        exec install_name_tool -id @executable_path/vendor/apriltag/build/libapriltag.dylib \
+            vendor/apriltag/build/libapriltag.dylib
+        if {![file exists vendor/apriltag/build/libapriltag.so]} {
+            exec ln -sf libapriltag.dylib vendor/apriltag/build/libapriltag.so
+        }
+    }
+}
+puts "apriltags: libapriltag built."
+Claim libapriltag has been built
+
 fn makeAprilTagDetector {TAG_FAMILY QUAD_DECIMATE NTHREADS} {
     set cc [C]
     $cc extend $imageLib
@@ -9,7 +36,6 @@ fn makeAprilTagDetector {TAG_FAMILY QUAD_DECIMATE NTHREADS} {
     $cc include <apriltag.h>
     $cc include <$TAG_FAMILY.h>
     $cc include <math.h>
-    $cc include <assert.h>
     $cc code {
         static apriltag_detector_t *td;
         static apriltag_family_t *tf;
@@ -23,8 +49,16 @@ fn makeAprilTagDetector {TAG_FAMILY QUAD_DECIMATE NTHREADS} {
         td->nthreads = ${NTHREADS};
     }
     $cc proc detect {Image gray} Jim_Obj* {
-        assert(gray.components == 1);
-        image_u8_t im = (image_u8_t) { .width = gray.width, .height = gray.height, .stride = gray.bytesPerRow, .buf = gray.data };
+        FOLK_ENSURE(gray.components == 1 || gray.components == 3);
+        uint8_t* grayBuf = gray.data;
+        if (gray.components == 3) {
+            grayBuf = malloc(gray.width * gray.height);
+            for (uint32_t i = 0; i < gray.width * gray.height; i++) {
+                uint8_t r = gray.data[i*3], g = gray.data[i*3+1], b = gray.data[i*3+2];
+                grayBuf[i] = (uint8_t)(0.299f*r + 0.587f*g + 0.114f*b + 0.5f);
+            }
+        }
+        image_u8_t im = (image_u8_t) { .width = gray.width, .height = gray.height, .stride = gray.components == 3 ? gray.width : gray.bytesPerRow, .buf = grayBuf };
 
         zarray_t *detections = apriltag_detector_detect(td, &im);
         int detectionCount = zarray_size(detections);
@@ -47,6 +81,7 @@ fn makeAprilTagDetector {TAG_FAMILY QUAD_DECIMATE NTHREADS} {
         }
 
         zarray_destroy(detections);
+        if (gray.components == 3) free(grayBuf);
 
         Jim_Obj* result = Jim_NewListObj(interp, detectionObjs, detectionCount);
         return result;
@@ -68,27 +103,31 @@ set incrementalDetector [makeAprilTagDetector $tagFamily 1.5 1]
 
 # Entire-frame tag detector:
 When /nobody/ wishes to calibrate &\
-     -serially camera /camera/ has frame /frame/ at timestamp /frameTs/ {
+     -serially camera /camera/ has gray frame /frame/ at timestamp /frameTs/ {
     tracy zoneBegin
     tracy zoneName "entireFrameDetect: $frameTs"
 
-    set aprilTime [time {
-        set tags [$entireFrameDetector detect $frame]
-    }]
-    Hold! -key [list $this entire-frame] \
-        Claim [list $this entire-frame] detects tags $tags on camera $camera \
-        at timestamp $frameTs in time $aprilTime
-
-    tracy zoneEnd
+    try -signal {
+        set aprilTime [time {
+            set tags [$entireFrameDetector detect $frame]
+        }]
+        Hold! -key [list $this entire-frame] \
+            Claim [list $this entire-frame] detects tags $tags on camera $camera \
+            at timestamp $frameTs in time $aprilTime
+    } finally {
+        tracy zoneEnd
+    }
 }
 
 # Incremental tag detector (looks at regions where there were tags
 # seen recently):
 When /nobody/ wishes to calibrate &\
      the image library is /imageLib/ &\
-     -serially camera /camera/ has frame /frame/ at timestamp /frameTs/ {
+     -serially camera /camera/ has gray frame /frame/ at timestamp /frameTs/ {
     tracy zoneBegin
     tracy zoneName "incrementalDetect: $frameTs"
+
+    try -signal {
 
     # Query all the existing tag detections that are out there.
     # Find the most recent detection of each tag; will use these to
@@ -146,7 +185,9 @@ When /nobody/ wishes to calibrate &\
         Claim [list $this incremental] detects tags $tags on camera $camera \
         at timestamp $frameTs in time $aprilTime
 
-    tracy zoneEnd
+    } finally {
+        tracy zoneEnd
+    }
 }
 
 # Integrate all the tag detections.
