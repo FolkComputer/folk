@@ -28,9 +28,10 @@ When the GPU library is /gpuLib/ &\
 
     $gpuc code {
         VkDevice device;
-        // Canvas textures don't need to match the swapchain format;
-        // they just need a consistent format for render pass + texture.
-        VkFormat canvasFormat = VK_FORMAT_B8G8R8A8_SRGB;
+        // Canvas format must match the pipeline render pass format
+        // (VK_FORMAT_B8G8R8A8_UNORM) so that shared pipelines are
+        // render-pass-compatible when drawing onto canvases.
+        VkFormat canvasFormat = VK_FORMAT_B8G8R8A8_UNORM;
 
         // This render pass is used to draw on all canvases.
         VkRenderPass renderPass;
@@ -139,9 +140,9 @@ When the GPU library is /gpuLib/ &\
         free(wi);
     }
     $gpuc code {
-        GpuCanvas* boundCanvas;
-        VkPipeline boundPipeline;
-        VkDescriptorSet boundDescriptorSet;
+        __thread GpuCanvas* boundCanvas;
+        __thread VkPipeline boundPipeline;
+        __thread VkDescriptorSet boundDescriptorSet;
     }
     $gpuc proc drawStart {GpuCanvas* wi} void {
         FOLK_ENSURE(boundCanvas == NULL);
@@ -261,13 +262,10 @@ When the GPU library is /gpuLib/ &\
     set gpuCanvasLib [$gpuc compile]
     Claim the GPU canvas library is $gpuCanvasLib
 
-    # We need to wait until the GPU is online and registered the
-    # display before we set up the canvas subsystem.
-    When display /any/ has width /any/ height /any/ {
-        $gpuCanvasLib init
+    $gpuCanvasLib init
 
-        # `id` is arbitrarily chosen by the caller:
-        When /someone/ wishes the GPU creates canvas /id/ with /...options/ {
+    # `id` is arbitrarily chosen by the caller:
+    When /someone/ wishes the GPU creates canvas /id/ with /...options/ {
             set width [dict get $options width]
             set height [dict get $options height]
             set settle [dict getdef $options settle 3ms]
@@ -425,7 +423,6 @@ When the GPU library is /gpuLib/ &\
                 StatementRelease! $ref
             }
         }} $gpuCanvasLib]
-    }
 
     When /someone/ wishes /p/ has a canvas {
         Wish $p has a canvas with width 1024 height 1024 settle 3ms

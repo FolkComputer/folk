@@ -2,6 +2,7 @@
 #
 #     Provides the ability to run pixel shaders with image and
 #     numerical parameters (so you can draw images, shapes, etc.)
+#     Single render thread handles all displays.
 
 if {[info exists this] && $::tcl_platform(os) eq "darwin"} {
     # We hard-code draw.folk into thread 0, so we should abort if not
@@ -11,11 +12,13 @@ if {[info exists this] && $::tcl_platform(os) eq "darwin"} {
 
 When the GPU library is /gpuLib/ &\
      the GPU Vulkan handle type definer is /defineVulkanHandleType/ &\
-     the GPU pipeline library is /pipelineLib/ &\
-     /someone/ wishes $::thisNode uses display /display/ with /...displayOpts/ {
+     the GPU pipeline library is /pipelineLib/ {
 
 fn defineVulkanHandleType
-set useGlfw $($display eq "glfw")
+
+# On macOS we always use GLFW; on Linux we use direct Vulkan display.
+# (On macOS, draw.folk returns early above, so this only runs on Linux.)
+set useGlfw false
 
 set cc [C]
 $cc cflags -I./vendor
@@ -25,13 +28,6 @@ $cc include <pthread.h>
 $cc code {
     #define VOLK_IMPLEMENTATION
     #include "volk/volk.h"
-}
-if {$useGlfw} {
-    $cc code {
-        // This must be included _after_ volk.h (Vulkan).
-        #include <GLFW/glfw3.h>
-    }
-    $cc endcflags -lglfw
 }
 
 $cc extend $gpuLib
@@ -45,27 +41,42 @@ local proc vktry {call} { string map {\n " "} [csubst {{
     }
 }}] }
 
-$cc define {
-    VkSwapchainKHR swapchain;
-    uint32_t swapchainImageCount;
-    VkFormat swapchainImageFormat;
-    VkFramebuffer* swapchainFramebuffers;
-    VkExtent2D swapchainExtent;
-
-    uint32_t imageIndex;
-
-    VkSemaphore imageAvailableSemaphore;
-    VkSemaphore renderFinishedSemaphore;
-    VkFence inFlightFence;
-}
-
 $cc code {
+    typedef struct DisplayState {
+        VkSurfaceKHR surface;
+        VkSwapchainKHR swapchain;
+        uint32_t swapchainImageCount;
+        VkFormat swapchainImageFormat;
+        VkFramebuffer* swapchainFramebuffers;
+        VkExtent2D swapchainExtent;
+
+        uint32_t imageIndex;
+
+        VkSemaphore imageAvailableSemaphore;
+        VkSemaphore renderFinishedSemaphore;
+        VkFence inFlightFence;
+    } DisplayState;
+
     VkDevice device;
     VkPhysicalDevice physicalDevice;
+
+    static DisplayState* currentDisplay;
+    static VkPipeline boundPipeline;
+    static VkDescriptorSet boundDescriptorSet;
 }
 
-$cc proc initDraw {char* display uint32_t width uint32_t height uint32_t refreshRate} void {
-    $[vktry volkInitialize()]
+$cc argtype DisplayState* {
+    DisplayState* $argname;
+    sscanf(Jim_String($obj), "(DisplayState*) %p", &$argname);
+}
+$cc rtype DisplayState* {
+    char buf[100];
+    snprintf(buf, 100, "(DisplayState*) %p", $rvalue);
+    $robj = Jim_NewStringObj(interp, buf, -1);
+}
+
+$cc proc initDisplay {char* display uint32_t width uint32_t height uint32_t refreshRate} DisplayState* {
+    volkInitialize();
     volkLoadInstanceOnly(*instance_ptr());
 
     device = *device_ptr();
@@ -73,17 +84,10 @@ $cc proc initDraw {char* display uint32_t width uint32_t height uint32_t refresh
 
     physicalDevice = *physicalDevice_ptr();
 
+    DisplayState* ds = calloc(1, sizeof(DisplayState));
+
     // Get drawing surface.
-    VkSurfaceKHR surface;
-    $[expr { $useGlfw ? {
-        GLFWwindow* window;
-        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        window = glfwCreateWindow(width, height, "Folk", NULL, NULL);
-        FOLK_ENSURE(window != NULL);
-        if (glfwCreateWindowSurface(*instance_ptr(), window, NULL, &surface) != VK_SUCCESS) {
-            FOLK_ERROR("Failed to create GLFW window surface");
-        }
-    } : [csubst {
+    $[csubst {
         // Search through displays to find the one matching display name
         int retries = 0;
         VkDisplayKHR chosenDisplay = VK_NULL_HANDLE;
@@ -105,6 +109,7 @@ $cc proc initDraw {char* display uint32_t width uint32_t height uint32_t refresh
 
             retries++;
             if (retries > 10) {
+                free(ds);
                 FOLK_ERROR("Failed to find display '%s'\n", display);
             } else {
                 fprintf(stderr, "gpu/draw: Failed to find display '%s'; retrying (retry %d).\n",
@@ -130,15 +135,13 @@ $cc proc initDraw {char* display uint32_t width uint32_t height uint32_t refresh
             }
         }
         if (chosenMode == -1) {
+            free(ds);
             FOLK_ERROR("Failed to find display mode on display '%s' "
                        "with width=%u height=%u refreshRate=%u\n",
                        display, width, height, refreshRate);
         }
 
         // Find a display plane that supports chosenDisplay.
-        // Lock so two display threads don't pick the same plane.
-        pthread_mutex_lock(displaySurfaceMutex_ptr());
-
         uint32_t planeCount;
         vkGetPhysicalDeviceDisplayPlanePropertiesKHR(physicalDevice, &planeCount, NULL);
         VkDisplayPlanePropertiesKHR planeProps[planeCount];
@@ -164,8 +167,9 @@ $cc proc initDraw {char* display uint32_t width uint32_t height uint32_t refresh
             }
             if (chosenPlane != UINT32_MAX) break;
         }
+        fprintf(stderr, "chosenPlane for '%s': %u\n", display, chosenPlane);
         if (chosenPlane == UINT32_MAX) {
-            pthread_mutex_unlock(displaySurfaceMutex_ptr());
+            free(ds);
             FOLK_ERROR("Failed to find a display plane for display '%s'\n", display);
         }
 
@@ -176,17 +180,12 @@ $cc proc initDraw {char* display uint32_t width uint32_t height uint32_t refresh
         createInfo.transform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
         createInfo.alphaMode = VK_DISPLAY_PLANE_ALPHA_PER_PIXEL_BIT_KHR;
         createInfo.imageExtent = modeProps[chosenMode].parameters.visibleRegion;
-        if (vkCreateDisplayPlaneSurfaceKHR(*instance_ptr(), &createInfo, NULL, &surface) != VK_SUCCESS) {
-            pthread_mutex_unlock(displaySurfaceMutex_ptr());
-            fprintf(stderr, "Failed to create Vulkan display plane surface\n"); exit(1);
-        }
-
-        pthread_mutex_unlock(displaySurfaceMutex_ptr());
-    }] }]
+        $[vktry {vkCreateDisplayPlaneSurfaceKHR(*instance_ptr(), &createInfo, NULL, &ds->surface)}]
+    }]
 
     uint32_t presentQueueFamilyIndex; {
-        VkBool32 presentSupport = 0; 
-        vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, *graphicsQueueFamilyIndex_ptr(), surface, &presentSupport);
+        VkBool32 presentSupport = 0;
+        vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, *graphicsQueueFamilyIndex_ptr(), ds->surface, &presentSupport);
         if (!presentSupport) {
             fprintf(stderr, "Vulkan graphics queue family doesn't support presenting to surface\n"); exit(1);
         }
@@ -199,18 +198,10 @@ $cc proc initDraw {char* display uint32_t width uint32_t height uint32_t refresh
     uint32_t imageCount;
     VkSurfaceFormatKHR surfaceFormat;
     VkPresentModeKHR presentMode; {
-        vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &capabilities);
+        vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, ds->surface, &capabilities);
 
         if (capabilities.currentExtent.width != UINT32_MAX) {
             extent = capabilities.currentExtent;
-        } else {
-            $[expr { $useGlfw ? {
-                glfwGetFramebufferSize(window, (int*) &extent.width, (int*) &extent.height);
-                if (capabilities.minImageExtent.width > extent.width) { extent.width = capabilities.minImageExtent.width; }
-                if (capabilities.maxImageExtent.width < extent.width) { extent.width = capabilities.maxImageExtent.width; }
-                if (capabilities.minImageExtent.height > extent.height) { extent.height = capabilities.minImageExtent.height; }
-                if (capabilities.maxImageExtent.height < extent.height) { extent.height = capabilities.maxImageExtent.height; }
-            } : {} }]
         }
 
         imageCount = capabilities.minImageCount + 1;
@@ -219,10 +210,10 @@ $cc proc initDraw {char* display uint32_t width uint32_t height uint32_t refresh
         }
 
         uint32_t formatCount;
-        vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, NULL);
+        vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, ds->surface, &formatCount, NULL);
         VkSurfaceFormatKHR formats[formatCount];
         if (formatCount == 0) { fprintf(stderr, "No supported surface formats.\n"); exit(1); }
-        vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, formats);
+        vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, ds->surface, &formatCount, formats);
         surfaceFormat = formats[0]; // semi-arbitrary default
         for (int i = 0; i < formatCount; i++) {
             if (formats[i].format == VK_FORMAT_B8G8R8A8_UNORM) {
@@ -231,10 +222,10 @@ $cc proc initDraw {char* display uint32_t width uint32_t height uint32_t refresh
         }
 
         uint32_t presentModeCount;
-        vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, NULL);
+        vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, ds->surface, &presentModeCount, NULL);
         VkPresentModeKHR presentModes[presentModeCount];
         if (presentModeCount == 0) { fprintf(stderr, "No supported present modes.\n"); exit(1); }
-        vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, presentModes);
+        vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, ds->surface, &presentModeCount, presentModes);
         presentMode = VK_PRESENT_MODE_FIFO_KHR; // guaranteed to be available
         for (int i = 0; i < presentModeCount; i++) {
             if (presentModes[i] == VK_PRESENT_MODE_MAILBOX_KHR) {
@@ -243,11 +234,11 @@ $cc proc initDraw {char* display uint32_t width uint32_t height uint32_t refresh
         }
     }
 
-    // Set up VkSwapchainKHR swapchain
+    // Set up VkSwapchainKHR
     {
         VkSwapchainCreateInfoKHR createInfo = {0};
         createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-        createInfo.surface = surface;
+        createInfo.surface = ds->surface;
 
         createInfo.minImageCount = imageCount;
         createInfo.imageFormat = surfaceFormat.format;
@@ -269,26 +260,24 @@ $cc proc initDraw {char* display uint32_t width uint32_t height uint32_t refresh
         createInfo.clipped = VK_TRUE;
         createInfo.oldSwapchain = VK_NULL_HANDLE;
 
-        $[vktry {vkCreateSwapchainKHR(device, &createInfo, NULL, &swapchain)}]
+        $[vktry {vkCreateSwapchainKHR(device, &createInfo, NULL, &ds->swapchain)}]
     }
 
-    // Set up uint32_t swapchainImageCount:
-    vkGetSwapchainImagesKHR(device, swapchain, &swapchainImageCount, NULL);
-    VkImage swapchainImages[swapchainImageCount];
-    // Set up VkExtent2D swapchainExtent:
+    vkGetSwapchainImagesKHR(device, ds->swapchain, &ds->swapchainImageCount, NULL);
+    VkImage swapchainImages[ds->swapchainImageCount];
     {
-        vkGetSwapchainImagesKHR(device, swapchain, &swapchainImageCount, swapchainImages);
-        swapchainImageFormat = surfaceFormat.format;
-        swapchainExtent = extent;
+        vkGetSwapchainImagesKHR(device, ds->swapchain, &ds->swapchainImageCount, swapchainImages);
+        ds->swapchainImageFormat = surfaceFormat.format;
+        ds->swapchainExtent = extent;
     }
 
-    VkImageView swapchainImageViews[swapchainImageCount]; {
-        for (size_t i = 0; i < swapchainImageCount; i++) {
+    VkImageView swapchainImageViews[ds->swapchainImageCount]; {
+        for (size_t i = 0; i < ds->swapchainImageCount; i++) {
             VkImageViewCreateInfo createInfo = {0};
             createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
             createInfo.image = swapchainImages[i];
             createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-            createInfo.format = swapchainImageFormat;
+            createInfo.format = ds->swapchainImageFormat;
             createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
             createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
             createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
@@ -302,13 +291,13 @@ $cc proc initDraw {char* display uint32_t width uint32_t height uint32_t refresh
         }
     }
 
-    if (swapchainImageFormat != VK_FORMAT_B8G8R8A8_UNORM) {
-        FOLK_ERROR("Swapchain image format %d does not match pipeline render pass format (VK_FORMAT_B8G8R8A8_UNORM)\n", swapchainImageFormat);
+    if (ds->swapchainImageFormat != VK_FORMAT_B8G8R8A8_UNORM) {
+        FOLK_ERROR("Swapchain image format %d does not match pipeline render pass format (VK_FORMAT_B8G8R8A8_UNORM)\n", ds->swapchainImageFormat);
     }
 
-    // Set up VkFramebuffer swapchainFramebuffers[swapchainImageCount]:
-    swapchainFramebuffers = (VkFramebuffer *) malloc(sizeof(VkFramebuffer) * swapchainImageCount);
-    for (size_t i = 0; i < swapchainImageCount; i++) {
+    // Set up framebuffers
+    ds->swapchainFramebuffers = (VkFramebuffer *) malloc(sizeof(VkFramebuffer) * ds->swapchainImageCount);
+    for (size_t i = 0; i < ds->swapchainImageCount; i++) {
         VkImageView attachments[] = { swapchainImageViews[i] };
 
         VkFramebufferCreateInfo framebufferInfo = {0};
@@ -316,11 +305,11 @@ $cc proc initDraw {char* display uint32_t width uint32_t height uint32_t refresh
         framebufferInfo.renderPass = *renderPass_ptr();
         framebufferInfo.attachmentCount = 1;
         framebufferInfo.pAttachments = attachments;
-        framebufferInfo.width = swapchainExtent.width;
-        framebufferInfo.height = swapchainExtent.height;
+        framebufferInfo.width = ds->swapchainExtent.width;
+        framebufferInfo.height = ds->swapchainExtent.height;
         framebufferInfo.layers = 1;
 
-        $[vktry {vkCreateFramebuffer(device, &framebufferInfo, NULL, &swapchainFramebuffers[i])}]
+        $[vktry {vkCreateFramebuffer(device, &framebufferInfo, NULL, &ds->swapchainFramebuffers[i])}]
     }
 
     {
@@ -331,24 +320,23 @@ $cc proc initDraw {char* display uint32_t width uint32_t height uint32_t refresh
         fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
         fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-        $[vktry {vkCreateSemaphore(device, &semaphoreInfo, NULL, &imageAvailableSemaphore)}]
-        $[vktry {vkCreateSemaphore(device, &semaphoreInfo, NULL, &renderFinishedSemaphore)}]
-        $[vktry {vkCreateFence(device, &fenceInfo, NULL, &inFlightFence)}]
+        $[vktry {vkCreateSemaphore(device, &semaphoreInfo, NULL, &ds->imageAvailableSemaphore)}]
+        $[vktry {vkCreateSemaphore(device, &semaphoreInfo, NULL, &ds->renderFinishedSemaphore)}]
+        $[vktry {vkCreateFence(device, &fenceInfo, NULL, &ds->inFlightFence)}]
     }
-}
-$cc proc getWidth {} uint32_t { return swapchainExtent.width; }
-$cc proc getHeight {} uint32_t { return swapchainExtent.height; }
 
-$cc code {
-    static VkPipeline boundPipeline;
-    static VkDescriptorSet boundDescriptorSet;
+    return ds;
 }
-$cc proc drawStart {} void {
+$cc proc getDisplayWidth {DisplayState* ds} uint32_t { return ds->swapchainExtent.width; }
+$cc proc getDisplayHeight {DisplayState* ds} uint32_t { return ds->swapchainExtent.height; }
+
+$cc proc drawStart {DisplayState* ds} void {
+    currentDisplay = ds;
     VkCommandBuffer commandBuffer = getCommandBuffer();
 
-    vkResetFences(device, 1, &inFlightFence);
+    vkResetFences(device, 1, &ds->inFlightFence);
 
-    vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+    vkAcquireNextImageKHR(device, ds->swapchain, UINT64_MAX, ds->imageAvailableSemaphore, VK_NULL_HANDLE, &ds->imageIndex);
 
     vkResetCommandBuffer(commandBuffer, 0);
 
@@ -362,9 +350,9 @@ $cc proc drawStart {} void {
         VkRenderPassBeginInfo renderPassInfo = {0};
         renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
         renderPassInfo.renderPass = *renderPass_ptr();
-        renderPassInfo.framebuffer = swapchainFramebuffers[imageIndex];
+        renderPassInfo.framebuffer = ds->swapchainFramebuffers[ds->imageIndex];
         renderPassInfo.renderArea.offset = (VkOffset2D) {0, 0};
-        renderPassInfo.renderArea.extent = swapchainExtent;
+        renderPassInfo.renderArea.extent = ds->swapchainExtent;
 
         VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
         renderPassInfo.clearValueCount = 1;
@@ -390,15 +378,15 @@ $cc proc draw {Pipeline pipeline Jim_Obj* argsObj} void {
         VkViewport viewport = {0}; {
             viewport.x = 0.0f;
             viewport.y = 0.0f;
-            viewport.width = (float) swapchainExtent.width;
-            viewport.height = (float) swapchainExtent.height;
+            viewport.width = (float) currentDisplay->swapchainExtent.width;
+            viewport.height = (float) currentDisplay->swapchainExtent.height;
             viewport.minDepth = 0.0f;
             viewport.maxDepth = 1.0f;
         }
         vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
         VkRect2D scissor = {0}; {
             scissor.offset = (VkOffset2D) {0, 0};
-            scissor.extent = swapchainExtent;
+            scissor.extent = currentDisplay->swapchainExtent;
         }
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
     }
@@ -429,17 +417,18 @@ $cc proc draw {Pipeline pipeline Jim_Obj* argsObj} void {
 }
 
 $cc proc drawEnd {} void {
+    DisplayState* ds = currentDisplay;
     VkCommandBuffer commandBuffer = getCommandBuffer();
 
     vkCmdEndRenderPass(commandBuffer);
     $[vktry {vkEndCommandBuffer(commandBuffer)}]
 
-    VkSemaphore signalSemaphores[] = {renderFinishedSemaphore};
+    VkSemaphore signalSemaphores[] = {ds->renderFinishedSemaphore};
     {
         VkSubmitInfo submitInfo = {0};
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
-        VkSemaphore waitSemaphores[] = {imageAvailableSemaphore};
+        VkSemaphore waitSemaphores[] = {ds->imageAvailableSemaphore};
         VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
         submitInfo.waitSemaphoreCount = 1;
         submitInfo.pWaitSemaphores = waitSemaphores;
@@ -452,7 +441,7 @@ $cc proc drawEnd {} void {
         submitInfo.pSignalSemaphores = signalSemaphores;
 
         pthread_mutex_lock(graphicsQueueMutex_ptr());
-        $[vktry {vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo, inFlightFence)}]
+        $[vktry {vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo, ds->inFlightFence)}]
         pthread_mutex_unlock(graphicsQueueMutex_ptr());
     }
     {
@@ -461,10 +450,10 @@ $cc proc drawEnd {} void {
         presentInfo.waitSemaphoreCount = 1;
         presentInfo.pWaitSemaphores = signalSemaphores;
 
-        VkSwapchainKHR swapchains[] = {swapchain};
+        VkSwapchainKHR swapchains[] = {ds->swapchain};
         presentInfo.swapchainCount = 1;
         presentInfo.pSwapchains = swapchains;
-        presentInfo.pImageIndices = &imageIndex;
+        presentInfo.pImageIndices = &ds->imageIndex;
         presentInfo.pResults = NULL;
 
         pthread_mutex_lock(graphicsQueueMutex_ptr());
@@ -472,11 +461,11 @@ $cc proc drawEnd {} void {
         pthread_mutex_unlock(graphicsQueueMutex_ptr());
     }
 
-    vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
-}
+    // Wait for this display's submission to complete before we
+    // reuse the shared command buffer for the next display.
+    vkWaitForFences(device, 1, &ds->inFlightFence, VK_TRUE, UINT64_MAX);
 
-$cc proc poll {} void {
-    $[expr { $useGlfw ? { glfwPollEvents(); } : {} }]
+    currentDisplay = NULL;
 }
 
 proc makeGpu {gpuLib pipelineLib drawLib} { return [library create gpu {gpuLib pipelineLib drawLib} {
@@ -854,11 +843,8 @@ set gpu [makeGpu $gpuLib $pipelineLib $drawLib]
 
 tracy setThreadName "gpu"
 
-$gpu initDraw $display \
-    $displayOpts(width) $displayOpts(height) \
-    $displayOpts(refreshRate)
-
-Claim display $display has width [$gpu getWidth] height [$gpu getHeight]
+# Track initialized displays: dict mapping display name -> DisplayState*
+set displays [dict create]
 
 set kGpu [tracy makeString "gpu"]
 set kLatency [tracy makeString "latency"]
@@ -922,15 +908,12 @@ When /wisher/ wishes the GPU compiles pipeline /name/ /source/ {
 
 set missingPipelines [dict create]
 while true {
+    # Run prelude handlers once per frame (textures, canvases).
     ForEach! /someone/ wishes the GPU runs frame prelude handler /hd/ {
         {*}$hd
     }
 
-    $gpu drawStart
-
-    # We do the queries now (when we are about to draw) so we get
-    # the most up-to-date information.
-
+    # Query draw commands once (shared across all displays).
     set results [Query! /someone/ claims the GPU compiles pipeline /name/ to /pipeline/]
     set pipelines [dict create]
     foreach result $results { dict with result { dict set pipelines $name $pipeline } }
@@ -968,22 +951,39 @@ while true {
         }
     }
 
-    set drawCount 0
-    foreach layer [lsort -real [dict keys $displayList]] {
-        set layerDisplayList [dict get $displayList $layer]
-        foreach displayCommand $layerDisplayList {
-            incr drawCount
-            try { {*}$displayCommand } \
-                on error e { puts stderr [errorInfo $e] }
+    # Query active displays; init new ones on first sight.
+    foreach result [Query! /someone/ wishes $::thisNode uses display /display/ with /...displayOpts/] {
+        set display [dict get $result display]
+        set displayOpts [dict get $result displayOpts]
+
+        if {![dict exists $displays $display]} {
+            set ds [$drawLib initDisplay $display \
+                        $displayOpts(width) $displayOpts(height) \
+                        $displayOpts(refreshRate)]
+            dict set displays $display $ds
+            Assert! display $display has width [$drawLib getDisplayWidth $ds] \
+                height [$drawLib getDisplayHeight $ds]
         }
     }
 
-    # This blocks until the frame is actually drawn:
-    $gpu drawEnd
+    # Draw to each active display.
+    dict for {displayName ds} $displays {
+        $gpu drawStart $ds
+
+        set drawCount 0
+        foreach layer [lsort -real [dict keys $displayList]] {
+            set layerDisplayList [dict get $displayList $layer]
+            foreach displayCommand $layerDisplayList {
+                incr drawCount
+                try { {*}$displayCommand } \
+                    on error e { puts stderr [errorInfo $e] }
+            }
+        }
+
+        $gpu drawEnd
+    }
 
     tracy frameMarkNamed $kGpu
-
-    $gpu poll
 
     # TODO: sleep for 5ms or something?
 }

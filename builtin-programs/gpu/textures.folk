@@ -788,16 +788,14 @@ $gpuTextureLib textureManagerInit
 
 Claim the GPU texture library is $gpuTextureLib
 
-When display /any/ has width /any/ height /any/ {
-    Wish the GPU runs frame prelude handler [list apply {{gpuTextureLib} {
-        $gpuTextureLib processDeferredTextureOps
-    }} $gpuTextureLib]
+Wish the GPU runs frame prelude handler [list apply {{gpuTextureLib} {
+    $gpuTextureLib processDeferredTextureOps
+}} $gpuTextureLib]
 
-    When /someone/ wishes the GPU loads image /im/ as texture {
-        set gtex [$gpuTextureLib copyImageToGpuTexture $im]
-        Claim the GPU has loaded image $im as texture $gtex \
-            -destructor [list $gpuTextureLib freeGpuTexture $gtex]
-    }
+When /someone/ wishes the GPU loads image /im/ as texture {
+    set gtex [$gpuTextureLib copyImageToGpuTexture $im]
+    Claim the GPU has loaded image $im as texture $gtex \
+        -destructor [list $gpuTextureLib freeGpuTexture $gtex]
 }
 
 }

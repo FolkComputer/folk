@@ -91,10 +91,10 @@ if {$::tcl_platform(os) eq "darwin"} {
         proc When args {
             set pattern [lrange $args 0 end-1]
 
-            if {[lindex $pattern 0] eq {display}} {
-                # HACK: This is a display-dependent When inside
-                # textures.folk. Restore normal async When and delegate
-                # so it fires later when a display exists.
+            if {{wishes} in $pattern && {display} ni $pattern} {
+                # HACK: This is a reactive handler (e.g. image-load
+                # in textures.folk) that should be async, not polled.
+                # Restore normal When and delegate.
                 rename When {}
                 rename When' When
                 tailcall When {*}$args
