@@ -285,7 +285,7 @@ C method include {h} {
     }
 }
 
-C method code {newcode} {
+C method code {newcode {extendArg {:noextend}}} {
     lassign [info source $newcode] filename line
     if {$filename ne ""} { 
         set newcode [subst {
@@ -293,7 +293,7 @@ C method code {newcode} {
             $newcode
         }]
     }
-    lappend code $newcode :noextend
+    lappend code $newcode {*}$extendArg
     list
 }
 

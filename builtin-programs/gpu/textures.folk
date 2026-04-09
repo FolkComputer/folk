@@ -1,6 +1,5 @@
 When the GPU Vulkan handle type definer is /defineVulkanHandleType/ &\
      the GPU library is /gpuLib/ &\
-     the GPU draw library is /drawLib/ &\
      the GPU VMA DLL is /vmaDll/ &\
      the image library is /imageLib/ {
 
@@ -24,11 +23,8 @@ $gpuc code {
 }
 $gpuc include <pthread.h>
 $gpuc include <stdatomic.h>
-$gpuc typedef {struct PushConstantsEncoder} PushConstantsEncoder
-$gpuc typedef {struct Pipeline} Pipeline
 
 $gpuc extend $gpuLib
-$gpuc extend $drawLib
 $gpuc extend $imageLib
 
 $gpuc include <pthread.h>
@@ -72,6 +68,13 @@ local proc vktry {call} { string map {\n " "} [csubst {{
 # - https://chunkstories.xyz/blog/a-note-on-descriptor-indexing/
 # - https://gist.github.com/DethRaid/0171f3cfcce51950ee4ef96c64f59617
 # - http://roar11.com/2019/06/vulkan-textures-unbound/
+$gpuc define {
+    VkDescriptorSetLayout textureDescriptorSetLayout;
+    VkDescriptorSet textureDescriptorSet;
+}
+defineVulkanHandleType $gpuc VkDescriptorSetLayout
+defineVulkanHandleType $gpuc VkDescriptorSet
+
 $gpuc code {
     VkDevice device;
     static void initPlaceholderTexture();
@@ -780,9 +783,11 @@ $gpuc proc initPlaceholderTexture {} void {
 }
 
 set gpuTextureLib [$gpuc compile]
-Claim the GPU texture library for $drawLib is $gpuTextureLib
 
-# Wait until the library has been initialized by gpu.folk.
+$gpuTextureLib textureManagerInit
+
+Claim the GPU texture library is $gpuTextureLib
+
 When display /any/ has width /any/ height /any/ {
     Wish the GPU runs frame prelude handler [list apply {{gpuTextureLib} {
         $gpuTextureLib processDeferredTextureOps
