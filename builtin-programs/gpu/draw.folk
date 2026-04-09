@@ -17,8 +17,7 @@ When the GPU library is /gpuLib/ &\
 fn defineVulkanHandleType
 
 # On macOS we always use GLFW; on Linux we use direct Vulkan display.
-# (On macOS, draw.folk returns early above, so this only runs on Linux.)
-set useGlfw false
+set useGlfw [expr {$::tcl_platform(os) eq "darwin"}]
 
 set cc [C]
 $cc cflags -I./vendor
@@ -28,6 +27,13 @@ $cc include <pthread.h>
 $cc code {
     #define VOLK_IMPLEMENTATION
     #include "volk/volk.h"
+}
+if {$useGlfw} {
+    $cc code {
+        // This must be included _after_ volk.h (Vulkan).
+        #include <GLFW/glfw3.h>
+    }
+    $cc endcflags -lglfw
 }
 
 $cc extend $gpuLib
@@ -41,7 +47,7 @@ local proc vktry {call} { string map {\n " "} [csubst {{
     }
 }}] }
 
-$cc code {
+$cc code [subst {
     typedef struct DisplayState {
         VkSurfaceKHR surface;
         VkSwapchainKHR swapchain;
@@ -55,6 +61,7 @@ $cc code {
         VkSemaphore imageAvailableSemaphore;
         VkSemaphore renderFinishedSemaphore;
         VkFence inFlightFence;
+        [expr { $useGlfw ? "GLFWwindow* window;" : "" }]
     } DisplayState;
 
     VkDevice device;
@@ -63,7 +70,7 @@ $cc code {
     static DisplayState* currentDisplay;
     static VkPipeline boundPipeline;
     static VkDescriptorSet boundDescriptorSet;
-}
+}]
 
 $cc argtype DisplayState* {
     DisplayState* $argname;
@@ -87,7 +94,14 @@ $cc proc initDisplay {char* display uint32_t width uint32_t height uint32_t refr
     DisplayState* ds = calloc(1, sizeof(DisplayState));
 
     // Get drawing surface.
-    $[csubst {
+    $[expr { $useGlfw ? {
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+        ds->window = glfwCreateWindow(width, height, "Folk", NULL, NULL);
+        FOLK_ENSURE(ds->window != NULL);
+        if (glfwCreateWindowSurface(*instance_ptr(), ds->window, NULL, &ds->surface) != VK_SUCCESS) {
+            FOLK_ERROR("Failed to create GLFW window surface");
+        }
+    } : [csubst {
         // Search through displays to find the one matching display name
         int retries = 0;
         VkDisplayKHR chosenDisplay = VK_NULL_HANDLE;
@@ -181,7 +195,7 @@ $cc proc initDisplay {char* display uint32_t width uint32_t height uint32_t refr
         createInfo.alphaMode = VK_DISPLAY_PLANE_ALPHA_PER_PIXEL_BIT_KHR;
         createInfo.imageExtent = modeProps[chosenMode].parameters.visibleRegion;
         $[vktry {vkCreateDisplayPlaneSurfaceKHR(*instance_ptr(), &createInfo, NULL, &ds->surface)}]
-    }]
+    }] }]
 
     uint32_t presentQueueFamilyIndex; {
         VkBool32 presentSupport = 0;
@@ -202,6 +216,14 @@ $cc proc initDisplay {char* display uint32_t width uint32_t height uint32_t refr
 
         if (capabilities.currentExtent.width != UINT32_MAX) {
             extent = capabilities.currentExtent;
+        } else {
+            $[expr { $useGlfw ? {
+                glfwGetFramebufferSize(ds->window, (int*) &extent.width, (int*) &extent.height);
+                if (capabilities.minImageExtent.width > extent.width) { extent.width = capabilities.minImageExtent.width; }
+                if (capabilities.maxImageExtent.width < extent.width) { extent.width = capabilities.maxImageExtent.width; }
+                if (capabilities.minImageExtent.height > extent.height) { extent.height = capabilities.minImageExtent.height; }
+                if (capabilities.maxImageExtent.height < extent.height) { extent.height = capabilities.maxImageExtent.height; }
+            } : {} }]
         }
 
         imageCount = capabilities.minImageCount + 1;
@@ -466,6 +488,10 @@ $cc proc drawEnd {} void {
     vkWaitForFences(device, 1, &ds->inFlightFence, VK_TRUE, UINT64_MAX);
 
     currentDisplay = NULL;
+}
+
+$cc proc poll {} void {
+    $[expr { $useGlfw ? { glfwPollEvents(); } : {} }]
 }
 
 proc makeGpu {gpuLib pipelineLib drawLib} { return [library create gpu {gpuLib pipelineLib drawLib} {
@@ -985,6 +1011,7 @@ while true {
 
     tracy frameMarkNamed $kGpu
 
+    if {$useGlfw} { $drawLib poll }
     # TODO: sleep for 5ms or something?
 }
 

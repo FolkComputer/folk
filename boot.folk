@@ -91,27 +91,15 @@ if {$::tcl_platform(os) eq "darwin"} {
         proc When args {
             set pattern [lrange $args 0 end-1]
 
-            if {{wishes} in $pattern && {display} ni $pattern} {
-                # HACK: This is a reactive handler (e.g. image-load
-                # in textures.folk) that should be async, not polled.
-                # Restore normal When and delegate.
-                rename When {}
-                rename When' When
-                tailcall When {*}$args
-            }
-
             # Await the dependencies being available.
             while {[llength [Query! {*}$pattern]] != 1} {
                 sleep 0.1
             }
 
-            if {{wishes} in $pattern && {display} in $pattern} {
-                # HACK: We're inside draw.folk's main When body now.
-                # Subsequent Whens (pipeline compilation, etc.) should
-                # be normal Whens and run off-thread/async.
-                rename When {}
-                rename When' When
-            }
+            # Restore real When before running the body, so any When
+            # calls inside the body register persistent async handlers.
+            rename When {}
+            rename When' When
 
             tailcall ForEach! {*}$args
         }
@@ -124,7 +112,8 @@ if {$::tcl_platform(os) eq "darwin"} {
         }
     }
     fake "builtin-programs/gpu/gpu.folk"
-    fake "builtin-programs/gpu/textures.folk"
-    fake "builtin-programs/gpu/pipelines.folk"
+    # textures.folk and pipelines.folk don't need the main thread
+    # (no GLFW/window work), so they run as normal async programs.
+    # draw.folk's fake When polls until their claims are available.
     fake "builtin-programs/gpu/draw.folk"
 }
