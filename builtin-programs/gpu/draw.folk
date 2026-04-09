@@ -135,16 +135,53 @@ $cc proc initDraw {char* display uint32_t width uint32_t height uint32_t refresh
                        display, width, height, refreshRate);
         }
 
+        // Find a display plane that supports chosenDisplay.
+        // Lock so two display threads don't pick the same plane.
+        pthread_mutex_lock(displaySurfaceMutex_ptr());
+
+        uint32_t planeCount;
+        vkGetPhysicalDeviceDisplayPlanePropertiesKHR(physicalDevice, &planeCount, NULL);
+        VkDisplayPlanePropertiesKHR planeProps[planeCount];
+        vkGetPhysicalDeviceDisplayPlanePropertiesKHR(physicalDevice, &planeCount, planeProps);
+
+        uint32_t chosenPlane = UINT32_MAX;
+        for (uint32_t p = 0; p < planeCount; p++) {
+            // Skip planes already bound to a different display.
+            if (planeProps[p].currentDisplay != VK_NULL_HANDLE &&
+                planeProps[p].currentDisplay != chosenDisplay) {
+                continue;
+            }
+            // Check that this plane supports our display.
+            uint32_t supportedCount;
+            vkGetDisplayPlaneSupportedDisplaysKHR(physicalDevice, p, &supportedCount, NULL);
+            VkDisplayKHR supported[supportedCount];
+            vkGetDisplayPlaneSupportedDisplaysKHR(physicalDevice, p, &supportedCount, supported);
+            for (uint32_t s = 0; s < supportedCount; s++) {
+                if (supported[s] == chosenDisplay) {
+                    chosenPlane = p;
+                    break;
+                }
+            }
+            if (chosenPlane != UINT32_MAX) break;
+        }
+        if (chosenPlane == UINT32_MAX) {
+            pthread_mutex_unlock(displaySurfaceMutex_ptr());
+            FOLK_ERROR("Failed to find a display plane for display '%s'\n", display);
+        }
+
         VkDisplaySurfaceCreateInfoKHR createInfo = {0};
         createInfo.sType = VK_STRUCTURE_TYPE_DISPLAY_SURFACE_CREATE_INFO_KHR;
         createInfo.displayMode = modeProps[chosenMode].displayMode;
-        createInfo.planeIndex = 0;
+        createInfo.planeIndex = chosenPlane;
         createInfo.transform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
         createInfo.alphaMode = VK_DISPLAY_PLANE_ALPHA_PER_PIXEL_BIT_KHR;
         createInfo.imageExtent = modeProps[chosenMode].parameters.visibleRegion;
         if (vkCreateDisplayPlaneSurfaceKHR(*instance_ptr(), &createInfo, NULL, &surface) != VK_SUCCESS) {
+            pthread_mutex_unlock(displaySurfaceMutex_ptr());
             fprintf(stderr, "Failed to create Vulkan display plane surface\n"); exit(1);
         }
+
+        pthread_mutex_unlock(displaySurfaceMutex_ptr());
     }] }]
 
     uint32_t presentQueueFamilyIndex; {

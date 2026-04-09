@@ -753,7 +753,7 @@ extern "C" \{
     while {![file exists /tmp/$cid.so]} {
         sleep 0.01
         incr n
-        if {$n > 10} { error "Failed! [string range $e 0 500]" }
+        if {$n > 200} { error "Failed on /tmp/$cid.so! Timed out" }
     }
 
     if {$noload} {
