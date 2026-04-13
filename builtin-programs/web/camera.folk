@@ -1,6 +1,27 @@
 Wish the web server handles route {/camera} with handler {
-    set camera [dict getdef $QUERY camera /any/]
-    html {
+    if {[dict exists $QUERY camera]} {
+        set camera [dict get $QUERY camera]
+    } else {
+        set cameraResults [Query! /someone/ wishes $::thisNode uses camera /camera/ with /...any/]
+        if {[llength $cameraResults] == 1} {
+            set camera [dict get [lindex $cameraResults 0] camera]
+        } else {
+            return [html [subst {
+                <html>
+                <body>
+                <p>Choose a camera:</p>
+                <ul>
+                [join [lmap result $cameraResults { subst {
+                    <li><a href="/camera?camera=[string map {/ %2F} $result(camera)]">$result(camera)</a></li>
+                } }] \n]
+                </ul>
+                </body>
+                </html>
+            }]]
+        }
+    }
+
+    html [subst {
 <html>
   <body style="margin: 0 0">
     <canvas id="cameraCanvas" style="max-width: 100%"></canvas>
@@ -16,11 +37,11 @@ Wish the web server handles route {/camera} with handler {
           setTimeout(advanceCamera, 0);
         };
         img.onerror = () => setTimeout(advanceCamera, 500);
-        img.src = '/camera-frame?uniq=' + Math.random();
+        img.src = '/camera-frame?camera=[string map {/ %2F} $camera]&uniq=' + Math.random();
       }
       advanceCamera();
     </script>
   </body>
 </html>
-    }
+    }]
 }
