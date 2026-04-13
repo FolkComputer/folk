@@ -14,8 +14,8 @@ Wish the web server handles route "/" with handler {
         lappend returnList "<ul>"
         foreach item $programList {
             set escapedThis [regsub -all -- / $item(programName) __]
-            set out [readOutputFile "/tmp/folk-[pid]/$escapedThis.stdout"]
-            set err [readOutputFile "/tmp/folk-[pid]/$escapedThis.stderr"]
+            set out [readOutputFile "/var/tmp/folk-[pid]/$escapedThis.stdout"]
+            set err [readOutputFile "/var/tmp/folk-[pid]/$escapedThis.stderr"]
             set outputHtml ""
             if {$out ne ""} {
                 append outputHtml "<pre style='margin: 0.25em 0 0 1em; padding: 0.25em 0.5em; font-size: 0.85em; white-space: pre-wrap; border-left: 3px solid #888'>[htmlEscape $out]</pre>"

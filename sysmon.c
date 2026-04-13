@@ -265,9 +265,9 @@ void *sysmonMain(void *ptr) {
 
     {
         char path[256];
-        snprintf(path, sizeof(path), "/tmp/folk-%d/sysmon.c.stdout", getpid());
+        snprintf(path, sizeof(path), "/var/tmp/folk-%d/sysmon.c.stdout", getpid());
         int outfd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
-        snprintf(path, sizeof(path), "/tmp/folk-%d/sysmon.c.stderr", getpid());
+        snprintf(path, sizeof(path), "/var/tmp/folk-%d/sysmon.c.stderr", getpid());
         int errfd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
         installLocalStdoutAndStderr(outfd, errfd);
     }

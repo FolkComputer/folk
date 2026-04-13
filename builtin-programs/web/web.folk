@@ -298,7 +298,7 @@ vwait forever
 
 } on error {e opts} {
     puts $::realStderr "WARNING: web.folk failed to initialize;
-the web server is probably down; check /tmp/folk-[pid]/ for log files.
+the web server is probably down; check /var/tmp/folk-[pid]/ for log files.
 (Make sure libtool and autoconf-archive are installed.)
 ------------------------------------------
 [errorInfo $e]"
