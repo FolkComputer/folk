@@ -272,46 +272,9 @@ Claim the calibration poses max is \${calibrationPosesMax}
             </script>
 
             <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position):</p>
-            <iframe src="/camera?camera=[string map {/ %2F} $camera]"
-                    width="600" height="[expr {int(600.0 * $cameraHeight / $cameraWidth)}]"
+            <iframe src="/camera?camera=$[string map {/ %2F} $camera]"
+                    width="600" height="$[expr {int(600.0 * $cameraHeight / $cameraWidth) + 48}]"
                     style="border: 1px solid #999;"></iframe>
-
-
-            <p><strong>Is the projection too bright and washing out the camera?</strong>
-            <br/>
-            Adjust camera exposure:
-                <input type="range" min="10" max="48" value="15" class="slider" id="camera-exposure-slider">
-                <input type="number" min="1000" max="320000" step="100" value="1500" id="camera-exposure-number">μs
-            </p>
-
-            <script>
-            const slider = document.getElementById('camera-exposure-slider');
-            const numberInput = document.getElementById('camera-exposure-number');
-            let lastRefreshTimeout = null;
-            
-            function updateExposure(valueInMicroseconds) {
-                const sliderValue = valueInMicroseconds / 100;
-                
-                slider.value = sliderValue;
-                numberInput.value = valueInMicroseconds;
-                
-                ws.hold('exposure', tcl`
-                    Wish camera $camera uses exposure time \${valueInMicroseconds} us
-                `, 'builtin-programs/calibrate/calibrate.folk');
-            }
-            
-            slider.addEventListener('input', (e) => {
-                const exposureValue = Math.round(e.target.value * 100);
-                updateExposure(exposureValue);
-            });
-            
-            numberInput.addEventListener('input', (e) => {
-                const exposureValue = parseInt(e.target.value);
-                updateExposure(exposureValue);
-            });
-            
-            updateExposure(10000);
-            </script>
 
           <p>Once you've recorded the first pose, <em>slowly drag the board around your space</em>, going slow enough for the projected AprilTags to catch up with the printed AprilTags and fit into the gaps on your board. When you've moved the board at least a full board-length away from the first pose, try to slant it 45 degrees or so off the table and hold it still again to capture another pose.</p>
 
