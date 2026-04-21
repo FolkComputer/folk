@@ -983,17 +983,27 @@ while true {
         set displayOpts [dict get $result displayOpts]
 
         if {![dict exists $displays $display]} {
+            if {[llength [Query! $::thisNode has display $display with /...any/]] == 0} {
+                puts stderr "gpu/draw: Display '$display' is wished but not enumerated; skipping"
+                dict set displays $display missing
+                continue
+            }
             set ds [$drawLib initDisplay $display \
                         $displayOpts(width) $displayOpts(height) \
                         $displayOpts(refreshRate)]
             dict set displays $display $ds
             Assert! display $display has width [$drawLib getDisplayWidth $ds] \
                 height [$drawLib getDisplayHeight $ds]
+
+        } elseif {[dict get $displays $display] eq "missing"} {
+            # TODO: Allow for retry if display is plugged in later?
+            continue
         }
     }
 
     # Draw to each active display.
     dict for {displayName ds} $displays {
+        if {$ds eq "missing"} { continue }
         $gpu drawStart $ds
 
         set drawCount 0
