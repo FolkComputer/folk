@@ -82,7 +82,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
     }
 
     set info [dict get $opts info]
-    set displayName [dict get $info name]
+    set displayName [dict getdef $info name $display]
 
     set modesByRegion [dict create]
     foreach mode [dict getdef $info modes [list]] {
@@ -99,7 +99,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
                  $($isUsingDisplay ? "checked" : "")
                  value="$display"
                  onchange="displayEnabledChange.call(this, event)">
-          <strong>$displayName</strong><br>
+          <strong>$displayName</strong> (<code>$display</code>)<br>
           [if {[dict exists $info physicalResolution]} { subst {
               (Physical resolution: [join $info(physicalResolution) x])
           } }]

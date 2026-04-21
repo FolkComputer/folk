@@ -82,13 +82,16 @@ $cc proc enumerateDisplays {} Jim_Obj* {
             int modesLen;
             const char *modesStr = Jim_GetString(modesList, &modesLen);
             Jim_Obj *displayDict = Jim_ObjPrintf("name {%s} physicalDimensions {%u %u} "
-                                                 "physicalResolution {%u %u} modes {%s}",
+                                                 "physicalResolution {%u %u} modes {%s} "
+                                                 "id {%u %u}",
                 displayProps[i].displayName ? displayProps[i].displayName : "",
                 displayProps[i].physicalDimensions.width,
                 displayProps[i].physicalDimensions.height,
                 displayProps[i].physicalResolution.width,
                 displayProps[i].physicalResolution.height,
-                modesStr);
+                modesStr,
+                devIdx,
+                i);
 
             Jim_ListAppendElement(interp, allDisplaysList, displayDict);
         }
@@ -107,7 +110,7 @@ if {![catch {exec pkg-config --exists glfw3}]} {
 
 try {
     foreach display [$displayLib enumerateDisplays] {
-        Claim $::thisNode has display $display(name) with info $display
+        Claim $::thisNode has display $display(id) with info $display
     }
 } finally {
     Claim $::thisNode has had displays enumerated

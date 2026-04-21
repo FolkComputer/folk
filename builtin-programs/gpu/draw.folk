@@ -113,7 +113,8 @@ $cc proc initDisplay {char* display uint32_t width uint32_t height uint32_t refr
             vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, displayProps);
 
             for (uint32_t i = 0; i < displayCount; i++) {
-                if (displayProps[i].displayName && strcmp(displayProps[i].displayName, display) == 0) {
+                char buf[32]; snprintf(buf, 32, "%u %u", 0, i);
+                if (strcmp(buf, display) == 0) {
                     chosenDisplay = displayProps[i].display;
                     break;
                 }
