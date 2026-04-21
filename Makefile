@@ -29,13 +29,14 @@ endif
 
 folk: workqueue.o db.o trie.o sysmon.o epoch.o folk.o output-redirection.o block-stats.o \
 	vendor/c11-queues/mpmc_queue.o vendor/c11-queues/memory.o \
-	vendor/jimtcl/libjim.a $(TRACY_TARGET) CFLAGS $(INTERPOSE_DYLIB)
+	vendor/jimtcl/libjim.a vendor/zicl/zig-out/lib/libzicl.a $(TRACY_TARGET) CFLAGS $(INTERPOSE_DYLIB)
 
 	$(LINKER) -g -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) -o$@ \
 		$(CFLAGS) $(BUILTIN_CFLAGS) \
 		-L./vendor/jimtcl \
+		-L./vendor/zicl/zig-out/lib \
 		$(filter %.o %.a,$^) \
-		-ljim -lm -lssl -lcrypto -lz $(INTERPOSE_LDFLAGS)
+		-ljim -lzicl -lm -lssl -lcrypto -lz $(INTERPOSE_LDFLAGS)
 	if [ "$$(uname)" = "Darwin" ]; then \
 		dsymutil $@; \
 	fi
@@ -47,7 +48,7 @@ folk: workqueue.o db.o trie.o sysmon.o epoch.o folk.o output-redirection.o block
 %.o: %.c trie.h workqueue.h CFLAGS
 	cc -c -O2 -g -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) -o$@  \
 		-D_GNU_SOURCE $(CFLAGS) $(BUILTIN_CFLAGS) \
-		$< -I./vendor/jimtcl -I./vendor/tracy/public
+		$< -I./vendor/jimtcl -I./vendor/tracy/public -I./vendor/zicl/zig-out/include
 
 folk_interpose.dylib: output-redirection.c
 	cc -dynamiclib -undefined dynamic_lookup \
@@ -103,6 +104,7 @@ deps:
 		cd vendor/jimtcl && ./configure CFLAGS='-g -fno-omit-frame-pointer'; \
 	fi
 	make -C vendor/jimtcl
+	cd vendor/zicl && zig build
 
 
 kill-folk:
