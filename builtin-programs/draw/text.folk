@@ -253,7 +253,7 @@ Wish the GPU compiles pipeline "glyph" {
 
     vec2 glyphUv = invBilinear(surfaceXy.xy, a, b, c, d);
     if( max( abs(glyphUv.x-0.5), abs(glyphUv.y-0.5))>=0.5 ) {
-        return vec4(0, 0, 0, 0);
+        discard;
     }
     vec3 msd = glyphMsd(atlas, atlasGlyphBounds, glyphUv).rgb;
     // https://blog.mapbox.com/drawing-text-with-signed-distance-fields-in-mapbox-gl-b0933af6f817
@@ -261,6 +261,9 @@ Wish the GPU compiles pipeline "glyph" {
     float uBuffer = 0.2;
     float uGamma = 0.2;
     float opacity = smoothstep(uBuffer - uGamma, uBuffer + uGamma, sd);
+    if (opacity < 0.01) {
+        discard;
+    }
     return vec4(color.rgb, opacity * color.a);
 }}
 
