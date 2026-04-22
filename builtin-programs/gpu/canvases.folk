@@ -456,6 +456,32 @@ When the GPU library is /gpuLib/ & the GPU draw library is /drawLib/ &\
         }
     }
 
+    Wish the GPU compiles pipeline "composite-canvas" {
+        {vec2 viewport mat3 surfaceToClip
+            sampler2D image vec2 a vec2 b vec2 c vec2 d} {
+            vec2 vertices[6] = vec2[6](a, b, c, a, c, d);
+            vec3 v = surfaceToClip * vec3(vertices[gl_VertexIndex], 1.0);
+            return vec4(v.xy/v.z, 0.0, 1.0);
+
+        } {fn invBilinear} {
+            vec2 clipXy = (gl_FragCoord.xy / viewport) * 2.0 - 1.0;
+            vec3 surfaceXy = inverse(surfaceToClip) * vec3(clipXy, 1.0);
+            surfaceXy /= surfaceXy.z;
+
+            vec2 uv = invBilinear(surfaceXy.xy, a, b, c, d);
+            if( max( abs(uv.x-0.5), abs(uv.y-0.5))<0.5 ) {
+                vec4 texColor = texture(image, uv);
+                
+                // Prevent divide-by-zero errors on empty pixels
+                if (texColor.a < 0.001) return vec4(0.0);
+                
+                // Un-premultiply! The compiler's auto-premultiply will cancel this out, 
+                // leaving the canvas pixels mathematically untouched.
+                return vec4(texColor.rgb / texColor.a, texColor.a);
+            }
+            return vec4(0.0);
+    }}
+
     When display /disp/ has width /dispWidth/ height /dispHeight/ {
         # Create a canvas wrapper around the bare display so that you
         # can draw onto it using the canvas-oriented interface.
@@ -485,7 +511,7 @@ When the GPU library is /gpuLib/ & the GPU draw library is /drawLib/ &\
             set b [list $dispWidth 0]
             set c [list $dispWidth $dispHeight]
             set d [list 0 $dispHeight]
-            Wish the GPU draws pipeline "image" with arguments \
+            Wish the GPU draws pipeline "composite-canvas" with arguments \
                 [list [list $dispWidth $dispHeight] \
                      $surfaceToClip \
                      [dict get $canvOpts texture] $a $b $c $d]

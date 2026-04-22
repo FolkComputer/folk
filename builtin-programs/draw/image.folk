@@ -85,13 +85,14 @@ Wish the GPU compiles pipeline "image" {
         vec2 uv = invBilinear(surfaceXy.xy, a, b, c, d);
         if( max( abs(uv.x-0.5), abs(uv.y-0.5))<0.5 ) {
             vec4 texColor = texture(image, uv);
-            // Discard fully transparent pixels from the image file itself (e.g., in PNGs/GIFs)
-            if (texColor.a < 0.01) {
-                discard;
+
+            if ((texColor.a < 0.01) || (texColor.r < 0.05 && texColor.g < 0.05 && texColor.b < 0.05)) {
+                return vec4(0.0);
             }
+
             return texColor;
         }
-        discard;
+        return vec4(0.0);
 }}
 When the image library is /imageLib/ &\
      /someone/ wishes to draw an image onto /p/ with /...options/ &\

@@ -20,17 +20,9 @@ Wish the GPU compiles pipeline "circle" {
 
         float dist = length(surfaceXy.xy - center) - radius;
         if (filled == 1) {
-            if (dist < thickness) {
-                return color;
-            } else {
-                discard;
-            }
+            return (dist < thickness) ? color : vec4(0.0);
         } else {
-            if (dist < thickness && dist > 0.0) {
-                return color;
-            } else {
-                discard;
-            }
+            return (dist < thickness && dist > 0.0) ? color : vec4(0.0);
         }
     }
 }
