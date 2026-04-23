@@ -261,6 +261,25 @@ $camc proc setExposureAuto {Camera* camera} void {
 $camc cflags -Wall -Werror
 set camLib [$camc compile]
 
+When camera /cameraPath/ has width /decompWidth/ height /decompHeight/ {
+    When camera $cameraPath has jpeg frame /jpeg/ at timestamp /ts/ {
+        set grayImage [$jpegLib jpegDecompressGray $jpeg \
+                           $decompWidth $decompHeight \
+                           [expr {int($ts * 1000)}]]
+        Hold! -key [list camera $cameraPath gray-frame] \
+            Claim camera $cameraPath has gray frame $grayImage at timestamp $ts \
+            -destructor [list $imageLib imageFree $grayImage]
+    }
+    When camera $cameraPath has jpeg frame /jpeg/ at timestamp /ts/ {
+        set frameImage [$jpegLib jpegDecompressRGB $jpeg \
+                            $decompWidth $decompHeight \
+                            [expr {int($ts * 1000)}]]
+        Hold! -key [list camera $cameraPath frame] \
+            Claim camera $cameraPath has frame $frameImage at timestamp $ts \
+            -destructor [list $imageLib imageFree $frameImage]
+    }
+}
+
 When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
     if {[string match "/sys/bus/usb/devices/*" $camera]} {
         set devicePath $camera
@@ -309,28 +328,9 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
     try -signal {
         if {[info exists crops]} {
             for {set i 0} {$i < [llength $crops]} {incr i} {
-                set cropPath [list $camera $i]
-                set cropWidth [dict get [lindex $crops $i] width]
-                set cropHeight [dict get [lindex $crops $i] height]
-
-                Claim camera $cropPath has width $cropWidth height $cropHeight
-
-                When camera $cropPath has jpeg frame /jpeg/ at timestamp /ts/ {
-                    set grayImage [$jpegLib jpegDecompressGray $jpeg \
-                                       $cropWidth $cropHeight \
-                                       [expr {int($ts * 1000)}]]
-                    Hold! -key [list camera $cropPath gray-frame] \
-                        Claim camera $cropPath has gray frame $grayImage at timestamp $ts \
-                        -destructor [list $imageLib imageFree $grayImage]
-                }
-                When camera $cropPath has jpeg frame /jpeg/ at timestamp /ts/ {
-                    set frameImage [$jpegLib jpegDecompressRGB $jpeg \
-                                        $cropWidth $cropHeight \
-                                        [expr {int($ts * 1000)}]]
-                    Hold! -key [list camera $cropPath frame] \
-                        Claim camera $cropPath has frame $frameImage at timestamp $ts \
-                        -destructor [list $imageLib imageFree $frameImage]
-                }
+                set crop [lindex $crops $i]
+                Claim camera [list $camera $i] has width [dict get $crop width] \
+                    height [dict get $crop height]
             }
         } else {
             Claim camera $camera has width $width height $height
@@ -341,25 +341,6 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
                 $camLib setExposureAuto $camObj
             } else {
                 $camLib setExposure $camObj [expr {int($exposureTimeUs / 100)}]
-            }
-        }
-
-        if {![info exists crops]} {
-            When camera $camera has jpeg frame /jpeg/ at timestamp /ts/ {
-                set grayImage [$jpegLib jpegDecompressGray $jpeg \
-                                   $width $height \
-                                   [expr {int($ts * 1000)}]]
-                Hold! -key [list camera $camera gray-frame] \
-                    Claim camera $camera has gray frame $grayImage at timestamp $ts \
-                    -destructor [list $imageLib imageFree $grayImage]
-            }
-            When camera $camera has jpeg frame /jpeg/ at timestamp /ts/ {
-                set frameImage [$jpegLib jpegDecompressRGB $jpeg \
-                                    $width $height \
-                                    [expr {int($ts * 1000)}]]
-                Hold! -key [list camera $camera frame] \
-                    Claim camera $camera has frame $frameImage at timestamp $ts \
-                    -destructor [list $imageLib imageFree $frameImage]
             }
         }
 
