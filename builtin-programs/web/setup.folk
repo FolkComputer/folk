@@ -273,7 +273,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
         
         [if {$isUsingCamera} {
           set iframeWidth 600
-          set iframeHeight [expr {int(600.0 * $usingOpts(height) / $usingOpts(width))}]
+          set iframeHeight [expr {int(600.0 * $usingOpts(height) / $usingOpts(width)) + 48}]
           subst {
           <div style="margin-top: 10px;">
             <iframe src="/camera?camera=[string map {/ %2F} $camera]"
