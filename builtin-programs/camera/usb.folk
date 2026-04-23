@@ -293,18 +293,10 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
     set height [dict get $options height]
     set bufferCount [dict getdef $options bufferCount 2]
 
-    if {[dict exists $options crop]} {
-        set crop [dict get $options crop]
+    if {[dict exists $options crops]} {
+        set crops [dict get $options crops]
     }
 
-    if {[info exists crop]} {
-        set decompressWidth [dict get $crop width]
-        set decompressHeight [dict get $crop height]
-    } else {
-        set decompressWidth $width
-        set decompressHeight $height
-    }
-    
     set camObj [$camLib cameraOpen $camera $width $height]
     puts "camera/usb: Loaded $camera -> $camObj"
     $camLib cameraInit $camObj $bufferCount
@@ -315,8 +307,31 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
     }
 
     try -signal {
-        if {[info exists crop]} {
-            Claim camera $camera has width [dict get $crop width] height [dict get $crop height]
+        if {[info exists crops]} {
+            for {set i 0} {$i < [llength $crops]} {incr i} {
+                set cropPath [list $camera $i]
+                set cropWidth [dict get [lindex $crops $i] width]
+                set cropHeight [dict get [lindex $crops $i] height]
+
+                Claim camera $cropPath has width $cropWidth height $cropHeight
+
+                When camera $cropPath has jpeg frame /jpeg/ at timestamp /ts/ {
+                    set grayImage [$jpegLib jpegDecompressGray $jpeg \
+                                       $cropWidth $cropHeight \
+                                       [expr {int($ts * 1000)}]]
+                    Hold! -key [list camera $cropPath gray-frame] \
+                        Claim camera $cropPath has gray frame $grayImage at timestamp $ts \
+                        -destructor [list $imageLib imageFree $grayImage]
+                }
+                When camera $cropPath has jpeg frame /jpeg/ at timestamp /ts/ {
+                    set frameImage [$jpegLib jpegDecompressRGB $jpeg \
+                                        $cropWidth $cropHeight \
+                                        [expr {int($ts * 1000)}]]
+                    Hold! -key [list camera $cropPath frame] \
+                        Claim camera $cropPath has frame $frameImage at timestamp $ts \
+                        -destructor [list $imageLib imageFree $frameImage]
+                }
+            }
         } else {
             Claim camera $camera has width $width height $height
         }
@@ -329,21 +344,23 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
             }
         }
 
-        When camera $camera has jpeg frame /jpeg/ at timestamp /ts/ {
-            set grayImage [$jpegLib jpegDecompressGray $jpeg \
-                               $decompressWidth $decompressHeight \
-                               [expr {int($ts * 1000)}]]
-            Hold! -key [list camera $camera gray-frame] \
-                Claim camera $camera has gray frame $grayImage at timestamp $ts \
-                -destructor [list $imageLib imageFree $grayImage]
-        }
-        When camera $camera has jpeg frame /jpeg/ at timestamp /ts/ {
-            set frameImage [$jpegLib jpegDecompressRGB $jpeg \
-                                $decompressWidth $decompressHeight \
-                                [expr {int($ts * 1000)}]]
-            Hold! -key [list camera $camera frame] \
-                Claim camera $camera has frame $frameImage at timestamp $ts \
-                -destructor [list $imageLib imageFree $frameImage]
+        if {![info exists crops]} {
+            When camera $camera has jpeg frame /jpeg/ at timestamp /ts/ {
+                set grayImage [$jpegLib jpegDecompressGray $jpeg \
+                                   $width $height \
+                                   [expr {int($ts * 1000)}]]
+                Hold! -key [list camera $camera gray-frame] \
+                    Claim camera $camera has gray frame $grayImage at timestamp $ts \
+                    -destructor [list $imageLib imageFree $grayImage]
+            }
+            When camera $camera has jpeg frame /jpeg/ at timestamp /ts/ {
+                set frameImage [$jpegLib jpegDecompressRGB $jpeg \
+                                    $width $height \
+                                    [expr {int($ts * 1000)}]]
+                Hold! -key [list camera $camera frame] \
+                    Claim camera $camera has frame $frameImage at timestamp $ts \
+                    -destructor [list $imageLib imageFree $frameImage]
+            }
         }
 
         while true {
@@ -351,22 +368,30 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
 
             set ms [clock milliseconds]
             set jpeg [$camLib cameraFrameJpeg $camObj]
-
-            if {[info exists crop]} {
-                dict with crop {
-                    set croppedJpeg [$jpegLib jpegSubimage $jpeg \
-                                         $x $y $width $height]
-                }
-                $camLib jpegFree $jpeg
-            } else {
-                set croppedJpeg $jpeg
-            }
             set timestamp [expr {$ms / 1000.0}]
             tracy zoneName "camera/usb: $timestamp"
 
+            if {[info exists crops]} {
+                for {set i 0} {$i < [llength $crops]} {incr i} {
+                    set crop [lindex $crops $i]
+                    set cropPath [list $camera $i]
+                    set croppedJpeg [$jpegLib jpegSubimage $jpeg \
+                                         [dict get $crop x] \
+                                         [dict get $crop y] \
+                                         [dict get $crop width] \
+                                         [dict get $crop height]]
+                    Hold! -key [list camera $cropPath jpeg] \
+                        Claim camera $cropPath has jpeg frame $croppedJpeg at timestamp $timestamp \
+                        -destructor [list $camLib jpegFree $croppedJpeg]
+                }
+            }
+            # Always publish the source jpeg so the preview keeps working
+            # even when virtual crops are configured. Gray/RGB decompressors
+            # on the source camera are gated off in crops mode to avoid
+            # full-resolution decoding.
             Hold! -key [list camera $camera jpeg] \
-                Claim camera $camera has jpeg frame $croppedJpeg at timestamp $timestamp \
-                -destructor [list $camLib jpegFree $croppedJpeg]
+                Claim camera $camera has jpeg frame $jpeg at timestamp $timestamp \
+                -destructor [list $camLib jpegFree $jpeg]
 
             tracy zoneEnd
         }
