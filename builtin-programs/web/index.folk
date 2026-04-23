@@ -72,10 +72,10 @@ Wish the web server handles route "/" with handler {
         lappend vp {programName "sysmon.c"}
 
         return [join [list \
-            [emitHtmlForProgramList $rp "real-programs"] \
-            [emitHtmlForProgramList $wp "web-programs"] \
             [emitHtmlForProgramList $vp "builtin-programs"] \
-            [emitHtmlForProgramList $cp "local-programs"]]]
+            [emitHtmlForProgramList $cp "local-programs"] \
+            [emitHtmlForProgramList $rp "real-programs"] \
+            [emitHtmlForProgramList $wp "web-programs"] ]]
     }
 
     html [subst {
