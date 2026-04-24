@@ -21,12 +21,17 @@ Wish the web server handles route {/camera} with handler {
         }
     }
 
+    # in case it's a virtual camera, we want to get the base path.
+    set baseCameraToControl [lindex $camera 0]
+
     html [subst {
 <html>
   <body style="margin: 0 0">
     <canvas id="cameraCanvas" style="max-width: 100%"></canvas>
     <div style="padding: 8px">
-      <strong>Adjust camera exposure:</strong>
+      <span id="status">Status</span>
+
+      <strong>Exposure:</strong>
       <input type="range" min="10" max="48" value="15" class="slider" id="camera-exposure-slider">
       <input type="number" min="1000" max="320000" step="100" value="1500" id="camera-exposure-number">μs
     </div>
@@ -47,16 +52,16 @@ Wish the web server handles route {/camera} with handler {
       }
       advanceCamera();
 
-      const ws = new FolkWS();
+      const ws = new FolkWS(document.getElementById('status'));
       const slider = document.getElementById('camera-exposure-slider');
       const numberInput = document.getElementById('camera-exposure-number');
 
       function updateExposure(valueInMicroseconds) {
         slider.value = valueInMicroseconds / 100;
         numberInput.value = valueInMicroseconds;
-        ws.hold('exposure', tcl`
-          Wish camera $camera uses exposure time \${valueInMicroseconds} us
-        `);
+        ws.hold('exposure $baseCameraToControl', tcl`
+          Wish camera $baseCameraToControl uses exposure time \${valueInMicroseconds} us
+        `, 'builtin-programs/web/setup.folk', true);
       }
 
       slider.addEventListener('input', (e) => updateExposure(Math.round(e.target.value * 100)));
