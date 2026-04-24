@@ -29,11 +29,15 @@ Wish the web server handles route {/camera} with handler {
   <body style="margin: 0 0">
     <canvas id="cameraCanvas" style="max-width: 100%"></canvas>
     <div style="padding: 8px">
-      <span id="status">Status</span>
+      <span id="statusSpan">Status</span>
 
-      <strong>Exposure:</strong>
-      <input type="range" min="10" max="48" value="15" class="slider" id="camera-exposure-slider">
-      <input type="number" min="1000" max="320000" step="100" value="1500" id="camera-exposure-number">μs
+      <label><input type="checkbox" id="cameraAutoexposure">Auto-exposure</label>
+
+      <div style="display: inline-block" id="manualExposure">
+        Manual exposure:
+        <input style="max-width: 100px" type="range" min="10" max="48" value="15" class="slider" id="cameraExposureSlider">
+        <input type="number" min="1000" max="320000" step="100" value="1500" id="cameraExposureNumber">μs
+      </div>
     </div>
     <script src="/lib/folk.js"></script>
     <script>
@@ -52,20 +56,34 @@ Wish the web server handles route {/camera} with handler {
       }
       advanceCamera();
 
-      const ws = new FolkWS(document.getElementById('status'));
-      const slider = document.getElementById('camera-exposure-slider');
-      const numberInput = document.getElementById('camera-exposure-number');
-
-      function updateExposure(valueInMicroseconds) {
-        slider.value = valueInMicroseconds / 100;
-        numberInput.value = valueInMicroseconds;
+      const ws = new FolkWS(statusSpan);
+      function sendExposure(valueInMicroseconds) {
         ws.hold('exposure $baseCameraToControl', tcl`
           Wish camera $baseCameraToControl uses exposure time \${valueInMicroseconds} us
         `, 'builtin-programs/web/setup.folk', true);
       }
 
-      slider.addEventListener('input', (e) => updateExposure(Math.round(e.target.value * 100)));
-      numberInput.addEventListener('input', (e) => updateExposure(parseInt(e.target.value)));
+      function updateExposure(valueInMicroseconds) {
+        cameraExposureSlider.value = valueInMicroseconds / 100;
+        cameraExposureNumber.value = valueInMicroseconds;
+        sendExposure(valueInMicroseconds);
+      }
+
+      function applyAutoExposure() {
+        const auto = cameraAutoexposure.checked;
+        cameraExposureSlider.disabled = auto;
+        cameraExposureNumber.disabled = auto;
+        manualExposure.style.opacity = auto ? 0.5 : 1;
+        if (auto) {
+          sendExposure(0);
+        } else {
+          sendExposure(parseInt(cameraExposureNumber.value));
+        }
+      }
+
+      cameraExposureSlider.addEventListener('input', (e) => updateExposure(Math.round(e.target.value * 100)));
+      cameraExposureNumber.addEventListener('input', (e) => updateExposure(parseInt(e.target.value)));
+      cameraAutoexposure.addEventListener('change', applyAutoExposure);
     </script>
   </body>
 </html>
