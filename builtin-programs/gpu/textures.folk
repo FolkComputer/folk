@@ -568,21 +568,77 @@ $gpuc proc createGpuTexture {int width int height int format} GpuTextureBlock* {
     return block;
 }
 
+# In-flight texture upload ring, per worker thread. Lets
+# copyImageToGpuTexture submit a staging-buffer->image copy without
+# waiting for it to complete; the staging buffer is reclaimed lazily
+# on a later call once the GPU is done with it. We only block when
+# the ring fills up (i.e. we've pipelined enough uploads that the
+# oldest one still isn't done), which is the natural backpressure
+# point for a single worker.
+$gpuc code {
+    #define INFLIGHT_UPLOADS 8
+    struct InflightUpload {
+        VkCommandBuffer cmdBuffer;
+        VkFence fence;
+        VkBuffer stagingBuffer;
+        VmaAllocation stagingBufferAllocation;
+        bool inUse;
+    };
+    static __thread struct InflightUpload _inflightUploads[INFLIGHT_UPLOADS];
+    static __thread int _inflightUploadsNext = 0;
+
+    // Reclaim a slot: if it holds an outstanding upload, wait for its
+    // fence, destroy its staging buffer, reset fence. Returns the slot
+    // with fence + cmdBuffer allocated and ready to use.
+    static struct InflightUpload* acquireInflightUpload() {
+        struct InflightUpload* slot = &_inflightUploads[_inflightUploadsNext];
+        _inflightUploadsNext = (_inflightUploadsNext + 1) % INFLIGHT_UPLOADS;
+
+        if (slot->inUse) {
+#ifdef TRACY_ENABLE
+            TracyCZoneN(ctx, "vkWaitForFences (ring full)", 1);
+#endif
+            vkWaitForFences(device, 1, &slot->fence, VK_TRUE, UINT64_MAX);
+#ifdef TRACY_ENABLE
+            TracyCZoneEnd(ctx);
+            TracyCFree(slot->stagingBufferAllocation);
+#endif
+            vmaDestroyBuffer(vmaGetAllocator(),
+                             slot->stagingBuffer, slot->stagingBufferAllocation);
+            slot->inUse = false;
+        }
+        if (slot->fence == VK_NULL_HANDLE) {
+            VkFenceCreateInfo fenceInfo = {0};
+            fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+            vkCreateFence(device, &fenceInfo, NULL, &slot->fence);
+        } else {
+            vkResetFences(device, 1, &slot->fence);
+        }
+        if (slot->cmdBuffer == VK_NULL_HANDLE) {
+            VkCommandBufferAllocateInfo allocInfo = {0};
+            allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            allocInfo.commandPool = getCommandPool();
+            allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            allocInfo.commandBufferCount = 1;
+            vkAllocateCommandBuffers(device, &allocInfo, &slot->cmdBuffer);
+        }
+        return slot;
+    }
+}
+
 $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
-    VkFence fence = getFence(); // handles deferred staging buffer cleanup if needed
+    struct InflightUpload* upload = acquireInflightUpload();
 
     size_t size = im.width * im.height * 4;
     FOLK_ENSURE(size > 0);
 
-    VkBuffer stagingBuffer;
-    VmaAllocation stagingBufferAllocation;
     createBuffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                 &stagingBuffer, &stagingBufferAllocation);
+                 &upload->stagingBuffer, &upload->stagingBufferAllocation);
 
     // Copy im to stagingBuffer:
     {
-        void* data; vmaMapMemory(vmaGetAllocator(), stagingBufferAllocation, &data);
+        void* data; vmaMapMemory(vmaGetAllocator(), upload->stagingBufferAllocation, &data);
         Image stagingIm = (Image) {
             .width = im.width, .height = im.height,
             .components = 4,
@@ -590,15 +646,22 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
             .data = data
         };
         copyImageToRgba(im, stagingIm);
-        vmaUnmapMemory(vmaGetAllocator(), stagingBufferAllocation);
+        vmaUnmapMemory(vmaGetAllocator(), upload->stagingBufferAllocation);
     }
 
     // Allocate a texture and texture block:
     GpuTextureBlock* block = createGpuTexture(im.width, im.height, VK_FORMAT_R8G8B8A8_SRGB);
 
-    // Copy stagingBuffer to block->textureImage with single command buffer:
+    // Record + submit staging buffer -> image copy. We do NOT wait on
+    // the fence here; a later call to acquireInflightUpload will
+    // reclaim this slot's staging buffer once the GPU is done.
     {
-        VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+        VkCommandBuffer commandBuffer = upload->cmdBuffer;
+
+        VkCommandBufferBeginInfo beginInfo = {0};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(commandBuffer, &beginInfo);
 
         // Transition to transfer destination
         VkImageMemoryBarrier barrier = {0};
@@ -634,7 +697,7 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
         region.imageOffset = (VkOffset3D) {0, 0, 0};
         region.imageExtent = (VkExtent3D) {im.width, im.height, 1};
         vkCmdCopyBufferToImage(commandBuffer,
-                               stagingBuffer,
+                               upload->stagingBuffer,
                                block->textureImage,
                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                1,
@@ -650,23 +713,20 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
                              VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                              0, 0, NULL, 0, NULL, 1, &barrier);
 
-        endSingleTimeCommands(commandBuffer, fence);
+        vkEndCommandBuffer(commandBuffer);
 
-#ifdef TRACY_ENABLE
-        TracyCZoneN(ctx, "vkWaitForFences", 1);
-#endif
-        vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
-#ifdef TRACY_ENABLE
-        TracyCZoneEnd(ctx);
-#endif
+        VkSubmitInfo submitInfo = {0};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &commandBuffer;
+
+        pthread_mutex_lock(graphicsQueueMutex_ptr());
+        vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo, upload->fence);
+        pthread_mutex_unlock(graphicsQueueMutex_ptr());
     }
 
+    upload->inUse = true;
     addToTextureDescriptorSet(block->handle);
-
-#ifdef TRACY_ENABLE
-    TracyCFree(stagingBufferAllocation);
-#endif
-    vmaDestroyBuffer(vmaGetAllocator(), stagingBuffer, stagingBufferAllocation);
 
     return block->handle;
 }
