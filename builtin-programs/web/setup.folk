@@ -383,9 +383,12 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
     const snap = v => Math.floor(v / CROP_MCU) * CROP_MCU;
 
     function getCropContext(el) {
-      const preview = el.closest('.camera-preview');
-      if (!preview) return null;
-      const camera = preview.dataset.camera;
+      let preview = el.closest('.camera-preview');
+      const camera = preview ? preview.dataset.camera : el.dataset.camera;;
+      if (!preview) {
+        preview = document.querySelector(`.camera-preview\[data-camera="\${camera}"]`);
+      }
+
       const iframe = preview.querySelector('iframe');
       const overlay = preview.querySelector('.crop-overlay');
       const framerateRadio = document.querySelector(
@@ -532,7 +535,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
 
   <fieldset style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
     <legend><strong>Cameras</strong></legend>
-    <!-- [local proc emitCameraHtml {camera} {
+    <!-- [fn emitCameraHtml {camera} {
       subst {
         <div style="margin: 5px 0;">
           <label>
