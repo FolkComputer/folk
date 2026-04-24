@@ -283,6 +283,7 @@ proc handleRead {chan addr} {
 while true {
     try {
         set f [socket stream.server 4273]
+        $f listen 128
         $f readable [lambda {} {f} {
             set client [$f accept addr]
             handleConnect $client $addr
