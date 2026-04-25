@@ -73,7 +73,17 @@ $camc proc cameraOpen {char* device int width int height} Camera* {
 $camc proc cameraClose {Camera* camera} void {
     enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     if (xioctl(camera->fd, VIDIOC_STREAMOFF, &type) == -1) {
-        quit("VIDIOC_STREAMOFF");
+        // if ENODEV, we're already done; just return to caller.
+        if (errno == ENODEV) {
+            fprintf(stderr, "cameraClose (%p): ENODEV, returning.\n",
+                    camera);
+            close(camera->fd);
+            free(camera);
+            return;
+        } else {
+            // stop, something weird happened.
+            quit("VIDIOC_STREAMOFF");
+        }
     }
 
     struct v4l2_requestbuffers req = {0};
@@ -293,9 +303,14 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
         set crops [dict get $options crops]
     }
 
-    fn runCamera {} {
-        set camObj [$camLib cameraOpen $camera $width $height]
+    fn runCamera {camObjVar} {
+        puts "camera/usb: Will try to open $camera"
+
+        upvar $camObjVar camObj_
+        set camObj_ [$camLib cameraOpen $camera $width $height]
+        set camObj $camObj_ ;# HACK: we don't capture upvars yet.
         puts "camera/usb: Loaded $camera -> $camObj"
+
         $camLib cameraInit $camObj $bufferCount
         $camLib cameraStart $camObj
         # skip 5 frames for booting a cam
@@ -354,8 +369,9 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
 
     # Outer, retry loop.
     while true {
+        set camObj {}
         try {
-            runCamera
+            runCamera camObj
         } on error e {
             puts stderr "camera/usb: Error $e"
         } on signal sig {
@@ -363,8 +379,10 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
             # This is actually a termination condition.
             break
         } finally {
-            puts "camera/usb: Close $camObj"
-            $camLib cameraClose $camObj
+            if {$camObj ne {}} {
+                puts "camera/usb: Close $camObj"
+                $camLib cameraClose $camObj
+            }
         }
 
         # We only get down here if something goes wrong. Wait before
