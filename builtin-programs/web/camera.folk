@@ -23,6 +23,12 @@ Wish the web server handles route {/camera} with handler {
 
     # in case it's a virtual camera, we want to get the base path.
     set baseCameraToControl [lindex $camera 0]
+    set exposuresAtPageLoad [Query! /someone/ wishes camera $baseCameraToControl uses exposure time /exposureTime/ us]
+    if {[llength $exposuresAtPageLoad] == 1} {
+        set exposureAtPageLoad [dict get [lindex $exposuresAtPageLoad 0] exposureTime]
+    } else {
+        set exposureAtPageLoad 1500
+    }
 
     html [subst {
 <html>
@@ -63,27 +69,29 @@ Wish the web server handles route {/camera} with handler {
         `, 'builtin-programs/web/setup.folk', true);
       }
 
-      function updateExposure(valueInMicroseconds) {
-        cameraExposureSlider.value = valueInMicroseconds / 100;
-        cameraExposureNumber.value = valueInMicroseconds;
-        sendExposure(valueInMicroseconds);
-      }
-
-      function applyAutoExposure() {
-        const auto = cameraAutoexposure.checked;
+      function updateExposure(valueInMicroseconds, doSend = true) {
+        const auto = valueInMicroseconds == 0;
+        cameraAutoexposure.checked = auto;
         cameraExposureSlider.disabled = auto;
         cameraExposureNumber.disabled = auto;
         manualExposure.style.opacity = auto ? 0.5 : 1;
-        if (auto) {
-          sendExposure(0);
-        } else {
-          sendExposure(parseInt(cameraExposureNumber.value));
+
+        if (!auto) {
+          cameraExposureSlider.value = valueInMicroseconds / 100;
+          cameraExposureNumber.value = valueInMicroseconds;
         }
+
+        if (doSend) { sendExposure(valueInMicroseconds); }
       }
 
       cameraExposureSlider.addEventListener('input', (e) => updateExposure(Math.round(e.target.value * 100)));
-      cameraExposureNumber.addEventListener('input', (e) => updateExposure(parseInt(e.target.value)));
-      cameraAutoexposure.addEventListener('change', applyAutoExposure);
+      cameraExposureNumber.addEventListener('input', (e) => {
+         let value = parseInt(e.target.value);
+         if (value == 0) value = 100; // just so people don't get stuck in auto.
+         updateExposure(value);
+      });
+      cameraAutoexposure.addEventListener('change', (e) => updateExposure(e.target.checked ? 0 : cameraExposureNumber.value));
+      updateExposure($exposureAtPageLoad, false)
     </script>
   </body>
 </html>
