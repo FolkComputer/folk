@@ -441,7 +441,7 @@ Hold! -save -on calibration -key default-program-geometry Claim the default prog
   }]
 }
 
-When the calibration poses are /calibrationPoses/ {
+When the calibration poses from camera /camera/ to display /display/ are /calibrationPoses/ {
     # Hold reporting info for the Web page.
     set posesReport [subst {
       <p>Poses:</p><ol>
@@ -477,10 +477,10 @@ When the calibration poses are /calibrationPoses/ {
       </ol>
     }]
 
-    When /nobody/ claims the calibration is /anything/ {
+    When /nobody/ claims a calibration from camera /camera/ to display /display/ is /anything/ {
         Claim the calibration report is $posesReport
     }
-    When the calibration is /calibration/ {
+    When a calibration from camera /camera/ to display /display/ is /calibration/ {
         set calibrationReport "$posesReport
         <p>Calibration:</p><pre>
 Camera intrinsics --------

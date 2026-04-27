@@ -85,7 +85,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     # The poses to use for actual calibration at the end. We'll want
     # at least 10 poses to do ultimate calibration+refinement.
     Hold! -on calibration -key poses \
-        Claim the calibration poses are [list]
+        Claim the calibration poses from camera $camera to display $display are [list]
 
     Hold! -key cycle-time \
         Claim the calibration cycle time is 0
@@ -93,9 +93,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     # Project calibration tags based on the current model-to-display
     # homography (which gets dynamically updated as you move the board
     # around):
-    When the calibration poses are /poses/ &\
+    When the calibration poses from camera $camera to display $display are /poses/ &\
          the calibration poses max is /posesMax/ &\
-         the calibration poses are /calibrationPoses/ &\
          the calibration cycle time is /cycleTime/ &\
          the calibration model-to-display homography is /H_modelToDisplay/ \
              with /...modelToDisplayOpts/ {
@@ -366,7 +365,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # If the corners have _not_ moved a lot since last _saved_
         # calibration pose, this isn't different enough to be a good
         # calibration pose to save.
-        set calibrationPoses [dict get [lindex [Query! the calibration poses are /calibrationPoses/] 0] calibrationPoses]
+        set calibrationPoses [dict get [lindex [Query! the calibration poses from camera $camera to display $display are /calibrationPoses/] 0] calibrationPoses]
         if {[llength $calibrationPoses] > 0} {
             set prevCalibrationPose [lindex $calibrationPoses end]
             if {[$modelLib meanTagsDifference $pose(tags) $prevCalibrationPose(tags)] < 50} {
@@ -386,7 +385,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         puts "calibrate: APPENDED CALIBRATION TO POSES ([llength $calibrationPoses] poses collected)"
         Hold! -on calibration -key poses \
             -version $nextModelFrameTimestamp \
-            Claim the calibration poses are $calibrationPoses
+            Claim the calibration poses from camera $camera to display $display are $calibrationPoses
 
         # If we have enough poses, then stop the calibration process
         # (retract the printed side length?) and do a calibration. :-)
@@ -394,7 +393,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             puts "calibrate: GOT ALL CALIBRATION POSES!"
 
             Hold! -save -on calibration -key poses \
-                Claim the calibration poses are $calibrationPoses
+                Claim the calibration poses from camera $camera to display $display are $calibrationPoses
             # Destroy the old calibration and trigger a new one.
             Hold! -save -on calibration -key calibration {}
 
@@ -686,8 +685,8 @@ fn unrefinedCalibrateCameraAndProjector {modelLib matLib calibrationPoses} {
 When the calibration model library is /modelLib/ &\
      the calibration matrix library is /matLib/ &\
      the calibration poses max is /calibrationPosesMax/ &\
-     the calibration poses are /calibrationPoses/ &\
-     /nobody/ claims the calibration is /anything/ &\
+     the calibration poses from camera /camera/ to display /display/ are /calibrationPoses/ &\
+     /nobody/ claims a calibration from camera /camera/ to display /display/ is /anything/ &\
      the calibration refiner is /refineCalibration/ {
 
     if {[llength $calibrationPoses] < $calibrationPosesMax} {
@@ -711,5 +710,5 @@ When the calibration model library is /modelLib/ &\
     puts "."
 
     Hold! -save -on calibration -key calibration \
-        Claim the calibration is $calibration
+        Claim a calibration from camera $camera to display $display is $calibration
 }

@@ -222,7 +222,7 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
      the printed calibration tag size is /printedSideLengthMm/ mm &\
      camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      display /display/ has width /displayWidth/ height /displayHeight/ &\
-     /someone/ wishes to interactively refine calibration {
+     /someone/ wishes to interactively refine calibration from camera /camera/ to display /display/ {
 
     When /someone/ wishes to draw refining model /model/ onto detected tags /tags/ \
                              using calibration /calibration/ &\
@@ -324,7 +324,7 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
     set model0 [$modelLib scaleModel [$modelLib unitModel] \
                     $printedSideLengthM]
 
-    set calibration [dict get [QueryOne! the calibration is /calibration/] calibration]
+    set calibration [dict get [QueryOne! a calibration from camera $camera to display $display is /calibration/] calibration]
     # The actual refinement process. We will have the user hold up the
     # board in a sequence of whatever poses they want. When the board
     # is stable for a couple seconds, we say that's a pose, and we
@@ -529,7 +529,7 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
         ravelInto calibration $x
 
         Hold! -save -on calibration -key calibration \
-            Claim the calibration is $calibration
+            Claim a calibration from camera $camera to display $display is $calibration
 
         break
     }
