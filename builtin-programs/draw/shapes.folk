@@ -1,0 +1,87 @@
+When /someone/ wishes /p/ draws a /shape/ with /...options/ & \
+     /p/ has resolved geometry /geom/ {
+
+    # --- Scope-Safe Math Helpers ---
+    local proc parseShapeOffset {offset geom} {
+        set w [dict get $geom width]; set h [dict get $geom height]
+        set x [expr {$w / 2.0}]; set y [expr {$h / 2.0}]
+        
+        # If it's already a list of 2 numbers, use it as meters
+        if {[llength $offset] == 2 && [string is double -strict [lindex $offset 0]]} {
+            return $offset 
+        }
+        # Parse "right 50%" style strings
+        if {[regexp {^(\w+)\s+([\d.]+)%$} $offset -> dir percent]} {
+            set p [expr {$percent / 100.0}]
+            switch $dir {
+                right { set x [expr {$w * $p}] }
+                left  { set x [expr {$w * (1.0 - $p)}] }
+                down  { set y [expr {$h * $p}] }
+                up    { set y [expr {$h * (1.0 - $p)}] }
+            }
+        }
+        return [list $x $y]
+    }
+
+    local proc getRegularPolygon {center radius sides} {
+        lassign $center cx cy
+        set pts [list]
+        for {set i 0} {$i < $sides} {incr i} {
+            set angle [expr {$i * 2.0 * 3.14159 / $sides - 1.5708}]
+            lappend pts [list [expr {$cx + $radius * cos($angle)}] \
+                              [expr {$cy + $radius * sin($angle)}]]
+        }
+        return $pts
+    }
+
+    # --- Option Parsing ---
+    set radius    [dict getdef $options radius 0.02]
+    set color     [dict getdef $options color "white"]
+    set filled    [dict getdef $options filled false]
+    set thickness [dict getdef $options thickness 0.002]
+    set layer     [dict getdef $options layer 1]
+    
+    set offsetArg [dict getdef $options offset ""]
+    set offset    [parseShapeOffset $offsetArg $geom]
+
+    # --- Routing to Primitives ---
+    if {$shape eq "circle"} {
+        Wish to draw a circle onto $p with \
+            center $offset radius $radius color $color \
+            thickness $thickness filled $filled layer $layer
+        return
+    }
+
+    set pts [list]
+    switch $shape {
+        triangle { set pts [getRegularPolygon $offset $radius 3] }
+        square   { set pts [getRegularPolygon $offset [expr {$radius * 1.2}] 4] }
+        pentagon { set pts [getRegularPolygon $offset $radius 5] }
+        hexagon  { set pts [getRegularPolygon $offset $radius 6] }
+        septagon { set pts [getRegularPolygon $offset $radius 7] }
+        octagon  { set pts [getRegularPolygon $offset $radius 8] }
+        nonagon   { set pts [getRegularPolygon $offset $radius 9] }
+        rect {
+            set rw [dict getdef $options width 0.04]
+            set rh [dict getdef $options height 0.02]
+            lassign $offset cx cy
+            set pts [list [list [expr {$cx-$rw/2}] [expr {$cy-$rh/2}]] \
+                          [list [expr {$cx+$rw/2}] [expr {$cy-$rh/2}]] \
+                          [list [expr {$cx+$rw/2}] [expr {$cy+$rh/2}]] \
+                          [list [expr {$cx-$rw/2}] [expr {$cy+$rh/2}]]]
+        }
+    }
+
+    if {[llength $pts] == 0} return
+
+    if {$filled eq "true" || $filled == 1} {
+        Wish to draw a polygon onto $p with points $pts color $color layer $layer
+    } else {
+        lappend pts [lindex $pts 0]
+        Wish to draw a line onto $p with points $pts width $thickness color $color layer $layer
+    }
+}
+
+When /someone/ wishes /p/ draws a /shape/ {
+    Wish $p draws a $shape with offset "" color white filled true
+}
