@@ -801,7 +801,7 @@ proc makeGpu {gpuLib pipelineLib drawLib} { return [library create gpu {gpuLib p
             $[eval {
                 set samplerIdxs [lsearch -all -exact $pushConstants sampler2D]
                 proc emitFragInvocation {gpuSupportsDynamicIndexing pushConstants} { subst {
-                    outColor = frag([join [lmap {argtype argname} $pushConstants {
+                    vec4 rawColor = frag([join [lmap {argtype argname} $pushConstants {
                         if {$argname eq "_"} continue
                         if {$argtype eq "sampler2D"} {
                             if {$gpuSupportsDynamicIndexing} {
@@ -816,7 +816,10 @@ proc makeGpu {gpuLib pipelineLib drawLib} { return [library create gpu {gpuLib p
                             expr {"args.$argname"}
                         }
                     }] ", "]);
-                } }
+
+                    // Premultiply the RGB
+                    outColor = vec4(rawColor.rgb * rawColor.a, rawColor.a);
+                }}
                 list
             }]
             void main() {
