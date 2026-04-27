@@ -250,3 +250,5 @@ $cc proc matdMul {matd_t* a matd_t* b} matd_t* {
 $cc endcflags ./vendor/apriltag/build/libapriltag.so
 set matLib [$cc compile]
 Claim the calibration matrix library is $matLib
+
+}
