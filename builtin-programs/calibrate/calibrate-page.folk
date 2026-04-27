@@ -151,7 +151,7 @@ Wish the web server handles route "/calibrate" with hidden true handler {
     set camera $QUERY(camera)
 
     # Query the camera resolution for proper aspect ratio in preview (defaults to 1920x1080)
-    set cameraOpts [dict getdef [lindex [Query! /someone/ wishes $::thisNode uses camera $camera with /...opts/] 0] opts {width 1920 height 1080}]
+    set cameraOpts [QueryOne! camera $camera has width /width/ height /height/]
     set cameraWidth [dict get $cameraOpts width]
     set cameraHeight [dict get $cameraOpts height]
 
@@ -274,7 +274,7 @@ Claim the calibration poses max is \${calibrationPosesMax}
 
             <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position):</p>
             <iframe src="/camera?camera=$[string map {/ %2F} $camera]"
-                    width="600" height="$[expr {int(600.0 * $cameraHeight / $cameraWidth) + 84}]"
+                    width="600" height="$[expr {int(600.0 * $cameraHeight / $cameraWidth) + 48}]"
                     style="border: 1px solid #999;"></iframe>
 
           <p>Once you've recorded the first pose, <em>slowly drag the board around your space</em>, going slow enough for the projected AprilTags to catch up with the printed AprilTags and fit into the gaps on your board. When you've moved the board at least a full board-length away from the first pose, try to slant it 45 degrees or so off the table and hold it still again to capture another pose.</p>
