@@ -311,7 +311,7 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
     }
 
     fn makeAprilTagDetector
-    set tagDetector [makeAprilTagDetector "tagStandard52h13" 2.0 3]
+    set tagDetector [makeAprilTagDetector "tagStandard52h13" 1.0 3]
 
     package require linalg
     namespace import ::math::linearalgebra::scale \
@@ -352,7 +352,7 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
         # tags on the board to match the printed tags. We wouldn't
         # really need this, I guess, except this is also what'll
         # display the label (set next).
-        Hold! -keep 32ms Wish to draw refining model $model0 \
+        Hold! -key refining-model -keep 32ms Wish to draw refining model $model0 \
             onto detected tags $detectedTags0 \
             using calibration $calibration
 
