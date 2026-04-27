@@ -86,7 +86,7 @@ Wish the GPU compiles pipeline "image" {
         if( max( abs(uv.x-0.5), abs(uv.y-0.5))<0.5 ) {
             vec4 texColor = texture(image, uv);
 
-            if ((texColor.a < 0.01) || (texColor.r < 0.05 && texColor.g < 0.05 && texColor.b < 0.05)) {
+            if (texColor.a < 0.01) {
                 return vec4(0.0);
             }
 
