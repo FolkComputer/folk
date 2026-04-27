@@ -348,7 +348,9 @@ Camera Controls
             <h3>Interactively refine calibration.</h3>
 
             <p>Start interactive refine: <button id="interactively-refine-submit">Start Interactive Refine</button></p>
+            <pre id="refine-log" style="max-height: 300px; overflow-y: auto; background: #111; color: #aaa; font-size: 11px; padding: 8px; white-space: pre-wrap;"></pre>
             <script>
+              let refineLogInterval = null;
               document.getElementById('interactively-refine-submit').addEventListener('click', (e) => {
                 // HACK: duplicated code from above
                 const mm = document.getElementById("tag-side-length-mm").value;
@@ -360,6 +362,18 @@ Camera Controls
                   Claim the printed calibration tag size is \${mm} mm
                   Wish to interactively refine calibration from camera "$camera" to display "$display"
                 `, 'builtin-programs/calibrate/calibrate.folk');
+
+                if (refineLogInterval) clearInterval(refineLogInterval);
+                const logEl = document.getElementById('refine-log');
+                refineLogInterval = setInterval(() => {
+                  fetch('/log/builtin-programs/calibrate/interactively-refine.folk.stderr')
+                    .then(r => r.text())
+                    .then(text => {
+                      const atBottom = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 5;
+                      logEl.textContent = text;
+                      if (atBottom) logEl.scrollTop = logEl.scrollHeight;
+                    });
+                }, 1000);
               });
             </script>
           </li>
