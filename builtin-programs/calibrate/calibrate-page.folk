@@ -239,8 +239,10 @@ Wish the web server handles route "/calibrate" with hidden true handler {
             </script>
 
             <p>Once you start calibration, you'll see some AprilTags get automatically projected on your table. Move your board to the projected tags <em>so that at least one projected tag sits inside the gap between printed AprilTags</em>, wait a second for the projected tags to refit into the grid,
-          then <strong>hold the board still for a few seconds until
+              then <strong>hold the board still for a few seconds until
               the pose is recorded.</strong></p>
+
+            <p><strong>You should be lifting your board above the table plane and tilting it in the air. Don't just keep it flat on the table!</strong></p>
 
             <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/l1liP4_yiVM?si=DqgfNKq05EPBT3hT" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
@@ -273,7 +275,7 @@ Claim the calibration poses max is \${calibrationPosesMax}
 
             <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position):</p>
             <iframe src="/camera?camera=$[string map {/ %2F} $camera]"
-                    width="600" height="$[expr {int(600.0 * $cameraHeight / $cameraWidth) + 48}]"
+                    width="600" height="$[expr {int(600.0 * $cameraHeight / $cameraWidth) + 84}]"
                     style="border: 1px solid #999;"></iframe>
 
           <p>Once you've recorded the first pose, <em>slowly drag the board around your space</em>, going slow enough for the projected AprilTags to catch up with the printed AprilTags and fit into the gaps on your board. When you've moved the board at least a full board-length away from the first pose, try to slant it 45 degrees or so off the table and hold it still again to capture another pose.</p>
@@ -449,7 +451,8 @@ When the calibration poses are /calibrationPoses/ {
         set width [dict get $pose cameraWidth]
         set height [dict get $pose cameraHeight]
         subst {
-          <li>
+          <li style="padding-bottom: 1em">
+          RMSE [dict getdef $pose rmse (unavailable)]
           <div style="position: relative; width: 300px; height: [expr {(300.0 / $width) * $height}]px">
             <img style="position: absolute; top: 0; left: 0; width: 300px; height: [expr {(300.0 / $width) * $height}]px"
                  src="/calibration-poses/[dict get $pose imageName]">
@@ -469,7 +472,6 @@ When the calibration poses are /calibrationPoses/ {
                 }] "\n"]
             </svg>
           </div>
-          RMSE [dict getdef $pose rmse (unavailable)]
           </li>
         }
       }] \n]
