@@ -299,7 +299,7 @@ C method include {h} {
     }
 }
 
-C method code {newcode} {
+C method code {newcode {extendArg {:noextend}}} {
     lassign [info source $newcode] filename line
     if {$filename ne ""} { 
         set newcode [subst {
@@ -307,7 +307,7 @@ C method code {newcode} {
             $newcode
         }]
     }
-    lappend code $newcode :noextend
+    lappend code $newcode {*}$extendArg
     list
 }
 
@@ -749,7 +749,10 @@ extern "C" \{
     if {[info exists ::env(ASAN_ENABLE)] && $::env(ASAN_ENABLE) != ""} {
         set asan_flags "-fsanitize=address -fsanitize-recover=address"
     }
-    set out [exec $compiler {*}$asan_flags -Wall -g -fno-omit-frame-pointer -fPIC \
+    set out [exec $compiler {*}$asan_flags -Wall \
+                 {*}$($::tcl_platform(os) eq "linux" ? [list -Wno-alloc-size-larger-than] : [list]) \
+                 -U_FORTIFY_SOURCE -O2 -march=native -g \
+                 -fno-omit-frame-pointer -fPIC \
                  {*}$cflags $cfile -c -o [file rootname $cfile].o]
     if {[string trim $out] ne ""} {
         puts $out
@@ -772,7 +775,7 @@ extern "C" \{
     while {![file exists /tmp/$cid.so]} {
         sleep 0.01
         incr n
-        if {$n > 10} { error "Failed! [string range $e 0 500]" }
+        if {$n > 200} { error "Failed on /tmp/$cid.so! Timed out" }
     }
 
     if {$noload} {

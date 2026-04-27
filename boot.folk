@@ -13,7 +13,7 @@ apply {{} {
             if {[string trim [exec ps -o state= -p $oldPid]] eq "Z"} {
                 error "Zombie Folk process exists (PID $oldPid)"
             }
-            puts stderr "boot: ($::errorCode) ERROR: Another Folk (PID $oldPid) already running."
+            puts $::realStderr "boot: ($::errorCode) ERROR: Another Folk (PID $oldPid) already running."
             Exit! 1
         } on error e {
             if {$e ne ""} {
@@ -30,17 +30,43 @@ apply {{} {
 
 __installLocalStdoutAndStderr "boot.folk"
 
-Assert! when /__this/ has program code /__programCode/ {
-    SayWithSource $__this 1 0 {} {} \
-        when $__programCode with environment [list [list this $__this]]
+Assert! when /_this/ has program code /programCode/ {
+    if {$_this eq "builtin-programs/collect.folk"} {
+        # We don't have Collect available in boot.folk yet, since it's
+        # implemented in userspace, so we can't do the queries. Just
+        # run it always.
+        SayWithSource $_this 1 0 {} {} \
+            when $programCode with environment [list [list this $_this]]
+        return
+    }
+
+    When /nobody/ wishes program $_this does not run {
+        When /nobody/ wishes program $_this is replaced with /...anything/ {
+            SayWithSource $_this 1 0 {} {} \
+                when $programCode with environment [list [list this $_this]]
+        }
+        When /someone/ wishes program $_this is replaced with /...replacedOpts/ {
+            SayWithSource $_this 1 0 {} {} \
+                when [dict get $replacedOpts code] with environment [list [list this $_this]]
+        }
+    }
 } with environment {}
 
 local proc LoadProgram! {programFilename} {
     set fp [open $programFilename r]
+    set code [read $fp]
+    close $fp
+
+    set editedPath "$::env(HOME)/folk-data/program/[regsub {\.folk$} $programFilename {}].folk.edited"
+    if {[file exists $editedPath]} {
+        set efd [open $editedPath r]
+        set code [read $efd]
+        close $efd
+    }
+
     Hold! -on boot.folk -key [list $programFilename code] \
         -keep 100ms \
-        Claim $programFilename has program code [read $fp]
-    close $fp
+        Claim $programFilename has program code $code
 }
 foreach programFilename [list {*}[glob -nocomplain builtin-programs/*.folk] \
                              {*}[glob -nocomplain builtin-programs/*/*.folk] \
@@ -64,26 +90,30 @@ if {$::tcl_platform(os) eq "darwin"} {
         rename When When'
         proc When args {
             set pattern [lrange $args 0 end-1]
+
             # Await the dependencies being available.
             while {[llength [Query! {*}$pattern]] != 1} {
                 sleep 0.1
             }
 
-            if {[lrange $pattern 0 3] eq {the GPU texture library}} {
-                # HACK: We want Whens inside this block to be normal
-                # Whens and run off-thread/async.
-                rename When {}
-                rename When' When
-            }
+            # Restore real When before running the body, so any When
+            # calls inside the body register persistent async handlers.
+            rename When {}
+            rename When' When
 
             tailcall ForEach! {*}$args
         }
 
         source $s
 
-        rename When {}
-        rename When' When
+        if {[exists -command When']} {
+            rename When {}
+            rename When' When
+        }
     }
     fake "builtin-programs/gpu/gpu.folk"
+    # textures.folk and pipelines.folk don't need the main thread
+    # (no GLFW/window work), so they run as normal async programs.
+    # draw.folk's fake When polls until their claims are available.
     fake "builtin-programs/gpu/draw.folk"
 }

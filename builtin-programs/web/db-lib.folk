@@ -3,6 +3,7 @@ Claim the db library is [apply {{} {
     $cc cflags -I. -I./vendor/tracy/public
     $cc include "db.h"
     $cc include "common.h"
+    $cc include "vendor/stb_ds.h"
 
     $cc code {
         typedef struct ListOfEdgeTo {
@@ -145,9 +146,8 @@ Claim the db library is [apply {{} {
         Jim_Obj* retObj = Jim_NewListObj(interp, NULL, 0);
 
         mutexLock(&db->holdsMutex);
-        for (int i = 0; i < sizeof(db->holds)/sizeof(db->holds[0]); i++) {
+        for (int i = 0; i < shlen(db->holds); i++) {
             Hold* hold = &db->holds[i];
-            if (hold->key == NULL) { continue; }
 
             Statement* stmt = statementAcquire(db, hold->statement);
             if (stmt == NULL) {

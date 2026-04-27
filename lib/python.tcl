@@ -29,8 +29,12 @@ $cc proc sockConnect {char* path} int {
 
 $cc proc sockSendStr {int fd char* data} void {
     uint32_t len = (uint32_t)strlen(data);
+    // HACK: should check these.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-result"
     write(fd, &len, 4);
     if (len > 0) write(fd, data, len);
+#pragma GCC diagnostic pop
 }
 
 $cc proc sockRecvMulti {int fd} Jim_Obj* {

@@ -163,7 +163,7 @@ $cc proc detect {Image gray int threshold} Jim_Obj* {
 set blobdetectLib [$cc compile]
 
 When /someone/ wishes to detect laser blobs &\
-     camera /any/ has frame /grayFrame/ at timestamp /timestamp/ {
+     camera /any/ has gray frame /grayFrame/ at timestamp /timestamp/ {
     set blobTime [time {
         set threshold 250
         set blobs [$blobdetectLib detect $grayFrame $threshold]

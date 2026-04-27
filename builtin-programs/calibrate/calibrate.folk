@@ -44,7 +44,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         set camResults [Query! /someone/ wishes $::thisNode uses camera $camera with /...camOpts/]
         if {[llength $camResults] == 1} {
             set camOpts [dict get [lindex $camResults 0] camOpts]
-            if {![dict exists $camOpts crop]} {
+            if {![dict exists $camOpts crops]} {
                 Retract! /someone/ wishes $::thisNode uses camera $camera \
                     with width $cameraWidth height $cameraHeight
                 Assert! $this wishes $::thisNode uses camera $camera \
@@ -134,13 +134,10 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
     On unmatch {
         Hold! -key H_modelToDisplay {}
-        Hold! -key exposure {
-            Wish camera $camera uses exposure time auto us
-        }
     }
 
     When the calibration poses max is /calibrationPosesMax/ &\
-         -serially camera $camera has frame /frame/ at timestamp /frameTimestamp/ {
+         -serially camera $camera has gray frame /frame/ at timestamp /frameTimestamp/ {
         # HACK: so we just lookup whatever is latest _right now_,
         # instead of subscribing.
         set calibrationStates \
@@ -529,7 +526,7 @@ fn zhangUnrefinedCalibrate {name width height Hs} {
     set intrinsics [dict create \
                         width $width height $height \
                         fx $fx fy $fy cx $cx cy $cy s $s \
-                        k1 0 k2 0]
+                        k1 0 k2 0 p1 0 p2 0]
     return [dict create \
                 name $name \
                 intrinsics $intrinsics \

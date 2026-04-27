@@ -1,26 +1,99 @@
 Wish the web server handles route {/camera} with handler {
-    set camera [dict getdef $QUERY camera /any/]
-    html {
+    if {[dict exists $QUERY camera]} {
+        set camera [dict get $QUERY camera]
+    } else {
+        set cameraResults [Query! camera /camera/ has width /w/ height /h/]
+        if {[llength $cameraResults] == 1} {
+            set camera [dict get [lindex $cameraResults 0] camera]
+        } else {
+            return [html [subst {
+                <html>
+                <body>
+                <p>Choose a camera:</p>
+                <ul>
+                [join [lmap result $cameraResults { subst {
+                    <li><a href="/camera?camera=[string map [list / %2F " " %20] $result(camera)]">$result(camera)</a></li>
+                } }] \n]
+                </ul>
+                </body>
+                </html>
+            }]]
+        }
+    }
+
+    # in case it's a virtual camera, we want to get the base path.
+    set baseCameraToControl [lindex $camera 0]
+    set exposuresAtPageLoad [Query! /someone/ wishes camera $baseCameraToControl uses exposure time /exposureTime/ us]
+    if {[llength $exposuresAtPageLoad] == 1} {
+        set exposureAtPageLoad [dict get [lindex $exposuresAtPageLoad 0] exposureTime]
+    } else {
+        set exposureAtPageLoad 1500
+    }
+
+    html [subst {
 <html>
   <body style="margin: 0 0">
-    <img id="cameraFrame" src="/camera-frame" style="max-width: 100%">
+    <canvas id="cameraCanvas" style="max-width: 100%"></canvas>
+    <div style="padding: 8px">
+      <span id="statusSpan">Status</span>
+
+      <label><input type="checkbox" id="cameraAutoexposure">Auto-exposure</label>
+
+      <div style="display: inline-block" id="manualExposure">
+        Manual exposure:
+        <input style="max-width: 100px" type="range" min="10" max="48" value="15" class="slider" id="cameraExposureSlider">
+        <input type="number" min="1000" max="320000" step="100" value="1500" id="cameraExposureNumber">μs
+      </div>
+    </div>
+    <script src="/lib/folk.js"></script>
     <script>
-      let t = null;
+      const canvas = cameraCanvas;
+      const ctx = canvas.getContext('2d');
       function advanceCamera() {
-        if (t) {
-          clearTimeout(t);
-          t = null;
-        }
-        cameraFrame.src = '/camera-frame?uniq=' + Math.random()
+        const img = new Image();
+        img.onload = () => {
+          canvas.width = img.naturalWidth;
+          canvas.height = img.naturalHeight;
+          ctx.drawImage(img, 0, 0);
+          setTimeout(advanceCamera, 0);
+        };
+        img.onerror = () => setTimeout(advanceCamera, 500);
+        img.src = '/camera-frame?camera=[string map [list / %2F " " %20] $camera]&uniq=' + Math.random();
       }
-      cameraFrame.addEventListener('load', () => {
-        t = setTimeout(() => { advanceCamera() }, 0);
+      advanceCamera();
+
+      const ws = new FolkWS(statusSpan);
+      function sendExposure(valueInMicroseconds) {
+        ws.hold('exposure $baseCameraToControl', tcl`
+          Wish camera $baseCameraToControl uses exposure time \${valueInMicroseconds} us
+        `, 'builtin-programs/web/setup.folk', true);
+      }
+
+      function updateExposure(valueInMicroseconds, doSend = true) {
+        const auto = valueInMicroseconds == 0;
+        cameraAutoexposure.checked = auto;
+        cameraExposureSlider.disabled = auto;
+        cameraExposureNumber.disabled = auto;
+        manualExposure.style.opacity = auto ? 0.5 : 1;
+
+        if (!auto) {
+          cameraExposureSlider.value = valueInMicroseconds / 100;
+          cameraExposureNumber.value = valueInMicroseconds;
+        }
+
+        if (doSend) { sendExposure(valueInMicroseconds); }
+      }
+
+      cameraExposureSlider.addEventListener('input', (e) => updateExposure(Math.round(e.target.value * 100)));
+      cameraExposureNumber.addEventListener('input', (e) => {
+         let value = parseInt(e.target.value);
+         if (value == 0) value = 100; // just so people don't get stuck in auto.
+         updateExposure(value);
       });
-      cameraFrame.addEventListener('error', () => {
-        t = setTimeout(() => { advanceCamera() }, 500);
-      });
+      cameraAutoexposure.addEventListener('change', (e) => updateExposure(e.target.checked ? 0 : cameraExposureNumber.value));
+      updateExposure($exposureAtPageLoad, false)
     </script>
   </body>
 </html>
-    }
+    }]
 }

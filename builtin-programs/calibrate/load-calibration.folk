@@ -1,21 +1,59 @@
 When display /disp/ has width /displayWidth/ height /displayHeight/ &\
      the calibration is /nothing/ {
-    set warning "WARNING: Folk hasn't been calibrated!"
+    set warning "WARNING: Folk hasn't been calibrated!
+Using default (bad) calibration."
 
     puts stderr "calibrate: $warning"
     set cx [/ $displayWidth 2.0]
     Wish to draw text onto $disp with \
-        x $cx y [* $displayHeight 0.3] \
+        x $cx y [* $displayHeight 0.1] \
         text $warning color red scale 40
     Wish to draw text onto $disp with \
         x $cx y [* $displayHeight 0.7] radians 3.14159 \
         text $warning color red scale 40
 }
 
+When the calibration is /nothing/ {
+    # Fallback: if uncalibrated, create fake intrinsics and
+    # extrinsics.
+
+    When display /disp/ has width /displayWidth/ height /displayHeight/ {
+        Claim display $disp has intrinsics [dict create \
+            width $displayWidth height $displayHeight \
+            fx $displayWidth fy $displayWidth \
+            cx [/ $displayWidth 2.0] cy [/ $displayHeight 2.0] \
+            s 0 k1 0 k2 0 p1 0 p2 0]
+    }
+    When camera /cam/ has width /cameraWidth/ height /cameraHeight/ {
+        Claim camera $cam has intrinsics [dict create \
+            width $cameraWidth height $cameraHeight \
+            fx $cameraWidth fy $cameraWidth \
+            cx [/ $cameraWidth 2.0] cy [/ $cameraHeight 2.0] \
+            s 0 k1 0 k2 0 p1 0 p2 0]
+    }
+    When display /disp/ has width /any/ height /any/ &\
+         camera /cam/ has width /any/ height /any/ {
+        Claim camera $cam to display $disp has extrinsics [dict create \
+            R {{1 0 0} {0 1 0} {0 0 1}} \
+            t {0 0 0}]
+    }
+}
+
 When the calibration is /calibration/ {
     puts "\n\n====NEW CALIBRATION ([string range $calibration 0 100])=====\n\n"
     set camera [dict get $calibration camera name]
     set display [dict get $calibration projector name]
+
+    # Backfill p1/p2 for calibrations saved before tangential
+    # distortion support was added.
+    foreach device {camera projector} {
+        foreach key {p1 p2} {
+            if {![dict exists $calibration $device intrinsics $key]} {
+                dict set calibration $device intrinsics $key 0
+            }
+        }
+    }
+
     Claim camera $camera has intrinsics \
         [dict get $calibration camera intrinsics]
     Claim display $display has intrinsics \

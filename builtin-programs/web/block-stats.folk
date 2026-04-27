@@ -1,0 +1,30 @@
+Wish the web server handles route "/block-stats" with handler {
+    set stats [lsort -command {apply {{a b} {
+        lassign $a _ ewma_a count_a
+        lassign $b _ ewma_b count_b
+        expr {$ewma_b * $count_b - $ewma_a * $count_a < 0 ? -1 :
+              $ewma_b * $count_b - $ewma_a * $count_a > 0 ?  1 : 0}
+    }}} [__blockRuntimeStats]]
+    html [subst {
+        <html>
+        <head>
+        <link rel="stylesheet" href="/style.css">
+        <title>Block runtime stats</title>
+        </head>
+        <body>
+        <h2>Block runtime stats (EWMA)</h2>
+        <table>
+        <tr><th>Location</th><th>EWMA (µs)</th><th>Count</th></tr>
+        [join [lmap entry $stats {
+            lassign $entry key ewma_ns count
+            subst {<tr>
+                <td>[htmlEscape $key]</td>
+                <td>[format "%.1f" [expr {$ewma_ns / 1000.0}]]</td>
+                <td>$count</td>
+            </tr>}
+        }] "\n"]
+        </table>
+        </body>
+        </html>
+    }]
+}

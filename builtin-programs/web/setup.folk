@@ -69,12 +69,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
 <div class="mode-select">
   <h2>Displays</h2>
   <div style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
-    <label>
-      <input type="radio" name="display-enabled"
-             value=""
-             onchange="displayEnabledChange.call(this, event)">
-      <strong>Don't use a display</strong>
-    </label>
+    <button onclick="dontUseDisplay()"><strong>Don't use a display</strong></button>
   </div>
 
   [HtmlWhen $::thisNode has display /display/ with /...opts/ {
@@ -100,7 +95,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
     subst {
       <div style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
         <label>
-          <input type="radio" name="display-enabled"
+          <input type="checkbox" name="display-enabled"
                  $($isUsingDisplay ? "checked" : "")
                  value="$display"
                  onchange="displayEnabledChange.call(this, event)">
@@ -148,18 +143,27 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
     }
   }}]
   <script>
+   function dontUseDisplay() {
+     document.querySelectorAll('input\[type="checkbox"\]\[name="display-enabled"]:checked').forEach(cb => {
+       cb.checked = false;
+
+       // HACK: remove older-form display setup.
+       folk.hold(`display`, '', 'builtin-programs/web/setup.folk', true);
+
+       folk.hold(`display \${cb.value}`, '',
+                 'builtin-programs/web/setup.folk', true);
+     });
+   }
    function displayEnabledChange(event) {
+     // HACK: remove older-form display setup.
+     folk.hold(`display`, '', 'builtin-programs/web/setup.folk', true);
+
      const display = this.value;
      if (this.checked) {
        if (display === "glfw") {
          // glfw doesn't have any mode settings (for now).
-         folk.hold('display', `Wish \$::thisNode uses display "\${display}" with width 640 height 480 refreshRate -1`,
+         folk.hold(`display \${display}`, `Wish \$::thisNode uses display "\${display}" with width 640 height 480 refreshRate -1`,
                    'builtin-programs/web/setup.folk', true);
-
-       } else if (display === "") {
-         folk.hold('display', '',
-                   'builtin-programs/web/setup.folk', true);
-
        } else {
          const firstRefreshRateRadio = document.querySelector(
            `input\[type="radio"\]\[name^="display-refreshRate-"\]\[data-display="\${display}"]`
@@ -168,7 +172,8 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
          firstRefreshRateRadio.dispatchEvent(new Event('change'));
        }
      } else {
-       // I think this never fires?
+       folk.hold(`display \${display}`, '',
+                 'builtin-programs/web/setup.folk', true);
      }
    }
    function displayResolutionClicked(event) {
@@ -185,7 +190,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
      if (this.checked) {
        const display = this.dataset.display;
        const mode = this.value;
-       folk.hold('display', `Wish \$::thisNode uses display "\${display}" with \${mode}`,
+       folk.hold(`display \${display}`, `Wish \$::thisNode uses display "\${display}" with \${mode}`,
                  'builtin-programs/web/setup.folk', true);
      }
      event.preventDefault();
@@ -193,6 +198,28 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
   </script>
 </div>
 
+<style>
+  .crop-box {
+      position: absolute;
+      border: 2px solid #27ae60;
+      background: rgba(39,174,96,0.15);
+      box-sizing: border-box;
+      pointer-events: auto;
+      cursor: move;
+  }
+  .crop-handle {
+      position: absolute;
+      width: 12px; height: 12px;
+      background: white;
+      border: 2px solid #27ae60;
+      box-sizing: border-box;
+      pointer-events: auto;
+  }
+  .crop-handle\[data-corner="nw"] { top: -7px; left: -7px; cursor: nwse-resize; }
+  .crop-handle\[data-corner="ne"] { top: -7px; right: -7px; cursor: nesw-resize; }
+  .crop-handle\[data-corner="sw"] { bottom: -7px; left: -7px; cursor: nesw-resize; }
+  .crop-handle\[data-corner="se"] { bottom: -7px; right: -7px; cursor: nwse-resize; }
+</style>
 <div class="mode-select">
   <h2>Cameras</h2>
   [HtmlWhen $::thisNode has camera /camera/ with /...opts/ {
@@ -268,12 +295,50 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
         
         [if {$isUsingCamera} {
           set iframeWidth 600
-          set iframeHeight [expr {int(600.0 * $usingOpts(height) / $usingOpts(width))}]
+          set cameraAreaHeight [expr {int(600.0 * $usingOpts(height) / $usingOpts(width))}]
+          set iframeHeight [expr {$cameraAreaHeight + 48}]
+          set existingCrops [dict getdef $usingOpts crops [list]]
           subst {
-          <div style="margin-top: 10px;">
+          <div class="camera-preview" data-camera="$camera"
+               style="position: relative; display: inline-block; margin-top: 10px; line-height: 0;">
             <iframe src="/camera?camera=[string map {/ %2F} $camera]"
                     width="$iframeWidth" height="$iframeHeight"
-                    style="border: 1px solid #999;"></iframe>
+                    style="border: 1px solid #999; display: block;"></iframe>
+            <div class="crop-overlay"
+                 style="position: absolute; top: 1px; left: 1px;
+                        width: ${iframeWidth}px; height: ${cameraAreaHeight}px;
+                        pointer-events: none;">
+              <!-- [set i 0] -->
+              [join [lmap c $existingCrops {
+                set cx [dict get $c x]
+                set cy [dict get $c y]
+                set cw [dict get $c width]
+                set ch [dict get $c height]
+                set rx [expr {int($cx * $iframeWidth / $usingOpts(width))}]
+                set ry [expr {int($cy * $cameraAreaHeight / $usingOpts(height))}]
+                set rw [expr {int($cw * $iframeWidth / $usingOpts(width))}]
+                set rh [expr {int($ch * $cameraAreaHeight / $usingOpts(height))}]
+                set cropHtml [subst {
+                  <div class="crop-box" data-index="$i" data-crop="$cx,$cy,$cw,$ch"
+                       style="left: ${rx}px; top: ${ry}px;
+                              width: ${rw}px; height: ${rh}px;">
+                    <div class="crop-handle" data-corner="nw"></div>
+                    <div class="crop-handle" data-corner="ne"></div>
+                    <div class="crop-handle" data-corner="sw"></div>
+                    <div class="crop-handle" data-corner="se"></div>
+                  </div>
+                }]
+                incr i
+                set cropHtml
+              }] \n]
+            </div>
+          </div>
+
+          <div style="margin-top: 10px;">
+            <button data-camera="$camera"
+                    onclick="createVirtualCroppedCamera.call(this, event)">
+              Create virtual cropped camera
+            </button>
           </div>
         } }]
       </div>
@@ -314,6 +379,137 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
       }
       event.preventDefault();
     }
+    const CROP_MCU = 16;
+    const snap = v => Math.floor(v / CROP_MCU) * CROP_MCU;
+
+    function getCropContext(el) {
+      let preview = el.closest('.camera-preview');
+      const camera = preview ? preview.dataset.camera : el.dataset.camera;;
+      if (!preview) {
+        preview = document.querySelector(`.camera-preview\[data-camera="\${camera}"]`);
+      }
+
+      const iframe = preview.querySelector('iframe');
+      const overlay = preview.querySelector('.crop-overlay');
+      const framerateRadio = document.querySelector(
+        `input\[type="radio"\]\[name^="camera-framerate-"\]\[data-camera="\${camera}"]:checked`);
+      if (!framerateRadio) return null;
+      const format = framerateRadio.value;
+      const m = format.match(/width (\\d+) height (\\d+)/);
+      if (!m) return null;
+      return {
+        camera, preview, iframe, overlay, format,
+        sourceWidth: parseInt(m\[1]),
+        sourceHeight: parseInt(m\[2]),
+        iframeWidth: parseInt(iframe.width),
+        canvasHeight: parseInt(iframe.height) - 48,
+      };
+    }
+
+    function issueCrops(ctx, crops) {
+      const cropsTcl = crops
+        .map((\[x,y,w,h]) => `{x \${x} y \${y} width \${w} height \${h}}`)
+        .join(' ');
+      folk.hold(`camera \${ctx.camera}`,
+        `Wish \$::thisNode uses camera "\${ctx.camera}" with \${ctx.format} crops {\${cropsTcl}}`,
+        'builtin-programs/web/setup.folk', true);
+    }
+
+    function readCrops(overlay) {
+      return Array.from(overlay.querySelectorAll('.crop-box'))
+        .map(el => el.dataset.crop.split(',').map(Number));
+    }
+
+    function applyBoxStyle(ctx, box, x, y, w, h) {
+      box.style.left = (x * ctx.iframeWidth / ctx.sourceWidth) + 'px';
+      box.style.top = (y * ctx.canvasHeight / ctx.sourceHeight) + 'px';
+      box.style.width = (w * ctx.iframeWidth / ctx.sourceWidth) + 'px';
+      box.style.height = (h * ctx.canvasHeight / ctx.sourceHeight) + 'px';
+    }
+
+    function createVirtualCroppedCamera(event) {
+      const ctx = getCropContext(this);
+      if (!ctx) return;
+      // Default: ~1/3 of source, centered, MCU-aligned.
+      const w = Math.max(CROP_MCU, snap(ctx.sourceWidth / 3));
+      const h = Math.max(CROP_MCU, snap(ctx.sourceHeight / 3));
+      const x = snap((ctx.sourceWidth - w) / 2);
+      const y = snap((ctx.sourceHeight - h) / 2);
+      const crops = readCrops(ctx.overlay);
+      crops.push(\[x, y, w, h]);
+      issueCrops(ctx, crops);
+      event.preventDefault();
+    }
+
+    // Drag to move (crop-box body) or resize (crop-handle corners).
+    // During drag the overlay flips to pointer-events: auto so the iframe
+    // underneath doesn't steal mousemove events when the cursor passes
+    // over it.
+    let cropDrag = null;
+    document.addEventListener('mousedown', e => {
+      const handle = e.target.closest('.crop-handle');
+      const box = e.target.closest('.crop-box');
+      if (!box) return;
+      const ctx = getCropContext(box);
+      if (!ctx) return;
+      const \[x0, y0, w0, h0] = box.dataset.crop.split(',').map(Number);
+      const mode = handle ? 'resize' : 'move';
+      const corner = handle ? handle.dataset.corner : null;
+      cropDrag = {
+        ctx, box, mode, corner,
+        sx: e.clientX, sy: e.clientY,
+        x0, y0, w0, h0,
+        live: null,
+      };
+      ctx.overlay.style.pointerEvents = 'auto';
+      document.body.style.cursor = mode === 'move' ? 'move'
+        : (corner === 'nw' || corner === 'se') ? 'nwse-resize'
+        : 'nesw-resize';
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    document.addEventListener('mousemove', e => {
+      const d = cropDrag;
+      if (!d) return;
+      const dx = (e.clientX - d.sx) * (d.ctx.sourceWidth / d.ctx.iframeWidth);
+      const dy = (e.clientY - d.sy) * (d.ctx.sourceHeight / d.ctx.canvasHeight);
+      let x, y, w, h;
+      if (d.mode === 'move') {
+        x = Math.max(0, Math.min(d.ctx.sourceWidth - d.w0, snap(d.x0 + dx)));
+        y = Math.max(0, Math.min(d.ctx.sourceHeight - d.h0, snap(d.y0 + dy)));
+        w = d.w0; h = d.h0;
+      } else {
+        let left = d.x0, top = d.y0;
+        let right = d.x0 + d.w0, bottom = d.y0 + d.h0;
+        if (d.corner.includes('w')) {
+          left = Math.max(0, Math.min(right - CROP_MCU, snap(d.x0 + dx)));
+        }
+        if (d.corner.includes('e')) {
+          right = Math.max(left + CROP_MCU,
+                           Math.min(d.ctx.sourceWidth, snap(d.x0 + d.w0 + dx)));
+        }
+        if (d.corner.includes('n')) {
+          top = Math.max(0, Math.min(bottom - CROP_MCU, snap(d.y0 + dy)));
+        }
+        if (d.corner.includes('s')) {
+          bottom = Math.max(top + CROP_MCU,
+                            Math.min(d.ctx.sourceHeight, snap(d.y0 + d.h0 + dy)));
+        }
+        x = left; y = top; w = right - left; h = bottom - top;
+      }
+      d.live = \[x, y, w, h];
+      applyBoxStyle(d.ctx, d.box, x, y, w, h);
+    });
+    document.addEventListener('mouseup', () => {
+      const d = cropDrag;
+      if (!d) return;
+      cropDrag = null;
+      d.ctx.overlay.style.pointerEvents = '';
+      document.body.style.cursor = '';
+      if (!d.live) return;
+      d.box.dataset.crop = d.live.join(',');
+      issueCrops(d.ctx, readCrops(d.ctx.overlay));
+    });
   </script>
 </div>
 
@@ -339,7 +535,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
 
   <fieldset style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
     <legend><strong>Cameras</strong></legend>
-    [HtmlWhen /someone/ wishes $::thisNode uses camera /camera/ with /...opts/ {
+    <!-- [fn emitCameraHtml {camera} {
       subst {
         <div style="margin: 5px 0;">
           <label>
@@ -350,6 +546,17 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
           </label>
         </div>
       }
+    }] -->
+    [HtmlWhen /someone/ wishes $::thisNode uses camera /camera/ with /...opts/ {
+        if {[dict exists $opts crops]} {
+            set htmls [list]
+            loop i [llength $opts(crops)] {
+                lappend htmls [emitCameraHtml [list $camera $i]]
+            }
+            join $htmls \n
+        } else {
+            emitCameraHtml $camera
+        }
     }]
   </fieldset>
 
