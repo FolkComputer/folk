@@ -370,7 +370,7 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
     # Outer, retry loop.
     while true {
         set camObj {}
-        try {
+        try -signal {
             runCamera camObj
         } on error e {
             puts stderr "camera/usb: Error $e"
