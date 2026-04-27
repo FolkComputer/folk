@@ -455,7 +455,7 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
             # This will cause the new model version to be rendered by
             # the other process. Note that this assumes that the user
             # hasn't moved the calibration board from the pose $tags0.
-            Hold! Wish to draw refining model $model \
+            Hold! -key refining-model Wish to draw refining model $model \
                 onto detected tags $detectedTags0 \
                 using calibration $calibration
 
@@ -532,6 +532,10 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
             Claim a calibration from camera $camera to display $display is $calibration
 
         break
+    }
+    On unmatch {
+        Hold! -key label {}
+        Hold! -key refining-model {}
     }
 }
 
