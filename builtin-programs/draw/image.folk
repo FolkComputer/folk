@@ -84,9 +84,15 @@ Wish the GPU compiles pipeline "image" {
 
         vec2 uv = invBilinear(surfaceXy.xy, a, b, c, d);
         if( max( abs(uv.x-0.5), abs(uv.y-0.5))<0.5 ) {
-            return texture(image, uv);
+            vec4 texColor = texture(image, uv);
+
+            if ((texColor.a < 0.01) || (texColor.r < 0.05 && texColor.g < 0.05 && texColor.b < 0.05)) {
+                return vec4(0.0);
+            }
+
+            return texColor;
         }
-        return vec4(0.0, 0.0, 0.0, 0.0);
+        return vec4(0.0);
 }}
 When the image library is /imageLib/ &\
      /someone/ wishes to draw an image onto /p/ with /...options/ &\
@@ -177,4 +183,3 @@ When the image library is /imageLib/ &\
 When /someone/ wishes /p/ displays image /im/ {
     Wish $p displays image $im with scale 1.0
 }
-
