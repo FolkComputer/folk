@@ -149,6 +149,7 @@ Wish the web server handles route "/calibrate" with hidden true handler {
     fn defaultGeomGet {key} { return [string map {mm ""} [dict get $defaultGeom $key]] }
 
     set camera $QUERY(camera)
+    set display $QUERY(display)
 
     # Query the camera resolution for proper aspect ratio in preview (defaults to 1920x1080)
     set cameraOpts [QueryOne! camera $camera has width /width/ height /height/]
@@ -232,7 +233,7 @@ Wish the web server handles route "/calibrate" with hidden true handler {
 
                 ws.hold('start calibration', tcl`
                   Claim the printed calibration tag size is \${mm} mm
-                  Wish to calibrate
+                  Wish to calibrate camera "$camera" to display "$display"
                 `, 'builtin-programs/calibrate/calibrate.folk');
               });
             </script>
@@ -357,7 +358,7 @@ Camera Controls
                 }
                 ws.hold('start calibration', tcl`
                   Claim the printed calibration tag size is \${mm} mm
-                  Wish to interactively refine calibration
+                  Wish to interactively refine calibration from camera "$camera" to display "$display"
                 `, 'builtin-programs/calibrate/calibrate.folk');
               });
             </script>
