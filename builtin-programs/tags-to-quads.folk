@@ -1,4 +1,5 @@
-When libapriltag has been built {
+When libapriltag has been built with config /configCcWithLibapriltag/ {
+fn configCcWithLibapriltag
 
 set cc [C]
 
@@ -80,8 +81,7 @@ $cc proc rescaleAndUndistort {Intrinsics intr
     out[0] = x*intr.fx + intr.cx;
     out[1] = y*intr.fy + intr.cy;
 }
-$cc cflags -I./vendor/apriltag
-$cc endcflags ./vendor/apriltag/build/libapriltag.so
+configCcWithLibapriltag $cc
 
 $cc include <apriltag_pose.h>
 $cc include <math.h>

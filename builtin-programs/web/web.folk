@@ -8,7 +8,6 @@ puts "web: [__threadId] (PID [pid])"
 signal handle SIGPIPE
 
 # To force a rebuild: rm vendor/wslay/Makefile
-set wslayFresh [expr {![file exists vendor/wslay/lib/.libs/libwslay.a]}]
 if {![file exists vendor/wslay/Makefile]} {
     puts "web: Configuring libwslay..."
     exec sh -c {cd vendor/wslay && autoreconf -i && automake && autoconf && ./configure} \
@@ -16,10 +15,6 @@ if {![file exists vendor/wslay/Makefile]} {
 }
 puts "web: Building libwslay..."
 exec make -C vendor/wslay >@stdout 2>@stderr
-if {$wslayFresh && $::tcl_platform(os) eq "linux"} {
-    exec patchelf --set-soname "[pwd]/vendor/wslay/lib/.libs/libwslay.so.0" \
-        vendor/wslay/lib/.libs/libwslay.so.0
-}
 puts "web: libwslay built."
 
 source "lib/ws.tcl"

@@ -1,10 +1,11 @@
-When libapriltag has been built {
+When libapriltag has been built with config /configCcWithLibapriltag/ {
+fn configCcWithLibapriltag
 
 # We try to use the AprilTag matrix library (instead of tcllib linalg)
 # to do matrix/homography operations in the live calibration inner
 # loop, to help with performance:
 set cc [C]
-$cc cflags -I./vendor/apriltag
+configCcWithLibapriltag $cc
 $cc include <math.h>
 $cc include <common/matd.h>
 $cc include <common/homography.h>
@@ -247,7 +248,6 @@ $cc proc applyHomography {matd_t* H double[2] xy} Jim_Obj* {
 $cc proc matdMul {matd_t* a matd_t* b} matd_t* {
     return matd_multiply(a, b);
 }
-$cc endcflags ./vendor/apriltag/build/libapriltag.so
 set matLib [$cc compile]
 Claim the calibration matLib is $matLib
 
