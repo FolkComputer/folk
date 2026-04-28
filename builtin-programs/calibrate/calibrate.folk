@@ -156,7 +156,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         set camResults [Query! /someone/ wishes $::thisNode uses camera $camera with /...camOpts/]
         if {[llength $camResults] == 1} {
             set camOpts [dict get [lindex $camResults 0] camOpts]
-            if {![dict exists $camOpts crop]} {
+            if {![dict exists $camOpts crops]} {
                 Retract! /someone/ wishes $::thisNode uses camera $camera \
                     with width $cameraWidth height $cameraHeight
                 Assert! $this wishes $::thisNode uses camera $camera \
@@ -374,9 +374,6 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
     On unmatch {
         Hold! -key H_modelToDisplay {}
-        Hold! -key exposure {
-            Wish camera $camera uses exposure time auto us
-        }
     }
 
     When the calibration poses max is /calibrationPosesMax/ &\

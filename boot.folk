@@ -90,26 +90,30 @@ if {$::tcl_platform(os) eq "darwin"} {
         rename When When'
         proc When args {
             set pattern [lrange $args 0 end-1]
+
             # Await the dependencies being available.
             while {[llength [Query! {*}$pattern]] != 1} {
                 sleep 0.1
             }
 
-            if {[lrange $pattern 0 3] eq {the GPU texture library}} {
-                # HACK: We want Whens inside this block to be normal
-                # Whens and run off-thread/async.
-                rename When {}
-                rename When' When
-            }
+            # Restore real When before running the body, so any When
+            # calls inside the body register persistent async handlers.
+            rename When {}
+            rename When' When
 
             tailcall ForEach! {*}$args
         }
 
         source $s
 
-        rename When {}
-        rename When' When
+        if {[exists -command When']} {
+            rename When {}
+            rename When' When
+        }
     }
     fake "builtin-programs/gpu/gpu.folk"
+    # textures.folk and pipelines.folk don't need the main thread
+    # (no GLFW/window work), so they run as normal async programs.
+    # draw.folk's fake When polls until their claims are available.
     fake "builtin-programs/gpu/draw.folk"
 }

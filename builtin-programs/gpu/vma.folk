@@ -28,6 +28,8 @@ void vmaInit(VkInstance instance, VkPhysicalDevice physicalDevice, VkDevice devi
              PFN_vkGetDeviceProcAddr vkGetDeviceProcAddr,
              PFN_vkGetPhysicalDeviceProperties vkGetPhysicalDeviceProperties,
              PFN_vkGetPhysicalDeviceMemoryProperties vkGetPhysicalDeviceMemoryProperties) {
+    if (allocator != VK_NULL_HANDLE) { return; }
+
     volkInitialize();
     volkLoadInstanceOnly(instance);
     volkLoadDevice(device);

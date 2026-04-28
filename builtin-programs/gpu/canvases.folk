@@ -1,25 +1,21 @@
-When the GPU library is /gpuLib/ & the GPU draw library is /drawLib/ &\
+When the GPU library is /gpuLib/ &\
      the image library is /imageLib/ &\
-     the GPU texture library for /drawLib/ is /gpuTextureLib/ {
+     the GPU pipeline library is /pipelineLib/ &\
+     the GPU texture library is /gpuTextureLib/ {
     set gpuc [C]
     $gpuc include <pthread.h>
     $gpuc cflags -I./vendor
     $gpuc code {
         #define VOLK_IMPLEMENTATION
         #include "volk/volk.h"
-
-        typedef struct PushConstantsEncoder {
-            int (*encode)(Jim_Interp* interp, Jim_Obj* obj, uint8_t out[128]);
-        } PushConstantsEncoder;
     }
-    $gpuc typedef {struct Pipeline} Pipeline
 
     $gpuc extend -noprocs $gpuLib
-    $gpuc extend -noprocs $drawLib
     $gpuc import $gpuLib VkResultToString
-    $gpuc import $drawLib getCommandBuffer
+    $gpuc import $gpuLib getCommandBuffer
 
     $gpuc extend $imageLib
+    $gpuc extend -noprocs $pipelineLib
     $gpuc extend $gpuTextureLib
 
     local proc vktry {call} { string map {\n " "} [csubst {{
@@ -32,7 +28,10 @@ When the GPU library is /gpuLib/ & the GPU draw library is /drawLib/ &\
 
     $gpuc code {
         VkDevice device;
-        VkFormat swapchainImageFormat;
+        // Canvas format must match the pipeline render pass format
+        // (VK_FORMAT_B8G8R8A8_UNORM) so that shared pipelines are
+        // render-pass-compatible when drawing onto canvases.
+        VkFormat canvasFormat = VK_FORMAT_B8G8R8A8_UNORM;
 
         // This render pass is used to draw on all canvases.
         VkRenderPass renderPass;
@@ -44,12 +43,10 @@ When the GPU library is /gpuLib/ & the GPU draw library is /drawLib/ &\
         device = *device_ptr();
         volkLoadDevice(device);
 
-        swapchainImageFormat = *swapchainImageFormat_ptr();
-
         // Set up VkRenderPass renderPass:
         {
             VkAttachmentDescription colorAttachment = {0};
-            colorAttachment.format = swapchainImageFormat;
+            colorAttachment.format = canvasFormat;
             colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
             colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
             colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -107,10 +104,10 @@ When the GPU library is /gpuLib/ & the GPU draw library is /drawLib/ &\
         GpuCanvas* wi = malloc(sizeof(GpuCanvas));
         wi->extent.width = width; wi->extent.height = height;
 
-        GpuTextureBlock* block = createGpuTexture(width, height, swapchainImageFormat);
+        GpuTextureBlock* block = createGpuTexture(width, height, canvasFormat);
         wi->gpuTexture = block->handle;
         // make it immediately renderable
-        transitionImageLayout(block->textureImage, swapchainImageFormat,
+        transitionImageLayout(block->textureImage, canvasFormat,
                               VK_IMAGE_LAYOUT_UNDEFINED,
                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         addToTextureDescriptorSet(block->handle);
@@ -143,9 +140,9 @@ When the GPU library is /gpuLib/ & the GPU draw library is /drawLib/ &\
         free(wi);
     }
     $gpuc code {
-        GpuCanvas* boundCanvas;
-        VkPipeline boundPipeline;
-        VkDescriptorSet boundDescriptorSet;
+        __thread GpuCanvas* boundCanvas;
+        __thread VkPipeline boundPipeline;
+        __thread VkDescriptorSet boundDescriptorSet;
     }
     $gpuc proc drawStart {GpuCanvas* wi} void {
         FOLK_ENSURE(boundCanvas == NULL);
@@ -263,15 +260,12 @@ When the GPU library is /gpuLib/ & the GPU draw library is /drawLib/ &\
     }
 
     set gpuCanvasLib [$gpuc compile]
-    Claim the GPU canvas library for $drawLib is $gpuCanvasLib
+    Claim the GPU canvas library is $gpuCanvasLib
 
-    # We need to wait until the GPU is online and registered the
-    # display before we set up the canvas subsystem.
-    When display /any/ has width /any/ height /any/ {
-        $gpuCanvasLib init
+    $gpuCanvasLib init
 
-        # `id` is arbitrarily chosen by the caller:
-        When /someone/ wishes the GPU creates canvas /id/ with /...options/ {
+    # `id` is arbitrarily chosen by the caller:
+    When /someone/ wishes the GPU creates canvas /id/ with /...options/ {
             set width [dict get $options width]
             set height [dict get $options height]
             set settle [dict getdef $options settle 3ms]
@@ -429,7 +423,6 @@ When the GPU library is /gpuLib/ & the GPU draw library is /drawLib/ &\
                 StatementRelease! $ref
             }
         }} $gpuCanvasLib]
-    }
 
     When /someone/ wishes /p/ has a canvas {
         Wish $p has a canvas with width 1024 height 1024 settle 3ms

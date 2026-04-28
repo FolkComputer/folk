@@ -256,7 +256,7 @@ Wish the web server handles route "/quads" with handler {
                 const ws = new FolkWS();
 
                 // Watch for camera space
-                ws.watchCollected("/someone/ wishes /node/ uses camera /camera/ with /...opts/",
+                ws.watchCollected("/someone/ claims camera /camera/ has width /w/ height /h/",
                     results => {
                         const newSpace = results[0]?.camera || null;
                         if (newSpace !== firstCameraSpace) {

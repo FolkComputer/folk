@@ -1,7 +1,22 @@
 When the image library is /imageLib/ {
 
 # To force a rebuild: rm -rf vendor/apriltag/build
-set apriltagFresh [expr {![file exists vendor/apriltag/build/libapriltag.so]}]
+
+# Older versions of this file ran `patchelf --set-soname` (linux) or
+# `install_name_tool -id @executable_path/...` (darwin) on the built
+# library so it could be located at load time. We now embed an rpath on
+# the wrapper instead, but if a previously-mutated library is sitting
+# on disk, force a clean rebuild so its identity goes back to the
+# default and the wrapper's rpath can resolve it. Heuristic: if the
+# build is older than this file, assume it predates the new scheme.
+if {[file exists vendor/apriltag/build] &&
+    [file exists vendor/apriltag/build/libapriltag.so] &&
+    [file mtime vendor/apriltag/build/libapriltag.so] < \
+        [file mtime $this]} {
+    puts "apriltags: stale libapriltag build detected, rebuilding..."
+    file delete -force vendor/apriltag/build
+}
+
 if {![file exists vendor/apriltag/build/Makefile]} {
     puts "apriltags: Configuring libapriltag..."
     exec cmake -B vendor/apriltag/build -S vendor/apriltag \
@@ -12,27 +27,30 @@ if {![file exists vendor/apriltag/build/Makefile]} {
 puts "apriltags: Building libapriltag..."
 exec cmake --build vendor/apriltag/build --target apriltag \
     >@stdout 2>@stderr
-if {$apriltagFresh} {
-    if {$::tcl_platform(os) eq "linux"} {
-        exec patchelf --set-soname "[pwd]/vendor/apriltag/build/libapriltag.so.3" \
-            vendor/apriltag/build/libapriltag.so.3
-    } elseif {$::tcl_platform(os) eq "darwin"} {
-        exec install_name_tool -id @executable_path/vendor/apriltag/build/libapriltag.dylib \
+
+if {$::tcl_platform(os) eq "darwin"} {
+    if {![file exists vendor/apriltag/build/libapriltag.so]} {
+        exec ln -sf libapriltag.dylib vendor/apriltag/build/libapriltag.so
+    }
+    set currentId [string trim [exec otool -D vendor/apriltag/build/libapriltag.dylib | tail -1]]
+    if {$currentId ne "@rpath/libapriltag.dylib"} {
+        exec install_name_tool -id @rpath/libapriltag.dylib \
             vendor/apriltag/build/libapriltag.dylib
-        if {![file exists vendor/apriltag/build/libapriltag.so]} {
-            exec ln -sf libapriltag.dylib vendor/apriltag/build/libapriltag.so
-        }
     }
 }
 puts "apriltags: libapriltag built."
-Claim libapriltag has been built
+
+fn configCcWithLibapriltag {cc} {
+    $cc cflags -I./vendor/apriltag
+    $cc endcflags -Wl,-rpath,[pwd]/vendor/apriltag/build \
+        ./vendor/apriltag/build/libapriltag.so
+}
+Claim libapriltag has been built with config [fn configCcWithLibapriltag]
 
 fn makeAprilTagDetector {TAG_FAMILY QUAD_DECIMATE NTHREADS} {
     set cc [C]
     $cc extend $imageLib
-
-    $cc cflags -I./vendor/apriltag
-    $cc endcflags ./vendor/apriltag/build/libapriltag.so
+    configCcWithLibapriltag $cc
     $cc include <apriltag.h>
     $cc include <$TAG_FAMILY.h>
     $cc include <math.h>

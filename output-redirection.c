@@ -150,21 +150,26 @@ static char outputDir[256];
 void outputRedirectionInit(void) {
     sh_new_arena(programFdsTable);
 
-    snprintf(outputDir, sizeof(outputDir), "/tmp/folk-%d", (int)getpid());
+    snprintf(outputDir, sizeof(outputDir), "/var/tmp/folk-%d", (int)getpid());
     mkdir(outputDir, 0755);
 
     // Save stdout and stderr once, globally.
     realStdout = dup(1);
     realStderr = dup(2);
 
-    // Redirect fd 1/2 to /dev/null so system frameworks (NSLog,
-    // AppKit, etc.)  see a non-TTY and suppress their stderr
+    // Redirect fd 1/2 to OTHER.stdout/stderr so system frameworks
+    // (NSLog, AppKit, etc.) see a non-TTY and suppress their stderr
     // output. All legitimate writes go through folk_interpose.dylib
     // -> folkGetFdOverride, or to realStdout/realStderr.
-    int devnull = open("/dev/null", O_WRONLY);
-    dup2(devnull, STDOUT_FILENO);
-    dup2(devnull, STDERR_FILENO);
-    close(devnull);
+    char path[4096];
+    snprintf(path, sizeof(path), "%s/OTHER.stdout", outputDir);
+    int otherStdout = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    snprintf(path, sizeof(path), "%s/OTHER.stderr", outputDir);
+    int otherStderr = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    dup2(otherStdout, STDOUT_FILENO);
+    dup2(otherStderr, STDERR_FILENO);
+    close(otherStdout);
+    close(otherStderr);
 }
 
 void installLocalStdoutAndStderr(int stdoutfd, int stderrfd) {

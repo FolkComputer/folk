@@ -46,7 +46,7 @@ folk: workqueue.o db.o trie.o sysmon.o epoch.o folk.o output-redirection.o block
 
 %.o: %.c trie.h workqueue.h CFLAGS
 	cc -c -O2 -g -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) -o$@  \
-		-D_GNU_SOURCE $(CFLAGS) $(BUILTIN_CFLAGS) \
+		-D_GNU_SOURCE -U_FORTIFY_SOURCE $(CFLAGS) $(BUILTIN_CFLAGS) \
 		$< -I./vendor/jimtcl -I./vendor/tracy/public
 
 folk_interpose.dylib: output-redirection.c
