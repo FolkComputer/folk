@@ -223,7 +223,6 @@ Wish the web server handles route "/calibrate" with hidden true handler {
             <iframe src="/camera?camera=$[string map {/ %2F} $camera]"
                     style="border: 1px solid #999"></iframe>
             $[HtmlWhen /someone/ detects calibration tags /detectedTags/ on camera $camera {
-                set ret [\
                 concat \
                   [subst {<svg class="apriltag-overlay"
                                viewBox="0 0 $cameraWidth $cameraHeight"
@@ -242,9 +241,7 @@ Wish the web server handles route "/calibrate" with hidden true handler {
                         <text x="[lindex $points 0 0]" y="[lindex $points 0 1]" fill="green" font-size="12">${id}</text>
                     }
                   }] "\n"] \
-                             "</svg>"]
-                puts $ret
-                return $ret
+                  "</svg>"
             }]
           </div>
         </aside>
