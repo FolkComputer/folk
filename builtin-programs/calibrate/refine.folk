@@ -5,7 +5,8 @@
 #     cmpfit.
 #
 
-When libapriltag has been built {
+When libapriltag has been built with config /configCcWithLibapriltag/ {
+fn configCcWithLibapriltag
 
 # From https://courses.cs.duke.edu/cps274/fall13/notes/rodrigues.pdf:
 fn rotationMatrixToRotationVector {R} {
@@ -62,8 +63,8 @@ fn rotationVectorToRotationMatrix {r} {
 set NUM_TAGS_IN_MODEL 20
 
 set cc [C]
-$cc cflags -I./vendor/cmpfit -I./vendor/apriltag -Wall -Werror
-$cc endcflags ./vendor/apriltag/build/libapriltag.so
+$cc cflags -I./vendor/cmpfit -Wall -Werror
+configCcWithLibapriltag $cc
 
 $cc include <math.h>
 $cc include <string.h>
