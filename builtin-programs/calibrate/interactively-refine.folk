@@ -433,7 +433,20 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
 
         # 2 residuals (dx, dy) per projected tag corner.
         set projectedTagsCount [$modelLib countProjectedTags $model0]
-        set m [expr {$projectedTagsCount * 4 * 2}]
+        set oldPoseResidualCount 0
+        foreach oldPose $poses {
+            set nPrinted 0
+            dict for {id tag} [dict get $oldPose detectedTags0] {
+                if {[$modelLib isPrintedTag $id]} { incr nPrinted [llength [dict get $tag p]] }
+            }
+            if {$nPrinted < 4} { continue }
+            dict for {id tag} [dict get $oldPose detectedTags0] {
+                if {[$modelLib isProjectedTag $id]} {
+                    incr oldPoseResidualCount [expr {[llength [dict get $tag p]] * 2}]
+                }
+            }
+        }
+        set m [expr {$projectedTagsCount * 4 * 2 + $oldPoseResidualCount}]
 
         # Refine the parameters with respect to this pose. This will
         # block for a while and run the interior function a lot (10
@@ -522,6 +535,63 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
                 }
             }
             puts stderr "Residuals: ($residuals)"
+
+            # Old-pose residuals: for each prior pose, estimate the board
+            # position using the current draft calibration, compute where
+            # projected tags would land in display space (H_mD) and use
+            # the stored printed-tag camera detections to map back to
+            # camera space (H_dC), then compare to stored projected detections.
+            set curCamIntr [dict get $calibration camera intrinsics]
+            set curDispIntr [dict get $calibration projector intrinsics]
+            set curR_cDP [dict get $calibration R_cameraToProjector]
+            set curT_cDP [dict get $calibration t_cameraToProjector]
+
+            foreach oldPose $poses {
+                set oldDet [dict get $oldPose detectedTags0]
+
+                set oldModelPrCorners [list]
+                set oldDetPrCorners [list]
+                dict for {id tag} $oldDet {
+                    if {![$modelLib isPrintedTag $id]} { continue }
+                    lappend oldModelPrCorners {*}[dict get $model0 $id p]
+                    lappend oldDetPrCorners {*}[dict get $tag p]
+                }
+                if {[llength $oldModelPrCorners] < 4} { continue }
+
+                set oldBP [$boardLib estimateBoardPose $curCamIntr \
+                               $cameraWidth $cameraHeight \
+                               $oldModelPrCorners $oldDetPrCorners \
+                               [llength $oldModelPrCorners]]
+                set R_old [dict get $oldBP R]
+                set t_old [dict get $oldBP t]
+
+                # H_mD: model -> display (from current calibration + pose)
+                # H_dC: display -> stored camera detections (from printed tags)
+                set oldMDCorrs [list]
+                set oldDCCorrs [list]
+                foreach mc $oldModelPrCorners detC $oldDetPrCorners {
+                    set camPt [add [matmul $R_old [list {*}$mc 0.0]] $t_old]
+                    set dispPt [add [matmul $curR_cDP $camPt] $curT_cDP]
+                    set dp [$poseLib project $curDispIntr $displayWidth $displayHeight $dispPt]
+                    lappend oldMDCorrs [list {*}$mc {*}$dp]
+                    lappend oldDCCorrs [list {*}$dp {*}$detC]
+                }
+                set H_mD [$matLib estimateHomography $oldMDCorrs]
+                set H_dC [$matLib estimateHomography $oldDCCorrs]
+
+                dict for {id tag} $oldDet {
+                    if {![$modelLib isProjectedTag $id]} { continue }
+                    foreach detCorner [dict get $tag p] \
+                            mc [dict get $model0 $id p] {
+                        set dispPos [$matLib applyHomography $H_mD $mc]
+                        set ideal [$matLib applyHomography $H_dC $dispPos]
+                        lappend residuals \
+                            [- [lindex $detCorner 0] [lindex $ideal 0]] \
+                            [- [lindex $detCorner 1] [lindex $ideal 1]]
+                    }
+                }
+            }
+
             return $residuals
         }]]
         puts stderr "Old x: ($x0)"
@@ -531,7 +601,8 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
         Hold! -save -on calibration -key calibration \
             Claim a calibration from camera $camera to display $display is $calibration
 
-        break
+        lappend poses $pose
+        unset prevDetectedTags0 prevDetectedTags0Timestamp
     }
     On unmatch {
         Hold! -key label {}
