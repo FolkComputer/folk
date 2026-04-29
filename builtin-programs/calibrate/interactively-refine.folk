@@ -454,6 +454,12 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
         set version 0
         set x0 [unravel $calibration]
         puts stderr "x0=($x0)"
+        # Track the last calibration that produced a render the
+        # camera could actually detect. If the optimizer steers the
+        # parameters somewhere that breaks the detect loop, we'll
+        # revert to this so the projector goes back to a visible
+        # state.
+        set lastGoodCalibration $calibration
         set x [$boardLib fit $m [llength $x0] $x0 [fn funct {x} {
             # This block gets run on each iteration of the
             # Levenberg-Marquardt optimization loop.
@@ -479,11 +485,25 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
             while {$detectedVersion != $expectedVersion} {
                 incr missedFrames
                 if {$missedFrames > 120} {
-                    puts stderr "Failure -- TODO: revert to older model"
+                    # The current draft x has rendered tags so badly
+                    # the camera can't find them. Revert the projector
+                    # render to the last known good calibration and
+                    # return penalty residuals to push mpfit away.
+                    puts stderr "Failure: reverting to last known good calibration"
+                    set calibration $lastGoodCalibration
+                    incr version
+                    set model [$modelLib updateModelVersion $model0 $version]
+                    Hold! -key refining-model Wish to draw refining model $model \
+                        onto detected tags $detectedTags0 \
+                        using calibration $calibration
+                    return [lrepeat $m 1e3]
                 }
 
                 set frame [AwaitNextCameraFrame! frameTimestamp]
                 set detectedTags [$tagDetector detect $frame]
+                # Report the detections for on-page preview:
+                Hold! -key detected-tags \
+                    Claim $this detects calibration tags $detectedTags on camera $camera
 
                 set detectedProjectedTagsCount [llength [$modelLib filterProjectedTagsInDetectedTags $detectedTags]]
                 if {$detectedProjectedTagsCount < $projectedTagsCount / 2} {
@@ -494,6 +514,9 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
                 }
                 set detectedVersion [$modelLib detectVersionFromDetectedTags $detectedTags]
             }
+            # The render was visible to the camera, so this calibration
+            # is safe to revert to if a later iteration breaks things.
+            set lastGoodCalibration $calibration
 
             # Compute residuals: detected position - ideal position for
             # each projected tag corner.

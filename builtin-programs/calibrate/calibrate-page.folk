@@ -184,8 +184,8 @@ Wish the web server handles route "/calibrate" with hidden true handler {
                    text-align: left;
                }
                aside iframe {
-                   width: 70%;
-                   height: calc(70cqw * $cameraHeight / $cameraWidth + 72px)
+                   width: 65%;
+                   height: calc(65cqw * $cameraHeight / $cameraWidth + 72px)
                }
                article {
                    position: fixed;
@@ -209,8 +209,8 @@ Wish the web server handles route "/calibrate" with hidden true handler {
          }
          const self = uuidv4();
 
-         const ws = new FolkWS(document.getElementById('status'));
-         ws.send(`
+         const folk = new FolkWS(document.getElementById('status'));
+         folk.send(`
     On unmatch {
         Hold! -on builtin-programs/calibrate/calibrate.folk -key {start calibration} {}
     }
@@ -219,8 +219,34 @@ Wish the web server handles route "/calibrate" with hidden true handler {
 
         <aside style="container-type: inline-size">
           <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position):</p>
-          <iframe src="/camera?camera=$[string map {/ %2F} $camera]"
-                  style="border: 1px solid #999"></iframe>
+          <div style="position: relative">
+            <iframe src="/camera?camera=$[string map {/ %2F} $camera]"
+                    style="border: 1px solid #999"></iframe>
+            $[HtmlWhen /someone/ detects calibration tags /detectedTags/ on camera $camera {
+                set ret [\
+                concat \
+                  [subst {<svg class="apriltag-overlay"
+                               viewBox="0 0 $cameraWidth $cameraHeight"
+                               style="position: absolute; top: 1px; left: 1px;
+                                      width: 100%; height: 100%;
+                                      pointer-events: none;">}] \
+                  [join [lmap tag $detectedTags {
+                    set points [dict get $tag p]
+                    set coords [lmap point $points {
+                        format "%g,%g" [lindex $point 0] [lindex $point 1]
+                    }]
+                    lappend coords [lindex $coords 0]
+                    set id [dict get $tag id]
+                    subst {
+                        <polyline points="$coords" fill="none" stroke="green" stroke-width="3" />
+                        <text x="[lindex $points 0 0]" y="[lindex $points 0 1]" fill="green" font-size="12">${id}</text>
+                    }
+                  }] "\n"] \
+                             "</svg>"]
+                puts $ret
+                return $ret
+            }]
+          </div>
         </aside>
 
         <article>
@@ -238,7 +264,7 @@ Wish the web server handles route "/calibrate" with hidden true handler {
               document.getElementById('board-print-through-folk').addEventListener('click', (e) => {
                 const boardSrc = document.getElementById('board-iframe').src.replace(/^data:application.pdf;base64,/, "");
 
-                ws.run(`
+                folk.run(`
                   set boardPdf [binary decode base64 {\${boardSrc}}]
                   set fd [open /tmp/folk-calibration-board.pdf wb]
                   puts \$fd \$boardPdf; close \$fd
@@ -273,7 +299,7 @@ Wish the web server handles route "/calibrate" with hidden true handler {
                   return;
                 }
 
-                ws.hold('start calibration', tcl`
+                folk.hold('start calibration', tcl`
                   Claim the printed calibration tag size is \${mm} mm
                   Wish to calibrate camera "$camera" to display "$display"
                 `, 'builtin-programs/calibrate/calibrate.folk');
@@ -296,7 +322,7 @@ Wish the web server handles route "/calibrate" with hidden true handler {
             <script>
               document.getElementById('projected-tag-slider').addEventListener('input', (e) => {
                 const scale = e.target.value / 100.0;
-                ws.run(tcl`
+                folk.run(tcl`
                   set HoldDefaultModel! [dict get [lindex [Query! /someone/ claims the calibration HoldDefaultModel! is /hdm/] 0] hdm]
                   {*}[set HoldDefaultModel!] \${scale}
                 `);
@@ -309,7 +335,7 @@ Wish the web server handles route "/calibrate" with hidden true handler {
             <script>
               document.getElementById('calibration-poses-max-slider').addEventListener('input', (e) => {
                 const calibrationPosesMax = parseInt(e.target.value);
-                ws.hold(`calibration poses max`, tcl`
+                folk.hold(`calibration poses max`, tcl`
 Claim the calibration poses max is \${calibrationPosesMax}
                 `, 'builtin-programs/calibrate/calibrate.folk');
               });
@@ -364,7 +390,7 @@ Camera Controls
             <h3>Calibration results:</h3> <div id="calibration-report"></div>
             <script>
               const calibrationReportEl = document.getElementById('calibration-report');
-              ws.watchCollected(`/someone/ claims the calibration report is /calibrationReport/`, reports => {
+              folk.watchCollected(`/someone/ claims the calibration report is /calibrationReport/`, reports => {
                 if (reports.length === 0) {
                   calibrationReportEl.innerHTML = "<pre>Not calibrating yet.</pre>";
                   return;
@@ -395,7 +421,7 @@ Camera Controls
                   alert("Error: You need to type in a valid inner side length (mm) of your board tags before clicking Start Interactive Refine.");
                   return;
                 }
-                ws.hold('start calibration', tcl`
+                folk.hold('start calibration', tcl`
                   Claim the printed calibration tag size is \${mm} mm
                   Wish to interactively refine calibration from camera "$camera" to display "$display"
                 `, 'builtin-programs/calibrate/calibrate.folk');
@@ -455,7 +481,7 @@ Camera Controls
                  top: geomTopMm.value + 'mm',
                  bottom: geomBottomMm.value + 'mm'
                };
-               ws.run(tcl`
+               folk.run(tcl`
 Hold! -save -on calibration -key default-program-geometry Claim the default program geometry is \${geom}
 `);
              });
