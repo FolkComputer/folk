@@ -1,4 +1,4 @@
-proc lseq count {
+fn lseq count {
     set ret [list]
     for {set i 0} {$i < $count} {incr i} {
         lappend ret $i
@@ -14,11 +14,11 @@ proc lseq count {
 # given, in either form, the string is returned, as it is its own
 # longest common prefix.
 
-proc ::textutil::string::longestCommonPrefix {args} {
+fn textutil::string::longestCommonPrefix {args} {
     return [longestCommonPrefixList $args]
 }
 
-proc ::textutil::string::longestCommonPrefixList {list} {
+fn textutil::string::longestCommonPrefixList {list} {
     if {[llength $list] <= 1} {
 	return [lindex $list 0]
     }
@@ -62,7 +62,7 @@ proc ::textutil::string::longestCommonPrefixList {list} {
 # @i indent
 # @n This procedure is not checked by the testsuite.
 
-proc ::textutil::adjust::indent {text prefix {skip 0}} {
+fn textutil::adjust::indent {text prefix {skip 0}} {
     set text [string trimright $text]
 
     set res [list]
@@ -87,7 +87,7 @@ proc ::textutil::adjust::indent {text prefix {skip 0}} {
 # shaping of the paragraph (i.e. hanging indent are _not_ flattened)
 # We ignore empty lines !!
 
-proc ::textutil::adjust::undent {text} {
+fn textutil::adjust::undent {text} {
 
     if {$text == {}} {return {}}
 
@@ -117,4 +117,3 @@ proc ::textutil::adjust::undent {text} {
     }
     return [join $res \n]
 }
-namespace import ::textutil::adjust::*

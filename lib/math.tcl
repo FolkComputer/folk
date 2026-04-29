@@ -3,65 +3,63 @@
 #     This file provides global math datatypes and utilities.
 #
 
-namespace eval ::vec2 {
-    proc add {a b} {
-        list [+ [lindex $a 0] [lindex $b 0]] [+ [lindex $a 1] [lindex $b 1]]
+set vec2 {}
+fn vec2::add {a b} {
+    list [+ [lindex $a 0] [lindex $b 0]] [+ [lindex $a 1] [lindex $b 1]]
+}
+
+fn vec2::sub {a b} {
+    list [- [lindex $a 0] [lindex $b 0]] [- [lindex $a 1] [lindex $b 1]]        
+}
+fn vec2::mult {a b} {
+    list [* [lindex $a 0] [lindex $b 0]] [* [lindex $a 1] [lindex $b 1]]        
+}
+fn vec2::div {a b} {
+    list [/ [lindex $a 0] [lindex $b 0]] [/ [lindex $a 1] [lindex $b 1]]        
+}
+fn vec2::scale {a args} {
+    if {[llength $args] == 1} {
+        set sx [lindex $args 0]; set sy [lindex $args 0]
+    } else {
+        lassign $args sx sy
     }
-    proc sub {a b} {
-        list [- [lindex $a 0] [lindex $b 0]] [- [lindex $a 1] [lindex $b 1]]        
+    list [* [lindex $a 0] $sx] [* [lindex $a 1] $sy]
+}
+fn vec2::rotate {a theta} {
+    lassign $a x y
+    list [expr {$x*cos($theta) + $y*sin($theta)}] \
+            [expr {-$x*sin($theta) + $y*cos($theta)}]
+}
+fn vec2::distance {a b} {
+    lassign $a ax ay
+    lassign $b bx by
+    expr {sqrt(pow($ax-$bx, 2) + pow($ay-$by, 2))}
+}
+fn vec2::normalize {a} {
+    set l2 [vec2 distance $a [list 0 0]]
+    vec2 scale $a [/ 1 $l2]
+}
+fn vec2::dot {a b} {
+    expr {[lindex $a 0]*[lindex $b 0] + [lindex $a 1]*[lindex $b 1]}
+}
+fn vec2::distanceToLineSegment {a v w} {
+    set l2 [vec2 distance $v $w]
+    if {$l2 == 0.0} {
+        return [vec2::distance $a $v]
     }
-    proc mult {a b} {
-        list [* [lindex $a 0] [lindex $b 0]] [* [lindex $a 1] [lindex $b 1]]        
-    }
-    proc div {a b} {
-        list [/ [lindex $a 0] [lindex $b 0]] [/ [lindex $a 1] [lindex $b 1]]        
-    }
-    proc scale {a args} {
-        if {[llength $args] == 1} {
-            set sx [lindex $args 0]; set sy [lindex $args 0]
-        } else {
-            lassign $args sx sy
-        }
-        list [* [lindex $a 0] $sx] [* [lindex $a 1] $sy]
-    }
-    proc rotate {a theta} {
-        lassign $a x y
-        list [expr {$x*cos($theta) + $y*sin($theta)}] \
-             [expr {-$x*sin($theta) + $y*cos($theta)}]
-    }
-    proc distance {a b} {
-        lassign $a ax ay
-        lassign $b bx by
-        expr {sqrt(pow($ax-$bx, 2) + pow($ay-$by, 2))}
-    }
-    proc normalize {a} {
-        set l2 [vec2 distance $a [list 0 0]]
-        vec2 scale $a [/ 1 $l2]
-    }
-    proc dot {a b} {
-        expr {[lindex $a 0]*[lindex $b 0] + [lindex $a 1]*[lindex $b 1]}
-    }
-    proc distanceToLineSegment {a v w} {
-        set l2 [vec2 distance $v $w]
-        if {$l2 == 0.0} {
-            return [distance $a $v]
-        }
-        set t [max 0 [min 1 [/ [dot [sub $a $v] [sub $w $v]] $l2]]]
-        set proj [add $v [scale [sub $w $v] $t]]
-        vec2 distance $a $proj
-    }
-    proc midpoint {a b} {
-        lassign $a x1 y1; lassign $b x2 y2
-        list [/ [+ $x1 $x2] 2] [/ [+ $y1 $y2] 2]
-    }
-    namespace export *
-    namespace ensemble create
+    set t [max 0 [min 1 [/ [vec2::dot [vec2::sub $a $v] [vec2::sub $w $v]] $l2]]]
+    set proj [vec2::add $v [vec2::scale [vec2::sub $w $v] $t]]
+    vec2 distance $a $proj
+}
+fn vec2::midpoint {a b} {
+    lassign $a x1 y1; lassign $b x2 y2
+    list [/ [+ $x1 $x2] 2] [/ [+ $y1 $y2] 2]
 }
 
 # From tcllib ::math::geometry
 # Original code found at: https://www.ecse.rpi.edu/~wrf/Research/Short_Notes/pnpoly.html
 # Thanks to Christian Gollwitzer, Peter Lewerin and Eduard Zozuly
-proc ::math::geometry::pointInsidePolygon {point polygon} {
+fn math::geometry::pointInsidePolygon {point polygon} {
     lassign $point testx testy
     foreach p $polygon {
         lassign $p x y
@@ -83,28 +81,25 @@ proc ::math::geometry::pointInsidePolygon {point polygon} {
     return $c
 }
 
-namespace eval ::math {
-    proc min {args} {
-        if {[llength $args] == 0} { error "min: No args" }
-        set min infinity
-        foreach arg $args { if {$arg < $min} { set min $arg } }
-        return $min
-    }
-    proc max {args} {
-        if {[llength $args] == 0} { error "max: No args" }
-        set max -infinity
-        foreach arg $args { if {$arg > $max} { set max $arg } }
-        return $max
-    }
-    proc mean {val args} {
-        set sum $val
-        set N [ expr { [ llength $args ] + 1 } ]
-        foreach val $args {
-            set sum [ expr { $sum + $val } ]
-        }
-        set mean [expr { double($sum) / $N }]
-    }
-    proc sin {x} { expr {sin($x)} }
-    proc cos {x} { expr {cos($x)} }
+fn math::min {args} {
+    if {[llength $args] == 0} { error "min: No args" }
+    set min infinity
+    foreach arg $args { if {$arg < $min} { set min $arg } }
+    return $min
 }
-namespace import ::math::*
+fn math::max {args} {
+    if {[llength $args] == 0} { error "max: No args" }
+    set max -infinity
+    foreach arg $args { if {$arg > $max} { set max $arg } }
+    return $max
+}
+fn math::mean {val args} {
+    set sum $val
+    set N [ expr { [ llength $args ] + 1 } ]
+    foreach val $args {
+        set sum [ expr { $sum + $val } ]
+    }
+    set mean [expr { double($sum) / $N }]
+}
+fn math::sin {x} { expr {sin($x)} }
+fn math::cos {x} { expr {cos($x)} }

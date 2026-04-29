@@ -104,7 +104,7 @@ deps:
 		cd vendor/jimtcl && ./configure CFLAGS='-g -fno-omit-frame-pointer'; \
 	fi
 	make -C vendor/jimtcl
-	cd vendor/zicl && zig build
+	zig build --build-file ./vendor/zicl/build.zig -Doptimize=ReleaseSafe
 
 
 kill-folk:

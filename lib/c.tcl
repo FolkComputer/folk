@@ -4,15 +4,15 @@
 #     into a Tcl program. Especially useful for calling existing C
 #     APIs and libraries (i.e., almost anything involving hardware or
 #     the OS -- graphics, webcams, multithreading). Shells out to the
-#     C compiler to build a shared library and then uses Tcl `load` to
+#     C compiler to build a shared library and then uses Tcl "load" to
 #     load it immediately.
 #
 # Copyright (c) 2022-2024 Folk Computer, Inc.
 
-# Much like `subst`, but you invoke a Tcl fn with $[whatever] instead
+# Much like "subst", but you invoke a Tcl fn with $[whatever] instead
 # of [whatever], so that the [] syntax is freed up to be used for C
 # arrays as in normal C.
-proc csubst {s} {
+fn csubst {s} {
     set result [list]
     for {set i 0} {$i < [string length $s]} {incr i} {
         set c [string index $s $i]
@@ -48,14 +48,15 @@ proc csubst {s} {
     }
     join $result ""
 }
-::proc cstyle {type name} {
+puts 10
+fn cstyle {type name} {
     if {[regexp {([^\[]+)(\[\d*\](\[\d*\])?)$} $type -> basetype arraysuffix]} {
         list $basetype $name$arraysuffix
     } else {
         list $type $name
     }
 }
-::proc typestyle {type name} {
+fn typestyle {type name} {
     if {[regexp {([^\[]+)(\[\d*\](\[\d*\])?)$} $name -> basename arraysuffix]} {
         list $type$arraysuffix $basename
     } else {
@@ -63,9 +64,7 @@ proc csubst {s} {
     }
 }
 
-package require oo
-
-class C {
+set C {
     compiler cc
     prelude {
         #include <jim.h>
@@ -255,25 +254,25 @@ class C {
 }
 
 # Registers a new argtype.
-C method argtype {t h} {
+method C::argtype {t h} {
     dict set argtypes $t [csubst {expr {{$h}}}]
 }
 # Looks up the argtype and returns C code to convert it.
-C method arg {argtype argname obj} {
+method C::arg {argtype argname obj} {
     csubst [eval [dict getdef $argtypes $argtype \
                       [dict get $argtypes default]]]
 }
 
 # Registers a new rtype.
-C method rtype {t h} {
+method C::rtype {t h} {
     dict set rtypes $t [csubst {expr {{$h}}}]
 }
-C method ret {rtype robj rvalue} {
+method C::ret {rtype robj rvalue} {
     csubst [eval [dict getdef $rtypes $rtype \
                       [dict get $rtypes default]]]
 }
 
-C method include {h} {
+method C::include {h} {
     if {[llength $h] > 1} {
         lappend code $h :extend
         return
@@ -285,7 +284,7 @@ C method include {h} {
     }
 }
 
-C method code {newcode} {
+method C::code {newcode} {
     lassign [info source $newcode] filename line
     if {$filename ne ""} { 
         set newcode [subst {
@@ -297,7 +296,7 @@ C method code {newcode} {
     list
 }
 
-C method define {newvars} {
+method C::define {newvars} {
     lappend code $newvars :noextend
 
     regsub -all -line {/\*.*?\*/} $newvars "" newvars
@@ -319,7 +318,7 @@ C method define {newvars} {
     }
 }
 
-C method enum {type values} {
+method C::enum {type values} {
     lappend code [subst {
         typedef enum $type $type;
         enum $type {$values};
@@ -330,7 +329,7 @@ C method enum {type values} {
     rtype $type [dict get $rtypes int]
 }
 
-C method typedef {t newt {emitC true}} {
+method C::typedef {t newt {emitC true}} {
     if {$emitC} {
         lappend code "typedef $t $newt;" :extend
     }
@@ -353,7 +352,7 @@ C method typedef {t newt {emitC true}} {
     }
 }
 
-C method struct {type fields} {
+method C::struct {type fields} {
     lappend code [subst {
         typedef struct $type $type;
         struct $type {$fields};
@@ -523,7 +522,7 @@ C method struct {type fields} {
     }
 }
 
-C method proc {name arguments rtype body} {
+method C::proc {name arguments rtype body} {
     set cname [string map {":" "_" "!" "_"} $name]
     lassign [info source $body] filename line
     set body [uplevel 2 [list csubst $body]]
@@ -594,10 +593,10 @@ C method proc {name arguments rtype body} {
     }]
 }
 
-C method cflags {args} { lappend cflags {*}$args }
-C method endcflags {args} { lappend endcflags {*}$args }
+method C::cflags {args} { lappend cflags {*}$args }
+method C::endcflags {args} { lappend endcflags {*}$args }
 
-C method compile {args} {
+method C::compile {args} {
     set noload false
     set cid {}
     foreach arg $args {
@@ -773,7 +772,7 @@ extern "C" \{
     return <C:$cid>
 }
 
-C method import {srclib srcname {_as {}} {destname {}}} {
+method C::import {srclib srcname {_as {}} {destname {}}} {
     if {$destname eq ""} { set destname $srcname }
 
     set procinfo [dict get [$srclib __getCInfo] procs $srcname]
@@ -784,10 +783,10 @@ C method import {srclib srcname {_as {}} {destname {}}} {
     $self code "$rtype (*$destname) ([join $arglist {, }]) = ($rtype (*) ([join $arglist {, }])) $addr;"
 }
 
-C method string_toupper_first {s} {
+method C::string_toupper_first {s} {
     return [string toupper [string index $s 0]][string range $s 1 end]
 }
-C method extend {args} {
+method C::extend {args} {
     set noprocs false
     foreach arg $args {
         if {$arg eq "-noprocs"} {
@@ -833,7 +832,7 @@ C method extend {args} {
     lappend extends $srcid
 }
 
-proc ::C++ {} {
+fn C++ {} {
     set cpp [C]
     $cpp eval [list set compiler c++]
     $cpp cflags -Wno-write-strings

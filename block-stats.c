@@ -6,11 +6,11 @@
 
 #include "vendor/stb_ds.h"
 
-#include <jim.h>
+#include <libzicl.h>
 
 #include "block-stats.h"
 
-// Running EWMA of Jim_EvalObjVector runtime per filename:lineno.
+// Running EWMA of block eval runtime per filename:lineno.
 // rwlock: rlock for updates to existing entries (ewma/count updated with
 // relaxed atomics), wlock only when inserting a new entry.
 typedef struct {
@@ -58,20 +58,25 @@ void blockStatsUpdate(const char *sourceFileName, int sourceLineNumber,
     pthread_rwlock_unlock(&blockStatsLock);
 }
 
-int __blockRuntimeStatsFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    Jim_Obj *result = Jim_NewListObj(interp, NULL, 0);
+int __blockRuntimeStatsFunc(Zicl_Interp *interp, int argc, Zicl_Handle *const argv) {
+    Zicl_Handle result = Zicl_NewList(NULL, 0);
     pthread_rwlock_rdlock(&blockStatsLock);
     for (int i = 0; i < shlen(blockStats); i++) {
-        Jim_Obj *entry = Jim_NewListObj(interp, NULL, 0);
-        Jim_ListAppendElement(interp, entry,
-                              Jim_NewStringObj(interp, blockStats[i].key, -1));
-        Jim_ListAppendElement(interp, entry,
-                              Jim_NewDoubleObj(interp, blockStats[i].ewma_ns));
-        Jim_ListAppendElement(interp, entry,
-                              Jim_NewIntObj(interp, (jim_wide)blockStats[i].count));
-        Jim_ListAppendElement(interp, result, entry);
+        char ewma_buf[64], count_buf[64];
+        snprintf(ewma_buf, sizeof(ewma_buf), "%.3f", blockStats[i].ewma_ns);
+        snprintf(count_buf, sizeof(count_buf), "%llu",
+                 (unsigned long long)blockStats[i].count);
+        Zicl_Handle items[3] = {
+            Zicl_NewString(blockStats[i].key, -1),
+            Zicl_NewString(ewma_buf, -1),
+            Zicl_NewString(count_buf, -1),
+        };
+        Zicl_Handle entry = Zicl_NewList(items, 3);
+        Zicl_ListAppend(interp, &result, entry);
+        for (int j = 0; j < 3; j++) Zicl_DecrRefCount(items[j]);
+        Zicl_DecrRefCount(entry);
     }
     pthread_rwlock_unlock(&blockStatsLock);
-    Jim_SetResult(interp, result);
-    return JIM_OK;
+    Zicl_SetResultOwning(interp, result);
+    return ZICL_OK;
 }

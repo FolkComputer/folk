@@ -550,12 +550,6 @@ static int __currentMatchRefFunc(Zicl_Interp *interp, int argc, Zicl_Handle *con
     return ZICL_OK;
 }
 
-// TODO: Add Zicl_SetResultInt to Zicl C API (wraps setResultInteger)
-static int Zicl_SetResultInt(Zicl_Interp *interp, long value) {
-    char buf[32]; snprintf(buf, sizeof(buf), "%ld", value);
-    return Zicl_SetResultString(interp, buf, -1);
-}
-
 static int __statementIncompleteChildMatchesCountFunc(Zicl_Interp *interp, int argc, Zicl_Handle *const argv) {
     assert(argc == 2);
     StatementRef ref;
@@ -1381,9 +1375,7 @@ void workerLoop() {
     int64_t schedtick = 0;
     for (;;) {
         schedtick++;
-        if (interp->sigmask & (1 << SIGUSR1)) {
-            // FIXME: I think this signal handler doesn't actually
-            // run.
+        if (Zicl_GetSigmask(interp) & (1 << SIGUSR1)) {
             workerExit();
         }
 
@@ -1412,6 +1404,8 @@ void workerLoop() {
     workerExit();
 }
 void workerInit(int index) {
+    Zicl_InitLocalHeap();
+
     seedp = time(NULL) + index;
 
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
@@ -1627,6 +1621,10 @@ int main(int argc, char** argv) {
     globalWorkQueueInit();
     blockStatsInit();
 
+    Zicl_SetGlobalStdout(realStdout);
+    Zicl_SetGlobalStderr(realStderr);
+    Zicl_InitGlobals();
+
 #ifdef __linux__
     // Count CPUs so we can set up the thread pool to align with the
     // available cores.
@@ -1671,7 +1669,7 @@ int main(int argc, char** argv) {
 #endif
 
     // Now spawn cpuUsableCount-1 additional workers.
-    for (int i = 0; i < cpuUsableCount - 1; i++) { workerSpawn(); }
+    // for (int i = 0; i < cpuUsableCount - 1; i++) { workerSpawn(); }
 
     // Now we set up worker 0, which is this main thread itself, which
     // needs to be an active worker, in case we need to do things like

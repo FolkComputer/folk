@@ -4,8 +4,7 @@
 #
 # It's sort of the only place you can create genuine globals that you
 # can guarantee will be available on any Folk process/block.
-
-lappend ::auto_path "./vendor"
+lappend auto_path "./vendor"
 source "lib/c.tcl"
 source "lib/math.tcl"
 source "lib/text.tcl"
