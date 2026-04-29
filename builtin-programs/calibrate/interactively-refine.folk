@@ -146,7 +146,7 @@ $cc proc estimateBoardPose {Intrinsics cameraIntrinsics
     matd_t* cRw = matd_create_data(3, 3, (double*) baseBoardPose.R);
     matd_t* ctw = matd_create_data(3, 1, (double*) baseBoardPose.t);
 
-    poseGaussNewton(wX, x, cornersCount, &cRw, &ctw);
+    poseGaussNewton(wX, x, cornersCount, &cRw, &ctw, 200);
 
     TagPose ret;
     memcpy(ret.R, cRw->data, sizeof(ret.R));
@@ -337,14 +337,12 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
     set frameTimestamp 0
     while true {
         set frame [AwaitNextCameraFrame! frameTimestamp]
-        set aprilTime [time {
-            set detectedTags0 [dict create]
-            foreach tag [$tagDetector detect $frame] {
-                dict set detectedTags0 $tag(id) $tag
-            }
-        }]
+        set detectedTags0 [dict create]
+        foreach tag [$tagDetector detect $frame] {
+            dict set detectedTags0 $tag(id) $tag
+        }
         if {[dict size $detectedTags0] < 8} {
-            puts stderr "Not enough tags: [dict size $detectedTags0]"
+            # puts stderr "Not enough tags: [dict size $detectedTags0]"
             continue
         }
 
@@ -436,11 +434,11 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
         set oldPoseResidualCount 0
         foreach oldPose $poses {
             set nPrinted 0
-            dict for {id tag} [dict get $oldPose detectedTags0] {
+            dict for {id tag} [dict get $oldPose finalDetectedTags] {
                 if {[$modelLib isPrintedTag $id]} { incr nPrinted [llength [dict get $tag p]] }
             }
             if {$nPrinted < 4} { continue }
-            dict for {id tag} [dict get $oldPose detectedTags0] {
+            dict for {id tag} [dict get $oldPose finalDetectedTags] {
                 if {[$modelLib isProjectedTag $id]} {
                     incr oldPoseResidualCount [expr {[llength [dict get $tag p]] * 2}]
                 }
@@ -453,19 +451,20 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
         # times? 100 times?).
         set version 0
         set x0 [unravel $calibration]
-        puts stderr "x0=($x0)"
+        # puts stderr "x0=($x0)"
         # Track the last calibration that produced a render the
         # camera could actually detect. If the optimizer steers the
         # parameters somewhere that breaks the detect loop, we'll
         # revert to this so the projector goes back to a visible
         # state.
         set lastGoodCalibration $calibration
+        set detectedTags {}
         set x [$boardLib fit $m [llength $x0] $x0 [fn funct {x} {
             # This block gets run on each iteration of the
             # Levenberg-Marquardt optimization loop.
 
-            puts stderr "ITER ------"
-            puts stderr "Test x=($x)"
+            # puts stderr "ITER ------"
+            # puts stderr "Test x=($x)"
 
             ravelInto calibration $x
             incr version
@@ -506,11 +505,11 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
                     Claim $this detects calibration tags $detectedTags on camera $camera
 
                 set detectedProjectedTagsCount [llength [$modelLib filterProjectedTagsInDetectedTags $detectedTags]]
-                if {$detectedProjectedTagsCount < $projectedTagsCount / 2} {
-                    puts stderr "Failure: Only seeing $detectedProjectedTagsCount of $projectedTagsCount projected tags"
+                if {$detectedProjectedTagsCount < 1} {
+                    # puts stderr "Failure: Only seeing $detectedProjectedTagsCount of $projectedTagsCount projected tags"
                     continue
                 } else {
-                    puts stderr "Success: Seeing $detectedProjectedTagsCount of $projectedTagsCount projected tags"
+                    # puts stderr "Success: Seeing $detectedProjectedTagsCount of $projectedTagsCount projected tags"
                 }
                 set detectedVersion [$modelLib detectVersionFromDetectedTags $detectedTags]
             }
@@ -557,7 +556,7 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
                         [- [lindex $det 1] [lindex $ideal 1]]
                 }
             }
-            puts stderr "Residuals: ($residuals)"
+            # puts stderr "Residuals: ($residuals)"
 
             # Old-pose residuals: for each prior pose, estimate the board
             # position using the current draft calibration, compute where
@@ -570,7 +569,7 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
             set curT_cDP [dict get $calibration t_cameraToProjector]
 
             foreach oldPose $poses {
-                set oldDet [dict get $oldPose detectedTags0]
+                set oldDet [dict get $oldPose finalDetectedTags]
 
                 set oldModelPrCorners [list]
                 set oldDetPrCorners [list]
@@ -617,14 +616,17 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
 
             return $residuals
         }]]
-        puts stderr "Old x: ($x0)"
-        puts stderr "New x: ($x)"
+        # puts stderr "Old x: ($x0)"
+        # puts stderr "New x: ($x)"
         ravelInto calibration $x
 
         Hold! -save -on calibration -key calibration \
             Claim a calibration from camera $camera to display $display is $calibration
 
+        dict set pose finalDetectedTags $detectedTags
         lappend poses $pose
+
+        puts stderr "Saved calibration. Now have [llength $poses] poses."
         unset prevDetectedTags0 prevDetectedTags0Timestamp
     }
     On unmatch {
