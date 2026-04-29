@@ -171,7 +171,31 @@ Wish the web server handles route "/calibrate" with hidden true handler {
                padding: 1em;
                box-sizing: border-box;
                text-align: right;
-           } 
+           }
+           aside iframe {
+               width: 100%;
+               height: calc(100cqw * $cameraHeight / $cameraWidth + 72px);
+           }
+           @media (max-width: 800px) {
+               aside {
+                   left: 0;
+                   width: 100%;
+                   height: 50vh;
+                   text-align: left;
+               }
+               aside iframe {
+                   width: 70%;
+                   height: calc(70cqw * $cameraHeight / $cameraWidth + 72px)
+               }
+               article {
+                   position: fixed;
+                   top: 50vh;
+                   left: 0; right: 0;
+                   max-height: 50vh;
+                   width: 100%; max-width: 100%;
+                   overflow-y: auto;
+               }
+           }
           </style>
         </head>
       <body>
@@ -196,7 +220,7 @@ Wish the web server handles route "/calibrate" with hidden true handler {
         <aside style="container-type: inline-size">
           <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position):</p>
           <iframe src="/camera?camera=$[string map {/ %2F} $camera]"
-                  style="border: 1px solid #999; width: 100%; height: calc(100cqw * $cameraHeight / $cameraWidth + 72px);"></iframe>
+                  style="border: 1px solid #999"></iframe>
         </aside>
 
         <article>
