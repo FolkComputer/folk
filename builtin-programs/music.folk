@@ -150,6 +150,8 @@ fn musicExec {args} {
 fn musicFinishSetup {} {
   if {$::thisNode eq "folk-hex"} {
       exec jackd -d alsa -d hdmi:CARD=NVidia -r 48000 -p 1024 -n 2 &
+  } elseif {$::thisNode eq "folk-convivial"} {
+      exec jackd -d alsa -d hw:Generic_1 -r 48000 -p 1024 -n 2 &
   }
 
   catch {exec pkill ghci}
