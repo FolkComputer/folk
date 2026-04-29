@@ -161,7 +161,18 @@ Wish the web server handles route "/calibrate" with hidden true handler {
       <html>
         <head>
           <title>Folk: Calibrate</title>
-          <style>body { max-width: 600px; }</style>
+          <style>
+           body { margin: 0; }
+           article { max-width: 600px; }
+           aside {
+               position: fixed; top: 0; right: 0;
+               width: min(calc(100vw - 650px), 550px);
+               height: 100vh; overflow-y: auto;
+               padding: 1em;
+               box-sizing: border-box;
+               text-align: right;
+           } 
+          </style>
         </head>
       <body>
         <span id="status">Status</span>
@@ -182,6 +193,13 @@ Wish the web server handles route "/calibrate" with hidden true handler {
          `);
         </script>
 
+        <aside style="container-type: inline-size">
+          <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position):</p>
+          <iframe src="/camera?camera=$[string map {/ %2F} $camera]"
+                  style="border: 1px solid #999; width: 100%; height: calc(100cqw * $cameraHeight / $cameraWidth + 72px);"></iframe>
+        </aside>
+
+        <article>
         <ol>
           <li>
             <h3>Print the calibration board.</h3>
@@ -272,11 +290,6 @@ Claim the calibration poses max is \${calibrationPosesMax}
                 `, 'builtin-programs/calibrate/calibrate.folk');
               });
             </script>
-
-            <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position):</p>
-            <iframe src="/camera?camera=$[string map {/ %2F} $camera]"
-                    width="600" height="$[expr {int(600.0 * $cameraHeight / $cameraWidth) + 48}]"
-                    style="border: 1px solid #999;"></iframe>
 
           <p>Once you've recorded the first pose, <em>slowly drag the board around your space</em>, going slow enough for the projected AprilTags to catch up with the printed AprilTags and fit into the gaps on your board. When you've moved the board at least a full board-length away from the first pose, try to slant it 45 degrees or so off the table and hold it still again to capture another pose.</p>
 
@@ -450,6 +463,7 @@ Hold! -save -on calibration -key default-program-geometry Claim the default prog
             before or after.)</p>
           </li>
         </ol>
+        </article>
       </body>
     </html>
   }]
