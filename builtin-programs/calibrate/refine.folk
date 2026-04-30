@@ -284,7 +284,7 @@ $cc proc monoFunc {int m int n double* x
     }
     return 0;
 }
-$cc proc monoComputeError {double[] params int paramsCount} double {
+$cc proc monoComputeError {double[paramsCount] params} double {
     double fvec[MonoPointsCount];
     monoFunc(MonoPointsCount, paramsCount, params, fvec, NULL, NULL);
     double totalError = 0;
@@ -297,14 +297,14 @@ $cc proc monoComputeError {double[] params int paramsCount} double {
     printf("RMSE: %f\n", rmse);
     return rmse;
 }
-$cc proc monoRefineCalibrationOptimize {double[] params int paramsCount} Jim_Obj* {
+$cc proc monoRefineCalibrationOptimize {double[paramsCount] params} Jim_Obj* {
     setvbuf(stdout, NULL, _IONBF, BUFSIZ);
 
     mp_result result = {0};
 
     assert(paramsCount == 8 + MonoPoseCount*6);
     printf("Unrefined -----------------\n");
-    monoComputeError(params, paramsCount);
+    monoComputeError(paramsCount, params);
 
     mpfit(monoFunc,
           // Number of example point pairs:
@@ -314,11 +314,12 @@ $cc proc monoRefineCalibrationOptimize {double[] params int paramsCount} Jim_Obj
           params, NULL,
           NULL, NULL, &result);
     printf("Refined -------------------\n");
-    double rmse = monoComputeError(params, paramsCount);
+    double rmse = monoComputeError(paramsCount, params);
 
     Jim_Obj* paramObjs[1 + paramsCount];
     paramObjs[0] = Jim_NewDoubleObj(interp, rmse);
     for (int i = 0; i < paramsCount; i++) {
+        FOLK_ENSURE(!isnan(params[i]));
         paramObjs[1 + i] = Jim_NewDoubleObj(interp, params[i]);
     }
     return Jim_NewListObj(interp, paramObjs, 1 + paramsCount);
@@ -449,7 +450,7 @@ $cc proc stereoFunc {int m int n double* x
     }
     return 0;
 }
-$cc proc stereoComputeError {double[] params int paramsCount} double {
+$cc proc stereoComputeError {double[paramsCount] params} double {
     double fvec[StereoPointsCount * 2];
     stereoFunc(StereoPointsCount * 2, paramsCount, params, fvec, NULL, NULL);
     double totalError = 0;
@@ -462,12 +463,12 @@ $cc proc stereoComputeError {double[] params int paramsCount} double {
     printf("RMSE: %f\n", rmse);
     return rmse;
 }
-$cc proc stereoRefineCalibrationOptimize {double[] params int paramsCount} Jim_Obj* {
+$cc proc stereoRefineCalibrationOptimize {double[paramsCount] params} Jim_Obj* {
     mp_result result = {0};
 
     assert(paramsCount == 6 + StereoPoseCount*6);
     printf("Unrefined -----------------\n");
-    stereoComputeError(params, paramsCount);
+    stereoComputeError(paramsCount, params);
 
     mpfit(stereoFunc,
           // Number of example point pairs:
@@ -477,7 +478,7 @@ $cc proc stereoRefineCalibrationOptimize {double[] params int paramsCount} Jim_O
           params, NULL,
           NULL, NULL, &result);
     printf("Refined -------------------\n");
-    double rmse = stereoComputeError(params, paramsCount);
+    double rmse = stereoComputeError(paramsCount, params);
 
     Jim_Obj* paramObjs[1 + paramsCount];
     paramObjs[0] = Jim_NewDoubleObj(interp, rmse);
@@ -526,7 +527,7 @@ fn refineMonoCalibration {calibration} {
     }
 
     # Do the actual optimization:
-    set refined [$refineLib monoRefineCalibrationOptimize $params [llength $params]]
+    set refined [$refineLib monoRefineCalibrationOptimize $params]
 
     # Unspool the optimization result into the calibration data
     # structure and return that.
@@ -705,7 +706,7 @@ fn refineCalibration {modelLib matLib
     }
 
     puts ".\nStereo refine ($poseCount poses):"
-    set refined [$refineLib stereoRefineCalibrationOptimize $params [llength $params]]
+    set refined [$refineLib stereoRefineCalibrationOptimize $params]
     set refined [lassign $refined rmse]
     dict set calibration rmse $rmse
     dict set calibration R_cameraToProjector [rotationVectorToRotationMatrix [lrange $refined 0 2]]
