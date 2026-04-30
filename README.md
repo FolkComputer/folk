@@ -694,19 +694,6 @@ Capitalized namespace, like `Statements`.
     for a program
 - camera slices cause hop/distortion when pulled off
 
-### next
-- **calibrate render loop blinks out regularly**
-- calibrate doesn't click in afterward, have to restart system (is it
-  because of kill refiner?)
-- rename resolved geometry to geometry
-- On unmatch doesn't work if run at start of When block instead of
-  end? -- **it's probably because it gets pinned through descendant
-  statements**
-- ~~fix error reporting on table~~ clean up title, clean up points-at
-- "Added tag 1313" pileup (and removal pileup when flipped over)
-- fix calibration screwing up system state
-- persist transient errors
-
 ### ideas
 - aborted executions shouldn't be too high a percentage of total # of
 executions of the block? if they are, then we warn on the page that it
@@ -716,7 +703,8 @@ isn't meeting timing
 
 ### other stuff
 - stereo calibration
-- run segmentation model
+- ~~run segmentation model~~
+  - speed up segmentation model
 - ~~rescale camera slice to have correct aspect ratio~~
 - debug memory leaks
   - are we ever freeing AtomicallyVersion? -- no, but this isn't the
@@ -724,8 +712,6 @@ isn't meeting timing
   - not destructors
   - also not camera images
   - also not jim allocations
-- ~~bug where camera slices halt / slow down animation~~
-  - ~~animation blinky~~
 - gadget-platinum outline blink
 - slowdown where sysmon starts taking forever bc of endless chains of
   destructors/atomicallyversions
@@ -736,4 +722,17 @@ isn't meeting timing
 - ~~automatic default calibration so you can drag stuff around on laptop~~
 - automatically allow optional fields on `with` (or add object pattern-matching?)
 - try to maximize cpu usage
-- dual camera calibration -> ML
+- folk-convivial way too blinky, slow, _big board stops_
+
+#### calibration
+- try keeping a calibration history so we can diff them and see trends
+- add skew parameter?
+- **calibrate render loop blinks out regularly**
+- calibrate doesn't click in afterward, have to restart system (is it
+  because of kill refiner?)
+- show better notice that you need calib board on table to do
+  interactive refine
+- pose estimate
+  - exclude any pose estimate that dips below the table plane
+  - pick the pose estimate that maximizes projected area
+  - 

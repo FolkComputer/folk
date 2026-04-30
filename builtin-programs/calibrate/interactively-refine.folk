@@ -325,6 +325,8 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
                     $printedSideLengthM]
 
     set calibration [dict get [QueryOne! a calibration from camera $camera to display $display is /calibration/] calibration]
+    set calibrationPoses [dict get [QueryOne! the calibration poses from camera $camera to display $display are /calibrationPoses/] calibrationPoses]
+
     # The actual refinement process. We will have the user hold up the
     # board in a sequence of whatever poses they want. When the board
     # is stable for a couple seconds, we say that's a pose, and we
@@ -445,6 +447,17 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
             }
         }
         set m [expr {$projectedTagsCount * 4 * 2 + $oldPoseResidualCount}]
+
+        # Each saved calibrationPose contributes 2 residuals per
+        # projected tag corner, comparing H_modelToDisplay * model_corner
+        # (the target projector pixel) against the same model corner
+        # reprojected through the current draft calibration.
+        foreach calPose $calibrationPoses {
+            dict for {id modelTag} [dict get $calPose model] {
+                if {![$modelLib isProjectedTag $id]} continue
+                incr m [expr {[llength [dict get $modelTag p]] * 2}]
+            }
+        }
 
         # Refine the parameters with respect to this pose. This will
         # block for a while and run the interior function a lot (10
@@ -610,6 +623,50 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
                         lappend residuals \
                             [- [lindex $detCorner 0] [lindex $ideal 0]] \
                             [- [lindex $detCorner 1] [lindex $ideal 1]]
+                    }
+                }
+            }
+
+            # CalibrationPose residuals: for each saved calibration pose,
+            # pose-estimate the board using current draft camera intrinsics
+            # and the saved tag detections, then compare where the current
+            # draft calibration would project each projected tag corner in
+            # display space against where H_modelToDisplay says it should be.
+            foreach calPose $calibrationPoses {
+                set calModel [dict get $calPose model]
+                set calTags [dict get $calPose tags]
+                set calH_mD [dict get $calPose H_modelToDisplay]
+                set calCamWidth [dict get $calPose cameraWidth]
+                set calCamHeight [dict get $calPose cameraHeight]
+
+                set calModelPrCorners [list]
+                set calDetPrCorners [list]
+                dict for {id tag} $calTags {
+                    if {![$modelLib isPrintedTag $id]} { continue }
+                    if {![dict exists $calModel $id]} { continue }
+                    lappend calModelPrCorners {*}[dict get $calModel $id p]
+                    lappend calDetPrCorners {*}[dict get $tag p]
+                }
+                if {[llength $calModelPrCorners] < 4} { continue }
+
+                set calBP [$boardLib estimateBoardPose $curCamIntr \
+                               $calCamWidth $calCamHeight \
+                               $calModelPrCorners $calDetPrCorners \
+                               [llength $calModelPrCorners]]
+                set R_cal [dict get $calBP R]
+                set t_cal [dict get $calBP t]
+
+                dict for {id modelTag} $calModel {
+                    if {![$modelLib isProjectedTag $id]} { continue }
+                    foreach mc [dict get $modelTag p] {
+                        set target [$matLib applyHomography $calH_mD $mc]
+                        set camPt [add [matmul $R_cal [list {*}$mc 0.0]] $t_cal]
+                        set dispPt [add [matmul $curR_cDP $camPt] $curT_cDP]
+                        set current [$poseLib project $curDispIntr \
+                                         $displayWidth $displayHeight $dispPt]
+                        lappend residuals \
+                            [- [lindex $target 0] [lindex $current 0]] \
+                            [- [lindex $target 1] [lindex $current 1]]
                     }
                 }
             }
