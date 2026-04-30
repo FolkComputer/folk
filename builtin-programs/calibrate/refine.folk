@@ -302,7 +302,11 @@ $cc proc monoRefineCalibrationOptimize {double[paramsCount] params} Jim_Obj* {
 
     mp_result result = {0};
 
-    assert(paramsCount == 8 + MonoPoseCount*6);
+    for (int i = 0; i < paramsCount; i++) {
+        FOLK_ENSURE(!isnan(params[i]));
+    }
+    FOLK_ENSURE(paramsCount == 8 + MonoPoseCount*6);
+
     printf("Unrefined -----------------\n");
     monoComputeError(paramsCount, params);
 
@@ -466,7 +470,11 @@ $cc proc stereoComputeError {double[paramsCount] params} double {
 $cc proc stereoRefineCalibrationOptimize {double[paramsCount] params} Jim_Obj* {
     mp_result result = {0};
 
-    assert(paramsCount == 6 + StereoPoseCount*6);
+    FOLK_ENSURE(paramsCount == 6 + StereoPoseCount*6);
+    for (int i = 0; i < paramsCount; i++) {
+        FOLK_ENSURE(!isnan(params[i]));
+    }
+
     printf("Unrefined -----------------\n");
     stereoComputeError(paramsCount, params);
 
