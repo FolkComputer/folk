@@ -1,0 +1,22 @@
+source builtin-programs/draw/arc.folk
+source builtin-programs/draw/spaces.folk
+
+set options [drawSpaceNormalizeOptions arc {
+    center {3 4cm}
+    radius 3
+    thickness 4mm
+    start 0.5
+    arclen 1.5
+    color cyan
+}]
+
+set center [dict get $options center]
+assert {abs([lindex $center 0] - 0.03) < 1e-9}
+assert {abs([lindex $center 1] - 0.04) < 1e-9}
+assert {abs([dict get $options radius] - 0.03) < 1e-9}
+assert {abs([dict get $options thickness] - 0.004) < 1e-9}
+assert {[dict get $options start] == 0.5}
+assert {[dict get $options arclen] == 1.5}
+assert {[dict get $options color] eq "cyan"}
+
+Exit! 0
