@@ -1,0 +1,29 @@
+source builtin-programs/draw/spaces.folk
+source builtin-programs/draw/hit-targets.folk
+
+set rect [drawHitTargetRect {
+    width 4
+    height 2cm
+    offset {right 25%}
+} 0.2 0.1]
+lassign $rect x y width height
+assert {abs($x - 0.13) < 1e-9}
+assert {abs($y - 0.04) < 1e-9}
+assert {abs($width - 0.04) < 1e-9}
+assert {abs($height - 0.02) < 1e-9}
+
+set rect [drawHitTargetRect {
+    size 10%
+    top-left {1 2}
+} 0.2 0.1]
+lassign $rect x y width height
+assert {abs($x - 0.01) < 1e-9}
+assert {abs($y - 0.02) < 1e-9}
+assert {abs($width - 0.02) < 1e-9}
+assert {abs($height - 0.01) < 1e-9}
+
+assert {[drawHitTargetId parent {name button}] eq {hit target of parent button}}
+assert {[drawHitTargetName {index 2}] == 2}
+assert {[drawHitTargetOffset {left 50%} 0.2 0.1] eq {-0.1 0}}
+
+Exit! 0

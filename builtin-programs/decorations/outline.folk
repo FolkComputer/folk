@@ -1,13 +1,32 @@
-When /someone/ wishes /thing/ is outlined /color/ &\
-     /thing/ has resolved geometry /geom/ {
-    dict with geom {
-        set points [list [list 0 0] \
-                        [list $width 0] \
-                        [list $width $height] \
-                        [list 0 $height] \
-                        [list 0 0]]
-    }
+proc drawOutlineMeterLength {value} {
+    append value m
+}
 
-    Wish to draw a line onto $thing with \
-        points $points width 0.01 color $color
+proc drawOutlineMeterPoints {width height} {
+    list [drawSpaceMeterPoint {0 0}] \
+         [drawSpaceMeterPoint [list $width 0]] \
+         [drawSpaceMeterPoint [list $width $height]] \
+         [drawSpaceMeterPoint [list 0 $height]] \
+         [drawSpaceMeterPoint {0 0}]
+}
+
+When /someone/ wishes /thing/ is outlined /color/ {
+    Wish $thing is outlined with color $color
+}
+
+When /someone/ wishes /thing/ is outlined /color/ with /...options/ {
+    Wish $thing is outlined with color $color {*}$options
+}
+
+When display /disp/ has width /displayWidth/ height /displayHeight/ &\
+     /thing/ has physical drawing surface /surface/ with width /width/ height /height/ space /space/ &\
+     /disp/ has canvas projection for surface /surface/ /surfaceToClip/ &\
+     /someone/ wishes /thing/ is outlined with /...options/ {
+    set color [dict getdef $options color white]
+    set outlineWidth [dict getdef $options width [dict getdef $options thickness [drawOutlineMeterLength 0.01]]]
+    set layer [dict getdef $options layer 2]
+
+    Wish to draw a line onto $disp in surface $surface with \
+        points [drawOutlineMeterPoints $width $height] \
+        width $outlineWidth color $color layer $layer
 }

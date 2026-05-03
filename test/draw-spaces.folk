@@ -5,6 +5,9 @@ proc fakeQuadLib {cmd args} {
         vertices {
             lindex [lindex $args 0] 1
         }
+        space {
+            lindex [lindex $args 0] 0
+        }
         create {
             list [lindex $args 0] [lindex $args 1]
         }
@@ -62,6 +65,15 @@ assert {$topLeft eq {0.0 -1.0 0.0}}
 assert {$topRight eq {4.0 -1.0 0.0}}
 assert {$bottomRight eq {4.0 1.0 0.0}}
 assert {$bottomLeft eq {0.0 1.0 0.0}}
+
+assert {[drawSpaceQuadSurfacePoint fakeQuadLib $q {2 1}] eq {2.0 1.0 0.0}}
+
+set rectQuad [drawSpaceQuadSurfaceRect fakeQuadLib $q 1 0.5 2 1]
+lassign [fakeQuadLib vertices $rectQuad] topLeft topRight bottomRight bottomLeft
+assert {$topLeft eq {1.0 0.5 0.0}}
+assert {$topRight eq {3.0 0.5 0.0}}
+assert {$bottomRight eq {3.0 1.5 0.0}}
+assert {$bottomLeft eq {1.0 1.5 0.0}}
 
 assert {[drawSpaceMeterPoint {0 1.5}] eq {0m 1.5m}}
 

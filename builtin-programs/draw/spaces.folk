@@ -187,6 +187,11 @@ proc drawSpaceVectorMidpoint {a b} {
     drawSpaceVectorScale [drawSpaceVectorAdd $a $b] 0.5
 }
 
+proc drawSpaceVectorMix {a b t} {
+    drawSpaceVectorAdd $a \
+        [drawSpaceVectorScale [drawSpaceVectorSub $b $a] $t]
+}
+
 proc drawSpaceQuadPoint {quadLib quad selector} {
     lassign [$quadLib vertices $quad] topLeft topRight bottomRight bottomLeft
 
@@ -234,6 +239,30 @@ proc drawSpaceQuadSize {quadLib quad} {
 
     list [expr {($topWidth + $bottomWidth) / 2.0}] \
          [expr {($rightHeight + $leftHeight) / 2.0}]
+}
+
+proc drawSpaceQuadSurfacePoint {quadLib quad point} {
+    lassign [drawSpaceQuadSize $quadLib $quad] width height
+    if {$width == 0.0 || $height == 0.0} {
+        error "draw/spaces: cannot map point through zero-sized quad"
+    }
+
+    lassign [$quadLib vertices $quad] topLeft topRight bottomRight bottomLeft
+    lassign $point x y
+    set tx [expr {$x / $width}]
+    set ty [expr {$y / $height}]
+
+    set top [drawSpaceVectorMix $topLeft $topRight $tx]
+    set bottom [drawSpaceVectorMix $bottomLeft $bottomRight $tx]
+    drawSpaceVectorMix $top $bottom $ty
+}
+
+proc drawSpaceQuadSurfaceRect {quadLib quad x y width height} {
+    $quadLib create [$quadLib space $quad] [list \
+        [drawSpaceQuadSurfacePoint $quadLib $quad [list $x $y]] \
+        [drawSpaceQuadSurfacePoint $quadLib $quad [list [expr {$x + $width}] $y]] \
+        [drawSpaceQuadSurfacePoint $quadLib $quad [list [expr {$x + $width}] [expr {$y + $height}]]] \
+        [drawSpaceQuadSurfacePoint $quadLib $quad [list $x [expr {$y + $height}]]]]
 }
 
 proc drawSpacePerpendicularBetween {from to} {

@@ -1,0 +1,18 @@
+source builtin-programs/decorations/label.folk
+source builtin-programs/decorations/outline.folk
+source builtin-programs/draw/spaces.folk
+
+assert {[drawOutlineMeterPoints 0.2 0.1] eq {{0m 0m} {0.2m 0m} {0.2m 0.1m} {0m 0.1m} {0m 0m}}}
+assert {[drawOutlineMeterLength 0.01] eq "0.01m"}
+
+assert {[drawLabelMaxLineLength "hi\nthere"] == 5}
+assert {abs([drawLabelDefaultScale "hello"] - 0.02) < 1e-9}
+assert {abs([drawLabelDefaultScale [string repeat x 100]] - 0.0045) < 1e-9}
+
+set options [drawLabelDefaultOptions "hello" 0.2 0.1]
+assert {[dict get $options position] eq {0.1m 0.05m}}
+assert {[dict get $options scale] eq "0.02m"}
+assert {[dict get $options anchor] eq "center"}
+assert {[dict get $options font] eq "PTSans-Regular"}
+
+Exit! 0

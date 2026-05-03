@@ -1,0 +1,216 @@
+# Child surfaces and hit targets are small physical sub-quads of a parent
+# quad. They are real quad-backed objects, so the normal drawing-space and
+# pointing APIs can see them.
+
+proc drawHitTargetTruthy {value} {
+    expr {$value in {1 true yes on}}
+}
+
+proc drawHitTargetName {options} {
+    if {[dict exists $options name]} {
+        return [dict get $options name]
+    }
+    if {[dict exists $options index]} {
+        return [dict get $options index]
+    }
+    return 0
+}
+
+proc drawHitTargetId {parent options} {
+    if {[dict exists $options id]} {
+        return [dict get $options id]
+    }
+    list hit target of $parent [drawHitTargetName $options]
+}
+
+proc drawHitTargetScalar {value extent} {
+    if {[string match *% $value]} {
+        set pct [string range $value 0 end-1]
+        if {![string is double -strict $pct]} {
+            error "draw/hit-targets: invalid percentage $value"
+        }
+        return [expr {double($pct) / 100.0 * $extent}]
+    }
+    drawSpacePhysicalLength $value
+}
+
+proc drawHitTargetPoint {point parentWidth parentHeight} {
+    if {[llength $point] != 2} {
+        error "draw/hit-targets: expected a 2D point, got $point"
+    }
+    list [drawHitTargetScalar [lindex $point 0] $parentWidth] \
+         [drawHitTargetScalar [lindex $point 1] $parentHeight]
+}
+
+proc drawHitTargetOffset {offset parentWidth parentHeight} {
+    if {$offset eq "" || $offset eq "center"} {
+        return {0 0}
+    }
+
+    if {[llength $offset] == 1} {
+        set token [lindex $offset 0]
+        switch -- $token {
+            right { return [list [expr {$parentWidth / 2.0}] 0] }
+            left { return [list [expr {-$parentWidth / 2.0}] 0] }
+            down { return [list 0 [expr {$parentHeight / 2.0}]] }
+            up { return [list 0 [expr {-$parentHeight / 2.0}]] }
+            default {
+                return [list [drawHitTargetScalar $token $parentWidth] 0]
+            }
+        }
+    }
+
+    if {[llength $offset] == 2} {
+        set dir [lindex $offset 0]
+        set amount [lindex $offset 1]
+        switch -- $dir {
+            right { return [list [drawHitTargetScalar $amount $parentWidth] 0] }
+            left {
+                set value [drawHitTargetScalar $amount $parentWidth]
+                return [list [expr {-$value}] 0]
+            }
+            down { return [list 0 [drawHitTargetScalar $amount $parentHeight]] }
+            up {
+                set value [drawHitTargetScalar $amount $parentHeight]
+                return [list 0 [expr {-$value}]]
+            }
+            default {
+                return [drawHitTargetPoint $offset $parentWidth $parentHeight]
+            }
+        }
+    }
+
+    error "draw/hit-targets: expected offset like {x y} or {right 50%}, got $offset"
+}
+
+proc drawHitTargetRect {options parentWidth parentHeight} {
+    set defaultSize [dict getdef $options size 5]
+    set rectWidth [drawHitTargetScalar [dict getdef $options width $defaultSize] $parentWidth]
+    set rectHeight [drawHitTargetScalar \
+        [dict getdef $options height [dict getdef $options width $defaultSize]] \
+        $parentHeight]
+
+    if {[dict exists $options topleft]} {
+        set topLeft [drawHitTargetPoint [dict get $options topleft] \
+            $parentWidth $parentHeight]
+        lassign $topLeft x y
+        return [list $x $y $rectWidth $rectHeight]
+    }
+
+    if {[dict exists $options top-left]} {
+        set topLeft [drawHitTargetPoint [dict get $options top-left] \
+            $parentWidth $parentHeight]
+        lassign $topLeft x y
+        return [list $x $y $rectWidth $rectHeight]
+    }
+
+    if {[dict exists $options center]} {
+        set center [drawHitTargetPoint [dict get $options center] \
+            $parentWidth $parentHeight]
+    } elseif {[dict exists $options position]} {
+        set center [drawHitTargetPoint [dict get $options position] \
+            $parentWidth $parentHeight]
+    } elseif {[dict exists $options x] || [dict exists $options y]} {
+        set center [list \
+            [drawHitTargetScalar [dict getdef $options x 50%] $parentWidth] \
+            [drawHitTargetScalar [dict getdef $options y 50%] $parentHeight]]
+    } else {
+        set center [list [expr {$parentWidth / 2.0}] [expr {$parentHeight / 2.0}]]
+    }
+
+    if {[dict exists $options offset]} {
+        set center [drawSpaceVectorAdd $center \
+            [drawHitTargetOffset [dict get $options offset] $parentWidth $parentHeight]]
+    }
+
+    lassign $center cx cy
+    list [expr {$cx - $rectWidth / 2.0}] \
+         [expr {$cy - $rectHeight / 2.0}] \
+         $rectWidth $rectHeight
+}
+
+proc drawHitTargetDrawHighlight {disp surface width height options} {
+    set points [list \
+        [drawSpaceMeterPoint {0 0}] \
+        [drawSpaceMeterPoint [list $width 0]] \
+        [drawSpaceMeterPoint [list $width $height]] \
+        [drawSpaceMeterPoint [list 0 $height]] \
+        [drawSpaceMeterPoint {0 0}]]
+
+    set color [dict getdef $options highlightColor [dict getdef $options color yellow]]
+    set thickness [dict getdef $options thickness [dict getdef $options outlineWidth 0.2]]
+    set layer [dict getdef $options layer 4]
+
+    if {[drawHitTargetTruthy [dict getdef $options dashed false]]} {
+        set dashlength [dict getdef $options dashlength 1]
+        set dashoffset [dict getdef $options dashoffset 0]
+        Wish to draw a dashed line onto $disp in surface $surface with \
+            points $points width $thickness color $color \
+            dashlength $dashlength dashoffset $dashoffset layer $layer
+    } else {
+        Wish to draw a line onto $disp in surface $surface with \
+            points $points width $thickness color $color layer $layer
+    }
+}
+
+proc drawHitTargetClaim {quadLib parent parentQuad options} {
+    set target [drawHitTargetId $parent $options]
+    set name [drawHitTargetName $options]
+    set index [dict getdef $options index $name]
+
+    lassign [drawSpaceQuadSize $quadLib $parentQuad] parentWidth parentHeight
+    lassign [drawHitTargetRect $options $parentWidth $parentHeight] x y width height
+
+    set targetQuad [drawSpaceQuadSurfaceRect $quadLib $parentQuad $x $y $width $height]
+    Claim -keep 50ms $target has quad $targetQuad
+    Claim -keep 50ms $parent has child surface $target \
+        with name $name index $index x $x y $y width $width height $height
+    Claim -keep 50ms $parent has hit target $target \
+        with name $name index $index x $x y $y width $width height $height
+    Claim -keep 50ms $target is child surface of $parent \
+        with name $name index $index x $x y $y width $width height $height
+    Claim -keep 50ms $target is hit target of $parent \
+        with name $name index $index x $x y $y width $width height $height
+
+    if {[drawHitTargetTruthy [dict getdef $options highlight false]]} {
+        When $target has physical drawing surface /surface/ with width /surfaceWidth/ height /surfaceHeight/ space /space/ &\
+             /disp/ has canvas projection for surface /surface/ /surfaceToClip/ {
+            drawHitTargetDrawHighlight $disp $surface $surfaceWidth $surfaceHeight $options
+        }
+    }
+}
+
+When the quad library is /quadLib/ &\
+     /parent/ has quad /parentQuad/ &\
+     /someone/ wishes /parent/ adds child surface with /...options/ {
+    drawHitTargetClaim $quadLib $parent $parentQuad $options
+}
+
+When the quad library is /quadLib/ &\
+     /parent/ has quad /parentQuad/ &\
+     /someone/ wishes /parent/ adds hit target with /...options/ {
+    drawHitTargetClaim $quadLib $parent $parentQuad $options
+}
+
+When /someone/ wishes /parent/ adds child surface /name/ with /...options/ {
+    Wish $parent adds child surface with name $name {*}$options
+}
+
+When /someone/ wishes /parent/ adds hit target /name/ with /...options/ {
+    Wish $parent adds hit target with name $name {*}$options
+}
+
+Claim $this has demo {
+    Wish $this adds hit target with name left-button width 4 height 3 offset {left 25%} \
+        highlight true color yellow dashed true
+    Wish $this adds hit target with name right-button width 4 height 3 offset {right 25%} \
+        highlight true color cyan
+
+    When $this has hit target /target/ with name /name/ /...options/ &\
+         /target/ has physical drawing surface /surface/ with width /width/ height /height/ space /space/ &\
+         /disp/ has canvas projection for surface /surface/ /surfaceToClip/ {
+        Wish to draw text onto $disp in surface $surface with \
+            position [drawSpaceMeterPoint [list [expr {$width / 2.0}] [expr {$height / 2.0}]]] \
+            scale 0.35 anchor center color white text $name
+    }
+}
