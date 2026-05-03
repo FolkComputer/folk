@@ -2,64 +2,195 @@
 #
 # Spawn terminals with any command (default "bash"):
 #   Wish $this is a terminal
-#   Wish $this is a terminal spawning "any command"
+#   Wish $this is a terminal spawning "vim"
+#   Wish $this is a terminal spawning "bash" with rows 24 cols 80
 #
-# Send keyboard events to the terminal:
-#   Claim $thing has keyboard input
-#
-# Optionally, draw the terminal on an arbitrary region:
-#   Claim $thing has terminal region $region
-#
-#
-# Example program: Tie it all together with a simple vim editor...
-#
-#   When $this points up at /target/ & /target/ has program /anything/ {
-#     Wish $this is a terminal spawning "vim ~/folk-printed-programs/$target.folk"
-#     When $this has region /r/ {
-#       Claim $this has terminal region [region move $r right 350px]
-#     }
-#     Claim $this has keyboard input
+# Terminals draw onto their own physical drawing surface. To attach one to
+# another quad, create a child surface and make that child the terminal:
+#   Wish $this adds child surface terminal with width 16 height 9 offset {right 60%}
+#   When $this has child surface /term/ with name terminal /...opts/ {
+#       Wish $term is a terminal spawning "bash"
 #   }
 #
-#
-
-error "FIXME: terminal.folk not currently working."
+# Keyboard input follows the same focus relation as editors: a keyboard that
+# points at a terminal types into that terminal.
 
 source lib/terminal.tcl
 
-# WIP: Needs to finish being fixed for folk2.
-
-When /anyone/ wishes /thing/ is a terminal {
-  Wish $thing is a terminal spawning bash
+fn terminalDefaultOptions {} {
+    dict create \
+        rows 12 \
+        cols 43 \
+        padding 0.4 \
+        textScale "" \
+        font NeomatrixCode \
+        foreground green \
+        background {0 0 0 0.82} \
+        activeColor green \
+        layer 0
 }
 
-When /thing/ has terminal region /r/ & /r/ has keyboard input {
-  Claim $thing has keyboard input
+fn terminalOptionsWithDefaults {options} {
+    dict merge [terminalDefaultOptions] $options
+}
+
+fn terminalPhysicalLength {value} {
+    if {[llength $value] != 1} {
+        error "terminal: expected a scalar physical length, got $value"
+    }
+
+    set unit ""
+    set amount $value
+    foreach suffix {mm cm m} {
+        if {[string match *$suffix $value]} {
+            set unit $suffix
+            set amount [string range $value 0 end-[string length $suffix]]
+            break
+        }
+    }
+
+    if {![string is double -strict $amount]} {
+        error "terminal: invalid physical length $value"
+    }
+
+    switch -- $unit {
+        "" - cm { return [expr {double($amount) * 0.01}] }
+        mm { return [expr {double($amount) * 0.001}] }
+        m { return [expr {double($amount)}] }
+        default { error "terminal: invalid physical unit $unit" }
+    }
+}
+
+fn terminalMeterLength {value} {
+    append value m
+}
+
+fn terminalMeterPoint {point} {
+    lmap value $point {
+        terminalMeterLength $value
+    }
+}
+
+fn terminalTextScale {width height options} {
+    set explicit [dict getdef $options textScale ""]
+    if {$explicit ne ""} {
+        return [terminalPhysicalLength $explicit]
+    }
+
+    set rows [dict get $options rows]
+    set cols [dict get $options cols]
+    set padding [terminalPhysicalLength [dict get $options padding]]
+    set usableWidth [expr {$width - 2.0 * $padding}]
+    set usableHeight [expr {$height - 2.0 * $padding}]
+    if {$usableWidth < 0.001} { set usableWidth 0.001 }
+    if {$usableHeight < 0.001} { set usableHeight 0.001 }
+
+    if {$rows < 1} { set rows 1 }
+    if {$cols < 1} { set cols 1 }
+    set rowScale [expr {$usableHeight / $rows}]
+    set colScale [expr {$usableWidth / $cols / 0.5859375}]
+    if {$rowScale < $colScale} {
+        return $rowScale
+    }
+    return $colScale
+}
+
+fn terminalSurfaceCorners {width height} {
+    list [terminalMeterPoint {0 0}] \
+         [terminalMeterPoint [list $width 0]] \
+         [terminalMeterPoint [list $width $height]] \
+         [terminalMeterPoint [list 0 $height]]
+}
+
+fn terminalDrawSurface {disp surface width height text options isActive} {
+    set options [terminalOptionsWithDefaults $options]
+    lassign [terminalSurfaceCorners $width $height] p0 p1 p2 p3
+
+    set background [dict get $options background]
+    set layer [dict get $options layer]
+    Wish to draw a quad onto $disp in surface $surface with \
+        p0 $p0 p1 $p1 p2 $p2 p3 $p3 \
+        color $background layer [expr {$layer - 10}]
+
+    set padding [terminalPhysicalLength [dict get $options padding]]
+    set scale [terminalTextScale $width $height $options]
+    Wish to draw text onto $disp in surface $surface with \
+        position [terminalMeterPoint [list $padding $padding]] \
+        scale [terminalMeterLength $scale] \
+        anchor topleft \
+        font [dict get $options font] \
+        color [dict get $options foreground] \
+        layer $layer \
+        text $text
+
+    if {$isActive} {
+        set points [list $p0 $p1 $p2 $p3 $p0]
+        Wish to draw a line onto $disp in surface $surface with \
+            points $points width 0.2 color [dict get $options activeColor] \
+            layer [expr {$layer + 1}]
+    }
+}
+
+When /anyone/ wishes /thing/ is a terminal {
+    Wish $thing is a terminal spawning bash
+}
+
+When /anyone/ wishes /thing/ is a terminal with /...options/ {
+    Wish $thing is a terminal spawning bash with {*}$options
 }
 
 When /anyone/ wishes /thing/ is a terminal spawning /cmd/ {
-  set term [$terminalLib create 12 43 $cmd]
-  # Keep for 10 minutes.
-  Claim -keep [expr {10*60*1000}]ms \
-    -destructor [list $terminalLib destroy $term]
-    $thing has terminal $term spawning $cmd
+    Wish $thing is a terminal spawning $cmd with {*}[terminalDefaultOptions]
+}
 
-  When the clock time is /t/ {
-    set body {
-      Wish region $region is labelled [$terminalLib read $term]
+When /anyone/ wishes /thing/ is a terminal spawning /cmd/ with /...options/ {
+    set options [terminalOptionsWithDefaults $options]
+    set rows [dict get $options rows]
+    set cols [dict get $options cols]
+    if {$rows < 2 || $cols < 2} {
+        error "terminal: rows and cols must both be at least 2"
     }
-    When $thing has terminal region /region/ $body
-    When /nobody/ claims $thing has terminal region /x/ & $thing has region /region/ $body
-  }
+    set term [$terminalLib create $rows $cols $cmd]
+    if {$term eq ""} {
+        error "terminal: failed to spawn $cmd"
+    }
 
-  When /anyone/ claims $thing has keyboard input \
-    & keyboard /anyone/ claims key /key/ is /direction/ with /...options/ {
-    if {$direction != "up"} {
-      if {[dict exists $options printable]} {
-        $terminalLib write $term [dict get $options printable]
-      } else {
-        $terminalLib handleKey $term $key
-      }
+    Claim -keep [expr {10 * 60 * 1000}]ms \
+        -destructor [list $terminalLib destroy $term] \
+        $thing has terminal $term spawning $cmd with {*}$options
+    Claim $thing is a terminal with {*}$options
+    Claim $thing accepts keyboard input
+}
+
+When /keyboard/ is a keyboard with path /kbPath/ /...keyboardOptions/ &\
+     /keyboard/ points up at /thing/ &\
+     /thing/ is a terminal with /...terminalOptions/ {
+    Claim $keyboard has focused input target $thing
+    Claim $keyboard is typing into $thing
+}
+
+When /keyboard/ is a keyboard with path /kbPath/ /...keyboardOptions/ &\
+     /keyboard/ is typing into /thing/ &\
+     /thing/ has terminal /term/ spawning /cmd/ with /...terminalOptions/ {
+    Subscribe: keyboard $kbPath claims key /key/ is /keyState/ with /...options/ {
+        $terminalLib handleEvent $term $key $keyState $options
     }
-  }
+}
+
+# Backwards compatibility with the old global-input API. Prefer pointing a
+# keyboard at the terminal quad, which uses the focus relation above.
+When /anyone/ claims /thing/ has keyboard input &\
+     /thing/ has terminal /term/ spawning /cmd/ with /...terminalOptions/ {
+    Subscribe: keyboard /kbPath/ claims key /key/ is /keyState/ with /...options/ {
+        $terminalLib handleEvent $term $key $keyState $options
+    }
+}
+
+When display /disp/ has width /displayWidth/ height /displayHeight/ &\
+     /thing/ has terminal /term/ spawning /cmd/ with /...options/ &\
+     /thing/ has physical drawing surface /surface/ with width /width/ height /height/ space /space/ &\
+     /disp/ has canvas projection for surface /surface/ /surfaceToClip/ &\
+     the clock time is /t/ {
+    set isActive [expr {[llength [Query! /someone/ claims /keyboard/ is typing into $thing]] > 0}]
+    terminalDrawSurface $disp $surface $width $height [$terminalLib read $term] $options $isActive
 }

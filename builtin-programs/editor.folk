@@ -17,12 +17,14 @@ When /k/ is a keyboard with /...opts/ &\
         Claim $editor has quad [$quadLib move $q up 105%]
     }
     Claim $k has created editor $editor
-    Claim $k is typing into $editor
+    When /nobody/ claims $k has focused input target /anything/ {
+        Claim $k is typing into $editor
+    }
 }
 When /k/ is a keyboard with /...opts/ &\
-     /nobody/ claims /k/ has created editor /any/ &\
      /k/ points up at /editor/ & /editor/ is an editor with /...opts/ {
 
+    Claim $k has focused input target $editor
     Claim $k is typing into $editor
 }
 
@@ -73,6 +75,7 @@ set editorLib [library create editorLib {margin defaults} {
 
 When /someone/ claims /editor/ is an editor {
     Claim $editor is an editor with {*}$defaults
+    Claim $editor accepts keyboard input
 }
 
 When /editor/ is an editor with /...options/ {

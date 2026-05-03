@@ -10,7 +10,7 @@ $cc endcflags -lutil ./vendor/libtmt/tmt.c
 $cc include <sys/types.h>
 $cc include <stdlib.h>
 $cc include <unistd.h>
-if {$::tcl_platform(os) eq "darwin"} {
+if {[string tolower $::tcl_platform(os)] eq "darwin"} {
     $cc include <util.h>
 } else {
     $cc include <pty.h>
@@ -91,16 +91,25 @@ $cc proc termCreate {int rows int cols char* cmd[]} VTerminal* {
   vt->ncols = cols;
 
   vt->display = malloc(sizeof(char[rows][cols + 1]));
+  memset(vt->display, ' ', sizeof(char[rows][cols + 1]));
   for (int r = 0; r < rows - 1; r++) {
     *charAt(vt, r, cols) = '\n';
   }
   *charAt(vt, rows - 1, cols) = '\0';
 
   vt->tmt = tmt_open(rows, cols, tmtEvent, vt, NULL);
+  if (vt->tmt == NULL) {
+    free(vt->display);
+    free(vt);
+    return NULL;
+  }
 
   struct winsize ws = {.ws_row = rows, .ws_col = cols};
   pid_t pid = forkpty(&vt->pty_fd, NULL, NULL, &ws);
   if (pid < 0){
+    tmt_close(vt->tmt);
+    free(vt->display);
+    free(vt);
     return NULL;
   } else if (pid == 0){
     setenv("TERM", "ansi", 1);
@@ -118,6 +127,7 @@ $cc proc termCreate {int rows int cols char* cmd[]} VTerminal* {
 $cc proc termDestroy {VTerminal* vt} void {
   kill(vt->pid, SIGTERM);
   close(vt->pty_fd);
+  tmt_close(vt->tmt);
   free(vt->display);
   free(vt);
 }
@@ -166,25 +176,21 @@ set terminalLib [library create terminalLib {impl} {
       dict append keymap "Control_$char" $charCode
   }
 
-  proc _remap {key} {
+  proc keyBytes {key {options {}}} {
     variable keymap
 
-    if {[string length $key] == 1} {
-      # Convert ctrl-A through ctrl-Z and others to terminal control characters
-      if {$ctrlPressed} {
-        set charCode [scan [string toupper $key] %c]
-        if {$charCode >= 64 && $charCode <= 95} {
-          set charCode [expr {$charCode - 64}]
-          return [format %c $charCode]
-        }
-      }
-      # All other single char keys can be passed through
-      return $key
+    if {[dict exists $options printable]} {
+      return [dict get $options printable]
     }
 
     if {[dict exists $keymap $key]} {
       return [dict get $keymap $key]
     }
+
+    if {[string length $key] == 1} {
+      return $key
+    }
+
     return ""
   }
 
@@ -203,12 +209,17 @@ set terminalLib [library create terminalLib {impl} {
     $impl termWrite $term $char
   }
 
-  proc handleKey {term key} {
+  proc handleKey {term key {options {}}} {
     variable impl
-    set key [_remap $key]
-    if {$key ne ""} {
-      $impl termWrite $term $key
+    set bytes [keyBytes $key $options]
+    if {$bytes ne ""} {
+      $impl termWrite $term $bytes
     }
+  }
+
+  proc handleEvent {term key keyState options} {
+    if {$keyState eq "up"} { return }
+    handleKey $term $key $options
   }
 
   # Returns a newline separated string of terminal lines
@@ -217,4 +228,3 @@ set terminalLib [library create terminalLib {impl} {
     $impl termRead $term
   }
 }]
-
