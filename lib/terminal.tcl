@@ -19,23 +19,30 @@ $cc include <fcntl.h>
 $cc include <string.h>
 $cc include <sys/time.h>
 $cc include <signal.h>
+$cc include <pthread.h>
 $cc include "tmt.h"
-
-$cc struct VTerminal {
-  TMT* tmt;
-  int pty_fd;
-  int pid;
-
-  // Note: display has 1 more column than tmt screen to hold newlines between each line
-  char* display;
-  int curs_r;
-  int curs_c;
-  int ncols;
-};
 
 $cc code {
   #define PTYBUF 4096
   char iobuf[PTYBUF];
+
+  typedef struct VTerminal {
+    TMT* tmt;
+    int pty_fd;
+    int pid;
+
+    // Note: display has 1 more column than tmt screen to hold newlines between each line.
+    char* display;
+    int curs_r;
+    int curs_c;
+    int ncols;
+    char* key;
+    int refCount;
+    struct VTerminal* next;
+  } VTerminal;
+
+  pthread_mutex_t terminalRegistryMutex = PTHREAD_MUTEX_INITIALIZER;
+  VTerminal* terminalRegistry = NULL;
 
   char* charAt(VTerminal *vt, int r, int c) {
     int i = r * (vt->ncols + 1) + c;
@@ -75,61 +82,117 @@ $cc code {
       *charAt(vt, vt->curs_r, vt->curs_c) = 0xDB; // block char: █
     }
   }
-}
 
-$cc proc termCreate {int rows int cols char* cmd[]} VTerminal* {
-  int i = 0;
-  while (true) {
-    // execvp requires cmd array to be terminated by null pointer
-    if (strlen(cmd[i]) == 0) { cmd[i] = NULL; break; }
-    i++;
+  VTerminal* termCreateRaw(int rows, int cols, char** cmd) {
+    int i = 0;
+    while (true) {
+      // execvp requires cmd array to be terminated by null pointer.
+      if (strlen(cmd[i]) == 0) { cmd[i] = NULL; break; }
+      i++;
+    }
+
+    VTerminal *vt = malloc(sizeof(VTerminal));
+    vt->curs_r = 0;
+    vt->curs_c = 0;
+    vt->ncols = cols;
+    vt->key = NULL;
+    vt->refCount = 1;
+    vt->next = NULL;
+
+    vt->display = malloc(sizeof(char[rows][cols + 1]));
+    memset(vt->display, ' ', sizeof(char[rows][cols + 1]));
+    for (int r = 0; r < rows - 1; r++) {
+      *charAt(vt, r, cols) = '\n';
+    }
+    *charAt(vt, rows - 1, cols) = '\0';
+
+    vt->tmt = tmt_open(rows, cols, tmtEvent, vt, NULL);
+    if (vt->tmt == NULL) {
+      free(vt->display);
+      free(vt);
+      return NULL;
+    }
+
+    struct winsize ws = {.ws_row = rows, .ws_col = cols};
+    pid_t pid = forkpty(&vt->pty_fd, NULL, NULL, &ws);
+    if (pid < 0){
+      tmt_close(vt->tmt);
+      free(vt->display);
+      free(vt);
+      return NULL;
+    } else if (pid == 0){
+      setenv("TERM", "ansi", 1);
+      if (execvp(cmd[0], cmd) == -1) {
+        fprintf(stderr, "execvp(%s, ...) failed: %m\n", cmd[0]);
+      }
+      _exit(127);
+    }
+
+    vt->pid = pid;
+    fcntl(vt->pty_fd, F_SETFL, O_NONBLOCK);
+    return vt;
   }
 
-  VTerminal *vt = malloc(sizeof(VTerminal));
-  vt->curs_r = 0;
-  vt->curs_c = 0;
-  vt->ncols = cols;
-
-  vt->display = malloc(sizeof(char[rows][cols + 1]));
-  memset(vt->display, ' ', sizeof(char[rows][cols + 1]));
-  for (int r = 0; r < rows - 1; r++) {
-    *charAt(vt, r, cols) = '\n';
-  }
-  *charAt(vt, rows - 1, cols) = '\0';
-
-  vt->tmt = tmt_open(rows, cols, tmtEvent, vt, NULL);
-  if (vt->tmt == NULL) {
-    free(vt->display);
-    free(vt);
-    return NULL;
-  }
-
-  struct winsize ws = {.ws_row = rows, .ws_col = cols};
-  pid_t pid = forkpty(&vt->pty_fd, NULL, NULL, &ws);
-  if (pid < 0){
+  void termDestroyRaw(VTerminal* vt) {
+    kill(vt->pid, SIGTERM);
+    close(vt->pty_fd);
     tmt_close(vt->tmt);
     free(vt->display);
     free(vt);
-    return NULL;
-  } else if (pid == 0){
-    setenv("TERM", "ansi", 1);
-    if (execvp(cmd[0], cmd) == -1) {
-      fprintf(stderr, "execvp(%s, ...) failed: %m\n", cmd[0]);
+  }
+}
+
+$cc proc termCreate {int rows int cols char* cmd[]} VTerminal* {
+  return termCreateRaw(rows, cols, cmd);
+}
+
+$cc proc termCreateForKey {char* key int rows int cols char* cmd[]} VTerminal* {
+  pthread_mutex_lock(&terminalRegistryMutex);
+  for (VTerminal* vt = terminalRegistry; vt != NULL; vt = vt->next) {
+    if (strcmp(vt->key, key) == 0) {
+      vt->refCount++;
+      pthread_mutex_unlock(&terminalRegistryMutex);
+      return vt;
     }
-    return NULL;
   }
 
-  vt->pid = pid;
-  fcntl(vt->pty_fd, F_SETFL, O_NONBLOCK);
+  VTerminal* vt = termCreateRaw(rows, cols, cmd);
+  if (vt != NULL) {
+    vt->key = strdup(key);
+    vt->next = terminalRegistry;
+    terminalRegistry = vt;
+  }
+  pthread_mutex_unlock(&terminalRegistryMutex);
   return vt;
 }
 
 $cc proc termDestroy {VTerminal* vt} void {
-  kill(vt->pid, SIGTERM);
-  close(vt->pty_fd);
-  tmt_close(vt->tmt);
-  free(vt->display);
-  free(vt);
+  if (vt == NULL) { return; }
+
+  if (vt->key == NULL) {
+    termDestroyRaw(vt);
+    return;
+  }
+
+  pthread_mutex_lock(&terminalRegistryMutex);
+  vt->refCount--;
+  if (vt->refCount > 0) {
+    pthread_mutex_unlock(&terminalRegistryMutex);
+    return;
+  }
+
+  VTerminal** cursor = &terminalRegistry;
+  while (*cursor != NULL) {
+    if (*cursor == vt) {
+      *cursor = vt->next;
+      break;
+    }
+    cursor = &(*cursor)->next;
+  }
+  pthread_mutex_unlock(&terminalRegistryMutex);
+
+  free(vt->key);
+  termDestroyRaw(vt);
 }
 
 $cc proc termRead {VTerminal* vt} char* {
@@ -197,6 +260,11 @@ set terminalLib [library create terminalLib {impl} {
   proc create {rows cols cmd} {
     variable impl
     $impl termCreate $rows $cols [list bash -c $cmd ""]
+  }
+
+  proc createForKey {key rows cols cmd} {
+    variable impl
+    $impl termCreateForKey $key $rows $cols [list bash -c $cmd ""]
   }
 
   proc destroy {term} {

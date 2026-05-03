@@ -14,6 +14,8 @@
 #
 # Keyboard input follows the same focus relation as editors: a keyboard that
 # points at a terminal types into that terminal.
+# The old "has keyboard input" API is still accepted as a fallback for keyboards
+# that do not currently have a focused input target.
 
 source lib/terminal.tcl
 
@@ -32,6 +34,20 @@ fn terminalDefaultOptions {} {
 
 fn terminalOptionsWithDefaults {options} {
     dict merge [terminalDefaultOptions] $options
+}
+
+fn terminalInstanceKey {thing cmd options} {
+    list terminal $thing $cmd $options
+}
+
+fn terminalKeyboardPathHasFocusedTarget {kbPath} {
+    foreach result [Query! /keyboard/ is a keyboard with path $kbPath /...keyboardOptions/] {
+        set keyboard [dict get $result keyboard]
+        if {[llength [Query! /someone/ claims $keyboard has focused input target /target/]] > 0} {
+            return 1
+        }
+    }
+    return 0
 }
 
 fn terminalPhysicalLength {value} {
@@ -150,7 +166,15 @@ When /anyone/ wishes /thing/ is a terminal spawning /cmd/ with /...options/ {
     if {$rows < 2 || $cols < 2} {
         error "terminal: rows and cols must both be at least 2"
     }
-    set term [$terminalLib create $rows $cols $cmd]
+
+    set existing [Query! /someone/ claims $thing has terminal /term/ spawning $cmd with {*}$options]
+    if {[llength $existing] > 0} {
+        Claim $thing is a terminal with {*}$options
+        Claim $thing accepts keyboard input
+        return
+    }
+
+    set term [$terminalLib createForKey [terminalInstanceKey $thing $cmd $options] $rows $cols $cmd]
     if {$term eq ""} {
         error "terminal: failed to spawn $cmd"
     }
@@ -182,6 +206,7 @@ When /keyboard/ is a keyboard with path /kbPath/ /...keyboardOptions/ &\
 When /anyone/ claims /thing/ has keyboard input &\
      /thing/ has terminal /term/ spawning /cmd/ with /...terminalOptions/ {
     Subscribe: keyboard /kbPath/ claims key /key/ is /keyState/ with /...options/ {
+        if {[terminalKeyboardPathHasFocusedTarget $kbPath]} { return }
         $terminalLib handleEvent $term $key $keyState $options
     }
 }

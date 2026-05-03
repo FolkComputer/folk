@@ -53,6 +53,13 @@ for {set i 0} {$i < 10} {incr i} {
 }
 assert {[string first hi $output] >= 0}
 
+Assert! first-wisher wishes shared-terminal is a terminal spawning "printf shared" with rows 2 cols 10
+Assert! second-wisher wishes shared-terminal is a terminal spawning "printf shared" with rows 2 cols 10
+sleep 0.5
+
+set shared [Query! /someone/ claims shared-terminal has terminal /term/ spawning /cmd/ with /...sharedOptions/]
+assert {[llength $shared] == 1}
+
 set keyboard keyboard-page
 set terminal terminal-page
 set syntheticEditor [list $keyboard editor]
@@ -66,6 +73,8 @@ sleep 1
 assert {[llength [Query! /someone/ claims $keyboard has focused input target $terminal]] == 1}
 assert {[llength [Query! /someone/ claims $keyboard is typing into $terminal]] == 1}
 assert {[llength [Query! /someone/ claims $keyboard is typing into $syntheticEditor]] == 0}
+assert {[terminalKeyboardPathHasFocusedTarget keyboard-path] == 1}
+assert {[terminalKeyboardPathHasFocusedTarget unknown-keyboard-path] == 0}
 assert {[llength [Query! /program/ has error /err/ with info /info/]] == 0}
 
 Exit! 0
