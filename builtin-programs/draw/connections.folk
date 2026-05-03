@@ -1,0 +1,253 @@
+# Connection wish fulfillment for wishes of the form:
+#   Wish $tag is connected to $tag2
+#   Wish $tag is dynamically connected to $tag2
+
+proc drawConnectionAdd {a b} {
+    set out [list]
+    foreach av $a bv $b {
+        lappend out [expr {$av + $bv}]
+    }
+    return $out
+}
+
+proc drawConnectionSub {a b} {
+    set out [list]
+    foreach av $a bv $b {
+        lappend out [expr {$av - $bv}]
+    }
+    return $out
+}
+
+proc drawConnectionScale {v s} {
+    lmap x $v {
+        expr {$x * $s}
+    }
+}
+
+proc drawConnectionDistance {a b} {
+    set sum 0.0
+    foreach av $a bv $b {
+        set d [expr {$av - $bv}]
+        set sum [expr {$sum + $d * $d}]
+    }
+    expr {sqrt($sum)}
+}
+
+proc drawConnectionUnit {v} {
+    set zero [lmap _ $v { expr {0.0} }]
+    set n [drawConnectionDistance $v $zero]
+    if {$n == 0.0} { return "" }
+    drawConnectionScale $v [expr {1.0 / $n}]
+}
+
+proc drawConnectionAverage {points} {
+    set first [lindex $points 0]
+    set sum [lmap _ $first { expr {0.0} }]
+    foreach point $points {
+        set sum [drawConnectionAdd $sum $point]
+    }
+    drawConnectionScale $sum [expr {1.0 / [llength $points]}]
+}
+
+proc drawConnectionMidpoint {a b} {
+    drawConnectionScale [drawConnectionAdd $a $b] 0.5
+}
+
+proc drawConnectionQuadPoint {quadLib quad selector} {
+    lassign [$quadLib vertices $quad] topLeft topRight bottomRight bottomLeft
+
+    switch -- [string tolower $selector] {
+        centroid - center {
+            return [drawConnectionAverage [list $topLeft $topRight $bottomRight $bottomLeft]]
+        }
+        top {
+            return [drawConnectionMidpoint $topLeft $topRight]
+        }
+        right {
+            return [drawConnectionMidpoint $topRight $bottomRight]
+        }
+        bottom {
+            return [drawConnectionMidpoint $bottomLeft $bottomRight]
+        }
+        left {
+            return [drawConnectionMidpoint $topLeft $bottomLeft]
+        }
+        topleft - top-left {
+            return $topLeft
+        }
+        topright - top-right {
+            return $topRight
+        }
+        bottomright - bottom-right {
+            return $bottomRight
+        }
+        bottomleft - bottom-left {
+            return $bottomLeft
+        }
+        default {
+            error "draw/connections: unknown quad point selector $selector"
+        }
+    }
+}
+
+proc drawConnectionPerp {from to} {
+    set dx [expr {[lindex $to 0] - [lindex $from 0]}]
+    set dy [expr {[lindex $to 1] - [lindex $from 1]}]
+    set perp [list [expr {-$dy}] $dx]
+    if {[llength $from] > 2} {
+        lappend perp 0.0
+    }
+
+    set unit [drawConnectionUnit $perp]
+    if {$unit ne ""} { return $unit }
+
+    set fallback {0.0 1.0}
+    if {[llength $from] > 2} {
+        lappend fallback 0.0
+    }
+    return $fallback
+}
+
+proc drawConnectionSurfaceQuad {quadLib space from to height} {
+    set halfHeight [expr {$height / 2.0}]
+    set perp [drawConnectionScale [drawConnectionPerp $from $to] $halfHeight]
+
+    set topLeft [drawConnectionSub $from $perp]
+    set topRight [drawConnectionSub $to $perp]
+    set bottomRight [drawConnectionAdd $to $perp]
+    set bottomLeft [drawConnectionAdd $from $perp]
+
+    $quadLib create $space [list $topLeft $topRight $bottomRight $bottomLeft]
+}
+
+proc drawConnectionMeterPoint {point} {
+    lmap value $point {
+        append value m
+    }
+}
+
+proc drawConnectionArrowPoints {x y radius} {
+    set baseX [expr {$x - $radius}]
+    set tipX [expr {$x + $radius}]
+    set spread [expr {$radius * 0.8}]
+    list [list $tipX $y] \
+         [list $baseX [expr {$y - $spread}]] \
+         [list $baseX [expr {$y + $spread}]]
+}
+
+proc drawConnectionDrawArrow {disp surface x y radius color layer} {
+    if {$radius <= 0.0} { return }
+    lassign [drawConnectionArrowPoints $x $y $radius] p0 p1 p2
+    Wish to draw a triangle onto $disp in surface $surface with \
+        p0 [drawConnectionMeterPoint $p0] \
+        p1 [drawConnectionMeterPoint $p1] \
+        p2 [drawConnectionMeterPoint $p2] \
+        color $color layer $layer
+}
+
+When /anyone/ wishes /source/ is connected to /sink/ {
+    Wish $source is connected to $sink with from centroid to centroid
+}
+
+When /anyone/ wishes /source/ is connected to /sink/ from /from/ to /to/ {
+    Wish $source is connected to $sink with from $from to $to
+}
+
+When /anyone/ wishes /source/ is dynamically connected to /sink/ {
+    Wish $source is dynamically connected to $sink with from centroid to centroid
+}
+
+When /anyone/ wishes /source/ is dynamically connected to /sink/ from /from/ to /to/ {
+    Wish $source is dynamically connected to $sink with from $from to $to
+}
+
+When the quad library is /quadLib/ &\
+     the quad changer is /quadChange/ &\
+     display /disp/ has width /displayWidth/ height /displayHeight/ &\
+     /source/ has quad /sourceQuad/ &\
+     /sink/ has quad /sinkQuad/ &\
+     /anyone/ wishes /source/ is connected to /sink/ with /...options/ {
+    if {$source eq $sink} { return }
+
+    fn quadChange
+    set fromSelector [dict getdef $options from centroid]
+    set toSelector [dict getdef $options to centroid]
+    set sourceQuad [quadChange $sourceQuad "display $disp"]
+    set sinkQuad [quadChange $sinkQuad "display $disp"]
+
+    set from [drawConnectionQuadPoint $quadLib $sourceQuad $fromSelector]
+    set to [drawConnectionQuadPoint $quadLib $sinkQuad $toSelector]
+    set distance [drawConnectionDistance $from $to]
+    if {$distance == 0.0} { return }
+
+    set surfaceHeight [drawSpacePhysicalLength [dict getdef $options surfaceHeight 6]]
+    set connection [list connection $source $sink $fromSelector $toSelector $disp]
+    Claim -keep 50ms $connection has quad \
+        [drawConnectionSurfaceQuad $quadLib "display $disp" $from $to $surfaceHeight]
+
+    When $connection has physical drawing surface /surface/ with width /width/ height /height/ space /space/ &\
+         $disp has canvas projection for surface /surface/ /surfaceToClip/ {
+        set color [dict getdef $options color grey]
+        set layer [dict getdef $options layer 0]
+        set lineWidth [dict getdef $options width 0.2]
+        set arrowRadius [drawSpacePhysicalLength [dict getdef $options arrowRadius 2]]
+        set y [expr {$height / 2.0}]
+        set mid [expr {$width / 2.0}]
+
+        Wish to draw a line onto $disp in surface $surface with \
+            points [list [drawConnectionMeterPoint [list 0 $y]] \
+                         [drawConnectionMeterPoint [list $width $y]]] \
+            width $lineWidth color $color layer $layer
+        drawConnectionDrawArrow $disp $surface $mid $y $arrowRadius $color $layer
+    }
+}
+
+When the quad library is /quadLib/ &\
+     the quad changer is /quadChange/ &\
+     display /disp/ has width /displayWidth/ height /displayHeight/ &\
+     /source/ has quad /sourceQuad/ &\
+     /sink/ has quad /sinkQuad/ &\
+     /anyone/ wishes /source/ is dynamically connected to /sink/ with /...options/ {
+    if {$source eq $sink} { return }
+
+    fn quadChange
+    set fromSelector [dict getdef $options from centroid]
+    set toSelector [dict getdef $options to centroid]
+    set sourceQuad [quadChange $sourceQuad "display $disp"]
+    set sinkQuad [quadChange $sinkQuad "display $disp"]
+
+    set from [drawConnectionQuadPoint $quadLib $sourceQuad $fromSelector]
+    set to [drawConnectionQuadPoint $quadLib $sinkQuad $toSelector]
+    set distance [drawConnectionDistance $from $to]
+    if {$distance == 0.0} { return }
+
+    set surfaceHeight [drawSpacePhysicalLength [dict getdef $options surfaceHeight 6]]
+    set connection [list dynamic-connection $source $sink $fromSelector $toSelector $disp]
+    Claim -keep 50ms $connection has quad \
+        [drawConnectionSurfaceQuad $quadLib "display $disp" $from $to $surfaceHeight]
+
+    When $connection has physical drawing surface /surface/ with width /width/ height /height/ space /space/ &\
+         $disp has canvas projection for surface /surface/ /surfaceToClip/ {
+        set color [dict getdef $options color white]
+        set layer [dict getdef $options layer 0]
+        set lineWidth [dict getdef $options width 0.1]
+        set speed [drawSpacePhysicalLength [dict getdef $options speed 12]]
+        set spacing [drawSpacePhysicalLength [dict getdef $options spacing 5]]
+        set maxSize [drawSpacePhysicalLength [dict getdef $options maxsize 2.5]]
+        set y [expr {$height / 2.0}]
+
+        Wish to draw a line onto $disp in surface $surface with \
+            points [list [drawConnectionMeterPoint [list 0 $y]] \
+                         [drawConnectionMeterPoint [list $width $y]]] \
+            width $lineWidth color $color layer $layer
+
+        When the clock time is /t/ {
+            set offset [expr {fmod($t * $speed, $spacing)}]
+            for {set p $offset} {$p < $width} {set p [expr {$p + $spacing}]} {
+                set edgeDistance [expr {min($p, $width - $p)}]
+                set radius [expr {min($maxSize, 0.20 * $edgeDistance)}]
+                drawConnectionDrawArrow $disp $surface $p $y $radius $color $layer
+            }
+        }
+    }
+}

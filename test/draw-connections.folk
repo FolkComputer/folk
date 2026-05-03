@@ -1,0 +1,37 @@
+source builtin-programs/draw/connections.folk
+
+proc fakeQuadLib {cmd args} {
+    switch -- $cmd {
+        vertices {
+            lindex [lindex $args 0] 1
+        }
+        create {
+            list [lindex $args 0] [lindex $args 1]
+        }
+        default {
+            error "unknown fakeQuadLib command $cmd"
+        }
+    }
+}
+
+set distance [drawConnectionDistance {0 0 0} {3 4 12}]
+assert {abs($distance - 13.0) < 1e-9}
+
+set q [list "display test" {{0 0 0} {4 0 0} {4 2 0} {0 2 0}}]
+assert {[drawConnectionQuadPoint fakeQuadLib $q centroid] eq {2.0 1.0 0.0}}
+assert {[drawConnectionQuadPoint fakeQuadLib $q top] eq {2.0 0.0 0.0}}
+assert {[drawConnectionQuadPoint fakeQuadLib $q bottom-right] eq {4 2 0}}
+
+set connectionQuad [drawConnectionSurfaceQuad fakeQuadLib "display test" {0 0 0} {4 0 0} 2]
+lassign [fakeQuadLib vertices $connectionQuad] topLeft topRight bottomRight bottomLeft
+assert {$topLeft eq {0.0 -1.0 0.0}}
+assert {$topRight eq {4.0 -1.0 0.0}}
+assert {$bottomRight eq {4.0 1.0 0.0}}
+assert {$bottomLeft eq {0.0 1.0 0.0}}
+
+lassign [drawConnectionArrowPoints 5 1 2] tip rearLeft rearRight
+assert {$tip eq {7 1}}
+assert {$rearLeft eq {3 -0.6}}
+assert {$rearRight eq {3 2.6}}
+
+Exit! 0
