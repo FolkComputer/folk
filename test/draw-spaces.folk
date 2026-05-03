@@ -1,0 +1,33 @@
+source builtin-programs/draw/spaces.folk
+
+set l [drawSpacePhysicalLength 3]
+assert {abs($l - 0.03) < 1e-9}
+
+set l [drawSpacePhysicalLength 4mm]
+assert {abs($l - 0.004) < 1e-9}
+
+set l [drawSpacePhysicalLength 0.5m]
+assert {abs($l - 0.5) < 1e-9}
+
+set point [drawSpacePhysicalPoint {3 -2cm}]
+assert {abs([lindex $point 0] - 0.03) < 1e-9}
+assert {abs([lindex $point 1] + 0.02) < 1e-9}
+
+set options [drawSpaceNormalizeOptions circle {
+    center {3 4cm}
+    radius 3
+    thickness 4mm
+    color green
+}]
+set center [dict get $options center]
+assert {abs([lindex $center 0] - 0.03) < 1e-9}
+assert {abs([lindex $center 1] - 0.04) < 1e-9}
+assert {abs([dict get $options radius] - 0.03) < 1e-9}
+assert {abs([dict get $options thickness] - 0.004) < 1e-9}
+
+set H [drawSpaceHomography {{0 0 -1 -1} {1 0 1 -1} {1 1 1 1} {0 1 -1 1}}]
+set projected [drawSpaceApplyHomography $H {0.5 0.5}]
+assert {abs([lindex $projected 0]) < 1e-9}
+assert {abs([lindex $projected 1]) < 1e-9}
+
+Exit! 0

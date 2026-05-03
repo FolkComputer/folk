@@ -1,0 +1,361 @@
+proc drawSpacePhysicalLength {value} {
+    if {[llength $value] != 1} {
+        error "draw/spaces: expected a scalar physical length, got $value"
+    }
+
+    set unit ""
+    set amount $value
+    foreach suffix {mm cm m} {
+        if {[string match *$suffix $value]} {
+            set unit $suffix
+            set amount [string range $value 0 end-[string length $suffix]]
+            break
+        }
+    }
+
+    if {![string is double -strict $amount]} {
+        error "draw/spaces: invalid physical length $value"
+    }
+
+    switch -- $unit {
+        "" - cm { return [expr {double($amount) * 0.01}] }
+        mm { return [expr {double($amount) * 0.001}] }
+        m { return [expr {double($amount)}] }
+        default { error "draw/spaces: invalid physical unit $unit" }
+    }
+}
+
+proc drawSpacePhysicalPoint {point} {
+    if {[llength $point] != 2} {
+        error "draw/spaces: expected a 2D physical point, got $point"
+    }
+    list [drawSpacePhysicalLength [lindex $point 0]] \
+         [drawSpacePhysicalLength [lindex $point 1]]
+}
+
+proc drawSpacePhysicalPoints {points} {
+    lmap point $points {
+        drawSpacePhysicalPoint $point
+    }
+}
+
+proc drawSpaceSetLength {options key} {
+    if {[dict exists $options $key]} {
+        dict set options $key [drawSpacePhysicalLength [dict get $options $key]]
+    }
+    return $options
+}
+
+proc drawSpaceSetPoint {options key} {
+    if {[dict exists $options $key]} {
+        set point [dict get $options $key]
+        if {$point ne ""} {
+            dict set options $key [drawSpacePhysicalPoint $point]
+        }
+    }
+    return $options
+}
+
+proc drawSpaceSetPoints {options key} {
+    if {[dict exists $options $key]} {
+        dict set options $key [drawSpacePhysicalPoints [dict get $options $key]]
+    }
+    return $options
+}
+
+proc drawSpaceNormalizeOptions {shape options} {
+    switch -- $shape {
+        line {
+            set options [drawSpaceSetPoints $options points]
+            set options [drawSpaceSetLength $options width]
+        }
+        dashed-line {
+            set options [drawSpaceSetPoints $options points]
+            set options [drawSpaceSetLength $options width]
+            set options [drawSpaceSetLength $options dashlength]
+            set options [drawSpaceSetLength $options dashoffset]
+        }
+        circle {
+            set options [drawSpaceSetPoint $options center]
+            set options [drawSpaceSetLength $options x]
+            set options [drawSpaceSetLength $options y]
+            set options [drawSpaceSetLength $options radius]
+            set options [drawSpaceSetLength $options thickness]
+        }
+        arc {
+            set options [drawSpaceSetPoint $options center]
+            set options [drawSpaceSetLength $options x]
+            set options [drawSpaceSetLength $options y]
+            set options [drawSpaceSetLength $options radius]
+            set options [drawSpaceSetLength $options thickness]
+        }
+        curve {
+            foreach key {p0 p1 p2 p3} {
+                set options [drawSpaceSetPoint $options $key]
+            }
+            set options [drawSpaceSetLength $options thickness]
+        }
+        text {
+            set options [drawSpaceSetPoint $options position]
+            set options [drawSpaceSetLength $options x]
+            set options [drawSpaceSetLength $options y]
+            set options [drawSpaceSetLength $options scale]
+        }
+        image {
+            set options [drawSpaceSetPoint $options position]
+            set options [drawSpaceSetLength $options x]
+            set options [drawSpaceSetLength $options y]
+            set options [drawSpaceSetLength $options width]
+            set options [drawSpaceSetLength $options height]
+        }
+        triangle {
+            foreach key {p0 p1 p2} {
+                set options [drawSpaceSetPoint $options $key]
+            }
+        }
+        quad {
+            foreach key {p0 p1 p2 p3} {
+                set options [drawSpaceSetPoint $options $key]
+            }
+        }
+        polygon {
+            set options [drawSpaceSetPoints $options points]
+        }
+        default {
+            error "draw/spaces: unknown primitive $shape"
+        }
+    }
+    return $options
+}
+
+proc drawSpaceSurfaceTarget {target surface} {
+    list $target surface $surface
+}
+
+proc drawSpaceDistance {a b} {
+    set sum 0.0
+    foreach av $a bv $b {
+        set d [expr {$av - $bv}]
+        set sum [expr {$sum + $d * $d}]
+    }
+    expr {sqrt($sum)}
+}
+
+proc drawSpaceDisplayPixelToClip {displayWidth displayHeight point} {
+    lassign $point x y
+    list [expr {2.0 * $x / $displayWidth - 1.0}] \
+         [expr {2.0 * $y / $displayHeight - 1.0}]
+}
+
+proc drawSpaceHomography {pointPairs} {
+    package require linalg
+    namespace import ::math::linearalgebra::solvePGauss
+
+    set A [list]
+    set b [list]
+    foreach pair $pointPairs {
+        lassign $pair x y u v
+        lappend A [list $x $y 1 0 0 0 [expr {-$u * $x}] [expr {-$u * $y}]]
+        lappend b $u
+        lappend A [list 0 0 0 $x $y 1 [expr {-$v * $x}] [expr {-$v * $y}]]
+        lappend b $v
+    }
+
+    set h [solvePGauss $A $b]
+    list [list [lindex $h 0] [lindex $h 1] [lindex $h 2]] \
+         [list [lindex $h 3] [lindex $h 4] [lindex $h 5]] \
+         [list [lindex $h 6] [lindex $h 7] 1.0]
+}
+
+proc drawSpaceApplyHomography {H point} {
+    lassign $point x y
+    lassign [lindex $H 0] h00 h01 h02
+    lassign [lindex $H 1] h10 h11 h12
+    lassign [lindex $H 2] h20 h21 h22
+    set hx [expr {$h00 * $x + $h01 * $y + $h02}]
+    set hy [expr {$h10 * $x + $h11 * $y + $h12}]
+    set hw [expr {$h20 * $x + $h21 * $y + $h22}]
+    list [expr {$hx / $hw}] [expr {$hy / $hw}]
+}
+
+proc drawSpaceMeterPoint {point} {
+    lmap value $point {
+        append value m
+    }
+}
+
+When /target/ has canvas /id/ with /...wiOptions/ &\
+     /target/ has canvas projection for surface /surface/ /surfaceToClip/ {
+    set surfaceTarget [drawSpaceSurfaceTarget $target $surface]
+    Claim $surfaceTarget has canvas $id with {*}$wiOptions
+    Claim $surfaceTarget has canvas projection $surfaceToClip
+}
+
+When /target/ has resolved geometry /geom/ &\
+     /target/ has canvas projection /surfaceToClip/ {
+    Claim $target has canvas projection for surface local $surfaceToClip
+}
+
+When the quad library is /quadLib/ &\
+     the pose library is /poseLib/ &\
+     the quad changer is /quadChange/ &\
+     display /disp/ has width /displayWidth/ height /displayHeight/ &\
+     display /disp/ has intrinsics /displayIntrinsics/ &\
+     /thing/ has quad /quad/ {
+    fn quadChange
+
+    set surface [list surface of $thing]
+    set displayQuad [quadChange $quad "display $disp"]
+    lassign [$quadLib vertices $displayQuad] topLeft topRight bottomRight bottomLeft
+
+    set topWidth [drawSpaceDistance $topLeft $topRight]
+    set bottomWidth [drawSpaceDistance $bottomLeft $bottomRight]
+    set rightHeight [drawSpaceDistance $topRight $bottomRight]
+    set leftHeight [drawSpaceDistance $topLeft $bottomLeft]
+    set width [expr {($topWidth + $bottomWidth) / 2.0}]
+    set height [expr {($rightHeight + $leftHeight) / 2.0}]
+
+    set surfacePoints [list \
+        [list 0 0] \
+        [list $width 0] \
+        [list $width $height] \
+        [list 0 $height]]
+
+    set displayVertices [list $topLeft $topRight $bottomRight $bottomLeft]
+    set clipPoints [lmap vertex $displayVertices {
+        drawSpaceDisplayPixelToClip $displayWidth $displayHeight \
+            [$poseLib project $displayIntrinsics $displayWidth $displayHeight $vertex]
+    }]
+
+    set pointPairs [list]
+    foreach surfacePoint $surfacePoints clipPoint $clipPoints {
+        lassign $surfacePoint x y
+        lassign $clipPoint u v
+        lappend pointPairs [list $x $y $u $v]
+    }
+
+    Claim $thing has physical drawing surface $surface \
+        with width $width height $height space [$quadLib space $displayQuad]
+    Claim $disp has canvas projection for surface $surface \
+        [drawSpaceHomography $pointPairs]
+}
+
+proc drawSpaceWishPrimitive {article shape target surface options} {
+    set normalized [drawSpaceNormalizeOptions $shape $options]
+    Wish to draw $article $shape onto [drawSpaceSurfaceTarget $target $surface] \
+        with {*}$normalized
+}
+
+When /someone/ wishes to draw a line onto /target/ in surface /surface/ with /...options/ {
+    drawSpaceWishPrimitive a line $target $surface $options
+}
+When /someone/ wishes to draw a line onto /target/ in physical surface /surface/ with /...options/ {
+    drawSpaceWishPrimitive a line $target $surface $options
+}
+When /someone/ wishes to draw a line onto /target/ in space /surface/ with /...options/ {
+    drawSpaceWishPrimitive a line $target $surface $options
+}
+
+proc drawSpaceWishDashedLine {target surface options} {
+    set normalized [drawSpaceNormalizeOptions dashed-line $options]
+    Wish to draw a dashed line onto [drawSpaceSurfaceTarget $target $surface] \
+        with {*}$normalized
+}
+
+When /someone/ wishes to draw a dashed line onto /target/ in surface /surface/ with /...options/ {
+    drawSpaceWishDashedLine $target $surface $options
+}
+When /someone/ wishes to draw a dashed line onto /target/ in physical surface /surface/ with /...options/ {
+    drawSpaceWishDashedLine $target $surface $options
+}
+When /someone/ wishes to draw a dashed line onto /target/ in space /surface/ with /...options/ {
+    drawSpaceWishDashedLine $target $surface $options
+}
+
+When /someone/ wishes to draw a circle onto /target/ in surface /surface/ with /...options/ {
+    drawSpaceWishPrimitive a circle $target $surface $options
+}
+When /someone/ wishes to draw a circle onto /target/ in physical surface /surface/ with /...options/ {
+    drawSpaceWishPrimitive a circle $target $surface $options
+}
+When /someone/ wishes to draw a circle onto /target/ in space /surface/ with /...options/ {
+    drawSpaceWishPrimitive a circle $target $surface $options
+}
+
+When /someone/ wishes to draw an arc onto /target/ in surface /surface/ with /...options/ {
+    drawSpaceWishPrimitive an arc $target $surface $options
+}
+When /someone/ wishes to draw an arc onto /target/ in physical surface /surface/ with /...options/ {
+    drawSpaceWishPrimitive an arc $target $surface $options
+}
+When /someone/ wishes to draw an arc onto /target/ in space /surface/ with /...options/ {
+    drawSpaceWishPrimitive an arc $target $surface $options
+}
+
+When /someone/ wishes to draw a curve onto /target/ in surface /surface/ with /...options/ {
+    drawSpaceWishPrimitive a curve $target $surface $options
+}
+When /someone/ wishes to draw a curve onto /target/ in physical surface /surface/ with /...options/ {
+    drawSpaceWishPrimitive a curve $target $surface $options
+}
+When /someone/ wishes to draw a curve onto /target/ in space /surface/ with /...options/ {
+    drawSpaceWishPrimitive a curve $target $surface $options
+}
+
+When /someone/ wishes to draw an image onto /target/ in surface /surface/ with /...options/ {
+    drawSpaceWishPrimitive an image $target $surface $options
+}
+When /someone/ wishes to draw an image onto /target/ in physical surface /surface/ with /...options/ {
+    drawSpaceWishPrimitive an image $target $surface $options
+}
+When /someone/ wishes to draw an image onto /target/ in space /surface/ with /...options/ {
+    drawSpaceWishPrimitive an image $target $surface $options
+}
+
+When /someone/ wishes to draw a triangle onto /target/ in surface /surface/ with /...options/ {
+    drawSpaceWishPrimitive a triangle $target $surface $options
+}
+When /someone/ wishes to draw a triangle onto /target/ in physical surface /surface/ with /...options/ {
+    drawSpaceWishPrimitive a triangle $target $surface $options
+}
+When /someone/ wishes to draw a triangle onto /target/ in space /surface/ with /...options/ {
+    drawSpaceWishPrimitive a triangle $target $surface $options
+}
+
+When /someone/ wishes to draw a quad onto /target/ in surface /surface/ with /...options/ {
+    drawSpaceWishPrimitive a quad $target $surface $options
+}
+When /someone/ wishes to draw a quad onto /target/ in physical surface /surface/ with /...options/ {
+    drawSpaceWishPrimitive a quad $target $surface $options
+}
+When /someone/ wishes to draw a quad onto /target/ in space /surface/ with /...options/ {
+    drawSpaceWishPrimitive a quad $target $surface $options
+}
+
+When /someone/ wishes to draw a polygon onto /target/ in surface /surface/ with /...options/ {
+    drawSpaceWishPrimitive a polygon $target $surface $options
+}
+When /someone/ wishes to draw a polygon onto /target/ in physical surface /surface/ with /...options/ {
+    drawSpaceWishPrimitive a polygon $target $surface $options
+}
+When /someone/ wishes to draw a polygon onto /target/ in space /surface/ with /...options/ {
+    drawSpaceWishPrimitive a polygon $target $surface $options
+}
+
+When /someone/ wishes to draw text onto /target/ in surface /surface/ with /...options/ {
+    set normalized [drawSpaceNormalizeOptions text $options]
+    Wish to draw text onto [drawSpaceSurfaceTarget $target $surface] \
+        with {*}$normalized
+}
+
+When /someone/ wishes to draw text onto /target/ in physical surface /surface/ with /...options/ {
+    set normalized [drawSpaceNormalizeOptions text $options]
+    Wish to draw text onto [drawSpaceSurfaceTarget $target $surface] \
+        with {*}$normalized
+}
+
+When /someone/ wishes to draw text onto /target/ in space /surface/ with /...options/ {
+    set normalized [drawSpaceNormalizeOptions text $options]
+    Wish to draw text onto [drawSpaceSurfaceTarget $target $surface] \
+        with {*}$normalized
+}

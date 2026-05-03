@@ -1,20 +1,18 @@
-When the quad library is /quadLib/ &\
-     the pose library is /poseLib/ &\
-     the quad changer is /quadChange/ &\
-     display /proj/ has width /projWidth/ height /projHeight/ &\
-     display /proj/ has intrinsics /projectorIntrinsics/ {
-        
-    fn quadChange
-
+When the quad library is /quadLib/ {
     When -atomically tag /id/ has quad /q/ {
-        set scaledQuad [$quadLib scale $q 2.25]
-
-        lassign [lmap v [$quadLib vertices [quadChange $scaledQuad "display $proj"]] {
-            $poseLib project $projectorIntrinsics $projWidth $projHeight $v
-        }] p0 p1 p2 p3
-
-        Wish to draw a quad onto $proj with \
-            p0 $p0 p1 $p1 p2 $p2 p3 $p3 \
-            color black layer 99
+        Claim -keep 50ms [list tag-mask $id] has quad [$quadLib scale $q 2.25]
     }
+}
+
+When display /proj/ has width /projWidth/ height /projHeight/ &\
+     /mask/ has physical drawing surface /surface/ with width /width/ height /height/ space /space/ &\
+     /proj/ has canvas projection for surface /surface/ /surfaceToClip/ {
+    if {[lindex $mask 0] ne "tag-mask"} { return }
+
+    Wish to draw a quad onto $proj in surface $surface with \
+        p0 [drawSpaceMeterPoint {0 0}] \
+        p1 [drawSpaceMeterPoint [list $width 0]] \
+        p2 [drawSpaceMeterPoint [list $width $height]] \
+        p3 [drawSpaceMeterPoint [list 0 $height]] \
+        color black layer 99
 }
