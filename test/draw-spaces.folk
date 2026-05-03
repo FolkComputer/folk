@@ -1,5 +1,19 @@
 source builtin-programs/draw/spaces.folk
 
+proc fakeQuadLib {cmd args} {
+    switch -- $cmd {
+        vertices {
+            lindex [lindex $args 0] 1
+        }
+        create {
+            list [lindex $args 0] [lindex $args 1]
+        }
+        default {
+            error "unknown fakeQuadLib command $cmd"
+        }
+    }
+}
+
 set l [drawSpacePhysicalLength 3]
 assert {abs($l - 0.03) < 1e-9}
 
@@ -29,5 +43,26 @@ set H [drawSpaceHomography {{0 0 -1 -1} {1 0 1 -1} {1 1 1 1} {0 1 -1 1}}]
 set projected [drawSpaceApplyHomography $H {0.5 0.5}]
 assert {abs([lindex $projected 0]) < 1e-9}
 assert {abs([lindex $projected 1]) < 1e-9}
+
+set distance [drawSpaceVectorDistance {0 0 0} {3 4 12}]
+assert {abs($distance - 13.0) < 1e-9}
+
+set q [list "display test" {{0 0 0} {4 0 0} {4 2 0} {0 2 0}}]
+assert {[drawSpaceQuadPoint fakeQuadLib $q centroid] eq {2.0 1.0 0.0}}
+assert {[drawSpaceQuadPoint fakeQuadLib $q top] eq {2.0 0.0 0.0}}
+assert {[drawSpaceQuadPoint fakeQuadLib $q bottom-right] eq {4 2 0}}
+
+lassign [drawSpaceQuadSize fakeQuadLib $q] width height
+assert {abs($width - 4.0) < 1e-9}
+assert {abs($height - 2.0) < 1e-9}
+
+set surfaceQuad [drawSpaceSurfaceQuadBetween fakeQuadLib "display test" {0 0 0} {4 0 0} 2]
+lassign [fakeQuadLib vertices $surfaceQuad] topLeft topRight bottomRight bottomLeft
+assert {$topLeft eq {0.0 -1.0 0.0}}
+assert {$topRight eq {4.0 -1.0 0.0}}
+assert {$bottomRight eq {4.0 1.0 0.0}}
+assert {$bottomLeft eq {0.0 1.0 0.0}}
+
+assert {[drawSpaceMeterPoint {0 1.5}] eq {0m 1.5m}}
 
 Exit! 0

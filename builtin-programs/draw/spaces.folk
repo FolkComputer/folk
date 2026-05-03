@@ -132,13 +132,138 @@ proc drawSpaceSurfaceTarget {target surface} {
     list $target surface $surface
 }
 
-proc drawSpaceDistance {a b} {
+proc drawSpaceVectorAdd {a b} {
+    set out [list]
+    foreach av $a bv $b {
+        lappend out [expr {$av + $bv}]
+    }
+    return $out
+}
+
+proc drawSpaceVectorSub {a b} {
+    set out [list]
+    foreach av $a bv $b {
+        lappend out [expr {$av - $bv}]
+    }
+    return $out
+}
+
+proc drawSpaceVectorScale {v s} {
+    lmap x $v {
+        expr {$x * $s}
+    }
+}
+
+proc drawSpaceVectorDistance {a b} {
     set sum 0.0
     foreach av $a bv $b {
         set d [expr {$av - $bv}]
         set sum [expr {$sum + $d * $d}]
     }
     expr {sqrt($sum)}
+}
+
+proc drawSpaceDistance {a b} {
+    drawSpaceVectorDistance $a $b
+}
+
+proc drawSpaceVectorUnit {v} {
+    set zero [lmap _ $v { expr {0.0} }]
+    set n [drawSpaceVectorDistance $v $zero]
+    if {$n == 0.0} { return "" }
+    drawSpaceVectorScale $v [expr {1.0 / $n}]
+}
+
+proc drawSpaceVectorAverage {points} {
+    set first [lindex $points 0]
+    set sum [lmap _ $first { expr {0.0} }]
+    foreach point $points {
+        set sum [drawSpaceVectorAdd $sum $point]
+    }
+    drawSpaceVectorScale $sum [expr {1.0 / [llength $points]}]
+}
+
+proc drawSpaceVectorMidpoint {a b} {
+    drawSpaceVectorScale [drawSpaceVectorAdd $a $b] 0.5
+}
+
+proc drawSpaceQuadPoint {quadLib quad selector} {
+    lassign [$quadLib vertices $quad] topLeft topRight bottomRight bottomLeft
+
+    switch -- [string tolower $selector] {
+        centroid - center {
+            return [drawSpaceVectorAverage [list $topLeft $topRight $bottomRight $bottomLeft]]
+        }
+        top {
+            return [drawSpaceVectorMidpoint $topLeft $topRight]
+        }
+        right {
+            return [drawSpaceVectorMidpoint $topRight $bottomRight]
+        }
+        bottom {
+            return [drawSpaceVectorMidpoint $bottomLeft $bottomRight]
+        }
+        left {
+            return [drawSpaceVectorMidpoint $topLeft $bottomLeft]
+        }
+        topleft - top-left {
+            return $topLeft
+        }
+        topright - top-right {
+            return $topRight
+        }
+        bottomright - bottom-right {
+            return $bottomRight
+        }
+        bottomleft - bottom-left {
+            return $bottomLeft
+        }
+        default {
+            error "draw/spaces: unknown quad point selector $selector"
+        }
+    }
+}
+
+proc drawSpaceQuadSize {quadLib quad} {
+    lassign [$quadLib vertices $quad] topLeft topRight bottomRight bottomLeft
+
+    set topWidth [drawSpaceVectorDistance $topLeft $topRight]
+    set bottomWidth [drawSpaceVectorDistance $bottomLeft $bottomRight]
+    set rightHeight [drawSpaceVectorDistance $topRight $bottomRight]
+    set leftHeight [drawSpaceVectorDistance $topLeft $bottomLeft]
+
+    list [expr {($topWidth + $bottomWidth) / 2.0}] \
+         [expr {($rightHeight + $leftHeight) / 2.0}]
+}
+
+proc drawSpacePerpendicularBetween {from to} {
+    set dx [expr {[lindex $to 0] - [lindex $from 0]}]
+    set dy [expr {[lindex $to 1] - [lindex $from 1]}]
+    set perp [list [expr {-$dy}] $dx]
+    if {[llength $from] > 2} {
+        lappend perp 0.0
+    }
+
+    set unit [drawSpaceVectorUnit $perp]
+    if {$unit ne ""} { return $unit }
+
+    set fallback {0.0 1.0}
+    if {[llength $from] > 2} {
+        lappend fallback 0.0
+    }
+    return $fallback
+}
+
+proc drawSpaceSurfaceQuadBetween {quadLib space from to height} {
+    set halfHeight [expr {$height / 2.0}]
+    set perp [drawSpaceVectorScale [drawSpacePerpendicularBetween $from $to] $halfHeight]
+
+    set topLeft [drawSpaceVectorSub $from $perp]
+    set topRight [drawSpaceVectorSub $to $perp]
+    set bottomRight [drawSpaceVectorAdd $to $perp]
+    set bottomLeft [drawSpaceVectorAdd $from $perp]
+
+    $quadLib create $space [list $topLeft $topRight $bottomRight $bottomLeft]
 }
 
 proc drawSpaceDisplayPixelToClip {displayWidth displayHeight point} {
@@ -207,13 +332,7 @@ When the quad library is /quadLib/ &\
     set surface [list surface of $thing]
     set displayQuad [quadChange $quad "display $disp"]
     lassign [$quadLib vertices $displayQuad] topLeft topRight bottomRight bottomLeft
-
-    set topWidth [drawSpaceDistance $topLeft $topRight]
-    set bottomWidth [drawSpaceDistance $bottomLeft $bottomRight]
-    set rightHeight [drawSpaceDistance $topRight $bottomRight]
-    set leftHeight [drawSpaceDistance $topLeft $bottomLeft]
-    set width [expr {($topWidth + $bottomWidth) / 2.0}]
-    set height [expr {($rightHeight + $leftHeight) / 2.0}]
+    lassign [drawSpaceQuadSize $quadLib $displayQuad] width height
 
     set surfacePoints [list \
         [list 0 0] \

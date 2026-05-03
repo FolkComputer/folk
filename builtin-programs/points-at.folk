@@ -8,21 +8,6 @@ When when /rect/ points /direction/ at /someone/ /lambda/ with environment /e/ {
   Wish $rect points $direction with length 1
 }
 
-proc pointsAtMeterPoint {point} {
-    lmap value $point {
-        append value m
-    }
-}
-
-proc pointsAtDistance {a b} {
-    set sum 0.0
-    foreach av $a bv $b {
-        set d [expr {$av - $bv}]
-        set sum [expr {$sum + $d * $d}]
-    }
-    expr {sqrt($sum)}
-}
-
 When the quad library is /quadLib/ &\
      the pose library is /poseLib/ &\
      the quad changer is /quadChange/ &\
@@ -32,64 +17,44 @@ When the quad library is /quadLib/ &\
 
 	When $rect has quad /quad/ {
 
-    package require linalg
-    namespace import \
-        ::math::linearalgebra::add \
-        ::math::linearalgebra::sub \
-        ::math::linearalgebra::scale
-
     fn quadChange
     set scale $l
 
     set quad [quadChange $quad "display $disp"]
-    lassign [$quadLib vertices $quad] topLeft topRight bottomRight bottomLeft
-    set topWidth [pointsAtDistance $topLeft $topRight]
-    set bottomWidth [pointsAtDistance $bottomLeft $bottomRight]
-    set rightHeight [pointsAtDistance $topRight $bottomRight]
-    set leftHeight [pointsAtDistance $topLeft $bottomLeft]
-    set width [expr {($topWidth + $bottomWidth) / 2.0}]
-    set height [expr {($rightHeight + $leftHeight) / 2.0}]
+    lassign [drawSpaceQuadSize $quadLib $quad] width height
 
     if {$direction eq "up"} {
-        set topCenter [scale 0.5 [add $topLeft $topRight]]
-        set bottomCenter [scale 0.5 [add $bottomLeft $bottomRight]]
-        set up [scale $scale [sub $topCenter $bottomCenter]]
-
-        set from $topCenter
-        set to [add $topCenter $up]
+        set from [drawSpaceQuadPoint $quadLib $quad top]
+        set opposite [drawSpaceQuadPoint $quadLib $quad bottom]
+        set to [drawSpaceVectorAdd $from \
+                    [drawSpaceVectorScale [drawSpaceVectorSub $from $opposite] $scale]]
         set color blue
         set fromSurface [list [expr {$width / 2.0}] 0]
         set toSurface [list [expr {$width / 2.0}] [expr {-$height * $scale}]]
 
     } elseif {$direction eq "left"} {
-        set leftCenter [scale 0.5 [add $topLeft $bottomLeft]]
-        set rightCenter [scale 0.5 [add $topRight $bottomRight]]
-        set left [scale $scale [sub $leftCenter $rightCenter]]
-
-        set from $leftCenter
-        set to [add $leftCenter $left]
+        set from [drawSpaceQuadPoint $quadLib $quad left]
+        set opposite [drawSpaceQuadPoint $quadLib $quad right]
+        set to [drawSpaceVectorAdd $from \
+                    [drawSpaceVectorScale [drawSpaceVectorSub $from $opposite] $scale]]
         set color gold
         set fromSurface [list 0 [expr {$height / 2.0}]]
         set toSurface [list [expr {-$width * $scale}] [expr {$height / 2.0}]]
 
     } elseif {$direction eq "right"} {
-        set leftCenter [scale 0.5 [add $topLeft $bottomLeft]]
-        set rightCenter [scale 0.5 [add $topRight $bottomRight]]
-        set right [scale $scale [sub $rightCenter $leftCenter]]
-
-        set from $rightCenter
-        set to [add $rightCenter $right]
+        set from [drawSpaceQuadPoint $quadLib $quad right]
+        set opposite [drawSpaceQuadPoint $quadLib $quad left]
+        set to [drawSpaceVectorAdd $from \
+                    [drawSpaceVectorScale [drawSpaceVectorSub $from $opposite] $scale]]
         set color red
         set fromSurface [list $width [expr {$height / 2.0}]]
         set toSurface [list [expr {$width * (1.0 + $scale)}] [expr {$height / 2.0}]]
 
     } elseif {$direction eq "down"} {
-        set topCenter [scale 0.5 [add $topLeft $topRight]]
-        set bottomCenter [scale 0.5 [add $bottomLeft $bottomRight]]
-        set down [scale $scale [sub $bottomCenter $topCenter]]
-
-        set from $bottomCenter
-        set to [add $bottomCenter $down]
+        set from [drawSpaceQuadPoint $quadLib $quad bottom]
+        set opposite [drawSpaceQuadPoint $quadLib $quad top]
+        set to [drawSpaceVectorAdd $from \
+                    [drawSpaceVectorScale [drawSpaceVectorSub $from $opposite] $scale]]
         set color white
         set fromSurface [list [expr {$width / 2.0}] $height]
         set toSurface [list [expr {$width / 2.0}] [expr {$height * (1.0 + $scale)}]]
@@ -124,11 +89,11 @@ When the quad library is /quadLib/ &\
             set color green
             Hold! -keep 16ms -key [list $rect pointer] {
                 Wish to draw a line onto $disp in surface $surface with \
-                    points [list [pointsAtMeterPoint $fromSurface] \
-                                 [pointsAtMeterPoint $toSurface]] width 0.4 \
+                    points [list [drawSpaceMeterPoint $fromSurface] \
+                                 [drawSpaceMeterPoint $toSurface]] width 0.4 \
                     color $color
                 Wish to draw a circle onto $disp in surface $surface with \
-                    center [pointsAtMeterPoint $toSurface] \
+                    center [drawSpaceMeterPoint $toSurface] \
                     radius 1 thickness 0.4 \
                     color $color filled true
             }
@@ -138,11 +103,11 @@ When the quad library is /quadLib/ &\
     When /nobody/ claims $rect points /anything/ at /anything/ {
         Hold! -keep 16ms -key [list $rect pointer] {
             Wish to draw a line onto $disp in surface $surface with \
-                points [list [pointsAtMeterPoint $fromSurface] \
-                             [pointsAtMeterPoint $toSurface]] width 0.4 \
+                points [list [drawSpaceMeterPoint $fromSurface] \
+                             [drawSpaceMeterPoint $toSurface]] width 0.4 \
                 color $color
             Wish to draw a circle onto $disp in surface $surface with \
-                center [pointsAtMeterPoint $toSurface] \
+                center [drawSpaceMeterPoint $toSurface] \
                 radius 1 thickness 0.4 \
                 color $color filled false
         }
