@@ -1,4 +1,4 @@
-proc drawSpacePhysicalLength {value} {
+fn drawSpacePhysicalLength {value} {
     if {[llength $value] != 1} {
         error "draw/spaces: expected a scalar physical length, got $value"
     }
@@ -25,7 +25,7 @@ proc drawSpacePhysicalLength {value} {
     }
 }
 
-proc drawSpacePhysicalPoint {point} {
+fn drawSpacePhysicalPoint {point} {
     if {[llength $point] != 2} {
         error "draw/spaces: expected a 2D physical point, got $point"
     }
@@ -33,20 +33,20 @@ proc drawSpacePhysicalPoint {point} {
          [drawSpacePhysicalLength [lindex $point 1]]
 }
 
-proc drawSpacePhysicalPoints {points} {
+fn drawSpacePhysicalPoints {points} {
     lmap point $points {
         drawSpacePhysicalPoint $point
     }
 }
 
-proc drawSpaceSetLength {options key} {
+fn drawSpaceSetLength {options key} {
     if {[dict exists $options $key]} {
         dict set options $key [drawSpacePhysicalLength [dict get $options $key]]
     }
     return $options
 }
 
-proc drawSpaceSetPoint {options key} {
+fn drawSpaceSetPoint {options key} {
     if {[dict exists $options $key]} {
         set point [dict get $options $key]
         if {$point ne ""} {
@@ -56,14 +56,14 @@ proc drawSpaceSetPoint {options key} {
     return $options
 }
 
-proc drawSpaceSetPoints {options key} {
+fn drawSpaceSetPoints {options key} {
     if {[dict exists $options $key]} {
         dict set options $key [drawSpacePhysicalPoints [dict get $options $key]]
     }
     return $options
 }
 
-proc drawSpaceNormalizeOptions {shape options} {
+fn drawSpaceNormalizeOptions {shape options} {
     switch -- $shape {
         line {
             set options [drawSpaceSetPoints $options points]
@@ -128,11 +128,11 @@ proc drawSpaceNormalizeOptions {shape options} {
     return $options
 }
 
-proc drawSpaceSurfaceTarget {target surface} {
+fn drawSpaceSurfaceTarget {target surface} {
     list $target surface $surface
 }
 
-proc drawSpaceVectorAdd {a b} {
+fn drawSpaceVectorAdd {a b} {
     set out [list]
     foreach av $a bv $b {
         lappend out [expr {$av + $bv}]
@@ -140,7 +140,7 @@ proc drawSpaceVectorAdd {a b} {
     return $out
 }
 
-proc drawSpaceVectorSub {a b} {
+fn drawSpaceVectorSub {a b} {
     set out [list]
     foreach av $a bv $b {
         lappend out [expr {$av - $bv}]
@@ -148,13 +148,13 @@ proc drawSpaceVectorSub {a b} {
     return $out
 }
 
-proc drawSpaceVectorScale {v s} {
+fn drawSpaceVectorScale {v s} {
     lmap x $v {
         expr {$x * $s}
     }
 }
 
-proc drawSpaceVectorDistance {a b} {
+fn drawSpaceVectorDistance {a b} {
     set sum 0.0
     foreach av $a bv $b {
         set d [expr {$av - $bv}]
@@ -163,18 +163,18 @@ proc drawSpaceVectorDistance {a b} {
     expr {sqrt($sum)}
 }
 
-proc drawSpaceDistance {a b} {
+fn drawSpaceDistance {a b} {
     drawSpaceVectorDistance $a $b
 }
 
-proc drawSpaceVectorUnit {v} {
+fn drawSpaceVectorUnit {v} {
     set zero [lmap _ $v { expr {0.0} }]
     set n [drawSpaceVectorDistance $v $zero]
     if {$n == 0.0} { return "" }
     drawSpaceVectorScale $v [expr {1.0 / $n}]
 }
 
-proc drawSpaceVectorAverage {points} {
+fn drawSpaceVectorAverage {points} {
     set first [lindex $points 0]
     set sum [lmap _ $first { expr {0.0} }]
     foreach point $points {
@@ -183,16 +183,16 @@ proc drawSpaceVectorAverage {points} {
     drawSpaceVectorScale $sum [expr {1.0 / [llength $points]}]
 }
 
-proc drawSpaceVectorMidpoint {a b} {
+fn drawSpaceVectorMidpoint {a b} {
     drawSpaceVectorScale [drawSpaceVectorAdd $a $b] 0.5
 }
 
-proc drawSpaceVectorMix {a b t} {
+fn drawSpaceVectorMix {a b t} {
     drawSpaceVectorAdd $a \
         [drawSpaceVectorScale [drawSpaceVectorSub $b $a] $t]
 }
 
-proc drawSpaceQuadPoint {quadLib quad selector} {
+fn drawSpaceQuadPoint {quadLib quad selector} {
     lassign [$quadLib vertices $quad] topLeft topRight bottomRight bottomLeft
 
     switch -- [string tolower $selector] {
@@ -229,7 +229,7 @@ proc drawSpaceQuadPoint {quadLib quad selector} {
     }
 }
 
-proc drawSpaceQuadSize {quadLib quad} {
+fn drawSpaceQuadSize {quadLib quad} {
     lassign [$quadLib vertices $quad] topLeft topRight bottomRight bottomLeft
 
     set topWidth [drawSpaceVectorDistance $topLeft $topRight]
@@ -241,7 +241,7 @@ proc drawSpaceQuadSize {quadLib quad} {
          [expr {($rightHeight + $leftHeight) / 2.0}]
 }
 
-proc drawSpaceQuadSurfacePoint {quadLib quad point} {
+fn drawSpaceQuadSurfacePoint {quadLib quad point} {
     lassign [drawSpaceQuadSize $quadLib $quad] width height
     if {$width == 0.0 || $height == 0.0} {
         error "draw/spaces: cannot map point through zero-sized quad"
@@ -257,7 +257,7 @@ proc drawSpaceQuadSurfacePoint {quadLib quad point} {
     drawSpaceVectorMix $top $bottom $ty
 }
 
-proc drawSpaceQuadSurfaceRect {quadLib quad x y width height} {
+fn drawSpaceQuadSurfaceRect {quadLib quad x y width height} {
     $quadLib create [$quadLib space $quad] [list \
         [drawSpaceQuadSurfacePoint $quadLib $quad [list $x $y]] \
         [drawSpaceQuadSurfacePoint $quadLib $quad [list [expr {$x + $width}] $y]] \
@@ -265,7 +265,7 @@ proc drawSpaceQuadSurfaceRect {quadLib quad x y width height} {
         [drawSpaceQuadSurfacePoint $quadLib $quad [list $x [expr {$y + $height}]]]]
 }
 
-proc drawSpacePerpendicularBetween {from to} {
+fn drawSpacePerpendicularBetween {from to} {
     set dx [expr {[lindex $to 0] - [lindex $from 0]}]
     set dy [expr {[lindex $to 1] - [lindex $from 1]}]
     set perp [list [expr {-$dy}] $dx]
@@ -283,7 +283,7 @@ proc drawSpacePerpendicularBetween {from to} {
     return $fallback
 }
 
-proc drawSpaceSurfaceQuadBetween {quadLib space from to height} {
+fn drawSpaceSurfaceQuadBetween {quadLib space from to height} {
     set halfHeight [expr {$height / 2.0}]
     set perp [drawSpaceVectorScale [drawSpacePerpendicularBetween $from $to] $halfHeight]
 
@@ -295,13 +295,13 @@ proc drawSpaceSurfaceQuadBetween {quadLib space from to height} {
     $quadLib create $space [list $topLeft $topRight $bottomRight $bottomLeft]
 }
 
-proc drawSpaceDisplayPixelToClip {displayWidth displayHeight point} {
+fn drawSpaceDisplayPixelToClip {displayWidth displayHeight point} {
     lassign $point x y
     list [expr {2.0 * $x / $displayWidth - 1.0}] \
          [expr {2.0 * $y / $displayHeight - 1.0}]
 }
 
-proc drawSpaceHomography {pointPairs} {
+fn drawSpaceHomography {pointPairs} {
     package require linalg
     namespace import ::math::linearalgebra::solvePGauss
 
@@ -321,7 +321,7 @@ proc drawSpaceHomography {pointPairs} {
          [list [lindex $h 6] [lindex $h 7] 1.0]
 }
 
-proc drawSpaceApplyHomography {H point} {
+fn drawSpaceApplyHomography {H point} {
     lassign $point x y
     lassign [lindex $H 0] h00 h01 h02
     lassign [lindex $H 1] h10 h11 h12
@@ -332,7 +332,7 @@ proc drawSpaceApplyHomography {H point} {
     list [expr {$hx / $hw}] [expr {$hy / $hw}]
 }
 
-proc drawSpaceMeterPoint {point} {
+fn drawSpaceMeterPoint {point} {
     lmap value $point {
         append value m
     }
@@ -388,7 +388,7 @@ When the quad library is /quadLib/ &\
         [drawSpaceHomography $pointPairs]
 }
 
-proc drawSpaceWishPrimitive {article shape target surface options} {
+fn drawSpaceWishPrimitive {article shape target surface options} {
     set normalized [drawSpaceNormalizeOptions $shape $options]
     Wish to draw $article $shape onto [drawSpaceSurfaceTarget $target $surface] \
         with {*}$normalized
@@ -404,7 +404,7 @@ When /someone/ wishes to draw a line onto /target/ in space /surface/ with /...o
     drawSpaceWishPrimitive a line $target $surface $options
 }
 
-proc drawSpaceWishDashedLine {target surface options} {
+fn drawSpaceWishDashedLine {target surface options} {
     set normalized [drawSpaceNormalizeOptions dashed-line $options]
     Wish to draw a dashed line onto [drawSpaceSurfaceTarget $target $surface] \
         with {*}$normalized

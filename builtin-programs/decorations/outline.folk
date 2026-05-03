@@ -1,13 +1,19 @@
-proc drawOutlineMeterLength {value} {
+fn drawOutlineMeterLength {value} {
     append value m
 }
 
-proc drawOutlineMeterPoints {width height} {
-    list [drawSpaceMeterPoint {0 0}] \
-         [drawSpaceMeterPoint [list $width 0]] \
-         [drawSpaceMeterPoint [list $width $height]] \
-         [drawSpaceMeterPoint [list 0 $height]] \
-         [drawSpaceMeterPoint {0 0}]
+fn drawOutlineMeterPoint {point} {
+    lmap value $point {
+        drawOutlineMeterLength $value
+    }
+}
+
+fn drawOutlineMeterPoints {width height} {
+    list [drawOutlineMeterPoint {0 0}] \
+         [drawOutlineMeterPoint [list $width 0]] \
+         [drawOutlineMeterPoint [list $width $height]] \
+         [drawOutlineMeterPoint [list 0 $height]] \
+         [drawOutlineMeterPoint {0 0}]
 }
 
 When /someone/ wishes /thing/ is outlined /color/ {

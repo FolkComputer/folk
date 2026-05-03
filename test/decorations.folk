@@ -1,9 +1,11 @@
+source builtin-programs/collect.folk
 source builtin-programs/decorations/label.folk
 source builtin-programs/decorations/outline.folk
 source builtin-programs/draw/spaces.folk
 
 assert {[drawOutlineMeterPoints 0.2 0.1] eq {{0m 0m} {0.2m 0m} {0.2m 0.1m} {0m 0.1m} {0m 0m}}}
 assert {[drawOutlineMeterLength 0.01] eq "0.01m"}
+assert {[drawOutlineMeterPoint {0.2 0.1}] eq {0.2m 0.1m}}
 
 assert {[drawLabelMaxLineLength "hi\nthere"] == 5}
 assert {abs([drawLabelDefaultScale "hello"] - 0.02) < 1e-9}
@@ -14,5 +16,39 @@ assert {[dict get $options position] eq {0.1m 0.05m}}
 assert {[dict get $options scale] eq "0.02m"}
 assert {[dict get $options anchor] eq "center"}
 assert {[dict get $options font] eq "PTSans-Regular"}
+
+set thing test-thing
+set disp test-display
+set surface test-surface
+set surfaceTarget [drawSpaceSurfaceTarget $disp $surface]
+
+Assert! display $disp has width 100 height 100
+Assert! $thing has physical drawing surface $surface with width 0.2 height 0.1 space test-space
+Assert! $disp has canvas projection for surface $surface {{1 0 0} {0 1 0} {0 0 1}}
+
+Wish $thing is labelled "hello" with color cyan
+Wish $thing is outlined red with thickness 0.5 layer 7
+
+sleep 1
+
+set errors [Query! /program/ has error /err/ with info /info/]
+assert {[llength $errors] == 0}
+
+set textDraws [Query! /someone/ wishes to draw text onto $surfaceTarget with /...drawOptions/]
+assert {[llength $textDraws] == 1}
+set drawOptions [dict get [lindex $textDraws 0] drawOptions]
+assert {[dict get $drawOptions text] eq "hello"}
+assert {[dict get $drawOptions color] eq "cyan"}
+assert {[dict get $drawOptions anchor] eq "center"}
+assert {abs([dict get $drawOptions scale] - 0.02) < 1e-9}
+assert {[dict get $drawOptions position] eq {0.1 0.05}}
+
+set lineDraws [Query! /someone/ wishes to draw a line onto $surfaceTarget with /...drawOptions/]
+assert {[llength $lineDraws] == 1}
+set drawOptions [dict get [lindex $lineDraws 0] drawOptions]
+assert {[dict get $drawOptions color] eq "red"}
+assert {[dict get $drawOptions layer] == 7}
+assert {abs([dict get $drawOptions width] - 0.005) < 1e-9}
+assert {[dict get $drawOptions points] eq {{0.0 0.0} {0.2 0.0} {0.2 0.1} {0.0 0.1} {0.0 0.0}}}
 
 Exit! 0

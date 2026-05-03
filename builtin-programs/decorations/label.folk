@@ -1,8 +1,14 @@
-proc drawLabelMeterLength {value} {
+fn drawLabelMeterLength {value} {
     append value m
 }
 
-proc drawLabelMaxLineLength {text} {
+fn drawLabelMeterPoint {point} {
+    lmap value $point {
+        drawLabelMeterLength $value
+    }
+}
+
+fn drawLabelMaxLineLength {text} {
     set maxLength 0
     foreach line [split $text "\n"] {
         set lineLength [string length $line]
@@ -13,16 +19,16 @@ proc drawLabelMaxLineLength {text} {
     return $maxLength
 }
 
-proc drawLabelDefaultScale {text} {
+fn drawLabelDefaultScale {text} {
     set maxLength [drawLabelMaxLineLength $text]
     if {$maxLength == 0} { return 0.02 }
     ::math::min 0.02 [/ 0.45 $maxLength]
 }
 
-proc drawLabelDefaultOptions {text width height} {
+fn drawLabelDefaultOptions {text width height} {
     set scale [drawLabelDefaultScale $text]
     dict create \
-        position [drawSpaceMeterPoint [list [expr {$width / 2.0}] [expr {$height / 2.0}]]] \
+        position [drawLabelMeterPoint [list [expr {$width / 2.0}] [expr {$height / 2.0}]]] \
         scale [drawLabelMeterLength $scale] \
         anchor center \
         font "PTSans-Regular"
