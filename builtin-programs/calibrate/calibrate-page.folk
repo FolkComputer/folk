@@ -404,39 +404,39 @@ Camera Controls
             calibrating again.</p>
           </li>
 
-          <li id="refineCalibrationLi" style="display: $[expr {$::thisNode in {"folk-hex" "folk-omar" "gadget-pink"} ? "''" : "none"}]">
-            <h3>Interactively refine calibration.</h3>
+          <!-- <li id="refineCalibrationLi" style="display: $[expr {$::thisNode in {"folk-hex" "folk-omar" "gadget-pink"} ? "''" : "none"}]">
+               <h3>Interactively refine calibration.</h3>
 
-            <p>Start interactive refine: <button id="interactively-refine-submit">Start Interactive Refine</button></p>
-            <pre id="refine-log" style="max-height: 300px; overflow-y: auto; background: #111; color: #aaa; font-size: 11px; padding: 8px; white-space: pre-wrap;"></pre>
-            <script>
-              let refineLogInterval = null;
-              document.getElementById('interactively-refine-submit').addEventListener('click', (e) => {
-                // HACK: duplicated code from above
-                const mm = document.getElementById("tag-side-length-mm").value;
-                if (mm === "" || isNaN(mm)) {
-                  alert("Error: You need to type in a valid inner side length (mm) of your board tags before clicking Start Interactive Refine.");
-                  return;
-                }
-                folk.hold('start calibration', tcl`
-                  Claim the printed calibration tag size is \${mm} mm
-                  Wish to interactively refine calibration from camera "$camera" to display "$display"
-                `, 'builtin-programs/calibrate/calibrate.folk');
+               <p>Start interactive refine: <button id="interactively-refine-submit">Start Interactive Refine</button></p>
+               <pre id="refine-log" style="max-height: 300px; overflow-y: auto; background: #111; color: #aaa; font-size: 11px; padding: 8px; white-space: pre-wrap;"></pre>
+               <script>
+               let refineLogInterval = null;
+               document.getElementById('interactively-refine-submit').addEventListener('click', (e) => {
+               // HACK: duplicated code from above
+               const mm = document.getElementById("tag-side-length-mm").value;
+               if (mm === "" || isNaN(mm)) {
+               alert("Error: You need to type in a valid inner side length (mm) of your board tags before clicking Start Interactive Refine.");
+               return;
+               }
+               folk.hold('start calibration', tcl`
+               Claim the printed calibration tag size is \${mm} mm
+               Wish to interactively refine calibration from camera "$camera" to display "$display"
+               `, 'builtin-programs/calibrate/calibrate.folk');
 
-                if (refineLogInterval) clearInterval(refineLogInterval);
-                const logEl = document.getElementById('refine-log');
-                refineLogInterval = setInterval(() => {
-                  fetch('/log/builtin-programs/calibrate/interactively-refine.folk.stderr')
-                    .then(r => r.text())
-                    .then(text => {
-                      const atBottom = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 5;
-                      logEl.textContent = text;
-                      if (atBottom) logEl.scrollTop = logEl.scrollHeight;
-                    });
-                }, 1000);
-              });
-            </script>
-          </li>
+               if (refineLogInterval) clearInterval(refineLogInterval);
+               const logEl = document.getElementById('refine-log');
+               refineLogInterval = setInterval(() => {
+               fetch('/log/builtin-programs/calibrate/interactively-refine.folk.stderr')
+               .then(r => r.text())
+               .then(text => {
+               const atBottom = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 5;
+               logEl.textContent = text;
+               if (atBottom) logEl.scrollTop = logEl.scrollHeight;
+               });
+               }, 1000);
+               });
+               </script>
+               </li> -->
 
           <li>
             <h3>Measure program geometry.</h3>
