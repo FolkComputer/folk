@@ -1,19 +1,14 @@
-fn drawOutlineMeterLength {value} {
-    append value m
-}
-
-fn drawOutlineMeterPoint {point} {
-    lmap value $point {
-        drawOutlineMeterLength $value
+fn drawOutlinePoints {width height} {
+    lmap point [list \
+        {0 0} \
+        [list $width 0] \
+        [list $width $height] \
+        [list 0 $height] \
+        {0 0}] {
+        lmap value $point {
+            format "%sm" $value
+        }
     }
-}
-
-fn drawOutlineMeterPoints {width height} {
-    list [drawOutlineMeterPoint {0 0}] \
-         [drawOutlineMeterPoint [list $width 0]] \
-         [drawOutlineMeterPoint [list $width $height]] \
-         [drawOutlineMeterPoint [list 0 $height]] \
-         [drawOutlineMeterPoint {0 0}]
 }
 
 When /someone/ wishes /thing/ is outlined /color/ {
@@ -29,10 +24,10 @@ When display /disp/ has width /displayWidth/ height /displayHeight/ &\
      /disp/ has canvas projection for surface /surface/ /surfaceToClip/ &\
      /someone/ wishes /thing/ is outlined with /...options/ {
     set color [dict getdef $options color white]
-    set outlineWidth [dict getdef $options width [dict getdef $options thickness [drawOutlineMeterLength 0.01]]]
+    set outlineWidth [dict getdef $options width [dict getdef $options thickness [format "%sm" 0.01]]]
     set layer [dict getdef $options layer 2]
 
     Wish to draw a line onto $disp in surface $surface with \
-        points [drawOutlineMeterPoints $width $height] \
+        points [drawOutlinePoints $width $height] \
         width $outlineWidth color $color layer $layer
 }

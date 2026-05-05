@@ -5,7 +5,7 @@ source builtin-programs/editor.folk
 
 assert {abs([terminalPhysicalLength 3] - 0.03) < 1e-9}
 assert {abs([terminalPhysicalLength 4mm] - 0.004) < 1e-9}
-assert {[terminalMeterPoint {0.2 0.1}] eq {0.2m 0.1m}}
+assert {[drawSpaceMeterPoint {0.2 0.1}] eq {0.2m 0.1m}}
 
 set options [terminalOptionsWithDefaults {rows 2 cols 10 padding 0.2 foreground white}]
 assert {[dict get $options rows] == 2}

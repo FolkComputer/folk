@@ -334,7 +334,7 @@ fn drawSpaceApplyHomography {H point} {
 
 fn drawSpaceMeterPoint {point} {
     lmap value $point {
-        append value m
+        format "%sm" $value
     }
 }
 

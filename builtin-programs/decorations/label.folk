@@ -1,13 +1,3 @@
-fn drawLabelMeterLength {value} {
-    append value m
-}
-
-fn drawLabelMeterPoint {point} {
-    lmap value $point {
-        drawLabelMeterLength $value
-    }
-}
-
 fn drawLabelMaxLineLength {text} {
     set maxLength 0
     foreach line [split $text "\n"] {
@@ -27,9 +17,12 @@ fn drawLabelDefaultScale {text} {
 
 fn drawLabelDefaultOptions {text width height} {
     set scale [drawLabelDefaultScale $text]
+    set position [lmap value [list [expr {$width / 2.0}] [expr {$height / 2.0}]] {
+        format "%sm" $value
+    }]
     dict create \
-        position [drawLabelMeterPoint [list [expr {$width / 2.0}] [expr {$height / 2.0}]]] \
-        scale [drawLabelMeterLength $scale] \
+        position $position \
+        scale [format "%sm" $scale] \
         anchor center \
         font "PTSans-Regular"
 }

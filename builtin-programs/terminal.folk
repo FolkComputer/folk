@@ -77,16 +77,6 @@ fn terminalPhysicalLength {value} {
     }
 }
 
-fn terminalMeterLength {value} {
-    append value m
-}
-
-fn terminalMeterPoint {point} {
-    lmap value $point {
-        terminalMeterLength $value
-    }
-}
-
 fn terminalTextScale {width height options} {
     set explicit [dict getdef $options textScale ""]
     if {$explicit ne ""} {
@@ -112,10 +102,15 @@ fn terminalTextScale {width height options} {
 }
 
 fn terminalSurfaceCorners {width height} {
-    list [terminalMeterPoint {0 0}] \
-         [terminalMeterPoint [list $width 0]] \
-         [terminalMeterPoint [list $width $height]] \
-         [terminalMeterPoint [list 0 $height]]
+    lmap point [list \
+        {0 0} \
+        [list $width 0] \
+        [list $width $height] \
+        [list 0 $height]] {
+        lmap value $point {
+            format "%sm" $value
+        }
+    }
 }
 
 fn terminalDrawSurface {disp surface width height text options isActive} {
@@ -130,9 +125,12 @@ fn terminalDrawSurface {disp surface width height text options isActive} {
 
     set padding [terminalPhysicalLength [dict get $options padding]]
     set scale [terminalTextScale $width $height $options]
+    set textPosition [lmap value [list $padding $padding] {
+        format "%sm" $value
+    }]
     Wish to draw text onto $disp in surface $surface with \
-        position [terminalMeterPoint [list $padding $padding]] \
-        scale [terminalMeterLength $scale] \
+        position $textPosition \
+        scale [format "%sm" $scale] \
         anchor topleft \
         font [dict get $options font] \
         color [dict get $options foreground] \

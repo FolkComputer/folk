@@ -3,9 +3,8 @@ source builtin-programs/decorations/label.folk
 source builtin-programs/decorations/outline.folk
 source builtin-programs/draw/spaces.folk
 
-assert {[drawOutlineMeterPoints 0.2 0.1] eq {{0m 0m} {0.2m 0m} {0.2m 0.1m} {0m 0.1m} {0m 0m}}}
-assert {[drawOutlineMeterLength 0.01] eq "0.01m"}
-assert {[drawOutlineMeterPoint {0.2 0.1}] eq {0.2m 0.1m}}
+assert {[drawOutlinePoints 0.2 0.1] eq {{0m 0m} {0.2m 0m} {0.2m 0.1m} {0m 0.1m} {0m 0m}}}
+assert {[drawSpaceMeterPoint {0.2 0.1}] eq {0.2m 0.1m}}
 
 assert {[drawLabelMaxLineLength "hi\nthere"] == 5}
 assert {abs([drawLabelDefaultScale "hello"] - 0.02) < 1e-9}
