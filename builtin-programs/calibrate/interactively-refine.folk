@@ -273,18 +273,31 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
             with message [join [lmap r $labels {dict get $r label}] " "]
     }
 
-    fn AwaitNextCameraFrame! {frameTimestampVar} {
-        upvar $frameTimestampVar frameTimestamp
-        set prevFrameTimestamp $frameTimestamp
-        while {$frameTimestamp <= $prevFrameTimestamp} {
+    fn AwaitNextCameraFrame! {frameStmtVar} {
+        upvar $frameStmtVar frameStmt
+        if {$frameStmt ne {}} {
+            StatementRelease! [dict get $frameStmt __ref]
+            set prevFrameTimestamp $frameStmt(frameTimestamp)
+        } else {
+            set prevFrameTimestamp 0
+        }
+        while true {
             after 8
 
-            set frames [Query! camera $camera has frame /frame/ at timestamp /frameTimestamp/]
+            set frames [Query! camera $camera has gray frame /frame/ at timestamp /frameTimestamp/]
             if {[llength $frames] < 1} { continue }
             set frameResult [lindex $frames end]
-            set frameTimestamp $frameResult(frameTimestamp)
+
+            if {$frameResult(frameTimestamp) <= $prevFrameTimestamp} { continue }
+
+            try {
+                StatementAcquire! [dict get $frameResult __ref]
+            } on error e { continue }
+
+            break
         }
-        return $frameResult(frame)
+        set frameStmt $frameResult
+        return $frameResult
     }
 
     set intrNames {fx cx fy cy k1 k2}
@@ -335,10 +348,15 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
     # Once the calibration is refined with respect to the pose, the
     # user can move the board to a different pose. They can stop
     # whenever they want.
+
     set poses [list]
-    set frameTimestamp 0
+
+    set frameStmt {}
     while true {
-        set frame [AwaitNextCameraFrame! frameTimestamp]
+        AwaitNextCameraFrame! frameStmt
+        set frame $frameStmt(frame)
+        set frameTimestamp $frameStmt(frameTimestamp)
+
         set detectedTags0 [dict create]
         foreach tag [$tagDetector detect $frame] {
             dict set detectedTags0 $tag(id) $tag
@@ -511,7 +529,10 @@ When the AprilTag detector maker is /makeAprilTagDetector/ &\
                     return [lrepeat $m 1e3]
                 }
 
-                set frame [AwaitNextCameraFrame! frameTimestamp]
+                AwaitNextCameraFrame! frameStmt
+                set frame $frameStmt(frame)
+                set frameTimestamp $frameStmt(frameTimestamp)
+
                 set detectedTags [$tagDetector detect $frame]
                 # Report the detections for on-page preview:
                 Hold! -key detected-tags \
