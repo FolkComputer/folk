@@ -266,6 +266,8 @@ When the GPU library is /gpuLib/ &\
 
     # `id` is arbitrarily chosen by the caller:
     When /someone/ wishes the GPU creates canvas /id/ with /...options/ {
+        puts "Create canvas: $id"
+
         set width [dict get $options width]
         set height [dict get $options height]
         set settle [dict getdef $options settle 3ms]
@@ -434,7 +436,8 @@ When the GPU library is /gpuLib/ &\
             return
         }
         set pCanvas [list $p canvas]
-        Wish the GPU creates canvas $pCanvas with {*}$options
+        # -keep is to deduplicate canvases and reduce canvas churn.
+        Wish -keep 100ms the GPU creates canvas $pCanvas with {*}$options
         When the GPU has created canvas $pCanvas with /...canvOpts/ {
             Claim $p has canvas $pCanvas with {*}$canvOpts
 
