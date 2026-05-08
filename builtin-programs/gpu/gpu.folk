@@ -54,6 +54,11 @@ if {$useGlfw} {
 }
 
 set macos [expr {$::tcl_platform(os) eq "darwin"}]
+set enableValidation false
+if {[info exists ::env(FOLK_VULKAN_VALIDATION)]} {
+    set validationSetting [string tolower $::env(FOLK_VULKAN_VALIDATION)]
+    set enableValidation [expr {$validationSetting ni {0 false no off ""}}]
+}
 if {$macos} {
     $gpuc cflags -I/opt/homebrew/include -L/opt/homebrew/lib
 }
@@ -143,11 +148,16 @@ $gpuc proc init {bool useGlfw} void {
         VkInstanceCreateInfo createInfo = {0};
         createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
 
+        $[if {$enableValidation} {subst -nocommands {
         const char* validationLayers[] = {
            "VK_LAYER_KHRONOS_validation"
         };
         createInfo.enabledLayerCount = sizeof(validationLayers)/sizeof(validationLayers[0]);
         createInfo.ppEnabledLayerNames = validationLayers;
+        }} else {subst -nocommands {
+        createInfo.enabledLayerCount = 0;
+        createInfo.ppEnabledLayerNames = NULL;
+        }}]
 
         $[if {$macos} {subst -nocommands {
             const char* enabledExtensions[] = {

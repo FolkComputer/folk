@@ -37,29 +37,25 @@ When /anyone/ wishes /source/ is dynamically connected to /sink/ from /from/ to 
     Wish $source is dynamically connected to $sink with from $from to $to
 }
 
-When the quad library is /quadLib/ &\
-     the quad changer is /quadChange/ &\
-     display /disp/ has width /displayWidth/ height /displayHeight/ &\
+When the draw space library is /drawSpaceLib/ &\
      /source/ has quad /sourceQuad/ &\
      /sink/ has quad /sinkQuad/ &\
      /anyone/ wishes /source/ is connected to /sink/ with /...options/ {
     if {$source eq $sink} { return }
 
-    fn quadChange
     set fromSelector [dict getdef $options from centroid]
     set toSelector [dict getdef $options to centroid]
-    set sourceQuad [quadChange $sourceQuad "display $disp"]
-    set sinkQuad [quadChange $sinkQuad "display $disp"]
 
-    set from [drawSpaceQuadPoint $quadLib $sourceQuad $fromSelector]
-    set to [drawSpaceQuadPoint $quadLib $sinkQuad $toSelector]
+    set from [$drawSpaceLib quadPoint $sourceQuad $fromSelector]
+    set to [$drawSpaceLib quadPoint $sinkQuad $toSelector]
     set distance [drawSpaceVectorDistance $from $to]
     if {$distance == 0.0} { return }
 
     set surfaceHeight [drawSpacePhysicalLength [dict getdef $options surfaceHeight 6]]
+    set disp [$drawSpaceLib display]
     set connection [list connection $source $sink $fromSelector $toSelector $disp]
     Claim -keep 50ms $connection has quad \
-        [drawSpaceSurfaceQuadBetween $quadLib "display $disp" $from $to $surfaceHeight]
+        [$drawSpaceLib surfaceQuadBetween $from $to $surfaceHeight]
 
     When $connection has physical drawing surface /surface/ with width /width/ height /height/ space /space/ &\
          $disp has canvas projection for surface /surface/ /surfaceToClip/ {
@@ -78,29 +74,25 @@ When the quad library is /quadLib/ &\
     }
 }
 
-When the quad library is /quadLib/ &\
-     the quad changer is /quadChange/ &\
-     display /disp/ has width /displayWidth/ height /displayHeight/ &\
+When the draw space library is /drawSpaceLib/ &\
      /source/ has quad /sourceQuad/ &\
      /sink/ has quad /sinkQuad/ &\
      /anyone/ wishes /source/ is dynamically connected to /sink/ with /...options/ {
     if {$source eq $sink} { return }
 
-    fn quadChange
     set fromSelector [dict getdef $options from centroid]
     set toSelector [dict getdef $options to centroid]
-    set sourceQuad [quadChange $sourceQuad "display $disp"]
-    set sinkQuad [quadChange $sinkQuad "display $disp"]
 
-    set from [drawSpaceQuadPoint $quadLib $sourceQuad $fromSelector]
-    set to [drawSpaceQuadPoint $quadLib $sinkQuad $toSelector]
+    set from [$drawSpaceLib quadPoint $sourceQuad $fromSelector]
+    set to [$drawSpaceLib quadPoint $sinkQuad $toSelector]
     set distance [drawSpaceVectorDistance $from $to]
     if {$distance == 0.0} { return }
 
     set surfaceHeight [drawSpacePhysicalLength [dict getdef $options surfaceHeight 6]]
+    set disp [$drawSpaceLib display]
     set connection [list dynamic-connection $source $sink $fromSelector $toSelector $disp]
     Claim -keep 50ms $connection has quad \
-        [drawSpaceSurfaceQuadBetween $quadLib "display $disp" $from $to $surfaceHeight]
+        [$drawSpaceLib surfaceQuadBetween $from $to $surfaceHeight]
 
     When $connection has physical drawing surface /surface/ with width /width/ height /height/ space /space/ &\
          $disp has canvas projection for surface /surface/ /surfaceToClip/ {

@@ -23,14 +23,34 @@ defineVulkanHandleType $vmac VkPhysicalDevice
 defineVulkanHandleType $vmac VkDevice
 $vmac code { extern "C" {
 
+VmaAllocator vmaCreateFolkAllocator(VkInstance instance, VkPhysicalDevice physicalDevice, VkDevice device,
+                                    PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr,
+                                    PFN_vkGetDeviceProcAddr vkGetDeviceProcAddr,
+                                    PFN_vkGetPhysicalDeviceProperties vkGetPhysicalDeviceProperties,
+                                    PFN_vkGetPhysicalDeviceMemoryProperties vkGetPhysicalDeviceMemoryProperties);
+
 void vmaInit(VkInstance instance, VkPhysicalDevice physicalDevice, VkDevice device,
              PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr,
              PFN_vkGetDeviceProcAddr vkGetDeviceProcAddr,
              PFN_vkGetPhysicalDeviceProperties vkGetPhysicalDeviceProperties,
              PFN_vkGetPhysicalDeviceMemoryProperties vkGetPhysicalDeviceMemoryProperties) {
+    allocator = vmaCreateFolkAllocator(instance, physicalDevice, device,
+                                       vkGetInstanceProcAddr,
+                                       vkGetDeviceProcAddr,
+                                       vkGetPhysicalDeviceProperties,
+                                       vkGetPhysicalDeviceMemoryProperties);
+}
+
+VmaAllocator vmaCreateFolkAllocator(VkInstance instance, VkPhysicalDevice physicalDevice, VkDevice device,
+                                    PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr,
+                                    PFN_vkGetDeviceProcAddr vkGetDeviceProcAddr,
+                                    PFN_vkGetPhysicalDeviceProperties vkGetPhysicalDeviceProperties,
+                                    PFN_vkGetPhysicalDeviceMemoryProperties vkGetPhysicalDeviceMemoryProperties) {
     volkInitialize();
     volkLoadInstanceOnly(instance);
     volkLoadDevice(device);
+
+    VmaAllocator allocator = VK_NULL_HANDLE;
 
     VmaAllocatorCreateInfo allocatorInfo = {0};
     allocatorInfo.physicalDevice = physicalDevice;
@@ -59,6 +79,8 @@ void vmaInit(VkInstance instance, VkPhysicalDevice physicalDevice, VkDevice devi
         fprintf(stderr, "Failed to create VMA allocator: %d\\n", res);
         exit(1);
     }
+
+    return allocator;
 }
 
 VmaAllocator vmaGetAllocator() {

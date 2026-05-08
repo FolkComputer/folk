@@ -16,6 +16,7 @@ When /someone/ wishes /thing/ is outlined /color/ {
 }
 
 When /someone/ wishes /thing/ is outlined /color/ with /...options/ {
+    if {![info exists options]} { set options [dict create] }
     Wish $thing is outlined with color $color {*}$options
 }
 
@@ -23,6 +24,7 @@ When display /disp/ has width /displayWidth/ height /displayHeight/ &\
      /thing/ has physical drawing surface /surface/ with width /width/ height /height/ space /space/ &\
      /disp/ has canvas projection for surface /surface/ /surfaceToClip/ &\
      /someone/ wishes /thing/ is outlined with /...options/ {
+    if {![info exists options]} { set options [dict create] }
     set color [dict getdef $options color white]
     set outlineWidth [dict getdef $options width [dict getdef $options thickness [format "%sm" 0.01]]]
     set layer [dict getdef $options layer 2]

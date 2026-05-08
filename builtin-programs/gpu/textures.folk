@@ -15,12 +15,11 @@ $gpuc code {
 
     #include "vk_mem_alloc.h"
 
-    void vmaInit(VkInstance instance, VkPhysicalDevice physicalDevice, VkDevice device,
-                 PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr,
-                 PFN_vkGetDeviceProcAddr vkGetDeviceProcAddr,
-                 PFN_vkGetPhysicalDeviceProperties vkGetPhysicalDeviceProperties,
-                 PFN_vkGetPhysicalDeviceMemoryProperties vkGetPhysicalDeviceMemoryProperties);
-    VmaAllocator vmaGetAllocator();
+    VmaAllocator vmaCreateFolkAllocator(VkInstance instance, VkPhysicalDevice physicalDevice, VkDevice device,
+                                        PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr,
+                                        PFN_vkGetDeviceProcAddr vkGetDeviceProcAddr,
+                                        PFN_vkGetPhysicalDeviceProperties vkGetPhysicalDeviceProperties,
+                                        PFN_vkGetPhysicalDeviceMemoryProperties vkGetPhysicalDeviceMemoryProperties);
 }
 $gpuc include <pthread.h>
 $gpuc include <stdatomic.h>
@@ -74,11 +73,27 @@ local proc vktry {call} { string map {\n " "} [csubst {{
 # - http://roar11.com/2019/06/vulkan-textures-unbound/
 $gpuc code {
     VkDevice device;
+    VmaAllocator textureAllocator = VK_NULL_HANDLE;
+    static PFN_vkCreateFence textureVkCreateFence = NULL;
+    static PFN_vkResetFences textureVkResetFences = NULL;
+
+    static void loadTextureFenceProcs(void) {
+        if (vkGetDeviceProcAddr == NULL) {
+            volkInitialize();
+            volkLoadInstanceOnly(*instance_ptr());
+        }
+        FOLK_ENSURE(device != VK_NULL_HANDLE);
+
+        textureVkCreateFence = (PFN_vkCreateFence)vkGetDeviceProcAddr(device, "vkCreateFence");
+        textureVkResetFences = (PFN_vkResetFences)vkGetDeviceProcAddr(device, "vkResetFences");
+    }
+
     static void initPlaceholderTexture();
 }
 
 $gpuc typedef int GpuTextureHandle
 defineVulkanHandleType $gpuc VkImage
+defineVulkanHandleType $gpuc VkBuffer
 defineVulkanHandleType $gpuc VkDeviceMemory
 defineVulkanHandleType $gpuc VkImageView
 defineVulkanHandleType $gpuc VkSampler
@@ -175,12 +190,12 @@ $gpuc proc textureManagerInit {} void {
 
         $[vktry {vkAllocateDescriptorSets(device, &allocInfo, textureDescriptorSet_ptr())}]
     }
-    // Initialize VMA allocator
-    vmaInit(*instance_ptr(), *physicalDevice_ptr(), device,
-            vkGetInstanceProcAddr,
-            vkGetDeviceProcAddr,
-            vkGetPhysicalDeviceProperties,
-            vkGetPhysicalDeviceMemoryProperties);
+    // Initialize this texture library's VMA allocator.
+    textureAllocator = vmaCreateFolkAllocator(*instance_ptr(), *physicalDevice_ptr(), device,
+                                              vkGetInstanceProcAddr,
+                                              vkGetDeviceProcAddr,
+                                              vkGetPhysicalDeviceProperties,
+                                              vkGetPhysicalDeviceMemoryProperties);
 
     initPlaceholderTexture();
 }
@@ -221,7 +236,7 @@ $gpuc proc createBuffer {VkDeviceSize size VkBufferUsageFlags usage VkMemoryProp
         allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
     }
 
-    VkResult res = vmaCreateBuffer(vmaGetAllocator(), &bufferInfo, &allocInfo, buffer, allocation, NULL);
+    VkResult res = vmaCreateBuffer(textureAllocator, &bufferInfo, &allocInfo, buffer, allocation, NULL);
     if (res != VK_SUCCESS) {
         fprintf(stderr, "Failed to create buffer with VMA: %d\\n", res);
         exit(1);
@@ -229,9 +244,23 @@ $gpuc proc createBuffer {VkDeviceSize size VkBufferUsageFlags usage VkMemoryProp
 
 #ifdef TRACY_ENABLE
     VmaAllocationInfo vmaInfo;
-    vmaGetAllocationInfo(vmaGetAllocator(), *allocation, &vmaInfo);
+    vmaGetAllocationInfo(textureAllocator, *allocation, &vmaInfo);
     TracyCAlloc(*allocation, vmaInfo.size);
 #endif
+}
+
+$gpuc proc copyTextureStagingBufferToImage {VmaAllocation allocation Image im size_t size} void {
+    void* data;
+    vmaMapMemory(textureAllocator, allocation, &data);
+    memcpy(im.data, data, size);
+    vmaUnmapMemory(textureAllocator, allocation);
+}
+
+$gpuc proc destroyTextureBuffer {VkBuffer buffer VmaAllocation allocation} void {
+#ifdef TRACY_ENABLE
+    TracyCFree(allocation);
+#endif
+    vmaDestroyBuffer(textureAllocator, buffer, allocation);
 }
 
 # Texture allocation:
@@ -264,7 +293,7 @@ $gpuc code [csubst {
             allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
         }
 
-        VkResult res = vmaCreateImage(vmaGetAllocator(), &imageInfo, &allocInfo, image, allocation, NULL);
+        VkResult res = vmaCreateImage(textureAllocator, &imageInfo, &allocInfo, image, allocation, NULL);
         if (res != VK_SUCCESS) {
             fprintf(stderr, "Failed to create image with VMA: %d\\n", res);
             exit(1);
@@ -272,7 +301,7 @@ $gpuc code [csubst {
 
 #ifdef TRACY_ENABLE
         VmaAllocationInfo vmaInfo;
-        vmaGetAllocationInfo(vmaGetAllocator(), *allocation, &vmaInfo);
+        vmaGetAllocationInfo(textureAllocator, *allocation, &vmaInfo);
         TracyCAlloc(*allocation, vmaInfo.size);
 #endif
     }
@@ -308,12 +337,18 @@ $gpuc code {
     static __thread VkFence _fence = VK_NULL_HANDLE;
 }
 $gpuc proc getFence {} VkFence {
+    if (textureVkCreateFence == NULL || textureVkResetFences == NULL) {
+        loadTextureFenceProcs();
+    }
+    FOLK_ENSURE(textureVkCreateFence != NULL);
+    FOLK_ENSURE(textureVkResetFences != NULL);
+
     if (_fence == VK_NULL_HANDLE) {
         VkFenceCreateInfo fenceInfo = {0};
         fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        $[vktry {vkCreateFence(device, &fenceInfo, NULL, &_fence)}]
+        $[vktry {textureVkCreateFence(device, &fenceInfo, NULL, &_fence)}]
     } else {
-        vkResetFences(device, 1, &_fence);
+        textureVkResetFences(device, 1, &_fence);
     }
     return _fence;
 }
@@ -579,7 +614,7 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
 
     // Copy im to stagingBuffer:
     {
-        void* data; vmaMapMemory(vmaGetAllocator(), stagingBufferAllocation, &data);
+        void* data; vmaMapMemory(textureAllocator, stagingBufferAllocation, &data);
         Image stagingIm = (Image) {
             .width = im.width, .height = im.height,
             .components = 4,
@@ -587,7 +622,7 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
             .data = data
         };
         copyImageToRgba(im, stagingIm);
-        vmaUnmapMemory(vmaGetAllocator(), stagingBufferAllocation);
+        vmaUnmapMemory(textureAllocator, stagingBufferAllocation);
     }
 
     // Allocate a texture and texture block:
@@ -663,7 +698,7 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
 #ifdef TRACY_ENABLE
     TracyCFree(stagingBufferAllocation);
 #endif
-    vmaDestroyBuffer(vmaGetAllocator(), stagingBuffer, stagingBufferAllocation);
+    vmaDestroyBuffer(textureAllocator, stagingBuffer, stagingBufferAllocation);
 
     return block->handle;
 }
@@ -720,7 +755,7 @@ $gpuc code {
 #ifdef TRACY_ENABLE
         TracyCFree(block->textureImageAllocation);
 #endif
-        vmaDestroyImage(vmaGetAllocator(), block->textureImage, block->textureImageAllocation);
+        vmaDestroyImage(textureAllocator, block->textureImage, block->textureImageAllocation);
         vkDestroySampler(device, block->textureSampler, NULL);
         vkDestroyImageView(device, block->textureImageView, NULL);
 
@@ -782,8 +817,8 @@ $gpuc proc initPlaceholderTexture {} void {
 set gpuTextureLib [$gpuc compile]
 Claim the GPU texture library for $drawLib is $gpuTextureLib
 
-# Wait until the library has been initialized by gpu.folk.
-When display /any/ has width /any/ height /any/ {
+# Wait until draw.folk has initialized this library's Vulkan state.
+When the GPU texture library $gpuTextureLib for $drawLib has initialized Vulkan state {
     Wish the GPU runs frame prelude handler [list apply {{gpuTextureLib} {
         $gpuTextureLib processDeferredTextureOps
     }} $gpuTextureLib]

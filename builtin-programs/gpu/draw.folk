@@ -1096,6 +1096,7 @@ When the GPU texture library for $drawLib is /gpuTextureLib/ {
 
     $gpuTextureLib textureManagerInit
 
+    Claim the GPU texture library $gpuTextureLib for $drawLib has initialized Vulkan state
     Claim display $display has width [$gpu getWidth] height [$gpu getHeight]
 
     set kGpu [tracy makeString "gpu"]

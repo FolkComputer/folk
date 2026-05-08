@@ -8,24 +8,19 @@ When when /rect/ points /direction/ at /someone/ /lambda/ with environment /e/ {
   Wish $rect points $direction with length 1
 }
 
-When the quad library is /quadLib/ &\
-     the pose library is /poseLib/ &\
-     the quad changer is /quadChange/ &\
-     display /disp/ has width /displayWidth/ height /displayHeight/ &\
-     display /disp/ has intrinsics /displayIntrinsics/ &\
+When the draw space library is /drawSpaceLib/ &\
      /someone/ wishes /rect/ points /direction/ with length /l/ {
 
 	When $rect has quad /quad/ {
 
-    fn quadChange
     set scale $l
+    set disp [$drawSpaceLib display]
 
-    set quad [quadChange $quad "display $disp"]
-    lassign [drawSpaceQuadSize $quadLib $quad] width height
+    lassign [$drawSpaceLib quadSize $quad] width height
 
     if {$direction eq "up"} {
-        set from [drawSpaceQuadPoint $quadLib $quad top]
-        set opposite [drawSpaceQuadPoint $quadLib $quad bottom]
+        set from [$drawSpaceLib quadPoint $quad top]
+        set opposite [$drawSpaceLib quadPoint $quad bottom]
         set to [drawSpaceVectorAdd $from \
                     [drawSpaceVectorScale [drawSpaceVectorSub $from $opposite] $scale]]
         set color blue
@@ -33,8 +28,8 @@ When the quad library is /quadLib/ &\
         set toSurface [list [expr {$width / 2.0}] [expr {-$height * $scale}]]
 
     } elseif {$direction eq "left"} {
-        set from [drawSpaceQuadPoint $quadLib $quad left]
-        set opposite [drawSpaceQuadPoint $quadLib $quad right]
+        set from [$drawSpaceLib quadPoint $quad left]
+        set opposite [$drawSpaceLib quadPoint $quad right]
         set to [drawSpaceVectorAdd $from \
                     [drawSpaceVectorScale [drawSpaceVectorSub $from $opposite] $scale]]
         set color gold
@@ -42,8 +37,8 @@ When the quad library is /quadLib/ &\
         set toSurface [list [expr {-$width * $scale}] [expr {$height / 2.0}]]
 
     } elseif {$direction eq "right"} {
-        set from [drawSpaceQuadPoint $quadLib $quad right]
-        set opposite [drawSpaceQuadPoint $quadLib $quad left]
+        set from [$drawSpaceLib quadPoint $quad right]
+        set opposite [$drawSpaceLib quadPoint $quad left]
         set to [drawSpaceVectorAdd $from \
                     [drawSpaceVectorScale [drawSpaceVectorSub $from $opposite] $scale]]
         set color red
@@ -51,8 +46,8 @@ When the quad library is /quadLib/ &\
         set toSurface [list [expr {$width * (1.0 + $scale)}] [expr {$height / 2.0}]]
 
     } elseif {$direction eq "down"} {
-        set from [drawSpaceQuadPoint $quadLib $quad bottom]
-        set opposite [drawSpaceQuadPoint $quadLib $quad top]
+        set from [$drawSpaceLib quadPoint $quad bottom]
+        set opposite [$drawSpaceLib quadPoint $quad top]
         set to [drawSpaceVectorAdd $from \
                     [drawSpaceVectorScale [drawSpaceVectorSub $from $opposite] $scale]]
         set color white
@@ -67,22 +62,12 @@ When the quad library is /quadLib/ &\
 
     # The hit test still happens in display pixels, but drawing now
     # stays in the rect's extended physical surface.
-    set fromPixel [$poseLib project $displayIntrinsics \
-                       $displayWidth $displayHeight \
-                       $from]
-    set toPixel [$poseLib project $displayIntrinsics \
-                     $displayWidth $displayHeight \
-                     $to]
+    set toPixel [$drawSpaceLib project $to]
 
     When /target/ has quad /q2/ {
         if {$target eq $rect} { return }
 
-        set displayVertices [lmap v [$quadLib vertices [quadChange $q2 "display $disp"]] {
-            $poseLib project $displayIntrinsics \
-                $displayWidth $displayHeight $v
-        }]
-
-        if {[::math::geometry::pointInsidePolygon $toPixel $displayVertices]} {
+        if {[$drawSpaceLib containsPixelPoint $q2 $toPixel]} {
             Claim -keep 50ms $rect points $direction at $target
             Claim -keep 50ms $rect points $direction with length $l at $target
 

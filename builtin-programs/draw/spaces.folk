@@ -332,10 +332,125 @@ fn drawSpaceApplyHomography {H point} {
     list [expr {$hx / $hw}] [expr {$hy / $hw}]
 }
 
+fn drawSpacePointInsidePolygon {point polygon} {
+    if {[llength $polygon] < 3} { return false }
+
+    lassign $point x y
+    set inside false
+    set j [expr {[llength $polygon] - 1}]
+    for {set i 0} {$i < [llength $polygon]} {incr i} {
+        lassign [lindex $polygon $i] xi yi
+        lassign [lindex $polygon $j] xj yj
+        if {(($yi > $y) != ($yj > $y)) &&
+            ($x < (($xj - $xi) * ($y - $yi) / ($yj - $yi)) + $xi)} {
+            set inside [expr {!$inside}]
+        }
+        set j $i
+    }
+    return $inside
+}
+
 fn drawSpaceMeterPoint {point} {
     lmap value $point {
         format "%sm" $value
     }
+}
+
+proc drawSpaceMakeLib {quadLib poseLib quadChange disp displayWidth displayHeight displayIntrinsics} {
+    library create drawSpaceLib {
+        quadLib poseLib quadChange disp displayWidth displayHeight displayIntrinsics
+    } {
+        proc display {} {
+            variable disp
+            return $disp
+        }
+
+        proc displaySpace {} {
+            variable disp
+            return "display $disp"
+        }
+
+        proc displaySize {} {
+            variable displayWidth
+            variable displayHeight
+            list $displayWidth $displayHeight
+        }
+
+        proc quad {q} {
+            variable quadChange
+            fn quadChange
+            quadChange $q [displaySpace]
+        }
+
+        proc quadVertices {q} {
+            variable quadLib
+            $quadLib vertices [quad $q]
+        }
+
+        proc quadSpace {q} {
+            variable quadLib
+            $quadLib space [quad $q]
+        }
+
+        proc quadPoint {q selector} {
+            variable quadLib
+            drawSpaceQuadPoint $quadLib [quad $q] $selector
+        }
+
+        proc quadSize {q} {
+            variable quadLib
+            drawSpaceQuadSize $quadLib [quad $q]
+        }
+
+        proc quadSurfacePoint {q point} {
+            variable quadLib
+            drawSpaceQuadSurfacePoint $quadLib [quad $q] $point
+        }
+
+        proc quadSurfaceRect {q x y width height} {
+            variable quadLib
+            drawSpaceQuadSurfaceRect $quadLib [quad $q] $x $y $width $height
+        }
+
+        proc surfaceQuadBetween {from to height} {
+            variable quadLib
+            drawSpaceSurfaceQuadBetween $quadLib [displaySpace] $from $to $height
+        }
+
+        proc project {point} {
+            variable poseLib
+            variable displayIntrinsics
+            variable displayWidth
+            variable displayHeight
+            $poseLib project $displayIntrinsics $displayWidth $displayHeight $point
+        }
+
+        proc clipPoint {point} {
+            lassign [displaySize] width height
+            drawSpaceDisplayPixelToClip $width $height [project $point]
+        }
+
+        proc quadPixelVertices {q} {
+            lmap vertex [quadVertices $q] {
+                project $vertex
+            }
+        }
+
+        proc containsPixelPoint {q point} {
+            drawSpacePointInsidePolygon $point [quadPixelVertices $q]
+        }
+    }
+}
+
+When the quad library is /quadLib/ &\
+     the pose library is /poseLib/ &\
+     the quad changer is /quadChange/ &\
+     display /disp/ has width /displayWidth/ height /displayHeight/ &\
+     display /disp/ has intrinsics /displayIntrinsics/ {
+    set drawSpaceLib [drawSpaceMakeLib $quadLib $poseLib $quadChange $disp \
+                          $displayWidth $displayHeight $displayIntrinsics]
+    Claim the draw space library is $drawSpaceLib
+    Claim the draw space library for display $disp is $drawSpaceLib
 }
 
 When /target/ has canvas /id/ with /...wiOptions/ &\
@@ -350,18 +465,11 @@ When /target/ has resolved geometry /geom/ &\
     Claim $target has canvas projection for surface local $surfaceToClip
 }
 
-When the quad library is /quadLib/ &\
-     the pose library is /poseLib/ &\
-     the quad changer is /quadChange/ &\
-     display /disp/ has width /displayWidth/ height /displayHeight/ &\
-     display /disp/ has intrinsics /displayIntrinsics/ &\
+When the draw space library is /drawSpaceLib/ &\
      /thing/ has quad /quad/ {
-    fn quadChange
-
     set surface [list surface of $thing]
-    set displayQuad [quadChange $quad "display $disp"]
-    lassign [$quadLib vertices $displayQuad] topLeft topRight bottomRight bottomLeft
-    lassign [drawSpaceQuadSize $quadLib $displayQuad] width height
+    lassign [$drawSpaceLib quadVertices $quad] topLeft topRight bottomRight bottomLeft
+    lassign [$drawSpaceLib quadSize $quad] width height
 
     set surfacePoints [list \
         [list 0 0] \
@@ -371,8 +479,7 @@ When the quad library is /quadLib/ &\
 
     set displayVertices [list $topLeft $topRight $bottomRight $bottomLeft]
     set clipPoints [lmap vertex $displayVertices {
-        drawSpaceDisplayPixelToClip $displayWidth $displayHeight \
-            [$poseLib project $displayIntrinsics $displayWidth $displayHeight $vertex]
+        $drawSpaceLib clipPoint $vertex
     }]
 
     set pointPairs [list]
@@ -383,8 +490,8 @@ When the quad library is /quadLib/ &\
     }
 
     Claim $thing has physical drawing surface $surface \
-        with width $width height $height space [$quadLib space $displayQuad]
-    Claim $disp has canvas projection for surface $surface \
+        with width $width height $height space [$drawSpaceLib quadSpace $quad]
+    Claim [$drawSpaceLib display] has canvas projection for surface $surface \
         [drawSpaceHomography $pointPairs]
 }
 

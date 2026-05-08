@@ -17,6 +17,21 @@ proc fakeQuadLib {cmd args} {
     }
 }
 
+proc fakePoseLib {cmd intrinsics width height point} {
+    switch -- $cmd {
+        project {
+            list [lindex $point 0] [lindex $point 1]
+        }
+        default {
+            error "unknown fakePoseLib command $cmd"
+        }
+    }
+}
+
+proc fakeQuadChange {q targetSpace} {
+    fakeQuadLib create $targetSpace [fakeQuadLib vertices $q]
+}
+
 set l [drawSpacePhysicalLength 3]
 assert {abs($l - 0.03) < 1e-9}
 
@@ -76,5 +91,19 @@ assert {$bottomRight eq {3.0 1.5 0.0}}
 assert {$bottomLeft eq {1.0 1.5 0.0}}
 
 assert {[drawSpaceMeterPoint {0 1.5}] eq {0m 1.5m}}
+
+set drawSpaceLib [drawSpaceMakeLib fakeQuadLib fakePoseLib fakeQuadChange test 100 50 {}]
+assert {[$drawSpaceLib display] eq {test}}
+assert {[$drawSpaceLib displaySpace] eq {display test}}
+assert {[$drawSpaceLib quadPoint $q top] eq {2.0 0.0 0.0}}
+lassign [$drawSpaceLib quadSize $q] width height
+assert {abs($width - 4.0) < 1e-9}
+assert {abs($height - 2.0) < 1e-9}
+assert {[$drawSpaceLib project {50 25 0}] eq {50 25}}
+set clipPoint [$drawSpaceLib clipPoint {50 25 0}]
+assert {abs([lindex $clipPoint 0]) < 1e-9}
+assert {abs([lindex $clipPoint 1]) < 1e-9}
+assert {[$drawSpaceLib containsPixelPoint $q {2 1}]}
+assert {![$drawSpaceLib containsPixelPoint $q {5 1}]}
 
 Exit! 0

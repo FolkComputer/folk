@@ -2,6 +2,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
      the GPU draw library is /drawLib/ &\
      the GPU VMA DLL is /vmaDll/ &\
      the GPU texture library for /drawLib/ is /gpuTextureLib/ &\
+     the GPU texture library /gpuTextureLib/ for /drawLib/ has initialized Vulkan state &\
      display /any/ has width /any/ height /any/ {
     set cc [C]
     $cc endcflags -lpng
@@ -13,8 +14,6 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         #include "volk/volk.h"
 
         #include "vk_mem_alloc.h"
-
-        VmaAllocator vmaGetAllocator();
 
         VkDevice device;
     }
@@ -135,13 +134,10 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
 
         // Copy staging buffer back to CPU
-        void* data;
-        vmaMapMemory(vmaGetAllocator(), stagingBufferAllocation, &data);
-        memcpy(im.data, data, stagingBufferSize);
-        vmaUnmapMemory(vmaGetAllocator(), stagingBufferAllocation);
+        copyTextureStagingBufferToImage(stagingBufferAllocation, im, stagingBufferSize);
 
         // Cleanup staging buffer
-        vmaDestroyBuffer(vmaGetAllocator(), stagingBuffer, stagingBufferAllocation);
+        destroyTextureBuffer(stagingBuffer, stagingBufferAllocation);
 
         return im;
     }

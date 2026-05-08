@@ -17,16 +17,22 @@ assert {[dict get $options anchor] eq "center"}
 assert {[dict get $options font] eq "PTSans-Regular"}
 
 set thing test-thing
+set plainThing test-plain-outline
 set disp test-display
 set surface test-surface
+set plainSurface test-plain-surface
 set surfaceTarget [drawSpaceSurfaceTarget $disp $surface]
+set plainSurfaceTarget [drawSpaceSurfaceTarget $disp $plainSurface]
 
 Assert! display $disp has width 100 height 100
 Assert! $thing has physical drawing surface $surface with width 0.2 height 0.1 space test-space
+Assert! $plainThing has physical drawing surface $plainSurface with width 0.3 height 0.2 space test-space
 Assert! $disp has canvas projection for surface $surface {{1 0 0} {0 1 0} {0 0 1}}
+Assert! $disp has canvas projection for surface $plainSurface {{1 0 0} {0 1 0} {0 0 1}}
 
 Wish $thing is labelled "hello" with color cyan
 Wish $thing is outlined red with thickness 0.5 layer 7
+Wish $plainThing is outlined blue
 
 sleep 1
 
@@ -49,5 +55,13 @@ assert {[dict get $drawOptions color] eq "red"}
 assert {[dict get $drawOptions layer] == 7}
 assert {abs([dict get $drawOptions width] - 0.005) < 1e-9}
 assert {[dict get $drawOptions points] eq {{0.0 0.0} {0.2 0.0} {0.2 0.1} {0.0 0.1} {0.0 0.0}}}
+
+set lineDraws [Query! /someone/ wishes to draw a line onto $plainSurfaceTarget with /...drawOptions/]
+assert {[llength $lineDraws] == 1}
+set drawOptions [dict get [lindex $lineDraws 0] drawOptions]
+assert {[dict get $drawOptions color] eq "blue"}
+assert {[dict get $drawOptions layer] == 2}
+assert {abs([dict get $drawOptions width] - 0.01) < 1e-9}
+assert {[dict get $drawOptions points] eq {{0.0 0.0} {0.3 0.0} {0.3 0.2} {0.0 0.2} {0.0 0.0}}}
 
 Exit! 0
