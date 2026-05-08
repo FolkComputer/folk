@@ -66,7 +66,9 @@ if flashing from a Mac] -- Ubuntu doesn't have a good kernel for Pi 5)
    `folk@folk-WHATEVER.local` by name, `sudo apt install avahi-daemon`
    and then on your laptop: `ssh-copy-id folk@folk-WHATEVER.local`
 
-1. Install dependencies: `sudo apt install rsync git cmake libturbojpeg0-dev libpng-dev libdrm-dev pkg-config v4l-utils vulkan-tools libvulkan-dev libvulkan1 meson libgbm-dev glslc vulkan-validationlayers ghostscript console-data kbd psmisc zlib1g-dev libssl-dev automake libtool autoconf-archive`
+1. Install dependencies:
+
+       sudo apt install rsync git cmake libturbojpeg0-dev libpng-dev libdrm-dev pkg-config v4l-utils vulkan-tools libvulkan-dev libvulkan1 meson libgbm-dev glslc vulkan-validationlayers ghostscript console-data kbd psmisc zlib1g-dev libssl-dev automake libtool autoconf-archive
 
    (When prompted while installing `console-data` for `Policy for
    handling keymaps` type `3` (meaning `3. Keep kernel keymap`) and
@@ -97,7 +99,8 @@ if flashing from a Mac] -- Ubuntu doesn't have a good kernel for Pi 5)
      1. See [notes](https://folk.computer/notes/vulkan) and [Naveen's
         notes](https://gist.github.com/nmichaud/1c08821833449bdd3ac70dcb28486539).
 
-1. `sudo sh -c 'echo SUBSYSTEM=="input", GROUP="input", MODE="0666" > /etc/udev/rules.d/99-input.rules && udevadm control --reload-rules && udevadm trigger'`
+1.
+        sudo sh -c 'echo SUBSYSTEM=="input", GROUP="input", MODE="0666" > /etc/udev/rules.d/99-input.rules && udevadm control --reload-rules && udevadm trigger'
 
 1. Add the systemd service so it starts on boot and can be managed
    when you run it from laptop. On Ubuntu Server or Raspberry Pi OS
