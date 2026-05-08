@@ -41,6 +41,15 @@ proc readFile {filename contentTypeVar} {
     set response [read $fd]; close $fd; return $response
 }
 
+proc headerGet {headers name args} {
+    foreach {k v} $headers {
+        if {[string equal -nocase $k $name]} { return $v }
+    }
+
+    if {[llength $args] > 0} { return [lindex $args 0] }
+    error "missing HTTP header $name"
+}
+
 proc handlePage {path httpStatusVar contentTypeVar} {
     upvar $contentTypeVar contentType
     switch -exact -- $path {
@@ -256,7 +265,7 @@ proc handleRead {chan addr} {
         set contentType "text/plain; charset=utf-8"
         puts -nonewline $chan "$httpStatus\r\nConnection: close\r\nContent-Type: $contentType\r\n\r\n"
 
-        set body [$chan read [dict get $headers Content-Length]]
+        set body [$chan read [headerGet $headers Content-Length]]
         # puts "  ($body)"
         try {
             puts -nonewline $chan [eval $body]
@@ -268,7 +277,14 @@ proc handleRead {chan addr} {
 
     } elseif {[info exists path] && $path eq "/ws"} {
         puts "web: Request for /ws ($headers)"
-        WsConnection upgrade $chan [dict get $headers Sec-WebSocket-Key] \
+        set clientKey [headerGet $headers Sec-WebSocket-Key ""]
+        if {$clientKey eq ""} {
+            puts -nonewline $chan "HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nMissing Sec-WebSocket-Key\r\n"
+            close $chan
+            return
+        }
+
+        WsConnection upgrade $chan $clientKey \
             [list Retract! websocket $chan is connected]
         Assert! websocket $chan is connected
 
