@@ -1,0 +1,148 @@
+When the image library is /imageLib/ {
+
+set cc [C]
+$cc extend $imageLib
+$cc include <stdlib.h>
+$cc include <string.h>
+$cc include <math.h>
+
+$cc code {
+#define CLAMP8(v) ((v) < 0 ? 0 : (v) > 255 ? 255 : (v))
+}
+
+$cc proc gaussianBlur {Image im int radius} Image {
+    if (radius <= 0) {
+        uint8_t* data = malloc(im.height * im.bytesPerRow);
+        memcpy(data, im.data, im.height * im.bytesPerRow);
+        return (Image){ .width = im.width, .height = im.height,
+                        .components = im.components, .bytesPerRow = im.bytesPerRow,
+                        .uniq = im.uniq, .data = data };
+    }
+    int size = 2 * radius + 1;
+    float* kernel = malloc(size * sizeof(float));
+    float sigma = (float)radius / 2.0f;
+    float sum = 0.0f;
+    for (int i = 0; i < size; i++) {
+        float x = (float)(i - radius);
+        kernel[i] = expf(-x * x / (2.0f * sigma * sigma));
+        sum += kernel[i];
+    }
+    for (int i = 0; i < size; i++) kernel[i] /= sum;
+
+    int w = (int)im.width, h = (int)im.height, c = im.components;
+    uint8_t* tmp = malloc(w * h * c);
+
+    // Horizontal pass: im -> tmp
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            for (int ch = 0; ch < c; ch++) {
+                float acc = 0.0f;
+                for (int k = -radius; k <= radius; k++) {
+                    int sx = x + k;
+                    if (sx < 0) sx = 0;
+                    else if (sx >= w) sx = w - 1;
+                    acc += kernel[k + radius] * im.data[y * im.bytesPerRow + sx * c + ch];
+                }
+                tmp[y * w * c + x * c + ch] = (uint8_t)(acc + 0.5f);
+            }
+        }
+    }
+
+    // Vertical pass: tmp -> out (tmp is always contiguous)
+    uint8_t* out = malloc(w * h * c);
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            for (int ch = 0; ch < c; ch++) {
+                float acc = 0.0f;
+                for (int k = -radius; k <= radius; k++) {
+                    int sy = y + k;
+                    if (sy < 0) sy = 0;
+                    else if (sy >= h) sy = h - 1;
+                    acc += kernel[k + radius] * tmp[sy * w * c + x * c + ch];
+                }
+                out[y * w * c + x * c + ch] = (uint8_t)(acc + 0.5f);
+            }
+        }
+    }
+    free(tmp);
+    free(kernel);
+    return (Image){ .width = (uint32_t)w, .height = (uint32_t)h,
+                    .components = c, .bytesPerRow = (uint32_t)(w * c),
+                    .uniq = im.uniq, .data = out };
+}
+
+$cc proc rgbToYCbCr {Image im} Image {
+    FOLK_ENSURE(im.components == 3);
+    int w = (int)im.width, h = (int)im.height;
+    uint8_t* out = malloc(w * h * 3);
+    for (int y = 0; y < h; y++) {
+        uint8_t* src = im.data + y * im.bytesPerRow;
+        uint8_t* dst = out + y * w * 3;
+        for (int x = 0; x < w; x++) {
+            int r = src[x * 3], g = src[x * 3 + 1], b = src[x * 3 + 2];
+            # coefficients from https://en.wikipedia.org/wiki/YCbCr#Approximate_8-bit_matrices_for_BT.601 (05/2026)
+            int Y  = (77 * r + 150 * g +  29 * b) / 256;
+            int Cb = (-43 * r -  84 * g + 127 * b) / 256 + 128;
+            int Cr = (127 * r - 106 * g -  21 * b) / 256 + 128;
+            dst[x * 3]     = (uint8_t)CLAMP8(Y);
+            dst[x * 3 + 1] = (uint8_t)CLAMP8(Cb);
+            dst[x * 3 + 2] = (uint8_t)CLAMP8(Cr);
+        }
+    }
+    return (Image){ .width = (uint32_t)w, .height = (uint32_t)h,
+                    .components = 3, .bytesPerRow = (uint32_t)(w * 3),
+                    .uniq = im.uniq, .data = out };
+}
+
+$cc proc dilate {Image im int radius} Image {
+    FOLK_ENSURE(im.components == 1);
+    int w = (int)im.width, h = (int)im.height;
+    uint8_t* out = malloc(w * h);
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            int found = 0;
+            for (int dy = -radius; dy <= radius && !found; dy++) {
+                int sy = y + dy;
+                if (sy < 0 || sy >= h) continue;
+                uint8_t* row = im.data + sy * im.bytesPerRow;
+                for (int dx = -radius; dx <= radius && !found; dx++) {
+                    int sx = x + dx;
+                    if (sx >= 0 && sx < w && row[sx]) found = 1;
+                }
+            }
+            out[y * w + x] = found ? 255 : 0;
+        }
+    }
+    return (Image){ .width = (uint32_t)w, .height = (uint32_t)h,
+                    .components = 1, .bytesPerRow = (uint32_t)w,
+                    .uniq = im.uniq, .data = out };
+}
+
+$cc proc erode {Image im int radius} Image {
+    FOLK_ENSURE(im.components == 1);
+    int w = (int)im.width, h = (int)im.height;
+    uint8_t* out = malloc(w * h);
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            int all = 1;
+            for (int dy = -radius; dy <= radius && all; dy++) {
+                int sy = y + dy;
+                if (sy < 0 || sy >= h) { all = 0; break; }
+                uint8_t* row = im.data + sy * im.bytesPerRow;
+                for (int dx = -radius; dx <= radius && all; dx++) {
+                    int sx = x + dx;
+                    if (sx < 0 || sx >= w || !row[sx]) { all = 0; break; }
+                }
+            }
+            out[y * w + x] = all ? 255 : 0;
+        }
+    }
+    return (Image){ .width = (uint32_t)w, .height = (uint32_t)h,
+                    .components = 1, .bytesPerRow = (uint32_t)w,
+                    .uniq = im.uniq, .data = out };
+}
+
+set imageProcessingLib [$cc compile]
+Claim the image processing library is $imageProcessingLib
+
+}

@@ -1,0 +1,45 @@
+When the image library is /imageLib/ &\
+     the image processing library is /imageProcessingLib/ {
+
+set cc [C]
+$cc extend $imageLib
+$cc extend $imageProcessingLib
+
+# Skin detection via YCbCr rectangle (Chai & Ngan 1999).
+# Returns 1-component binary image (0 or 255).
+$cc proc skinMask {Image ycbcr} Image {
+    FOLK_ENSURE(ycbcr.components == 3);
+    int w = (int)ycbcr.width, h = (int)ycbcr.height;
+    uint8_t* out = malloc(w * h);
+    for (int y = 0; y < h; y++) {
+        uint8_t* src = ycbcr.data + y * ycbcr.bytesPerRow;
+        uint8_t* dst = out + y * w;
+        for (int x = 0; x < w; x++) {
+            int cb = src[x * 3 + 1], cr = src[x * 3 + 2];
+            dst[x] = (cb >= 77 && cb <= 127 && cr >= 133 && cr <= 173) ? 255 : 0;
+        }
+    }
+    return (Image){ .width = (uint32_t)w, .height = (uint32_t)h,
+                    .components = 1, .bytesPerRow = (uint32_t)w,
+                    .uniq = ycbcr.uniq, .data = out };
+}
+
+# Full skin-mask pipeline: blur → YCbCr → skin range → open (erode+dilate).
+# Returns a 1-component binary image (0 or 255).
+$cc proc handDetect {Image rgb} Image {
+    Image blurred = gaussianBlur(rgb, 3);
+    Image ycbcr   = rgbToYCbCr(blurred);
+    imageFree(blurred);
+    Image mask    = skinMask(ycbcr);
+    imageFree(ycbcr);
+    Image eroded  = erode(mask, 2);
+    imageFree(mask);
+    Image result  = dilate(eroded, 2);
+    imageFree(eroded);
+    return result;
+}
+
+set handDetectLib [$cc compile]
+Claim the hand detect library is $handDetectLib
+
+}
