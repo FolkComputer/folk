@@ -355,6 +355,7 @@ When the GPU library is /gpuLib/ &\
         }
 
         set drawListsByTexture [dict create]
+        set redrawCanvases [dict create]
         dict for {id wi} $canvases {
             set resultsList [Query! the collected results for \
                                  [list /wisher/ wishes the GPU draws pipeline /name/ \
@@ -390,6 +391,12 @@ When the GPU library is /gpuLib/ &\
 
             foreach result $results { dict with result {
                 try {
+                    # Some draw commands sample textures whose contents update
+                    # without changing the statement terms, so their canvases
+                    # need to repaint even when the draw list is identical.
+                    if {[dict getdef $options redraw false]} {
+                        dict set redrawCanvases $id true
+                    }
                     addToDrawLists drawListsByTexture($id) \
                         $name $options
                 } on error e {
@@ -401,7 +408,8 @@ When the GPU library is /gpuLib/ &\
         }
 
         dict for {id drawLists} $drawListsByTexture {
-            if {[dict exists $mostRecentDrawListsByTexture $id] &&
+            if {![dict getdef $redrawCanvases $id false] &&
+                [dict exists $mostRecentDrawListsByTexture $id] &&
                 ($drawLists eq $mostRecentDrawListsByTexture($id))} {
                 continue
             }
