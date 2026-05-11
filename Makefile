@@ -105,67 +105,7 @@ deps:
 	make -C vendor/jimtcl
 
 local-https-cert:
-	@set -eu; \
-	dir="$$HOME/folk-data/https"; \
-	mkdir -p "$$dir"; \
-	unix_host="$$(hostname)"; \
-	unix_host="$${unix_host%.local}"; \
-	bonjour_host=""; \
-	if [ "$$(uname -s)" = "Darwin" ] && command -v scutil >/dev/null 2>&1; then \
-		bonjour_host="$$(scutil --get LocalHostName 2>/dev/null || true)"; \
-	fi; \
-	bonjour_host="$${bonjour_host%.local}"; \
-	cert_host="$$bonjour_host"; \
-	if [ -z "$$cert_host" ]; then cert_host="$$unix_host"; fi; \
-	if [ -z "$$cert_host" ]; then cert_host="localhost"; fi; \
-	tmp="$$(mktemp)"; \
-	trap 'rm -f "$$tmp" "$$dir/cert.csr"' EXIT; \
-	names=""; \
-	add_name() { \
-		name="$$1"; \
-		if [ -n "$$name" ]; then \
-			case " $$names " in *" $$name "*) ;; *) names="$$names $$name";; esac; \
-		fi; \
-	}; \
-	add_name "$$cert_host"; \
-	add_name "$$cert_host.local"; \
-	add_name "$$unix_host"; \
-	add_name "$$unix_host.local"; \
-	add_name localhost; \
-	printf '%s\n' \
-		'[req]' \
-		'distinguished_name = req_distinguished_name' \
-		'req_extensions = req_ext' \
-		'prompt = no' \
-		'[req_distinguished_name]' \
-		"CN = $$cert_host.local" \
-		'[req_ext]' \
-		'subjectAltName = @alt_names' \
-		'[alt_names]' > "$$tmp"; \
-	dns_i=1; \
-	for name in $$names; do \
-		printf 'DNS.%s = %s\n' "$$dns_i" "$$name" >> "$$tmp"; \
-		dns_i=$$((dns_i + 1)); \
-	done; \
-	printf 'IP.1 = 127.0.0.1\n' >> "$$tmp"; \
-	if [ ! -f "$$dir/ca.key" ] || [ ! -f "$$dir/ca.pem" ]; then \
-		openssl genrsa -out "$$dir/ca.key" 2048; \
-		openssl req -x509 -new -nodes -key "$$dir/ca.key" \
-			-sha256 -days 3650 -subj "/CN=Folk Local CA" \
-			-out "$$dir/ca.pem"; \
-	fi; \
-	openssl genrsa -out "$$dir/key.pem" 2048; \
-	openssl req -new -key "$$dir/key.pem" \
-		-subj "/CN=$$cert_host.local" \
-		-out "$$dir/cert.csr" -config "$$tmp"; \
-	openssl x509 -req -in "$$dir/cert.csr" \
-		-CA "$$dir/ca.pem" -CAkey "$$dir/ca.key" -CAcreateserial \
-		-out "$$dir/cert.pem" -days 825 -sha256 \
-		-extensions req_ext -extfile "$$tmp"; \
-	chmod 600 "$$dir/key.pem" "$$dir/ca.key"; \
-	printf 'Created Folk HTTPS certs in %s\n' "$$dir"; \
-	printf 'Install/trust %s on LAN devices, then open https://%s.local:4273/screenshare\n' "$$dir/ca.pem" "$$cert_host"; \
-	printf 'In TLS mode, use https://localhost:4273/ locally; bare localhost:4273 is HTTP and will fail.\n'
+	@scripts/local-https-cert.sh
 
 
 kill-folk:
