@@ -25,6 +25,7 @@ set httpsKey "$::env(HOME)/folk-data/https/key.pem"
 set scheme [expr {[file exists $httpsCert] && [file exists $httpsKey] && [exists -command load_ssl_certs] ? "https" : "http"}]
 $::realStdout puts "Web interface at: $scheme://$host:4273/"
 if {$scheme eq "https"} {
+    $::realStdout puts "Trust root CA at: $scheme://$host:4273/folk-ca.cer"
     $::realStdout puts "HTTPS mode: use https://localhost:4273/ locally; bare localhost:4273 uses HTTP and will fail."
 }
 $::realStdout puts ""
