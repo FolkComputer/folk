@@ -1,0 +1,44 @@
+if {![exists -command load_ssl_certs]} {
+    puts "test/https-setup-tls: skipping because Jim Tcl SSL support is unavailable"
+    Exit! 0
+}
+
+if {![info exists ::env(FOLK_HTTPS_SETUP_CHILD)]} {
+    set tmp [exec mktemp -d]
+    try {
+        exec env FOLK_HTTPS_DIR=$tmp FOLK_HTTPS_SETUP_CHILD=1 ./folk test/https-setup-tls.folk 2>@1
+    } on error {e opts} {
+        file delete -force $tmp
+        error $e
+    }
+    file delete -force $tmp
+    Exit! 0
+}
+
+exec env FOLK_HTTPS_DIR=$::env(FOLK_HTTPS_DIR) sh scripts/local-https-cert.sh
+
+When {
+    source "builtin-programs/web/web.folk"
+}
+source "builtin-programs/web/https-ca.folk"
+source "builtin-programs/web/https-setup.folk"
+
+set body ""
+set started [clock milliseconds]
+while true {
+    try {
+        set body [exec curl -ksf https://127.0.0.1:4273/setup/https]
+        break
+    } on error e {
+        if {[clock milliseconds] - $started > 5000} {
+            error "HTTPS setup TLS page did not become available: $e"
+        }
+        sleep 0.2
+    }
+}
+
+assert {[string first "HTTPS is active" $body] >= 0}
+set status [exec curl -ks -o /dev/null -w "%{http_code}" https://127.0.0.1:4273/folk-ca.cer]
+assert {$status eq "200"}
+
+Exit! 0

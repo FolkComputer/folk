@@ -66,7 +66,7 @@ if flashing from a Mac] -- Ubuntu doesn't have a good kernel for Pi 5)
    `folk@folk-WHATEVER.local` by name, `sudo apt install avahi-daemon`
    and then on your laptop: `ssh-copy-id folk@folk-WHATEVER.local`
 
-1. Install dependencies: `sudo apt install rsync git cmake libturbojpeg0-dev libpng-dev libdrm-dev pkg-config v4l-utils vulkan-tools libvulkan-dev libvulkan1 meson libgbm-dev glslc vulkan-validationlayers ghostscript console-data kbd psmisc zlib1g-dev libssl-dev automake libtool autoconf-archive`
+1. Install dependencies: `sudo apt install rsync git cmake libturbojpeg0-dev libpng-dev libdrm-dev pkg-config v4l-utils vulkan-tools libvulkan-dev libvulkan1 meson libgbm-dev glslc vulkan-validationlayers ghostscript console-data kbd psmisc qrencode zlib1g-dev libssl-dev automake libtool autoconf-archive`
 
    (When prompted while installing `console-data` for `Policy for
    handling keymaps` type `3` (meaning `3. Keep kernel keymap`) and
@@ -148,6 +148,34 @@ $ make remote FOLK_REMOTE_NODE=<your-remote-hostname-here>
 On your laptop Web browser, go to http://<your-remote-hostname>.local:4273 --
 you should see all active Folk programs. Check out the Statements page
 as well to see all statements in the database.
+
+#### Local HTTPS for screenshare
+
+Folk starts with plain HTTP by default. Browser screen sharing and
+other powerful Web APIs require a secure browser context, so set up
+local HTTPS before using `/screenshare` from another LAN device.
+
+1. With Folk running, open
+   `http://<your-remote-hostname>.local:4273/setup/https`.
+
+1. Click **Generate HTTPS Certificates**. This creates or reuses a
+   local Folk root CA and a server certificate under
+   `~/folk-data/https`.
+
+1. Restart Folk so the web server switches from HTTP to HTTPS.
+
+1. Reopen `https://<your-remote-hostname>.local:4273/setup/https`,
+   download the Folk CA, and trust it on each laptop, phone, or tablet
+   that should use secure Folk pages. On iPhone/iPad, after installing
+   the profile, enable full trust in Settings > General > About >
+   Certificate Trust Settings.
+
+1. If Chrome still says the site is not secure after the CA is trusted,
+   restart Chrome and reload the HTTPS page.
+
+For headless setup or if the browser page is unavailable, run
+`make local-https-cert` on the Folk machine, restart Folk, and then
+visit the HTTPS setup page above.
 
 ### Printer support
 

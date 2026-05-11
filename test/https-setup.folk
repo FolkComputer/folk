@@ -1,0 +1,54 @@
+set oldHttpsDir $([info exists ::env(FOLK_HTTPS_DIR)] ? $::env(FOLK_HTTPS_DIR) : "")
+set hadHttpsDir [info exists ::env(FOLK_HTTPS_DIR)]
+set tmp [exec mktemp -d]
+set ::env(FOLK_HTTPS_DIR) $tmp
+
+source builtin-programs/web/https-setup.folk
+
+assert {[httpsSetupDir] eq $tmp}
+
+set meta [httpsSetupMeta]
+assert {[dict get $meta certExists] == 0}
+assert {[dict get $meta keyExists] == 0}
+
+set output [exec env FOLK_HTTPS_DIR=$tmp sh scripts/local-https-cert.sh]
+assert {[file exists "$tmp/ca.pem"]}
+assert {[file exists "$tmp/ca.cer"]}
+assert {[file exists "$tmp/cert.pem"]}
+assert {[file exists "$tmp/key.pem"]}
+
+set caFp1 [httpsSetupFingerprint "$tmp/ca.pem"]
+assert {$caFp1 ne ""}
+
+set sans [httpsSetupSans "$tmp/cert.pem"]
+assert {[lsearch -exact $sans localhost] >= 0}
+assert {[lsearch -exact $sans 127.0.0.1] >= 0}
+set hasLocalName 0
+foreach san $sans {
+    if {[string match "*.local" $san]} {
+        set hasLocalName 1
+    }
+}
+assert {$hasLocalName}
+
+set dates [httpsSetupDates "$tmp/cert.pem"]
+assert {[dict get $dates notBefore] ne ""}
+assert {[dict get $dates notAfter] ne ""}
+
+set output2 [exec env FOLK_HTTPS_DIR=$tmp sh scripts/local-https-cert.sh]
+set caFp2 [httpsSetupFingerprint "$tmp/ca.pem"]
+assert {$caFp1 eq $caFp2}
+
+set meta [httpsSetupMeta]
+assert {[dict get $meta caExists] == 1}
+assert {[dict get $meta certExists] == 1}
+assert {[dict get $meta keyExists] == 1}
+
+file delete -force $tmp
+if {$hadHttpsDir} {
+    set ::env(FOLK_HTTPS_DIR) $oldHttpsDir
+} else {
+    unset ::env(FOLK_HTTPS_DIR)
+}
+
+Exit! 0
