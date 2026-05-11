@@ -1,0 +1,153 @@
+fn screenshareRequestRefNumber {request} {
+    if {[dict exists $request __ref] &&
+        [regexp {s([0-9]+):} [dict get $request __ref] -> refNumber]} {
+        return $refNumber
+    }
+    return 0
+}
+
+fn screenshareRequestCompare {a b} {
+    set refA [screenshareRequestRefNumber $a]
+    set refB [screenshareRequestRefNumber $b]
+    if {$refA < $refB} { return -1 }
+    if {$refA > $refB} { return 1 }
+    return [string compare [dict get $a name] [dict get $b name]]
+}
+
+fn screenshareRequestedNames {requests} {
+    set names [list]
+    foreach request [lsort -command screenshareRequestCompare $requests] {
+        set name [dict get $request name]
+        if {[lsearch -exact $names $name] < 0} {
+            lappend names $name
+        }
+    }
+    return $names
+}
+
+fn screenshareSlotThing {thing index} {
+    if {$index == 0} {
+        return $thing
+    }
+    return [list $thing screenshare-slot $index]
+}
+
+fn screenshareSlotOffset {index} {
+    if {$index == 0} {
+        return {}
+    }
+    set step [expr {$index - 1}]
+    set ring [expr {int($step / 4) + 1}]
+    set direction [lindex {up right down left} [expr {$step % 4}]]
+    set distance [expr {$ring * 110}]
+    set margin [expr {$ring * 6}]
+    return [list $direction ${distance}% $direction ${margin}cm]
+}
+
+Wish the GPU compiles pipeline "screenshare-cover" {
+    {vec2 viewport mat3 surfaceToClip
+     sampler2D image vec2 a vec2 b vec2 c vec2 d vec2 uvMin vec2 uvMax} {
+        vec2 vertices[6] = vec2[6](a, b, c, a, c, d);
+        vec3 v = surfaceToClip * vec3(vertices[gl_VertexIndex], 1.0);
+        return vec4(v.xy/v.z, 0.0, 1.0);
+
+} {fn invBilinear} {
+        vec2 clipXy = (gl_FragCoord.xy / viewport) * 2.0 - 1.0;
+        vec3 surfaceXy = inverse(surfaceToClip) * vec3(clipXy, 1.0);
+        surfaceXy /= surfaceXy.z;
+
+        vec2 uv = invBilinear(surfaceXy.xy, a, b, c, d);
+        if (max(abs(uv.x - 0.5), abs(uv.y - 0.5)) < 0.5) {
+            vec2 croppedUv = mix(uvMin, uvMax, uv);
+            vec4 texColor = texture(image, croppedUv);
+            if (texColor.a < 0.01) {
+                return vec4(0.0);
+            }
+            return texColor;
+        }
+        return vec4(0.0);
+}}
+
+When /someone/ wishes /thing/ shows screen /name/ {
+    Wish $thing displays screen $name
+}
+
+When /thing/ has resolved geometry /geom/ {
+    When the collected results for [list /someone/ wishes $thing displays screen /name/] are /requests/ {
+        fn screenshareRequestedNames
+        fn screenshareSlotOffset
+        fn screenshareSlotThing
+
+        set names [screenshareRequestedNames $requests]
+        for {set i 0} {$i < [llength $names]} {incr i} {
+            set name [lindex $names $i]
+            set slot [screenshareSlotThing $thing $i]
+
+            Wish screenshare slot $slot displays screen $name for $thing at index $i
+
+            if {$i > 0} {
+                Claim $slot has resolved geometry $geom
+                Wish $slot has a canvas with width 1280 height 720 settle 3ms
+
+                When the quad library is /quadLib/ & $thing has quad /q/ {
+                    Claim $slot has quad [$quadLib move $q {*}[screenshareSlotOffset $i]]
+                }
+            }
+        }
+    }
+}
+
+When /someone/ wishes screenshare slot /slot/ displays screen /name/ for /root/ at index /index/ &\
+     /slot/ has resolved geometry /geom/ {
+    Wish $slot is footnoted $name
+}
+
+When /someone/ wishes screenshare slot /slot/ displays screen /name/ for /root/ at index /index/ &\
+     /slot/ has resolved geometry /geom/ {
+    When the collected results for [list /anyone/ claims screen $name is available on $::thisNode with session /session/] are /screens/ {
+        if {[llength $screens] > 0} { return }
+
+        set width [dict get $geom width]
+        set height [dict get $geom height]
+        set message "(No screen named $name)"
+
+        Wish to draw a quad onto $slot with \
+            p0 {0 0} p1 [list $width 0] p2 [list $width $height] p3 [list 0 $height] \
+            color black layer 0
+        Wish $slot is labelled $message with color white anchor center layer 1
+    }
+}
+
+When /someone/ wishes screenshare slot /thing/ displays screen /name/ for /root/ at index /index/ &\
+     screen /screenName/ has latest frame /im/ width /sourceWidth/ height /sourceHeight/ seq /seq/ &\
+     /thing/ has resolved geometry /geom/ &\
+     /thing/ has canvas /id/ with /...wiOptions/ &\
+     /thing/ has canvas projection /surfaceToClip/ {
+    if {$screenName ne $name} { return }
+    set destWidth [dict get $geom width]
+    set destHeight [dict get $geom height]
+    set sourceAspect [expr {double($sourceWidth) / double($sourceHeight)}]
+    set destAspect [expr {double($destWidth) / double($destHeight)}]
+
+    if {$sourceAspect > $destAspect} {
+        set crop [expr {(1.0 - ($destAspect / $sourceAspect)) / 2.0}]
+        set uvMin [list $crop 0]
+        set uvMax [list [expr {1.0 - $crop}] 1]
+    } else {
+        set crop [expr {(1.0 - ($sourceAspect / $destAspect)) / 2.0}]
+        set uvMin [list 0 $crop]
+        set uvMax [list 1 [expr {1.0 - $crop}]]
+    }
+
+    set a [list 0 0]
+    set b [list $destWidth 0]
+    set c [list $destWidth $destHeight]
+    set d [list 0 $destHeight]
+    set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
+
+    Wish the GPU loads image $im as texture
+    When the GPU has loaded image $im as texture /gim/ {
+        Wish the GPU draws pipeline "screenshare-cover" onto canvas $id with arguments \
+            [list $wiResolution $surfaceToClip $gim $a $b $c $d $uvMin $uvMax]
+    }
+}

@@ -1,0 +1,219 @@
+fn screenshareReadFile {path} {
+    set fp [open $path r]
+    set data [read $fp]
+    close $fp
+    return $data
+}
+
+When the image library is /imageLib/ {
+    set cc [C]
+    $cc extend $imageLib
+    $cc include <stdio.h>
+    $cc include <stdint.h>
+
+    $cc proc loadRgbFrame {char* path int width int height int seq} Image {
+        if (width <= 0 || height <= 0 || width > 4096 || height > 4096) {
+            FOLK_ERROR("screenshare: invalid frame size %d x %d", width, height);
+        }
+
+        Image im = imageNew(width, height, 3, seq);
+        FILE* fp = fopen(path, "rb");
+        if (!fp) {
+            imageFree(im);
+            FOLK_ERROR("screenshare: could not open frame %s", path);
+        }
+
+        size_t expected = (size_t) width * (size_t) height * 3;
+        size_t got = fread(im.data, 1, expected, fp);
+        fclose(fp);
+        if (got != expected) {
+            imageFree(im);
+            FOLK_ERROR("screenshare: short frame read from %s (%zu of %zu)", path, got, expected);
+        }
+
+        im.uniq = (uint64_t) seq;
+        return im;
+    }
+
+    set bridge [$cc compile]
+    Claim the screenshare frame bridge is $bridge
+}
+
+When /someone/ wishes to load the screenshare receiver {
+    set py [Uvx --with aiortc --with av --with numpy]
+
+    $py exec {
+        import asyncio
+        import os
+        import re
+        import time
+        import threading
+        import numpy as np
+        from aiortc import RTCPeerConnection, RTCSessionDescription, RTCConfiguration
+
+        sessions = {}
+        frame_root = "/dev/shm/folk-screenshare"
+        if not os.path.isdir("/dev/shm") or not os.access("/dev/shm", os.W_OK):
+            frame_root = "/tmp/folk-screenshare"
+        os.makedirs(frame_root, exist_ok=True)
+
+        loop = asyncio.new_event_loop()
+        thread = threading.Thread(target=loop.run_forever, daemon=True)
+        thread.start()
+
+        def safe_id(value):
+            return re.sub(r"[^A-Za-z0-9_.-]", "_", value)
+
+        def frame_paths(session_id):
+            sid = safe_id(session_id)
+            return {
+                "metaPath": os.path.join(frame_root, f"{sid}.meta"),
+                "frame0": os.path.join(frame_root, f"{sid}.0.rgb"),
+                "frame1": os.path.join(frame_root, f"{sid}.1.rgb"),
+            }
+
+        async def video_frame_loop(session_id, track):
+            paths = frame_paths(session_id)
+            seq = 0
+            last_emit = 0.0
+            while True:
+                frame = await track.recv()
+                now = time.monotonic()
+                if now - last_emit < (1.0 / 15.0):
+                    continue
+                last_emit = now
+
+                width = frame.width
+                height = frame.height
+                scale = min(1.0, 1280.0 / float(width), 720.0 / float(height))
+                if scale < 1.0:
+                    width = max(1, int(width * scale))
+                    height = max(1, int(height * scale))
+                    frame = frame.reformat(width=width, height=height, format="rgb24")
+                else:
+                    frame = frame.reformat(format="rgb24")
+
+                arr = np.ascontiguousarray(frame.to_ndarray(format="rgb24"))
+                height, width = arr.shape[:2]
+                path = paths["frame0"] if seq % 2 == 0 else paths["frame1"]
+                tmp_path = f"{path}.tmp"
+                with open(tmp_path, "wb") as fp:
+                    fp.write(arr.tobytes())
+                os.replace(tmp_path, path)
+
+                meta = (
+                    f"seq {seq} width {width} height {height} "
+                    f"components 3 bytesPerRow {width * 3} path {path} "
+                    f"timestamp {time.time()}\n"
+                )
+                meta_tmp = f"{paths['metaPath']}.tmp"
+                with open(meta_tmp, "w") as fp:
+                    fp.write(meta)
+                os.replace(meta_tmp, paths["metaPath"])
+                seq += 1
+
+        async def _create_session(session_id, name, offer_sdp, offer_type):
+            if session_id in sessions:
+                await _close_session(session_id)
+
+            # TODO(off-LAN): add STUN/TURN configuration when screenshare is no longer LAN-only.
+            pc = RTCPeerConnection(configuration=RTCConfiguration(iceServers=[]))
+            sessions[session_id] = {"pc": pc, "tasks": set(), "name": name}
+
+            @pc.on("track")
+            def on_track(track):
+                if track.kind == "video":
+                    task = loop.create_task(video_frame_loop(session_id, track))
+                    sessions[session_id]["tasks"].add(task)
+                    task.add_done_callback(lambda t: sessions.get(session_id, {}).get("tasks", set()).discard(t))
+                # TODO(audio): receive and publish audio tracks here.
+
+            # TODO(remote-control): add a data channel for future control/input messages.
+            await pc.setRemoteDescription(RTCSessionDescription(sdp=offer_sdp, type=offer_type))
+            answer = await pc.createAnswer()
+            await pc.setLocalDescription(answer)
+            paths = frame_paths(session_id)
+            return {
+                "sdp": pc.localDescription.sdp,
+                "type": pc.localDescription.type,
+                "metaPath": paths["metaPath"],
+                "frameRoot": frame_root,
+            }
+
+        async def _close_session(session_id):
+            session = sessions.pop(session_id, None)
+            if not session:
+                return True
+            for task in list(session["tasks"]):
+                task.cancel()
+            await session["pc"].close()
+            paths = frame_paths(session_id)
+            for path in [paths["metaPath"], paths["frame0"], paths["frame1"],
+                         f"{paths['metaPath']}.tmp", f"{paths['frame0']}.tmp", f"{paths['frame1']}.tmp"]:
+                try:
+                    os.unlink(path)
+                except FileNotFoundError:
+                    pass
+            return True
+
+        def create_session(session_id, name, offer_sdp, offer_type):
+            fut = asyncio.run_coroutine_threadsafe(
+                _create_session(session_id, name, offer_sdp, offer_type), loop)
+            return fut.result(timeout=20)
+
+        def close_session(session_id):
+            fut = asyncio.run_coroutine_threadsafe(_close_session(session_id), loop)
+            return fut.result(timeout=5)
+    }
+
+    $py def createSession {str sessionId str name str offerSdp str offerType} {
+        return create_session(sessionId, name, offerSdp, offerType)
+    }
+
+    $py def closeSession {str sessionId} {
+        return close_session(sessionId)
+    }
+
+    Claim the screenshare receiver is $py
+}
+
+When the image library is /imageLib/ &\
+     the screenshare frame bridge is /bridge/ &\
+     screen /name/ is available on $::thisNode with session /session/ &\
+     screenshare session /metaSession/ has frame meta path /metaPath/ {
+    if {$metaSession ne $session} { return }
+    fn screenshareReadFile
+
+    When the clock time is /t/ {
+        if {![file exists $metaPath]} { return }
+        try {
+            set meta [string trim [screenshareReadFile $metaPath]]
+            if {$meta eq ""} { return }
+            set seq [dict get $meta seq]
+            set width [dict get $meta width]
+            set height [dict get $meta height]
+            set path [dict get $meta path]
+        } on error e {
+            return
+        }
+
+        if {[llength [Query! /someone/ claims screen $name has latest frame /old/ width /oldWidth/ height /oldHeight/ seq $seq]] > 0} {
+            return
+        }
+
+        try {
+            set im [$bridge loadRgbFrame $path $width $height $seq]
+        } on error {e opts} {
+            Say screen $name has error $e with info $opts
+            return
+        }
+
+        Hold! -key [list screenshare frame $session] \
+            Claim screen $name has latest frame $im width $width height $height seq $seq \
+            -destructor [list $imageLib imageFree $im]
+    }
+
+    On unmatch {
+        Hold! -key [list screenshare frame $session] {}
+    }
+}

@@ -1,0 +1,150 @@
+source builtin-programs/image/image-lib.folk
+source builtin-programs/collect.folk
+source builtin-programs/decorations/label.folk
+source builtin-programs/screenshare/session.folk
+source builtin-programs/screenshare/receiver.folk
+source builtin-programs/screenshare/display.folk
+source builtin-programs/web/screenshare.folk
+
+assert {[screenshareNameValid bluey]}
+assert {[screenshareNameValid bluey_]}
+assert {[screenshareNameValid bluey-2]}
+assert {![screenshareNameValid "blue y"]}
+assert {![screenshareNameValid "blue/y"]}
+assert {![screenshareNameValid ""]}
+assert {![screenshareNameValid "abcdefghijklmnopqrstuvwxyzabcdefg"]}
+
+set expected "bluey is already taken as a device name on $::thisNode — use bluey_ or pick another name"
+assert {[screenshareTakenError bluey] eq $expected}
+
+set started [clock milliseconds]
+while {[llength [Query! /someone/ claims the screenshare frame bridge is /bridge/]] == 0} {
+    if {[clock milliseconds] - $started > 3000} {
+        error "screenshare frame bridge did not load"
+    }
+    sleep 0.05
+}
+
+set imageLib [dict get [lindex [Query! /someone/ claims the image library is /imageLib/] 0] imageLib]
+set bridge [dict get [lindex [Query! /someone/ claims the screenshare frame bridge is /bridge/] 0] bridge]
+set framePath "/tmp/folk-test-screenshare.rgb"
+set fp [open $framePath wb]
+fconfigure $fp -translation binary
+puts -nonewline $fp [binary format c* {255 0 0 0 255 0}]
+close $fp
+
+set im [$bridge loadRgbFrame $framePath 2 1 7]
+assert {[$imageLib Image_width $im] == 2}
+assert {[$imageLib Image_height $im] == 1}
+
+Claim screen bluey is available on $::thisNode with session bluey-session
+Claim screen bluey has latest frame $im width 2 height 1 seq 7
+set fakeQuadLib [library create fakeQuadLib {} {
+    proc move {q args} {
+        return [list moved $q {*}$args]
+    }
+}]
+Claim the quad library is $fakeQuadLib
+Claim thing has resolved geometry {width 1 height 1}
+Claim thing has canvas TEST with width 100 height 100 texture 99
+Claim thing has canvas projection {{2 0 -1} {0 2 -1} {0 0 1}}
+Wish thing displays screen bluey
+Claim the GPU has loaded image $im as texture 123
+
+sleep 0.2
+set draws [Query! /someone/ wishes the GPU draws pipeline "screenshare-cover" onto canvas TEST with /...options/]
+assert {[llength $draws] > 0}
+set footnotes [Query! /someone/ wishes thing is footnoted bluey]
+assert {[llength $footnotes] > 0}
+
+Claim thing2 has resolved geometry {width 1 height 1}
+Claim thing2 has canvas TEST2 with width 100 height 100 texture 100
+Claim thing2 has canvas projection {{2 0 -1} {0 2 -1} {0 0 1}}
+Wish thing2 shows screen bluey
+
+sleep 0.2
+set aliasDraws [Query! /someone/ wishes the GPU draws pipeline "screenshare-cover" onto canvas TEST2 with /...options/]
+assert {[llength $aliasDraws] > 0}
+set aliasFootnotes [Query! /someone/ wishes thing2 is footnoted bluey]
+assert {[llength $aliasFootnotes] > 0}
+
+Claim missingThing has resolved geometry {width 1 height 1}
+Wish missingThing displays screen ghost
+
+sleep 0.5
+set missingQuads [Query! /someone/ wishes to draw a quad onto missingThing with /...options/]
+set missingLabels [Query! /someone/ wishes missingThing is labelled /text/ with /...options/]
+set missingTexts [Query! /someone/ wishes to draw text onto missingThing with /...options/]
+assert {[llength $missingQuads] > 0}
+assert {[llength $missingLabels] > 0}
+assert {[llength $missingTexts] > 0}
+set foundMissingLabel 0
+foreach result $missingLabels {
+    if {[dict get $result text] eq "(No screen named ghost)"} {
+        set foundMissingLabel 1
+    }
+}
+assert {$foundMissingLabel}
+set foundMissingText 0
+foreach result $missingTexts {
+    if {[dict get [dict get $result options] text] eq "(No screen named ghost)"} {
+        set foundMissingText 1
+    }
+}
+assert {$foundMissingText}
+
+Claim stackedThing has resolved geometry {width 1 height 1}
+Claim stackedThing has quad STACKED
+Wish stackedThing displays screen ghost-a
+Wish stackedThing shows screen ghost-b
+
+sleep 0.5
+set stackedSlot1 [screenshareSlotThing stackedThing 1]
+set stackedBaseLabels [Query! /someone/ wishes stackedThing is labelled /text/ with /...options/]
+set stackedSlotLabels [Query! /someone/ wishes $stackedSlot1 is labelled /text/ with /...options/]
+set stackedSlotQuads [Query! $stackedSlot1 has quad /q/]
+assert {[llength $stackedBaseLabels] > 0}
+assert {[llength $stackedSlotLabels] > 0}
+assert {[dict get [lindex $stackedBaseLabels 0] text] eq "(No screen named ghost-a)"}
+assert {[dict get [lindex $stackedSlotLabels 0] text] eq "(No screen named ghost-b)"}
+assert {[dict get [lindex $stackedSlotQuads 0] q] eq {moved STACKED up 110% up 6cm}}
+
+Claim multiThing has resolved geometry {width 1 height 1}
+Claim multiThing has quad MULTI
+foreach name {multi-a multi-b multi-c multi-d multi-e multi-f} {
+    Wish multiThing displays screen $name
+}
+
+sleep 0.5
+foreach {index name expectedQuad} {
+    0 multi-a {}
+    1 multi-b {moved MULTI up 110% up 6cm}
+    2 multi-c {moved MULTI right 110% right 6cm}
+    3 multi-d {moved MULTI down 110% down 6cm}
+    4 multi-e {moved MULTI left 110% left 6cm}
+    5 multi-f {moved MULTI up 220% up 12cm}
+} {
+    set slot [screenshareSlotThing multiThing $index]
+    set slotWishes [Query! /someone/ wishes screenshare slot $slot displays screen $name for multiThing at index $index]
+    set slotFootnotes [Query! /someone/ wishes $slot is footnoted $name]
+    assert {[llength $slotWishes] > 0}
+    assert {[llength $slotFootnotes] > 0}
+    if {$index > 0} {
+        set slotQuads [Query! $slot has quad /q/]
+        assert {[llength $slotQuads] > 0}
+        assert {[dict get [lindex $slotQuads 0] q] eq $expectedQuad}
+    }
+}
+
+Claim screen ghost is available on $::thisNode with session ghost-session
+sleep 0.5
+set missingQuads [Query! /someone/ wishes to draw a quad onto missingThing with /...options/]
+set missingLabels [Query! /someone/ wishes missingThing is labelled /text/ with /...options/]
+set missingTexts [Query! /someone/ wishes to draw text onto missingThing with /...options/]
+assert {[llength $missingQuads] == 0}
+assert {[llength $missingLabels] == 0}
+assert {[llength $missingTexts] == 0}
+
+$imageLib imageFree $im
+file delete -force $framePath
+Exit! 0

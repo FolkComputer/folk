@@ -1,0 +1,65 @@
+fn screenshareNameValid {name} {
+    regexp {^[A-Za-z0-9_][A-Za-z0-9_-]{0,31}$} $name
+}
+
+fn screenshareTakenError {name} {
+    return "$name is already taken as a device name on $::thisNode — use ${name}_ or pick another name"
+}
+
+When /someone/ wishes to start screenshare session /session/ for name /name/ with offer /offerSdp/ type /offerType/ {
+    Wish to load the screenshare receiver
+}
+
+When the screenshare receiver is /receiver/ &\
+     /someone/ wishes to start screenshare session /session/ for name /name/ with offer /offerSdp/ type /offerType/ {
+    fn screenshareNameValid
+    fn screenshareTakenError
+
+    if {![screenshareNameValid $name]} {
+        Hold! -key [list screenshare error $session] \
+            Claim screenshare session $session has error "Use 1-32 letters, numbers, underscores, or hyphens."
+        On unmatch {
+            Hold! -key [list screenshare error $session] {}
+        }
+        return
+    }
+
+    foreach result [Query! /anyone/ claims screen $name is available on $::thisNode with session /otherSession/] {
+        if {[dict get $result otherSession] ne $session} {
+            Hold! -key [list screenshare error $session] \
+                Claim screenshare session $session has error [screenshareTakenError $name]
+            On unmatch {
+                Hold! -key [list screenshare error $session] {}
+            }
+            return
+        }
+    }
+
+    try {
+        set answer [$receiver createSession $session $name $offerSdp $offerType]
+    } on error {e opts} {
+        Hold! -key [list screenshare error $session] \
+            Claim screenshare session $session has error $e
+        catch { $receiver closeSession $session }
+        On unmatch {
+            Hold! -key [list screenshare error $session] {}
+        }
+        return
+    }
+
+    Hold! -key [list screenshare available $session] \
+        Claim screen $name is available on $::thisNode with session $session
+    Hold! -key [list screenshare answer $session] \
+        Claim screenshare session $session has answer [dict get $answer sdp] type [dict get $answer type]
+    Hold! -key [list screenshare meta $session] \
+        Claim screenshare session $session has frame meta path [dict get $answer metaPath]
+
+    On unmatch {
+        catch { $receiver closeSession $session }
+        Hold! -key [list screenshare available $session] {}
+        Hold! -key [list screenshare answer $session] {}
+        Hold! -key [list screenshare meta $session] {}
+        Hold! -key [list screenshare frame $session] {}
+        Hold! -key [list screenshare error $session] {}
+    }
+}
