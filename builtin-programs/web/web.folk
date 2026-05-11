@@ -7,6 +7,58 @@ puts "web: [__threadId] (PID [pid])"
 # processes to also block/ignore and behave weirdly.
 signal handle SIGPIPE
 
+set ::webTlsCert "$::env(HOME)/folk-data/https/cert.pem"
+set ::webTlsKey "$::env(HOME)/folk-data/https/key.pem"
+set ::webTlsEnabled 0
+set ::webScheme http
+set ::webTlsHandshakeTimeoutMs 2000
+if {[file exists $::webTlsCert] && [file exists $::webTlsKey]} {
+    if {[exists -command load_ssl_certs]} {
+        set ::webTlsEnabled 1
+        set ::webScheme https
+        puts "web: TLS enabled with $::webTlsCert"
+    } else {
+        puts stderr "web: HTTPS certs exist, but Jim Tcl was not built with SSL; run `make distclean deps`."
+    }
+}
+Claim the web server scheme is $::webScheme
+
+set ::webSocketTimeouts {}
+if {$::webTlsEnabled} {
+    set cc [C]
+    $cc include <errno.h>
+    $cc include <string.h>
+    $cc include <sys/socket.h>
+    $cc include <sys/time.h>
+    $cc proc setSocketTimeout {Jim_Obj* chan int timeoutMs} void {
+        int fd = Jim_AioFilehandle(interp, chan);
+        if (fd < 0) {
+            FOLK_ERROR("web: unable to open channel as socket");
+        }
+        if (timeoutMs < 0) {
+            timeoutMs = 0;
+        }
+
+        struct timeval tv;
+        tv.tv_sec = timeoutMs / 1000;
+        tv.tv_usec = (timeoutMs % 1000) * 1000;
+
+        if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) != 0) {
+            FOLK_ERROR("web: failed to set receive timeout: %s", strerror(errno));
+        }
+        if (setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) != 0) {
+            FOLK_ERROR("web: failed to set send timeout: %s", strerror(errno));
+        }
+    }
+    set ::webSocketTimeouts [$cc compile]
+}
+
+proc webSetSocketTimeout {chan timeoutMs} {
+    if {$::webSocketTimeouts ne ""} {
+        $::webSocketTimeouts setSocketTimeout $chan $timeoutMs
+    }
+}
+
 # To force a rebuild: rm vendor/wslay/Makefile
 if {![file exists vendor/wslay/Makefile]} {
     puts "web: Configuring libwslay..."
@@ -281,6 +333,17 @@ while true {
         $f listen 128
         $f readable [lambda {} {f} {
             set client [$f accept addr]
+            if {$::webTlsEnabled} {
+                try {
+                    webSetSocketTimeout $client $::webTlsHandshakeTimeoutMs
+                    set client [$client ssl -server $::webTlsCert $::webTlsKey]
+                    webSetSocketTimeout $client 0
+                } on error e {
+                    puts "web: TLS handshake failed for $addr: $e"
+                    catch { close $client }
+                    return
+                }
+            }
             handleConnect $client $addr
         }]
         break

@@ -1,8 +1,32 @@
 # Manage terminal UI for Folk.
 
 $::realStdout puts "Folk Computer (pid [pid])."
-set host $([string match "*.local" $::thisNode] ? $::thisNode : "$::thisNode.local")
-$::realStdout puts "Web interface at: http://$host:4273/"
+
+proc terminalUiLocalHost {host} {
+    set host [string trim $host]
+    if {[string match "*.local" $host]} {
+        set host [string range $host 0 end-6]
+    }
+    try {
+        set bonjourHost [string trim [exec scutil --get LocalHostName]]
+        if {$bonjourHost ne ""} {
+            set host $bonjourHost
+            if {[string match "*.local" $host]} {
+                set host [string range $host 0 end-6]
+            }
+        }
+    } on error e {}
+    return "$host.local"
+}
+
+set host [terminalUiLocalHost $::thisNode]
+set httpsCert "$::env(HOME)/folk-data/https/cert.pem"
+set httpsKey "$::env(HOME)/folk-data/https/key.pem"
+set scheme [expr {[file exists $httpsCert] && [file exists $httpsKey] && [exists -command load_ssl_certs] ? "https" : "http"}]
+$::realStdout puts "Web interface at: $scheme://$host:4273/"
+if {$scheme eq "https"} {
+    $::realStdout puts "HTTPS mode: use https://localhost:4273/ locally; bare localhost:4273 uses HTTP and will fail."
+}
 $::realStdout puts ""
 $::realStdout flush
 

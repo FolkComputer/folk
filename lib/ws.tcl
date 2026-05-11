@@ -2,7 +2,6 @@ set cc [C]
 $cc cflags -I./vendor/wslay/lib/includes
 
 $cc include <errno.h>
-$cc include <sys/socket.h>
 $cc include <string.h>
 $cc include <unistd.h>
 $cc include <fcntl.h>
@@ -12,26 +11,64 @@ $cc include <wslay/wslay.h>
 $cc code {
     typedef struct WsSession {
         int fd;
+        Jim_Obj* chan;
         Jim_Obj* onMsgRecv;
     } WsSession;
+
+    static int channel_eof(WsSession* session) {
+        Jim_Obj* objv[2];
+        long eof = 1;
+
+        objv[0] = session->chan;
+        objv[1] = Jim_NewStringObj(interp, "eof", -1);
+        Jim_IncrRefCount(objv[1]);
+        if (Jim_EvalObjVector(interp, 2, objv) == JIM_OK) {
+            Jim_GetLong(interp, Jim_GetResult(interp), &eof);
+        }
+        Jim_DecrRefCount(interp, objv[1]);
+        return eof != 0;
+    }
 
     static ssize_t recv_callback(wslay_event_context_ptr ctx,
                                  uint8_t* buf, size_t len, int flags,
                                  void* user_data) {
         WsSession* session = (WsSession*) user_data;
+        Jim_Obj* objv[3];
+        int r = 0;
+        int rc;
+        const char* data;
 
-        ssize_t r;
-        while((r = recv(session->fd, buf, len, 0)) == -1 && errno == EINTR);
-        if(r == -1) {
-            if(errno == EAGAIN || errno == EWOULDBLOCK) {
+        objv[0] = session->chan;
+        objv[1] = Jim_NewStringObj(interp, "read", -1);
+        objv[2] = Jim_NewIntObj(interp, len > INT32_MAX ? INT32_MAX : (jim_wide)len);
+        Jim_IncrRefCount(objv[1]);
+        Jim_IncrRefCount(objv[2]);
+        rc = Jim_EvalObjVector(interp, 3, objv);
+        Jim_DecrRefCount(interp, objv[1]);
+        Jim_DecrRefCount(interp, objv[2]);
+
+        if (rc != JIM_OK) {
+            const char* err = Jim_String(Jim_GetResult(interp));
+            if (strstr(err, "temporarily unavailable") || strstr(err, "would block")) {
                 wslay_event_set_error(ctx, WSLAY_ERR_WOULDBLOCK);
-            } else {
+            }
+            else {
                 wslay_event_set_error(ctx, WSLAY_ERR_CALLBACK_FAILURE);
             }
-        } else if(r == 0) {
-            /* Unexpected EOF is also treated as an error */
+            return -1;
+        }
+
+        data = Jim_GetString(Jim_GetResult(interp), &r);
+        if (r > 0) {
+            memcpy(buf, data, r);
+        }
+        else if (channel_eof(session)) {
             wslay_event_set_error(ctx, WSLAY_ERR_CALLBACK_FAILURE);
-            r = -1;
+            return -1;
+        }
+        else {
+            wslay_event_set_error(ctx, WSLAY_ERR_WOULDBLOCK);
+            return -1;
         }
         return r;
     }
@@ -39,23 +76,33 @@ $cc code {
                                  const uint8_t* data, size_t len, int flags,
                                  void* user_data) {
         WsSession* session = (WsSession*) user_data;
+        Jim_Obj* objv[4];
+        int rc;
+        int writeLen = len > INT32_MAX ? INT32_MAX : (int)len;
 
-        ssize_t r;
-        int sflags = 0;
-#ifdef MSG_MORE
-        if(flags & WSLAY_MSG_MORE) {
-            sflags |= MSG_MORE;
-        }
-#endif // MSG_MORE
-        while((r = send(session->fd, data, len, sflags)) == -1 && errno == EINTR);
-        if(r == -1) {
-            if(errno == EAGAIN || errno == EWOULDBLOCK) {
+        objv[0] = session->chan;
+        objv[1] = Jim_NewStringObj(interp, "puts", -1);
+        objv[2] = Jim_NewStringObj(interp, "-nonewline", -1);
+        objv[3] = Jim_NewStringObj(interp, (const char*)data, writeLen);
+        Jim_IncrRefCount(objv[1]);
+        Jim_IncrRefCount(objv[2]);
+        Jim_IncrRefCount(objv[3]);
+        rc = Jim_EvalObjVector(interp, 4, objv);
+        Jim_DecrRefCount(interp, objv[1]);
+        Jim_DecrRefCount(interp, objv[2]);
+        Jim_DecrRefCount(interp, objv[3]);
+
+        if (rc != JIM_OK) {
+            const char* err = Jim_String(Jim_GetResult(interp));
+            if (strstr(err, "send buffer is full") || strstr(err, "temporarily unavailable") || strstr(err, "would block")) {
                 wslay_event_set_error(ctx, WSLAY_ERR_WOULDBLOCK);
-            } else {
+            }
+            else {
                 wslay_event_set_error(ctx, WSLAY_ERR_CALLBACK_FAILURE);
             }
+            return -1;
         }
-        return r;
+        return writeLen;
     }
     static void on_msg_recv_callback(wslay_event_context_ptr ctx,
                                      const struct wslay_event_on_msg_recv_arg* arg,
@@ -105,7 +152,9 @@ $cc proc wsNew {Jim_Obj* chan Jim_Obj* onMsgRecv} wslay_event_context_ptr {
 
     WsSession* session = (WsSession*) malloc(sizeof(WsSession));
     session->fd = fd;
+    session->chan = chan;
     session->onMsgRecv = onMsgRecv;
+    Jim_IncrRefCount(chan);
     Jim_IncrRefCount(onMsgRecv);
 
     wslay_event_context_ptr ctx;

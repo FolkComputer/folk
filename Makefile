@@ -56,7 +56,7 @@ folk_interpose.dylib: output-redirection.c
 		-DFOLK_INTERPOSE_DYLIB \
 		-o $@ $<
 
-.PHONY: test clean deps
+.PHONY: test clean deps local-https-cert
 test: folk
 	@count=1; \
 	total=$$(ls test/*.folk | wc -l | tr -d ' '); \
@@ -99,10 +99,73 @@ remote-clean: sync
 remote-distclean: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make distclean'
 deps:
-	if [ ! -f vendor/jimtcl/Makefile ]; then \
-		cd vendor/jimtcl && ./configure CFLAGS='-g -fno-omit-frame-pointer'; \
+	if [ ! -f vendor/jimtcl/Makefile ] || ! grep -q '^#define JIM_SSL 1' vendor/jimtcl/jimautoconf.h 2>/dev/null; then \
+		cd vendor/jimtcl && ./configure --ssl CFLAGS='-g -fno-omit-frame-pointer'; \
 	fi
 	make -C vendor/jimtcl
+
+local-https-cert:
+	@set -eu; \
+	dir="$$HOME/folk-data/https"; \
+	mkdir -p "$$dir"; \
+	unix_host="$$(hostname)"; \
+	unix_host="$${unix_host%.local}"; \
+	bonjour_host=""; \
+	if [ "$$(uname -s)" = "Darwin" ] && command -v scutil >/dev/null 2>&1; then \
+		bonjour_host="$$(scutil --get LocalHostName 2>/dev/null || true)"; \
+	fi; \
+	bonjour_host="$${bonjour_host%.local}"; \
+	cert_host="$$bonjour_host"; \
+	if [ -z "$$cert_host" ]; then cert_host="$$unix_host"; fi; \
+	if [ -z "$$cert_host" ]; then cert_host="localhost"; fi; \
+	tmp="$$(mktemp)"; \
+	trap 'rm -f "$$tmp" "$$dir/cert.csr"' EXIT; \
+	names=""; \
+	add_name() { \
+		name="$$1"; \
+		if [ -n "$$name" ]; then \
+			case " $$names " in *" $$name "*) ;; *) names="$$names $$name";; esac; \
+		fi; \
+	}; \
+	add_name "$$cert_host"; \
+	add_name "$$cert_host.local"; \
+	add_name "$$unix_host"; \
+	add_name "$$unix_host.local"; \
+	add_name localhost; \
+	printf '%s\n' \
+		'[req]' \
+		'distinguished_name = req_distinguished_name' \
+		'req_extensions = req_ext' \
+		'prompt = no' \
+		'[req_distinguished_name]' \
+		"CN = $$cert_host.local" \
+		'[req_ext]' \
+		'subjectAltName = @alt_names' \
+		'[alt_names]' > "$$tmp"; \
+	dns_i=1; \
+	for name in $$names; do \
+		printf 'DNS.%s = %s\n' "$$dns_i" "$$name" >> "$$tmp"; \
+		dns_i=$$((dns_i + 1)); \
+	done; \
+	printf 'IP.1 = 127.0.0.1\n' >> "$$tmp"; \
+	if [ ! -f "$$dir/ca.key" ] || [ ! -f "$$dir/ca.pem" ]; then \
+		openssl genrsa -out "$$dir/ca.key" 2048; \
+		openssl req -x509 -new -nodes -key "$$dir/ca.key" \
+			-sha256 -days 3650 -subj "/CN=Folk Local CA" \
+			-out "$$dir/ca.pem"; \
+	fi; \
+	openssl genrsa -out "$$dir/key.pem" 2048; \
+	openssl req -new -key "$$dir/key.pem" \
+		-subj "/CN=$$cert_host.local" \
+		-out "$$dir/cert.csr" -config "$$tmp"; \
+	openssl x509 -req -in "$$dir/cert.csr" \
+		-CA "$$dir/ca.pem" -CAkey "$$dir/ca.key" -CAcreateserial \
+		-out "$$dir/cert.pem" -days 825 -sha256 \
+		-extensions req_ext -extfile "$$tmp"; \
+	chmod 600 "$$dir/key.pem" "$$dir/ca.key"; \
+	printf 'Created Folk HTTPS certs in %s\n' "$$dir"; \
+	printf 'Install/trust %s on LAN devices, then open https://%s.local:4273/screenshare\n' "$$dir/ca.pem" "$$cert_host"; \
+	printf 'In TLS mode, use https://localhost:4273/ locally; bare localhost:4273 is HTTP and will fail.\n'
 
 
 kill-folk:
@@ -117,14 +180,16 @@ kill-folk:
 FOLK_REMOTE_NODE ?= folk-live
 
 sync:
+	@ignores_tmp="$$(mktemp)"; \
+	trap 'rm -f "$$ignores_tmp"' EXIT; \
 	ssh $(FOLK_REMOTE_NODE) -t \
 		'cd ~/folk && git init > /dev/null && git ls-files --exclude-standard -oi --directory' \
-		> .git/ignores.tmp || true
-	git ls-files --exclude-standard -oi --directory >> .git/ignores.tmp
+		> "$$ignores_tmp" || true; \
+	git ls-files --exclude-standard -oi --directory >> "$$ignores_tmp"; \
 	rsync --timeout=15 -e "ssh -o StrictHostKeyChecking=no" \
 		--archive --delete --itemize-changes \
 		--exclude='/.git' \
-		--exclude-from='.git/ignores.tmp' \
+		--exclude-from="$$ignores_tmp" \
 		--exclude='vendor/tracy/public/TracyClient.o' \
 		--include='vendor/tracy/public/***' \
 		--exclude='vendor/tracy/*' \
@@ -133,7 +198,7 @@ sync:
 remote-setup:
 	ssh-copy-id $(FOLK_REMOTE_NODE)
 	make sync
-	ssh $(FOLK_REMOTE_NODE) -- 'sudo usermod -a -G tty folk && chmod +rwx ~/folk-calibration-poses; sudo apt update && sudo apt install libssl-dev gdb libwslay-dev google-perftools libgoogle-perftools-dev linux-perf && cd folk/vendor/jimtcl && make distclean; ./configure CFLAGS="-g -fno-omit-frame-pointer"'
+	ssh $(FOLK_REMOTE_NODE) -- 'sudo usermod -a -G tty folk && chmod +rwx ~/folk-calibration-poses; sudo apt update && sudo apt install libssl-dev gdb libwslay-dev google-perftools libgoogle-perftools-dev linux-perf && cd folk/vendor/jimtcl && make distclean; ./configure --ssl CFLAGS="-g -fno-omit-frame-pointer"'
 
 remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make start CFLAGS="$(CFLAGS)" ASAN_ENABLE=$(ASAN_ENABLE)'

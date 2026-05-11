@@ -1,0 +1,242 @@
+Wish the web server handles route "/screenshare$" with nav "<button>Screenshare</button>" handler {
+    html [string map [list __THIS_NODE__ $::thisNode] {
+<!doctype html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Folk Screenshare</title>
+  <script src="/lib/folk.js"></script>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; padding: 24px; max-width: 760px; }
+    main { display: grid; gap: 16px; }
+    label { display: grid; gap: 6px; font-weight: 600; }
+    input { font: inherit; padding: 10px 12px; border: 1px solid #999; border-radius: 6px; }
+    button { font: inherit; padding: 10px 14px; border: 1px solid #777; border-radius: 6px; }
+    button:disabled { opacity: 0.5; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .status { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .error { color: #b00020; min-height: 1.2em; }
+    video { width: 100%; max-height: 50vh; background: #111; border-radius: 6px; }
+    #toast {
+      position: fixed; left: 16px; right: 16px; bottom: 16px;
+      display: none; padding: 12px 14px; background: #222; color: white;
+      border-radius: 6px; box-shadow: 0 4px 20px #0007;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Screenshare</h1>
+    <div id="support" class="error"></div>
+    <label>
+      Device name
+      <input id="device-name" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="bluey">
+    </label>
+    <div id="name-error" class="error"></div>
+    <div class="row">
+      <button id="start">Start sharing</button>
+      <button id="stop" disabled>Stop</button>
+      <span id="ws-status" class="status">Connecting</span>
+      <span id="session-status" class="status"></span>
+    </div>
+    <video id="preview" autoplay muted playsinline></video>
+  </main>
+  <div id="toast"></div>
+
+  <script>
+    const thisNode = "__THIS_NODE__";
+    const nameInput = document.getElementById("device-name");
+    const nameError = document.getElementById("name-error");
+    const support = document.getElementById("support");
+    const startButton = document.getElementById("start");
+    const stopButton = document.getElementById("stop");
+    const preview = document.getElementById("preview");
+    const sessionStatus = document.getElementById("session-status");
+    const toast = document.getElementById("toast");
+    const namePattern = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,31}$/;
+    const activeScreens = new Map();
+
+    let folk;
+    let pc = null;
+    let stream = null;
+    let sessionId = null;
+    let answerWatcher = null;
+    let errorWatcher = null;
+    let stopping = false;
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.style.display = "block";
+      clearTimeout(showToast.timeout);
+      showToast.timeout = setTimeout(() => toast.style.display = "none", 5000);
+    }
+
+    function takenMessage(name) {
+      return `${name} is already taken as a device name on ${thisNode} — use ${name}_ or pick another name`;
+    }
+
+    function setNameError(message, notify = false) {
+      nameError.textContent = message;
+      nameInput.setAttribute("aria-invalid", message ? "true" : "false");
+      if (notify && message) showToast(message);
+    }
+
+    function validateName() {
+      const name = nameInput.value.trim();
+      if (!namePattern.test(name)) {
+        return "Use 1-32 letters, numbers, underscores, or hyphens.";
+      }
+      const taken = activeScreens.get(name);
+      if (taken && taken !== sessionId) {
+        return takenMessage(name);
+      }
+      return "";
+    }
+
+    function updateStartEnabled() {
+      const unsupported = !window.isSecureContext || !navigator.mediaDevices?.getDisplayMedia;
+      startButton.disabled = unsupported || !!validateName() || !!pc;
+    }
+
+    nameInput.addEventListener("input", () => {
+      setNameError(validateName());
+      updateStartEnabled();
+    });
+
+    if (!window.isSecureContext) {
+      support.textContent = "Open this page over HTTPS to use browser screen sharing.";
+    } else if (!navigator.mediaDevices?.getDisplayMedia) {
+      support.textContent = "This browser does not support WebRTC screen sharing.";
+    }
+
+    folk = new FolkWS(document.getElementById("ws-status"));
+    folk.watchCollected("/someone/ claims screen /name/ is available on /node/ with session /session/", results => {
+      activeScreens.clear();
+      for (const result of results) {
+        if (result.node === thisNode) activeScreens.set(result.name, result.session);
+      }
+      const error = validateName();
+      setNameError(error);
+      updateStartEnabled();
+    });
+
+    function waitForIceGatheringComplete(peer) {
+      if (peer.iceGatheringState === "complete") return Promise.resolve();
+      return new Promise(resolve => {
+        const timeout = setTimeout(done, 5000);
+        function done() {
+          clearTimeout(timeout);
+          peer.removeEventListener("icegatheringstatechange", check);
+          resolve();
+        }
+        function check() {
+          if (peer.iceGatheringState === "complete") done();
+        }
+        peer.addEventListener("icegatheringstatechange", check);
+      });
+    }
+
+    async function stopSharing() {
+      if (stopping) return;
+      stopping = true;
+      try {
+        if (sessionId) await folk.hold(`screenshare ${sessionId}`, "");
+        if (answerWatcher) answerWatcher.stop();
+        if (errorWatcher) errorWatcher.stop();
+        answerWatcher = null;
+        errorWatcher = null;
+        if (pc) pc.close();
+        if (stream) stream.getTracks().forEach(track => track.stop());
+        pc = null;
+        stream = null;
+        sessionId = null;
+        preview.srcObject = null;
+        sessionStatus.textContent = "";
+        stopButton.disabled = true;
+        updateStartEnabled();
+      } finally {
+        stopping = false;
+      }
+    }
+
+    async function startSharing() {
+      const name = nameInput.value.trim();
+      const error = validateName();
+      if (error) {
+        setNameError(error, true);
+        updateStartEnabled();
+        return;
+      }
+
+      sessionId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+      sessionStatus.textContent = "Choosing screen";
+      startButton.disabled = true;
+
+      try {
+        stream = await navigator.mediaDevices.getDisplayMedia({
+          video: {
+            width: { ideal: 1280, max: 1280 },
+            height: { ideal: 720, max: 720 },
+            frameRate: { ideal: 15, max: 15 }
+            // TODO(cursor/audio): add explicit cursor and audio capture options here.
+          },
+          audio: false
+        });
+
+        preview.srcObject = stream;
+        pc = new RTCPeerConnection({ iceServers: [] });
+        // TODO(remote-control): add a data channel here for future input/control messages.
+        pc.addEventListener("connectionstatechange", () => {
+          sessionStatus.textContent = pc.connectionState;
+          if (["failed", "closed", "disconnected"].includes(pc.connectionState)) {
+            stopSharing();
+          }
+        });
+        stream.getTracks().forEach(track => {
+          track.addEventListener("ended", stopSharing);
+          pc.addTrack(track, stream);
+        });
+
+        answerWatcher = await folk.watchCollected(
+          tcl`/someone/ claims screenshare session ${sessionId} has answer /sdp/ type /type/`,
+          async answers => {
+            if (!answers.length || !pc || pc.remoteDescription) return;
+            const answer = answers[answers.length - 1];
+            await pc.setRemoteDescription({ type: answer.type, sdp: answer.sdp });
+            sessionStatus.textContent = "connecting";
+          });
+
+        errorWatcher = await folk.watchCollected(
+          tcl`/someone/ claims screenshare session ${sessionId} has error /message/`,
+          errors => {
+            if (!errors.length) return;
+            const message = errors[errors.length - 1].message;
+            setNameError(message, true);
+            stopSharing();
+          });
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await waitForIceGatheringComplete(pc);
+
+        sessionStatus.textContent = "sending offer";
+        await folk.hold(
+          `screenshare ${sessionId}`,
+          tcl`Wish to start screenshare session ${sessionId} for name ${name} with offer ${pc.localDescription.sdp} type ${pc.localDescription.type}`);
+        stopButton.disabled = false;
+      } catch (err) {
+        setNameError(err.message || String(err), true);
+        await stopSharing();
+      }
+    }
+
+    startButton.addEventListener("click", startSharing);
+    stopButton.addEventListener("click", stopSharing);
+    window.addEventListener("pagehide", stopSharing);
+    updateStartEnabled();
+  </script>
+</body>
+</html>
+    }]
+}
