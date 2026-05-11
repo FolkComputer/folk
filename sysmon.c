@@ -179,20 +179,17 @@ static void checkRam() {
     // Read MemAvailable from /proc/meminfo (includes reclaimable buffers/cache)
     int freeRamMb = 0;
 
-    static FILE* meminfo = NULL;
-    if (meminfo == NULL) {
-        meminfo = fopen("/proc/meminfo", "r");
-    }
-    assert(meminfo != NULL);
-    rewind(meminfo);
-
-    char line[256];
-    while (fgets(line, sizeof(line), meminfo)) {
-        long memAvailableKb;
-        if (sscanf(line, "MemAvailable: %ld kB", &memAvailableKb) == 1) {
-            freeRamMb = memAvailableKb / 1024;
-            break;
+    FILE* meminfo = fopen("/proc/meminfo", "r");
+    if (meminfo != NULL) {
+        char line[256];
+        while (fgets(line, sizeof(line), meminfo)) {
+            long memAvailableKb;
+            if (sscanf(line, "MemAvailable: %ld kB", &memAvailableKb) == 1) {
+                freeRamMb = memAvailableKb / 1024;
+                break;
+            }
         }
+        fclose(meminfo);
     }
     // Fallback to old method if /proc/meminfo reading failed
     if (freeRamMb == 0) {
