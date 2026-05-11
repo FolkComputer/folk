@@ -286,7 +286,7 @@ When the GPU library is /gpuLib/ &\
             with settle $settle
     }
 
-    Wish the GPU runs frame prelude handler [list apply {{gpuCanvasLib} {
+    Wish the GPU runs frame prelude handler [list apply {{gpuCanvasLib gpuTextureLib} {
         upvar missingPipelines missingPipelines
         upvar mostRecentDrawListsByTexture mostRecentDrawListsByTexture
         if {![info exists missingCanvases]} {
@@ -400,6 +400,11 @@ When the GPU library is /gpuLib/ &\
             } }
         }
 
+        # Image texture wishes can publish draw commands while their
+        # descriptor writes are still queued. Drain before recording
+        # canvas command buffers so those handles are drawable.
+        $gpuTextureLib drainDeferredTextureOps
+
         dict for {id drawLists} $drawListsByTexture {
             if {[dict exists $mostRecentDrawListsByTexture $id] &&
                 ($drawLists eq $mostRecentDrawListsByTexture($id))} {
@@ -424,7 +429,7 @@ When the GPU library is /gpuLib/ &\
         foreach ref $acquiredRefs {
             StatementRelease! $ref
         }
-    }} $gpuCanvasLib]
+    }} $gpuCanvasLib $gpuTextureLib]
 
     When /someone/ wishes /p/ has a canvas {
         Wish $p has a canvas with width 1024 height 1024 settle 3ms
