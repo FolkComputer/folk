@@ -136,7 +136,7 @@ chmod 600 "$dir/key.pem" "$dir/ca.key"
 
 printf 'Created Folk HTTPS certs in %s\n' "$dir"
 printf 'Root CA subject: %s\n' "$ca_cn"
-printf 'Install/trust %s or %s on LAN devices, then open https://%s:4273/screenshare\n' "$dir/ca.pem" "$dir/ca.cer" "$cert_dns"
+printf 'Install/trust %s or %s on LAN devices, then open https://%s:4273/setup/https\n' "$dir/ca.pem" "$dir/ca.cer" "$cert_dns"
 printf 'When Folk is running with HTTPS, you can also download the CA from https://%s:4273/folk-ca.cer\n' "$cert_dns"
 printf 'On iPhone/iPad, install the profile, then enable full trust in Settings > General > About > Certificate Trust Settings.\n'
 printf 'In TLS mode, use https://localhost:4273/ locally; bare localhost:4273 is HTTP and will fail.\n'

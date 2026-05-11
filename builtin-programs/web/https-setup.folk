@@ -1,0 +1,505 @@
+fn httpsSetupDir {} {
+    return $([info exists ::env(FOLK_HTTPS_DIR)] && $::env(FOLK_HTTPS_DIR) ne "" ? $::env(FOLK_HTTPS_DIR) : "$::env(HOME)/folk-data/https")
+}
+
+fn httpsSetupLocalHost {host} {
+    set host [string trim $host]
+    if {[string match "*.local" $host]} {
+        set host [string range $host 0 end-6]
+    }
+    try {
+        set bonjourHost [string trim [exec scutil --get LocalHostName]]
+        if {$bonjourHost ne ""} {
+            set host $bonjourHost
+            if {[string match "*.local" $host]} {
+                set host [string range $host 0 end-6]
+            }
+        }
+    } on error e {}
+    if {$host eq ""} { set host localhost }
+    if {$host eq "localhost"} { return localhost }
+    if {[string match "*.*" $host]} { return $host }
+    return "$host.local"
+}
+
+fn httpsSetupHtmlEscape {s} {
+    string map {& "&amp;" < "&lt;" > "&gt;" "\"" "&quot;" "'" "&#39;"} $s
+}
+
+fn httpsSetupJsString {s} {
+    set s [string map [list "\\" "\\\\" "\"" "\\\"" "\n" "\\n" "\r" "\\r" "\t" "\\t" "<" "\\u003c" ">" "\\u003e" "&" "\\u0026"] $s]
+    return "\"$s\""
+}
+
+fn httpsSetupJsBool {b} {
+    return $($b ? "true" : "false")
+}
+
+fn httpsSetupJsArray {items} {
+    return "\[[join [lmap item $items {httpsSetupJsString $item}] ,]\]"
+}
+
+fn httpsSetupOpenSsl {args} {
+    try {
+        return [exec openssl {*}$args]
+    } on error e {
+        return ""
+    }
+}
+
+fn httpsSetupFingerprint {path} {
+    if {![file exists $path]} { return "" }
+    set out [httpsSetupOpenSsl x509 -in $path -noout -fingerprint -sha256]
+    if {[regexp {Fingerprint=([0-9A-Fa-f:]+)} $out -> fp]} {
+        return [string toupper $fp]
+    }
+    return ""
+}
+
+fn httpsSetupDates {path} {
+    set dates [dict create notBefore "" notAfter ""]
+    if {![file exists $path]} { return $dates }
+    foreach line [split [httpsSetupOpenSsl x509 -in $path -noout -dates] "\n"] {
+        if {[regexp {^(notBefore|notAfter)=(.*)$} $line -> key value]} {
+            dict set dates $key $value
+        }
+    }
+    return $dates
+}
+
+fn httpsSetupSans {path} {
+    if {![file exists $path]} { return [list] }
+    set out [string map [list "\n" " "] [httpsSetupOpenSsl x509 -in $path -noout -ext subjectAltName]]
+    set sans [list]
+    foreach token [regexp -all -inline {DNS:[^, ]+|IP Address:[^, ]+} $out] {
+        regsub {^(DNS:|IP Address:)} $token "" san
+        if {[lsearch -exact $sans $san] < 0} {
+            lappend sans $san
+        }
+    }
+    return $sans
+}
+
+fn httpsSetupHostCovered {host sans} {
+    set host [string tolower [string trim $host {[] }]]
+    foreach san $sans {
+        if {[string tolower $san] eq $host} {
+            return true
+        }
+    }
+    return false
+}
+
+fn httpsSetupStatus {caExists certExists keyExists sslAvailable webScheme host sans} {
+    if {!$sslAvailable} {
+        return ssl-missing
+    }
+    if {!$caExists || !$certExists || !$keyExists} {
+        return cert-missing
+    }
+    if {![httpsSetupHostCovered $host $sans]} {
+        return cert-hostname-mismatch
+    }
+    if {$webScheme eq "https"} {
+        return https-active
+    }
+    return cert-ready-restart
+}
+
+fn httpsSetupMeta {} {
+    set dir [httpsSetupDir]
+    set host [httpsSetupLocalHost $::thisNode]
+    set caPem "$dir/ca.pem"
+    set caCer "$dir/ca.cer"
+    set cert "$dir/cert.pem"
+    set key "$dir/key.pem"
+    set certExists [file exists $cert]
+    set keyExists [file exists $key]
+    set caExists [file exists $caPem]
+    set sslAvailable [exists -command load_ssl_certs]
+    set webScheme $([info exists ::webScheme] ? $::webScheme : "http")
+    set sans [httpsSetupSans $cert]
+    set dates [httpsSetupDates $cert]
+    set status [httpsSetupStatus $caExists $certExists $keyExists $sslAvailable $webScheme $host $sans]
+
+    return [dict create \
+        dir $dir \
+        host $host \
+        webScheme $webScheme \
+        serverStatus $status \
+        caExists $caExists \
+        certExists $certExists \
+        keyExists $keyExists \
+        sslAvailable $sslAvailable \
+        httpsUrl "https://$host:4273/" \
+        setupHttpsUrl "https://$host:4273/setup/https" \
+        screenshareUrl "https://$host:4273/screenshare" \
+        localHttpsUrl "https://localhost:4273/setup/https" \
+        caCerUrl "$webScheme://$host:4273/folk-ca.cer" \
+        caPemUrl "$webScheme://$host:4273/folk-ca.pem" \
+        caFingerprint [httpsSetupFingerprint $caPem] \
+        leafFingerprint [httpsSetupFingerprint $cert] \
+        notBefore [dict get $dates notBefore] \
+        notAfter [dict get $dates notAfter] \
+        sans $sans]
+}
+
+When /someone/ wishes to generate local HTTPS certificates with request /request/ {
+    fn httpsSetupDir
+
+    set setupDir [httpsSetupDir]
+    file mkdir $setupDir
+    set lockDir "$setupDir/generation.lock"
+    if {[file exists $lockDir] && [expr {[clock seconds] - [file mtime $lockDir]}] > 300} {
+        file delete -force $lockDir
+    }
+    try {
+        exec mkdir $lockDir
+    } on error e {
+        Hold! -key [list https setup generation latest] \
+            Claim HTTPS setup generation $request has status busy \
+            with message "Another HTTPS certificate generation is already running." \
+            output "" at [clock seconds]
+        return
+    }
+
+    Hold! -key [list https setup generation latest] \
+        Claim HTTPS setup generation $request has status running \
+        with message "Generating HTTPS certificates..." output "" at [clock seconds]
+
+    set status success
+    set message "Created or reused HTTPS certificates."
+    set output ""
+    try {
+        set output [exec env FOLK_HTTPS_DIR=[httpsSetupDir] sh scripts/local-https-cert.sh 2>@1]
+    } on error {e opts} {
+        set status error
+        set message "HTTPS certificate generation failed."
+        set output $e
+    }
+
+    Hold! -key [list https setup generation latest] \
+        Claim HTTPS setup generation $request has status $status \
+        with message $message output $output at [clock seconds]
+    file delete -force $lockDir
+}
+
+Wish the web server handles route "/setup/https/qr\\.svg" with hidden true handler {
+    fn httpsSetupHtmlEscape
+    fn httpsSetupMeta
+
+    set payload [dict getdef $QUERY text ""]
+    if {$payload eq ""} {
+        set payload [dict get [httpsSetupMeta] caCerUrl]
+    }
+
+    try {
+        set body [exec qrencode -t SVG -o - $payload]
+    } on error e {
+        set escaped [httpsSetupHtmlEscape "QR unavailable. Install qrencode or use the download links."]
+        set body [subst {<svg xmlns="http://www.w3.org/2000/svg" width="260" height="260" viewBox="0 0 260 260"><rect width="260" height="260" fill="#fff"/><rect x="12" y="12" width="236" height="236" fill="none" stroke="#111" stroke-width="2"/><text x="130" y="118" text-anchor="middle" font-family="sans-serif" font-size="16" fill="#111">QR unavailable</text><text x="130" y="145" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#333">$escaped</text></svg>}]
+    }
+
+    return [dict create \
+        statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: image/svg+xml; charset=utf-8\nCache-Control: no-store\n\n" \
+        body $body]
+}
+
+Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</button>" handler {
+    fn httpsSetupMeta
+    fn httpsSetupJsArray
+    fn httpsSetupJsBool
+    fn httpsSetupJsString
+    fn httpsSetupHtmlEscape
+
+    set meta [httpsSetupMeta]
+    set replacements [list \
+        __THIS_NODE_JS__ [httpsSetupJsString $::thisNode] \
+        __SERVER_STATUS_JS__ [httpsSetupJsString [dict get $meta serverStatus]] \
+        __WEB_SCHEME_JS__ [httpsSetupJsString [dict get $meta webScheme]] \
+        __HOST_JS__ [httpsSetupJsString [dict get $meta host]] \
+        __HTTPS_URL_JS__ [httpsSetupJsString [dict get $meta setupHttpsUrl]] \
+        __SCREENSHARE_URL_JS__ [httpsSetupJsString [dict get $meta screenshareUrl]] \
+        __LOCAL_URL_JS__ [httpsSetupJsString [dict get $meta localHttpsUrl]] \
+        __CA_CER_URL_JS__ [httpsSetupJsString [dict get $meta caCerUrl]] \
+        __CA_PEM_URL_JS__ [httpsSetupJsString [dict get $meta caPemUrl]] \
+        __CA_FP_JS__ [httpsSetupJsString [dict get $meta caFingerprint]] \
+        __LEAF_FP_JS__ [httpsSetupJsString [dict get $meta leafFingerprint]] \
+        __NOT_BEFORE_JS__ [httpsSetupJsString [dict get $meta notBefore]] \
+        __NOT_AFTER_JS__ [httpsSetupJsString [dict get $meta notAfter]] \
+        __SANS_JS__ [httpsSetupJsArray [dict get $meta sans]] \
+        __CA_EXISTS_JS__ [httpsSetupJsBool [dict get $meta caExists]] \
+        __CERT_EXISTS_JS__ [httpsSetupJsBool [dict get $meta certExists]] \
+        __KEY_EXISTS_JS__ [httpsSetupJsBool [dict get $meta keyExists]] \
+        __SSL_AVAILABLE_JS__ [httpsSetupJsBool [dict get $meta sslAvailable]] \
+        __DIR_HTML__ [httpsSetupHtmlEscape [dict get $meta dir]]]
+
+    html [string map $replacements {
+<!doctype html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Folk HTTPS setup</title>
+  <script src="/lib/folk.js"></script>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; padding: 24px; max-width: 980px; }
+    main { display: grid; gap: 18px; }
+    h1, h2, p { margin-block: 0.35em; }
+    section { border-top: 1px solid #9996; padding-top: 16px; }
+    button, a.button { font: inherit; padding: 10px 14px; border: 1px solid #777; border-radius: 6px; background: ButtonFace; color: ButtonText; text-decoration: none; display: inline-block; }
+    button:disabled { opacity: 0.55; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    pre { overflow: auto; white-space: pre-wrap; padding: 10px; border: 1px solid #9996; border-radius: 6px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+    .panel { border: 1px solid #9996; border-radius: 6px; padding: 14px; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .status { font-weight: 700; }
+    .ok { color: #087443; }
+    .warn { color: #9a5b00; }
+    .bad { color: #b00020; }
+    .muted { color: #666; }
+    .mono { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    #ca-qr { width: 220px; height: 220px; background: white; border: 1px solid #9996; }
+    ol { padding-left: 1.5rem; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>HTTPS setup</h1>
+  <p id="summary"></p>
+
+  <section>
+    <h2>Status</h2>
+    <div class="grid">
+      <div class="panel">
+        <p class="status" id="server-status"></p>
+        <p id="next-step"></p>
+      </div>
+      <div class="panel">
+        <p><strong>Browser checks</strong></p>
+        <ul id="browser-checks"></ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Generate certificates</h2>
+    <p>Certificates live in <code>__DIR_HTML__</code>. Folk keeps HTTP as the first-run default; after generating certs while running HTTP, restart Folk to serve HTTPS.</p>
+    <div class="row">
+      <button id="generate">Generate HTTPS Certificates</button>
+      <span id="ws-status" class="muted">Connecting</span>
+    </div>
+    <pre id="generation-output" hidden></pre>
+  </section>
+
+  <section>
+    <h2>Trust this Folk CA</h2>
+    <div class="grid">
+      <div class="panel">
+        <p><img id="ca-qr" alt="QR code for Folk CA download"></p>
+        <p class="mono" id="ca-fingerprint"></p>
+      </div>
+      <div class="panel">
+        <p class="row">
+          <a class="button" id="download-cer" href="#">Download CA .cer</a>
+          <a class="button" id="download-pem" href="#">Download CA .pem</a>
+        </p>
+        <p class="mono" id="covered-url"></p>
+        <p class="mono" id="screenshare-url"></p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Device steps</h2>
+    <div class="grid">
+      <div class="panel">
+        <h3>macOS</h3>
+        <ol>
+          <li>Download the CA certificate.</li>
+          <li>Open it in Keychain Access.</li>
+          <li>Set trust for SSL to Always Trust.</li>
+          <li>Restart Chrome if it still says Not secure.</li>
+        </ol>
+      </div>
+      <div class="panel">
+        <h3>iPhone/iPad</h3>
+        <ol>
+          <li>Scan the QR code or download the CA certificate.</li>
+          <li>Install the downloaded profile.</li>
+          <li>Open Settings, General, About, Certificate Trust Settings.</li>
+          <li>Enable full trust for the Folk Local CA.</li>
+        </ol>
+      </div>
+      <div class="panel">
+        <h3>Windows</h3>
+        <ol>
+          <li>Download the CA certificate.</li>
+          <li>Import it into Current User, Trusted Root Certification Authorities.</li>
+          <li>Restart Chrome or Edge if trust state looks stale.</li>
+        </ol>
+      </div>
+      <div class="panel">
+        <h3>Linux/Firefox</h3>
+        <ol>
+          <li>Download the CA certificate.</li>
+          <li>For Chrome, add it to the OS or NSS trust store used by your distro.</li>
+          <li>For Firefox, import it in Privacy and Security, Certificates, Authorities.</li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Certificate details</h2>
+    <dl>
+      <dt>Hostnames</dt><dd class="mono" id="sans"></dd>
+      <dt>Leaf fingerprint</dt><dd class="mono" id="leaf-fingerprint"></dd>
+      <dt>Valid from</dt><dd class="mono" id="not-before"></dd>
+      <dt>Valid until</dt><dd class="mono" id="not-after"></dd>
+    </dl>
+  </section>
+</main>
+
+<script>
+  const server = {
+    thisNode: __THIS_NODE_JS__,
+    status: __SERVER_STATUS_JS__,
+    webScheme: __WEB_SCHEME_JS__,
+    host: __HOST_JS__,
+    httpsUrl: __HTTPS_URL_JS__,
+    screenshareUrl: __SCREENSHARE_URL_JS__,
+    localUrl: __LOCAL_URL_JS__,
+    caCerUrl: __CA_CER_URL_JS__,
+    caPemUrl: __CA_PEM_URL_JS__,
+    caFingerprint: __CA_FP_JS__,
+    leafFingerprint: __LEAF_FP_JS__,
+    notBefore: __NOT_BEFORE_JS__,
+    notAfter: __NOT_AFTER_JS__,
+    sans: __SANS_JS__,
+    caExists: __CA_EXISTS_JS__,
+    certExists: __CERT_EXISTS_JS__,
+    keyExists: __KEY_EXISTS_JS__,
+    sslAvailable: __SSL_AVAILABLE_JS__
+  };
+
+  const statusText = {
+    "https-active": "HTTPS is active",
+    "cert-missing": "HTTP setup mode: certificates are missing",
+    "cert-ready-restart": "Certificates are ready; restart Folk to enable HTTPS",
+    "ssl-missing": "Jim Tcl SSL support is missing",
+    "cert-hostname-mismatch": "Certificate hostname mismatch"
+  };
+  const statusClass = {
+    "https-active": "ok",
+    "cert-missing": "warn",
+    "cert-ready-restart": "warn",
+    "ssl-missing": "bad",
+    "cert-hostname-mismatch": "bad"
+  };
+
+  const checks = {
+    protocolHttps: location.protocol === "https:",
+    secureContext: window.isSecureContext,
+    displayMedia: !!navigator.mediaDevices?.getDisplayMedia,
+    hostnameCovered: server.sans.map(s => s.toLowerCase()).includes(location.hostname.toLowerCase())
+  };
+  let wsConnected = false;
+
+  function setText(id, value) {
+    document.getElementById(id).textContent = value || "";
+  }
+
+  function renderChecks() {
+    const rows = [
+      ["Protocol is HTTPS", checks.protocolHttps],
+      ["Browser secure context", checks.secureContext],
+      ["WebSocket connected", wsConnected],
+      ["Screen sharing API available", checks.displayMedia],
+      ["Current hostname covered by certificate", !checks.protocolHttps || checks.hostnameCovered]
+    ];
+    document.getElementById("browser-checks").innerHTML = rows.map(([label, ok]) =>
+      `<li class="${ok ? "ok" : "bad"}">${ok ? "OK" : "Needs attention"} - ${label}</li>`
+    ).join("");
+  }
+
+  function renderSummary() {
+    const ready = checks.protocolHttps && checks.secureContext && checks.displayMedia && wsConnected && checks.hostnameCovered && server.status === "https-active";
+    const next = document.getElementById("next-step");
+    if (ready) {
+      next.innerHTML = `Ready for <a href="${server.screenshareUrl}">screenshare</a>.`;
+    } else if (!server.sslAvailable) {
+      next.textContent = "Build Jim Tcl with SSL support, then restart Folk.";
+    } else if (!server.certExists || !server.keyExists) {
+      next.textContent = "Generate HTTPS certificates, then restart Folk.";
+    } else if (server.status === "cert-ready-restart") {
+      next.textContent = "Restart Folk, then open the HTTPS setup URL.";
+    } else if (server.status === "cert-hostname-mismatch" || (checks.protocolHttps && !checks.hostnameCovered)) {
+      next.textContent = `Open ${server.httpsUrl} or regenerate certificates for this host.`;
+    } else if (!checks.protocolHttps) {
+      next.textContent = `Open ${server.httpsUrl} after trusting the CA.`;
+    } else if (!checks.secureContext) {
+      next.textContent = "Trust the Folk Local CA on this device. On iPhone/iPad, enable full trust. In Chrome, restart the browser if trust was just changed.";
+    } else if (!checks.displayMedia) {
+      next.textContent = "This browser does not expose screen sharing here.";
+    } else if (!wsConnected) {
+      next.textContent = "Waiting for the Folk WebSocket to connect.";
+    }
+    document.getElementById("summary").textContent = ready
+      ? "This browser is ready to use secure Folk screensharing."
+      : "Use this page to generate local certs, trust this Folk CA on each device, and verify browser readiness.";
+  }
+
+  function renderStatic() {
+    const serverStatus = document.getElementById("server-status");
+    serverStatus.textContent = statusText[server.status] || server.status;
+    serverStatus.className = `status ${statusClass[server.status] || "warn"}`;
+    document.getElementById("download-cer").href = server.caCerUrl;
+    document.getElementById("download-pem").href = server.caPemUrl;
+    document.getElementById("ca-qr").src = `/setup/https/qr.svg?text=${encodeURIComponent(server.caCerUrl)}`;
+    setText("ca-fingerprint", server.caFingerprint ? `Root SHA-256: ${server.caFingerprint}` : "Root CA has not been generated yet.");
+    setText("covered-url", `Setup URL: ${server.httpsUrl}`);
+    setText("screenshare-url", `Screenshare URL: ${server.screenshareUrl}`);
+    setText("sans", server.sans.length ? server.sans.join(", ") : "No certificate hostnames yet.");
+    setText("leaf-fingerprint", server.leafFingerprint || "No leaf certificate yet.");
+    setText("not-before", server.notBefore);
+    setText("not-after", server.notAfter);
+    renderChecks();
+    renderSummary();
+  }
+
+  const folk = new FolkWS(document.getElementById("ws-status"));
+  folk.connected.then(() => {
+    wsConnected = true;
+    renderChecks();
+    renderSummary();
+  });
+
+  folk.watchCollected("/someone/ claims HTTPS setup generation /request/ has status /status/ with /...options/", results => {
+    if (!results.length) return;
+    const latest = results[results.length - 1];
+    const options = latest.options ? loadDict(latest.options) : {};
+    const output = document.getElementById("generation-output");
+    const message = options.message || latest.status;
+    const text = [message, options.output || ""].filter(Boolean).join("\n\n");
+    output.hidden = false;
+    output.textContent = latest.status === "success" ? `${text}\n\nReloading certificate details...` : text;
+    document.getElementById("generate").disabled = latest.status === "running";
+    if (latest.status === "success") {
+      setTimeout(() => window.location.reload(), 1000);
+    }
+  });
+
+  document.getElementById("generate").addEventListener("click", async () => {
+    const request = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+    document.getElementById("generate").disabled = true;
+    await folk.send(tcl`Wish to generate local HTTPS certificates with request ${request}`);
+  });
+
+  renderStatic();
+</script>
+</body>
+</html>
+    }]
+}

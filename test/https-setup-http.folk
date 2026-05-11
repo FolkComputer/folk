@@ -1,0 +1,62 @@
+if {![info exists ::env(FOLK_HTTPS_SETUP_CHILD)]} {
+    set tmp [exec mktemp -d]
+    try {
+        exec env FOLK_HTTPS_DIR=$tmp FOLK_HTTPS_SETUP_CHILD=1 ./folk test/https-setup-http.folk 2>@1
+    } on error {e opts} {
+        file delete -force $tmp
+        error $e
+    }
+    file delete -force $tmp
+    Exit! 0
+}
+
+When {
+    source "builtin-programs/web/web.folk"
+}
+source "builtin-programs/web/https-ca.folk"
+source "builtin-programs/web/https-setup.folk"
+
+set body ""
+set started [clock milliseconds]
+while true {
+    try {
+        set body [exec curl -sf http://127.0.0.1:4273/setup/https]
+        break
+    } on error e {
+        if {[clock milliseconds] - $started > 5000} {
+            error "HTTPS setup HTTP page did not become available: $e"
+        }
+        sleep 0.2
+    }
+}
+
+assert {[string first "HTTP setup mode: certificates are missing" $body] >= 0}
+assert {[string first "Generate HTTPS Certificates" $body] >= 0}
+set qr [exec curl -sf "http://127.0.0.1:4273/setup/https/qr.svg?text=hello"]
+assert {[string first "<svg" $qr] >= 0}
+
+set ca404 [exec curl -s -o - -w "\n%{http_code}" http://127.0.0.1:4273/folk-ca.cer]
+assert {[string first "Visit /setup/https" $ca404] >= 0}
+assert {[string match "*\n404" $ca404]}
+
+set notifyBody "Wish to generate local HTTPS certificates with request http-test"
+exec curl -sf -X POST --data-binary $notifyBody http://127.0.0.1:4273/
+
+set started [clock milliseconds]
+while true {
+    set results [Query! /someone/ claims HTTPS setup generation http-test has status /status/ with /...options/]
+    if {[llength $results] > 0 && [dict get [lindex $results end] status] eq "success"} {
+        break
+    }
+    if {[clock milliseconds] - $started > 8000} {
+        error "HTTPS setup generate request did not complete"
+    }
+    sleep 0.2
+}
+
+set body [exec curl -sf http://127.0.0.1:4273/setup/https]
+assert {[string first "Certificates are ready; restart Folk to enable HTTPS" $body] >= 0}
+set status [exec curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:4273/folk-ca.cer]
+assert {$status eq "200"}
+
+Exit! 0

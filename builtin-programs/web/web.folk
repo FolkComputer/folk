@@ -7,8 +7,9 @@ puts "web: [__threadId] (PID [pid])"
 # processes to also block/ignore and behave weirdly.
 signal handle SIGPIPE
 
-set ::webTlsCert "$::env(HOME)/folk-data/https/cert.pem"
-set ::webTlsKey "$::env(HOME)/folk-data/https/key.pem"
+set ::webTlsDir $([info exists ::env(FOLK_HTTPS_DIR)] && $::env(FOLK_HTTPS_DIR) ne "" ? $::env(FOLK_HTTPS_DIR) : "$::env(HOME)/folk-data/https")
+set ::webTlsCert "$::webTlsDir/cert.pem"
+set ::webTlsKey "$::webTlsDir/key.pem"
 set ::webTlsEnabled 0
 set ::webScheme http
 set ::webTlsHandshakeTimeoutMs 2000

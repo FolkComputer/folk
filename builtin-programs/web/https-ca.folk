@@ -1,9 +1,10 @@
 Wish the web server handles route "/folk-ca\\.pem$" with hidden true handler {
-    set path "$::env(HOME)/folk-data/https/ca.pem"
+    set dir $([info exists ::env(FOLK_HTTPS_DIR)] && $::env(FOLK_HTTPS_DIR) ne "" ? $::env(FOLK_HTTPS_DIR) : "$::env(HOME)/folk-data/https")
+    set path "$dir/ca.pem"
     if {![file exists $path]} {
         return [dict create \
             statusAndHeaders "HTTP/1.1 404 Not Found\nConnection: close\nContent-Type: text/plain; charset=utf-8\n\n" \
-            body "Folk HTTPS CA has not been generated yet. Run make local-https-cert."]
+            body "Folk HTTPS CA has not been generated yet. Visit /setup/https or run make local-https-cert."]
     }
 
     set fp [open $path r]
@@ -17,11 +18,12 @@ Wish the web server handles route "/folk-ca\\.pem$" with hidden true handler {
 }
 
 Wish the web server handles route "/folk-ca\\.cer$" with hidden true handler {
-    set path "$::env(HOME)/folk-data/https/ca.cer"
+    set dir $([info exists ::env(FOLK_HTTPS_DIR)] && $::env(FOLK_HTTPS_DIR) ne "" ? $::env(FOLK_HTTPS_DIR) : "$::env(HOME)/folk-data/https")
+    set path "$dir/ca.cer"
     if {![file exists $path]} {
         return [dict create \
             statusAndHeaders "HTTP/1.1 404 Not Found\nConnection: close\nContent-Type: text/plain; charset=utf-8\n\n" \
-            body "Folk HTTPS CA has not been generated yet. Run make local-https-cert."]
+            body "Folk HTTPS CA has not been generated yet. Visit /setup/https or run make local-https-cert."]
     }
 
     set fp [open $path r]
