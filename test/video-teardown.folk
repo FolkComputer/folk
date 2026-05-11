@@ -1,0 +1,93 @@
+# test/video-teardown.folk
+# Removing a video wish should clear its retained draw wish and texture.
+
+fn mockTextureLib {method args} {
+    switch -- $method {
+        copyImageToGpuTexture {
+            return "mock-gtex-teardown"
+        }
+        updateGpuTexture {
+            return ""
+        }
+        freeGpuTexture {
+            incr ::videoTeardownFrees
+            return ""
+        }
+    }
+    return ""
+}
+
+set ::videoTeardownFrees 0
+set ::videoTeardownChecked false
+set ::videoTeardownAttempts 0
+
+Assert! the GPU texture library is [fn mockTextureLib]
+
+source "builtin-programs/image/image-lib.folk"
+source "builtin-programs/video/video-lib.folk"
+source "builtin-programs/video/video.folk"
+source "test/lib/video-clock.folk"
+
+set ::videoTeardownPage video-teardown-test
+set ::videoTeardownCanvas video-teardown-canvas
+
+Assert! $::videoTeardownPage has resolved geometry [list width 1.0 height 1.0]
+Assert! $::videoTeardownPage has canvas projection [list [list 2.0 0.0 -1.0] [list 0.0 2.0 -1.0] [list 0.0 0.0 1.0]]
+Assert! $::videoTeardownPage has canvas $::videoTeardownCanvas with width 1920 height 1080
+
+proc videoTeardownFail {message} {
+    puts $::realStderr "--- VIDEO TEARDOWN TEST FAILED: $message ---"
+    flush stderr
+    Exit! 1
+}
+
+proc checkVideoTeardown {} {
+    if {$::videoTeardownChecked} { return }
+    set ::videoTeardownChecked true
+
+    set drawRows [Query! /any/ wishes the GPU draws pipeline "image" onto canvas $::videoTeardownCanvas with /...options/]
+    if {[llength $drawRows] != 0} {
+        videoTeardownFail "video draw wish remained after video wish was cleared"
+    }
+
+    set textureRows [Query! video player /player/ has texture /gtex/]
+    if {[llength $textureRows] != 0} {
+        videoTeardownFail "video texture remained after video wish was cleared"
+    }
+
+    puts $::realStderr "--- VIDEO TEARDOWN TEST SUCCESS: draw wish and texture cleared ---"
+    flush stderr
+    Exit! 0
+}
+
+proc clearVideoWish {} {
+    Hold! -on video-teardown-test -key video-wish {}
+    after 200 checkVideoTeardown
+}
+
+proc pollVideoDraw {} {
+    if {$::videoTeardownAttempts > 400} {
+        videoTeardownFail "Timeout waiting for initial video draw"
+    }
+
+    set drawRows [Query! /any/ wishes the GPU draws pipeline "image" onto canvas $::videoTeardownCanvas with /...options/]
+    if {[llength $drawRows] == 0} {
+        incr ::videoTeardownAttempts
+        after 5 pollVideoDraw
+        return
+    }
+
+    clearVideoWish
+}
+
+Hold! -on video-teardown-test -key video-wish \
+    Wish $::videoTeardownPage plays video "test/test.mp4" with width 10cm mute true loop true
+
+videoTestStartClock video-teardown-test
+after 0 pollVideoDraw
+
+after 60000 {
+    videoTeardownFail "Timeout"
+}
+
+vwait forever

@@ -1,0 +1,78 @@
+# test/video-loop-restart.folk
+# Looping video should drain EOF, seek, reset clocks, and keep decoding.
+
+source "builtin-programs/image/image-lib.folk"
+source "builtin-programs/video/video-lib.folk"
+
+set ::videoLoopStarted false
+set ::videoLoopVideoLib ""
+set ::videoLoopImageLib ""
+set ::videoLoopPlayer ""
+set ::videoLoopAttempts 0
+set ::videoLoopNow 1000.0
+
+proc videoLoopFail {message} {
+    puts $::realStderr "--- VIDEO LOOP TEST FAILED: $message ---"
+    flush stderr
+    if {$::videoLoopPlayer ne "" && $::videoLoopPlayer != 0} {
+        $::videoLoopVideoLib closeVideo $::videoLoopPlayer
+        set ::videoLoopPlayer ""
+    }
+    Exit! 1
+}
+
+proc pumpVideoLoop {} {
+    if {$::videoLoopAttempts > 800} {
+        videoLoopFail "loop count did not advance"
+    }
+
+    set frame [$::videoLoopVideoLib getNextFrameAtTime $::videoLoopPlayer $::videoLoopNow]
+    if {[$::videoLoopImageLib Image_width $frame] != 0} {
+        set ::videoLoopNow [expr {$::videoLoopNow + 0.1}]
+    }
+
+    if {[$::videoLoopVideoLib getLoopCount $::videoLoopPlayer] > 0} {
+        $::videoLoopVideoLib closeVideo $::videoLoopPlayer
+        set ::videoLoopPlayer ""
+        puts $::realStderr "--- VIDEO LOOP TEST SUCCESS: loop restart observed ---"
+        flush stderr
+        Exit! 0
+    }
+
+    incr ::videoLoopAttempts
+    after 5 pumpVideoLoop
+}
+
+proc startVideoLoopTest {} {
+    if {$::videoLoopStarted} { return }
+
+    set videoRows [Query! the video library is /videoLib/]
+    set imageRows [Query! the image library is /imageLib/]
+    if {[llength $videoRows] == 0 || [llength $imageRows] == 0} {
+        if {$::videoLoopAttempts > 400} {
+            videoLoopFail "video library did not load"
+        }
+        incr ::videoLoopAttempts
+        after 5 startVideoLoopTest
+        return
+    }
+
+    set ::videoLoopStarted true
+    set ::videoLoopAttempts 0
+    set ::videoLoopVideoLib [dict get [lindex $videoRows 0] videoLib]
+    set ::videoLoopImageLib [dict get [lindex $imageRows 0] imageLib]
+    set ::videoLoopPlayer [$::videoLoopVideoLib openVideo "test/test.mp4" true true]
+    if {$::videoLoopPlayer == 0} {
+        videoLoopFail "openVideo returned null"
+    }
+
+    pumpVideoLoop
+}
+
+after 0 startVideoLoopTest
+
+after 60000 {
+    videoLoopFail "Timeout"
+}
+
+vwait forever

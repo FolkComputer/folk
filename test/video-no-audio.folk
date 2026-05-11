@@ -1,0 +1,47 @@
+# test/video-no-audio.folk
+# Video should render even when audio.folk is not loaded.
+
+fn mockTextureLib {method args} {
+    if {$method eq "copyImageToGpuTexture"} {
+        return "mock-gtex-no-audio"
+    }
+    return ""
+}
+
+Assert! the GPU library is "mock"
+Assert! the GPU draw library is "mock"
+Assert! the GPU texture library is [fn mockTextureLib]
+
+source "builtin-programs/image/image-lib.folk"
+source "builtin-programs/video/video-lib.folk"
+source "builtin-programs/video/video.folk"
+source "test/lib/video-clock.folk"
+
+Assert! video-no-audio-test wishes video-no-audio-test plays video "test/test.mp4"
+Assert! video-no-audio-test has resolved geometry [list width 1.0 height 1.0]
+Assert! video-no-audio-test has canvas projection [list [list 2.0 0.0 -1.0] [list 0.0 2.0 -1.0] [list 0.0 0.0 1.0]]
+Assert! video-no-audio-test has canvas "video-test-canvas" with width 1920 height 1080
+
+set startTime [clock milliseconds]
+
+When /any/ wishes the GPU draws pipeline "image" onto canvas "video-test-canvas" with /...options/ {
+    if {![dict getdef $options redraw false]} {
+        puts $::realStderr "--- VIDEO NO AUDIO TEST FAILED: video canvas draw was not marked redraw=true ---"
+        flush stderr
+        Exit! 1
+    }
+    set duration [expr {[clock milliseconds] - $startTime}]
+    puts $::realStderr "--- VIDEO NO AUDIO TEST SUCCESS: GPU draw pipeline triggered in ${duration}ms ---"
+    flush stderr
+    Exit! 0
+}
+
+videoTestStartClock video-no-audio-test
+
+after 60000 {
+    puts $::realStderr "--- VIDEO NO AUDIO TEST FAILED: Timeout waiting for GPU draw pipeline ---"
+    flush stderr
+    Exit! 1
+}
+
+vwait forever

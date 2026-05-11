@@ -1,0 +1,48 @@
+# test/video-e2e.folk
+# End-to-end integration test for video playback
+
+fn mockTextureLib {method args} {
+    if {$method eq "copyImageToGpuTexture"} { return "mock-gtex-123" }
+    return ""
+}
+
+Assert! the GPU library is "mock"
+Assert! the GPU draw library is "mock"
+Assert! the GPU texture library is [fn mockTextureLib]
+
+source "builtin-programs/image/image-lib.folk"
+source "builtin-programs/audio.folk"
+source "builtin-programs/video/video-lib.folk"
+source "builtin-programs/video/video.folk"
+source "test/lib/video-clock.folk"
+
+Assert! video-e2e-test wishes video-e2e-test plays video "test/test.mp4"
+Assert! video-e2e-test has resolved geometry [list width 1.0 height 1.0]
+Assert! video-e2e-test has canvas projection [list [list 2.0 0.0 -1.0] [list 0.0 2.0 -1.0] [list 0.0 0.0 1.0]]
+Assert! video-e2e-test has canvas "video-test-canvas" with width 1920 height 1080
+
+set startTime [clock milliseconds]
+
+# We expect the high-level wish to drill down and produce this exact Wish
+When /any/ wishes the GPU draws pipeline "image" onto canvas "video-test-canvas" with /...options/ {
+    if {![dict getdef $options redraw false]} {
+        puts $::realStderr "--- VIDEO E2E TEST FAILED: video canvas draw was not marked redraw=true ---"
+        flush stderr
+        Exit! 1
+    }
+    set duration [expr {[clock milliseconds] - $startTime}]
+    puts $::realStderr "--- VIDEO E2E TEST SUCCESS: GPU draw pipeline triggered in ${duration}ms ---"
+    flush stderr
+    Exit! 0
+}
+
+videoTestStartClock video-e2e-test
+
+# Timeout
+after 60000 {
+    puts $::realStderr "--- VIDEO E2E TEST FAILED: Timeout waiting for GPU draw pipeline ---"
+    flush stderr
+    Exit! 1
+}
+
+vwait forever

@@ -1,0 +1,101 @@
+# test/video-timing.folk
+# getNextFrame should respect source frame timestamps.
+
+source "builtin-programs/image/image-lib.folk"
+source "builtin-programs/video/video-lib.folk"
+
+set ::videoTimingStarted false
+set ::videoTimingVideoLib ""
+set ::videoTimingImageLib ""
+set ::videoTimingPlayer ""
+set ::videoTimingAttempts 0
+set ::videoTimingStartAttempts 0
+
+proc videoTimingFail {message} {
+    puts $::realStderr "--- VIDEO TIMING TEST FAILED: $message ---"
+    flush stderr
+    if {$::videoTimingPlayer ne "" && $::videoTimingPlayer != 0} {
+        $::videoTimingVideoLib closeVideo $::videoTimingPlayer
+        set ::videoTimingPlayer ""
+    }
+    Exit! 1
+}
+
+proc pollFirstTimedFrame {} {
+    if {$::videoTimingAttempts > 200} {
+        videoTimingFail "first frame was not available"
+    }
+
+    set firstFrame [$::videoTimingVideoLib getNextFrameAtTime $::videoTimingPlayer 1000.0]
+    if {[$::videoTimingImageLib Image_width $firstFrame] == 0} {
+        incr ::videoTimingAttempts
+        after 5 pollFirstTimedFrame
+        return
+    }
+
+    set tooEarlyFrame [$::videoTimingVideoLib getNextFrameAtTime $::videoTimingPlayer 1000.001]
+    if {[$::videoTimingImageLib Image_width $tooEarlyFrame] != 0} {
+        videoTimingFail "second frame was returned before its PTS"
+    }
+
+    set ::videoTimingAttempts 0
+    after 50 pollSecondTimedFrame
+}
+
+proc pollSecondTimedFrame {} {
+    if {$::videoTimingAttempts > 200} {
+        videoTimingFail "second frame was not available after its PTS"
+    }
+
+    set secondFrame [$::videoTimingVideoLib getNextFrameAtTime $::videoTimingPlayer 1000.050]
+    if {[$::videoTimingImageLib Image_width $secondFrame] == 0} {
+        incr ::videoTimingAttempts
+        after 5 pollSecondTimedFrame
+        return
+    }
+
+    $::videoTimingVideoLib closeVideo $::videoTimingPlayer
+    set ::videoTimingPlayer ""
+    puts $::realStderr "--- VIDEO TIMING TEST SUCCESS: frame PTS gates presentation ---"
+    flush stderr
+    Exit! 0
+}
+
+proc startVideoTimingTest {} {
+    if {$::videoTimingStarted} { return }
+
+    set videoRows [Query! the video library is /videoLib/]
+    set imageRows [Query! the image library is /imageLib/]
+    if {[llength $videoRows] == 0 || [llength $imageRows] == 0} {
+        if {$::videoTimingStartAttempts > 200} {
+            videoTimingFail "video library did not load"
+        }
+        incr ::videoTimingStartAttempts
+        after 5 startVideoTimingTest
+        return
+    }
+
+    set ::videoTimingStarted true
+    set videoLib [dict get [lindex $videoRows 0] videoLib]
+    set imageLib [dict get [lindex $imageRows 0] imageLib]
+
+    set player [$videoLib openVideo "test/test.mp4" false true]
+    if {$player == 0} {
+        videoTimingFail "openVideo returned null"
+    }
+
+    set ::videoTimingVideoLib $videoLib
+    set ::videoTimingImageLib $imageLib
+    set ::videoTimingPlayer $player
+    pollFirstTimedFrame
+}
+
+after 0 startVideoTimingTest
+
+after 60000 {
+    puts $::realStderr "--- VIDEO TIMING TEST FAILED: Timeout ---"
+    flush stderr
+    Exit! 1
+}
+
+vwait forever

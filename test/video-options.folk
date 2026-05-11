@@ -1,0 +1,39 @@
+# test/video-options.folk
+# Focused sizing, aspect-ratio, and path expansion checks for video options.
+
+source "builtin-programs/video/video.folk"
+
+proc assertClose {actual expected label} {
+    if {abs($actual - $expected) > 0.000001} {
+        puts $::realStderr "--- VIDEO OPTIONS TEST FAILED: $label expected $expected got $actual ---"
+        flush stderr
+        Exit! 1
+    }
+}
+
+lassign [videoSizeFromOptions [dict create] 1.0 0.5 1920 1080 0.6] width height
+assertClose $width 0.5333333333333333 "default width"
+assertClose $height 0.3 "default height"
+
+lassign [videoSizeFromOptions [dict create width 10cm] 1.0 0.5 1920 1080 0.6] width height
+assertClose $width 0.1 "width option width"
+assertClose $height 0.05625 "width option derived height"
+
+lassign [videoSizeFromOptions [dict create height 5cm] 1.0 0.5 1920 1080 0.6] width height
+assertClose $width 0.08888888888888889 "height option derived width"
+assertClose $height 0.05 "height option height"
+
+lassign [videoSizeFromOptions [dict create width 20cm height 10cm preserveAspectRatio false] 1.0 0.5 1920 1080 0.6] width height
+assertClose $width 0.2 "stretch width"
+assertClose $height 0.1 "stretch height"
+
+set expectedHomePath [file join $::env(HOME) fish.mp4]
+if {[videoResolvePath "~/fish.mp4"] ne $expectedHomePath} {
+    puts $::realStderr "--- VIDEO OPTIONS TEST FAILED: ~ path expansion ---"
+    flush stderr
+    Exit! 1
+}
+
+puts $::realStderr "--- VIDEO OPTIONS TEST SUCCESS: sizing and path options verified ---"
+flush stderr
+Exit! 0
