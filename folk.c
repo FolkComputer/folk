@@ -1476,6 +1476,7 @@ void workerExit() {
 
     // TODO: Clear everything else out?
     self->tid = 0;
+    epochThreadDestroy();
 
     pthread_exit(NULL);
 }
