@@ -1,0 +1,44 @@
+# test/web-health.folk
+# The HTTP server should expose a cheap readiness endpoint once it listens.
+
+set ::webHealthAttempts 0
+set ::webHealthPid [lindex [exec ./folk builtin-programs/web/web.folk &] 0]
+
+proc webHealthCleanup {} {
+    catch { exec kill $::webHealthPid }
+}
+
+proc webHealthFail {message} {
+    webHealthCleanup
+    puts $::realStderr "--- WEB HEALTH TEST FAILED: $message ---"
+    flush stderr
+    Exit! 1
+}
+
+proc webHealthPoll {} {
+    if {$::webHealthAttempts > 300} {
+        webHealthFail "Timeout waiting for /healthz"
+    }
+    incr ::webHealthAttempts
+
+    try {
+        set body [exec curl --max-time 2 -fsS http://127.0.0.1:4273/healthz]
+        if {$body ne "ok"} {
+            webHealthFail "Unexpected /healthz body '$body'"
+        }
+        webHealthCleanup
+        puts $::realStderr "--- WEB HEALTH TEST SUCCESS: /healthz returned ok ---"
+        flush stderr
+        Exit! 0
+    } on error e {
+        after 50 webHealthPoll
+    }
+}
+
+after 0 webHealthPoll
+
+after 60000 {
+    webHealthFail "Timeout"
+}
+
+vwait forever

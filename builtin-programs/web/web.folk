@@ -69,6 +69,11 @@ proc handlePage {path httpStatusVar contentTypeVar} {
             set contentType "text/javascript"
             readFile "vendor/idiomorph.js" contentType
         }
+        "/healthz" -
+        "/readyz" {
+            set contentType "text/plain; charset=utf-8"
+            return "ok\n"
+        }
         default {
             upvar $httpStatusVar httpStatus
             set httpStatus "HTTP/1.1 404 Not Found"
@@ -299,6 +304,7 @@ while true {
     try {
         set f [socket stream.server 4273]
         $f listen 128
+        Claim the web server is listening on 4273
         $f readable [lambda {} {f} {
             set client [$f accept addr]
             handleConnect $client $addr

@@ -15,6 +15,10 @@ fn videoBoolOption {options key default} {
     return false
 }
 
+fn videoHasAudioHooks {} {
+    return [expr {[llength [Query! the video library has audio hooks from /audioLib/]] > 0}]
+}
+
 fn videoResolvePath {path} {
     if {[string match "~/*" $path]} {
         return [file join $::env(HOME) [string range $path 2 end]]
@@ -203,10 +207,11 @@ When the video library is /videoLib/ & \
     fn videoVecLength
     fn videoVecUnit
     fn videoDrawFrame
+    fn videoHasAudioHooks
 
     When /someone/ wishes /page/ plays video /path/ with /...options/ {
         if {![info exists options]} { return }
-        set wishNode $this
+        set wishNode [list video_playback_controller $this $page $path $options]
         set playbackKey [list video_playback $page $path $options]
         set fallbackKey [list video_playback_fallback $page $path $options]
         On unmatch {
@@ -214,15 +219,14 @@ When the video library is /videoLib/ & \
             Hold! -on $wishNode -key $fallbackKey {}
         }
 
-        if {[videoBoolOption $options mute false]} {
+        if {[videoBoolOption $options mute false] || [videoHasAudioHooks]} {
+            Hold! -on $wishNode -key $fallbackKey {}
             Hold! -on $wishNode -key $playbackKey \
                 Wish video playback $page $path with {*}$options
         } else {
-            set hasAudioHooks [expr {[llength [Query! the video library has audio hooks from /audioLib/]] > 0}]
-            if {!$hasAudioHooks} {
-                Hold! -on $wishNode -key $fallbackKey \
-                    Wish video playback $page $path with {*}[dict replace $options mute true]
-            }
+            Hold! -on $wishNode -key $playbackKey {}
+            Hold! -on $wishNode -key $fallbackKey \
+                Wish video playback $page $path with {*}[dict replace $options mute true]
         }
     }
 
@@ -230,15 +234,12 @@ When the video library is /videoLib/ & \
          the video library has audio hooks from /audioLib/ {
         if {![info exists options]} { return }
         if {![videoBoolOption $options mute false]} {
-            set wishNode $this
+            set wishNode [list video_playback_controller $this $page $path $options]
             set playbackKey [list video_playback $page $path $options]
             set fallbackKey [list video_playback_fallback $page $path $options]
             Hold! -on $wishNode -key $fallbackKey {}
             Hold! -on $wishNode -key $playbackKey \
                 Wish video playback $page $path with {*}$options
-            On unmatch {
-                Hold! -on $wishNode -key $playbackKey {}
-            }
         }
     }
 
@@ -352,7 +353,41 @@ When the video library is /videoLib/ & \
         Wish to display a video right of $target $path with preserveAspectRatio true
     }
 
+    When /someone/ wishes video display /path/ beside /target/ /direction/ with /...options/ {
+        if {![info exists options]} { return }
+        set wishNode [list video_display_controller $this $path $target $direction $options]
+        set playbackKey [list video_display_playback $path $target $direction $options]
+        set fallbackKey [list video_display_playback_fallback $path $target $direction $options]
+        On unmatch {
+            Hold! -on $wishNode -key $playbackKey {}
+            Hold! -on $wishNode -key $fallbackKey {}
+        }
+
+        if {[videoBoolOption $options mute false] || [videoHasAudioHooks]} {
+            Hold! -on $wishNode -key $fallbackKey {}
+            Hold! -on $wishNode -key $playbackKey \
+                Wish video display playback $path beside $target $direction with {*}$options
+        } else {
+            Hold! -on $wishNode -key $playbackKey {}
+            Hold! -on $wishNode -key $fallbackKey \
+                Wish video display playback $path beside $target $direction with {*}[dict replace $options mute true]
+        }
+    }
+
     When /someone/ wishes video display /path/ beside /target/ /direction/ with /...options/ & \
+         the video library has audio hooks from /audioLib/ {
+        if {![info exists options]} { return }
+        if {![videoBoolOption $options mute false]} {
+            set wishNode [list video_display_controller $this $path $target $direction $options]
+            set playbackKey [list video_display_playback $path $target $direction $options]
+            set fallbackKey [list video_display_playback_fallback $path $target $direction $options]
+            Hold! -on $wishNode -key $fallbackKey {}
+            Hold! -on $wishNode -key $playbackKey \
+                Wish video display playback $path beside $target $direction with {*}$options
+        }
+    }
+
+    When /someone/ wishes video display playback /path/ beside /target/ /direction/ with /...options/ & \
          the quad library is /quadLib/ & \
          the pose library is /poseLib/ {
 
