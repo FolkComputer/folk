@@ -115,16 +115,17 @@ kill-folk:
 	fi
 
 FOLK_REMOTE_NODE ?= folk-live
+GIT_IGNORE_TMP := $(shell git rev-parse --git-path ignores.tmp)
 
 sync:
 	ssh $(FOLK_REMOTE_NODE) -t \
 		'cd ~/folk && git init > /dev/null && git ls-files --exclude-standard -oi --directory' \
-		> .git/ignores.tmp || true
-	git ls-files --exclude-standard -oi --directory >> .git/ignores.tmp
+		> $(GIT_IGNORE_TMP) || true
+	git ls-files --exclude-standard -oi --directory >> $(GIT_IGNORE_TMP)
 	rsync --timeout=15 -e "ssh -o StrictHostKeyChecking=no" \
 		--archive --delete --itemize-changes \
 		--exclude='/.git' \
-		--exclude-from='.git/ignores.tmp' \
+		--exclude-from='$(GIT_IGNORE_TMP)' \
 		--exclude='vendor/tracy/public/TracyClient.o' \
 		--include='vendor/tracy/public/***' \
 		--exclude='vendor/tracy/*' \
