@@ -267,11 +267,15 @@ proc handleRead {chan addr} {
 
         set body [$chan read [headerGet $headers Content-Length]]
         # puts "  ($body)"
+        tracy zoneBegin
+        tracy zoneName "web POST eval"
         try {
             puts -nonewline $chan [eval $body]
         } on error e {
             puts "Error: $e"
             puts -nonewline $chan "Error: $e"
+        } finally {
+            tracy zoneEnd
         }
         close $chan
 

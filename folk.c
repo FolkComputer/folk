@@ -480,8 +480,15 @@ Jim_Obj* QuerySimple(bool isAtomically, Clause* pattern) {
 static int QuerySimpleFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc >= 3);
 
+#ifdef TRACY_ENABLE
+    TracyCZoneN(queryZone, "QuerySimple!", 1);
+#endif
+
     int isAtomically;
     if (Jim_GetBoolean(interp, argv[1], &isAtomically) != JIM_OK) {
+#ifdef TRACY_ENABLE
+        TracyCZoneEnd(queryZone);
+#endif
         return JIM_ERR;
     }
 
@@ -495,6 +502,9 @@ static int QuerySimpleFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     clauseFree(pattern);
     
     Jim_SetResult(interp, retObj);
+#ifdef TRACY_ENABLE
+    TracyCZoneEnd(queryZone);
+#endif
     return JIM_OK;
 }
 
