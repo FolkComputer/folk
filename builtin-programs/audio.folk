@@ -16,7 +16,11 @@
 set cc [C]
 $cc cflags -I./vendor/miniaudio
 
-if {![catch {exec which sclang}]} {
+set has_sclang 0
+foreach dir [split $::env(PATH) :] {
+    if {[file executable $dir/sclang]} { set has_sclang 1; break }
+}
+if {$has_sclang} {
     # HACK: We're running msuic.folk and therefore are running JACK,
     # so we should force miniaudio to not use ALSA directly (because
     # that won't work).
@@ -62,6 +66,11 @@ $cc code {
     static bool            g_reaper_running  = false;
     static pthread_t       g_reaper_thr;
     static bool            g_shutdown_reaper = false;
+
+    static bool audio_debug_enabled(void) {
+        const char* debug = getenv("FOLK_AUDIO_DEBUG");
+        return debug && debug[0] && debug[0] != '0';
+    }
 
     /* Maintains linked list of active sounds */
     static bool registry_add(ma_sound* snd) {
@@ -190,8 +199,10 @@ $cc code {
                 return false;
             }
 
-            fprintf(stderr, "miniaudio: engine initialized with %s backend\n",
-                ma_get_backend_name(g_ctx.backend));
+            if (audio_debug_enabled()) {
+                fprintf(stderr, "miniaudio: engine initialized with %s backend\n",
+                    ma_get_backend_name(g_ctx.backend));
+            }
 
             g_engine_initialized = true;
         }
@@ -239,6 +250,40 @@ $cc code {
 
         return true;
     }
+}
+
+$cc proc getEngine {} ma_engine* {
+    return &g_engine;
+}
+
+$cc proc videoAudioInit {ma_engine* engine void* playerBase void* soundOut void* vtablePtr} bool {
+    ma_data_source_config dsConfig = ma_data_source_config_init();
+    dsConfig.vtable = (const ma_data_source_vtable*)vtablePtr;
+
+    ma_result r = ma_data_source_init(&dsConfig, (ma_data_source*)playerBase);
+    if (r != MA_SUCCESS) {
+        return false;
+    }
+
+    r = ma_sound_init_from_data_source(engine, (ma_data_source*)playerBase, 0, NULL, (ma_sound*)soundOut);
+    if (r != MA_SUCCESS) {
+        ma_data_source_uninit((ma_data_source*)playerBase);
+        return false;
+    }
+
+    r = ma_sound_start((ma_sound*)soundOut);
+    if (r != MA_SUCCESS) {
+        ma_sound_uninit((ma_sound*)soundOut);
+        ma_data_source_uninit((ma_data_source*)playerBase);
+        return false;
+    }
+
+    return true;
+}
+
+$cc proc videoAudioUninit {void* soundPtr void* playerBasePtr} void {
+    ma_sound_uninit((ma_sound*)soundPtr);
+    ma_data_source_uninit((ma_data_source*)playerBasePtr);
 }
 
 $cc proc audioInit {} bool {
@@ -336,7 +381,9 @@ $cc proc playSound {char* path} ma_sound* {
         FOLK_ERROR("miniaudio: playSound: registry add failed for %s\n", path);
     }
 
-    fprintf(stderr, "miniaudio: playing %s\n", path);
+    if (audio_debug_enabled()) {
+        fprintf(stderr, "miniaudio: playing %s\n", path);
+    }
     return snd;
 }
 

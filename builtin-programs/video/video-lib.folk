@@ -1,0 +1,875 @@
+# video-lib.folk
+#
+#     A library for high-performance video decoding using libav (FFmpeg).
+#     Audio output is attached opportunistically when audio.folk is available.
+
+When the image library is /imageLib/ {
+
+set gpuc [C]
+$gpuc cflags -I./vendor/miniaudio {*}[exec pkg-config --cflags libavcodec libavformat libavutil libswscale libswresample]
+$gpuc endcflags {*}[exec pkg-config --libs libavcodec libavformat libavutil libswscale libswresample] -lpthread
+
+$gpuc include <libavcodec/avcodec.h>
+$gpuc include <libavformat/avformat.h>
+$gpuc include <libavutil/channel_layout.h>
+$gpuc include <libavutil/imgutils.h>
+$gpuc include <libavutil/opt.h>
+$gpuc include <libavutil/time.h>
+$gpuc include <libswscale/swscale.h>
+$gpuc include <libswresample/swresample.h>
+$gpuc include <pthread.h>
+$gpuc include <unistd.h>
+$gpuc include <stdatomic.h>
+$gpuc include <string.h>
+$gpuc include <miniaudio.h>
+
+$gpuc extend $imageLib
+
+$gpuc code {
+    #define VIDEO_RING_SIZE 8
+    #define AUDIO_RING_SIZE (1024 * 64)
+    #define VIDEO_FRAME_EARLY_TOLERANCE_SECONDS 0.002
+
+    typedef struct {
+        ma_data_source_base base; // Must be first for ma_data_source cast
+
+        AVFormatContext* formatCtx;
+        
+        // Video
+        AVCodecContext* videoCodecCtx;
+        int videoStreamIndex;
+        struct SwsContext* swsCtx;
+
+        // Audio
+        AVCodecContext* audioCodecCtx;
+        int audioStreamIndex;
+        struct SwrContext* swrCtx;
+        uint32_t audioChannels;
+        uint32_t audioSampleRate;
+        bool audioInitialized;
+        
+        // Decoded frame ring buffer
+        Image frames[VIDEO_RING_SIZE];
+        // Stable copy returned to Tcl; ring slots can be overwritten after
+        // the reader advances tail.
+        Image presentFrame;
+        double frameTimes[VIDEO_RING_SIZE];
+        pthread_mutex_t frameMutex;
+        bool frameMutexInitialized;
+        _Atomic int head; // Writer (decoder thread)
+        _Atomic int tail; // Reader (Tcl/main thread)
+        double videoTimeBase;
+        double frameDurationSeconds;
+        double fallbackNextFrameTime;
+        _Atomic bool playbackClockStarted;
+        _Atomic double playbackClockStartTime;
+        _Atomic double playbackClockStartFrameTime;
+        _Atomic bool eofReached;
+        _Atomic uint64_t loopCount;
+
+        // Audio ring buffer (circular buffer of floats)
+        float* audioBuffer;
+        _Atomic uint32_t audioHead;
+        _Atomic uint32_t audioTail;
+        double audioTimeBase;
+        double audioFallbackNextFrameTime;
+        _Atomic bool audioClockPrimed;
+        _Atomic double audioClockStartFrameTime;
+        _Atomic uint64_t audioFramesRead;
+        _Atomic bool audioVideoClockAdjusted;
+        _Atomic double audioVideoClockOffset;
+
+        pthread_t decoderThread;
+        bool decoderThreadStarted;
+        _Atomic bool running;
+        _Atomic bool isInitialized;
+        _Atomic bool seekRequested;
+        _Atomic double seekTarget;
+        _Atomic bool loop;
+
+        char* filename;
+
+        ma_sound sound;
+    } VideoPlayer;
+
+    typedef ma_engine* (*VideoAudioGetEngineFn)(void);
+    typedef bool (*VideoAudioInitFn)(ma_engine* engine, void* playerBase, void* soundOut, void* vtablePtr);
+    typedef void (*VideoAudioUninitFn)(void* soundPtr, void* playerBasePtr);
+
+    static VideoAudioGetEngineFn g_videoAudioGetEngine = NULL;
+    static VideoAudioInitFn g_videoAudioInit = NULL;
+    static VideoAudioUninitFn g_videoAudioUninit = NULL;
+
+    static bool video_has_audio_hooks(void) {
+        return g_videoAudioGetEngine && g_videoAudioInit && g_videoAudioUninit;
+    }
+
+    static bool video_wait_for_audio_hooks(void) {
+        for (int i = 0; i < 25; i++) {
+            if (video_has_audio_hooks()) return true;
+            usleep(10000);
+        }
+        return video_has_audio_hooks();
+    }
+
+    static double video_monotonic_seconds(void) {
+        return av_gettime_relative() / 1000000.0;
+    }
+
+    static double video_stream_start_seconds(VideoPlayer* player) {
+        AVStream* stream = player->formatCtx->streams[player->videoStreamIndex];
+        if (stream->start_time == AV_NOPTS_VALUE) {
+            return 0.0;
+        }
+        return stream->start_time * player->videoTimeBase;
+    }
+
+    static void video_reset_playback_clock(VideoPlayer* player, double fallbackTime) {
+        atomic_store(&player->playbackClockStarted, false);
+        atomic_store(&player->playbackClockStartTime, 0.0);
+        atomic_store(&player->playbackClockStartFrameTime, 0.0);
+        atomic_store(&player->audioClockPrimed, false);
+        atomic_store(&player->audioClockStartFrameTime, 0.0);
+        atomic_store(&player->audioFramesRead, 0);
+        atomic_store(&player->audioVideoClockAdjusted, false);
+        atomic_store(&player->audioVideoClockOffset, 0.0);
+        player->fallbackNextFrameTime = fallbackTime;
+        player->audioFallbackNextFrameTime = fallbackTime;
+    }
+
+    static double video_frame_time_seconds(VideoPlayer* player, AVFrame* frame) {
+        int64_t timestamp = frame->best_effort_timestamp;
+        if (timestamp == AV_NOPTS_VALUE) {
+            timestamp = frame->pts;
+        }
+
+        if (timestamp != AV_NOPTS_VALUE) {
+            double frameTime = timestamp * player->videoTimeBase;
+            player->fallbackNextFrameTime = frameTime + player->frameDurationSeconds;
+            return frameTime;
+        }
+
+        double frameTime = player->fallbackNextFrameTime;
+        player->fallbackNextFrameTime += player->frameDurationSeconds;
+        return frameTime;
+    }
+
+    static double audio_frame_time_seconds(VideoPlayer* player, AVFrame* frame) {
+        int64_t timestamp = frame->best_effort_timestamp;
+        if (timestamp == AV_NOPTS_VALUE) {
+            timestamp = frame->pts;
+        }
+
+        if (timestamp != AV_NOPTS_VALUE && player->audioTimeBase > 0) {
+            double frameTime = timestamp * player->audioTimeBase;
+            if (player->audioSampleRate > 0) {
+                player->audioFallbackNextFrameTime = frameTime + ((double)frame->nb_samples / player->audioSampleRate);
+            }
+            return frameTime;
+        }
+
+        double frameTime = player->audioFallbackNextFrameTime;
+        if (player->audioSampleRate > 0) {
+            player->audioFallbackNextFrameTime += (double)frame->nb_samples / player->audioSampleRate;
+        }
+        return frameTime;
+    }
+
+    static bool video_audio_clock_ready(VideoPlayer* player) {
+        return player && player->audioInitialized &&
+            player->audioSampleRate > 0 &&
+            atomic_load(&player->audioClockPrimed) &&
+            atomic_load(&player->audioFramesRead) > 0;
+    }
+
+    static double video_audio_clock_seconds(VideoPlayer* player) {
+        double startFrameTime = atomic_load(&player->audioClockStartFrameTime);
+        uint64_t framesRead = atomic_load(&player->audioFramesRead);
+        return startFrameTime + ((double)framesRead / player->audioSampleRate);
+    }
+
+    static double video_presentation_clock_seconds(VideoPlayer* player, double nowSeconds) {
+        double audioMediaTime = video_audio_clock_seconds(player);
+
+        if (!atomic_load(&player->audioVideoClockAdjusted)) {
+            double offset = 0.0;
+            if (atomic_load(&player->playbackClockStarted)) {
+                double clockStartTime = atomic_load(&player->playbackClockStartTime);
+                double clockStartFrameTime = atomic_load(&player->playbackClockStartFrameTime);
+                double videoMediaTime = clockStartFrameTime + (nowSeconds - clockStartTime);
+                offset = videoMediaTime - audioMediaTime;
+            }
+
+            atomic_store(&player->audioVideoClockOffset, offset);
+            atomic_store(&player->audioVideoClockAdjusted, true);
+        }
+
+        return audioMediaTime + atomic_load(&player->audioVideoClockOffset);
+    }
+
+    static Image video_get_next_frame_at(VideoPlayer* player, double nowSeconds) {
+        if (!player) return (Image){0};
+
+        pthread_mutex_lock(&player->frameMutex);
+
+        int tail = atomic_load(&player->tail);
+        int head = atomic_load(&player->head);
+        if (tail == head) {
+            pthread_mutex_unlock(&player->frameMutex);
+            return (Image){0};
+        }
+
+        int selectedTail = -1;
+        bool useAudioClock = video_audio_clock_ready(player);
+        double audioMediaTime = useAudioClock ? video_presentation_clock_seconds(player, nowSeconds) : 0.0;
+
+        while (tail != head) {
+            int nextTail = (tail + 1) % VIDEO_RING_SIZE;
+            double frameTime = player->frameTimes[nextTail];
+
+            if (useAudioClock) {
+                if (frameTime > audioMediaTime + VIDEO_FRAME_EARLY_TOLERANCE_SECONDS) {
+                    break;
+                }
+
+                selectedTail = nextTail;
+                tail = nextTail;
+                continue;
+            }
+
+            if (!atomic_load(&player->playbackClockStarted)) {
+                atomic_store(&player->playbackClockStartTime, nowSeconds);
+                atomic_store(&player->playbackClockStartFrameTime, frameTime);
+                atomic_store(&player->playbackClockStarted, true);
+                selectedTail = nextTail;
+                break;
+            }
+
+            double clockStartTime = atomic_load(&player->playbackClockStartTime);
+            double clockStartFrameTime = atomic_load(&player->playbackClockStartFrameTime);
+            double dueTime = clockStartTime + (frameTime - clockStartFrameTime);
+
+            if (nowSeconds + VIDEO_FRAME_EARLY_TOLERANCE_SECONDS < dueTime) {
+                break;
+            }
+
+            selectedTail = nextTail;
+            tail = nextTail;
+        }
+
+        if (selectedTail == -1) {
+            pthread_mutex_unlock(&player->frameMutex);
+            return (Image){0};
+        }
+
+        Image* selected = &player->frames[selectedTail];
+        if (!player->presentFrame.data) {
+            pthread_mutex_unlock(&player->frameMutex);
+            return (Image){0};
+        }
+
+        memcpy(player->presentFrame.data, selected->data,
+               (size_t)selected->bytesPerRow * selected->height);
+        player->presentFrame.uniq++;
+
+        atomic_store(&player->tail, selectedTail);
+        Image result = player->presentFrame;
+        pthread_mutex_unlock(&player->frameMutex);
+        return result;
+    }
+
+    static void video_disable_audio(VideoPlayer* player) {
+        if (!player) return;
+
+        if (player->audioInitialized && g_videoAudioUninit) {
+            g_videoAudioUninit(&player->sound, &player->base);
+        }
+        player->audioInitialized = false;
+
+        free(player->audioBuffer);
+        player->audioBuffer = NULL;
+
+        swr_free(&player->swrCtx);
+        if (player->audioCodecCtx) {
+            avcodec_free_context(&player->audioCodecCtx);
+        }
+
+        player->audioStreamIndex = -1;
+        player->audioChannels = 0;
+        player->audioSampleRate = 0;
+        atomic_store(&player->audioHead, 0);
+        atomic_store(&player->audioTail, 0);
+    }
+
+    static void video_free_player(VideoPlayer* player) {
+        if (!player) return;
+
+        video_disable_audio(player);
+
+        if (player->videoCodecCtx) {
+            for (int i = 0; i < VIDEO_RING_SIZE; i++) free(player->frames[i].data);
+            free(player->presentFrame.data);
+            sws_freeContext(player->swsCtx);
+            avcodec_free_context(&player->videoCodecCtx);
+        }
+
+        if (player->formatCtx) {
+            avformat_close_input(&player->formatCtx);
+        }
+
+        if (player->frameMutexInitialized) {
+            pthread_mutex_destroy(&player->frameMutex);
+        }
+
+        free(player->filename);
+        free(player);
+    }
+
+    static uint32_t audio_available(VideoPlayer* player) {
+        uint32_t head = atomic_load(&player->audioHead);
+        uint32_t tail = atomic_load(&player->audioTail);
+        return (head + AUDIO_RING_SIZE - tail) % AUDIO_RING_SIZE;
+    }
+
+    static uint32_t audio_space(VideoPlayer* player) {
+        return AUDIO_RING_SIZE - audio_available(player) - 1;
+    }
+
+    static uint32_t audio_write(VideoPlayer* player, const float* samples, uint32_t sampleCount, double frameTime) {
+        uint32_t channels = player->audioChannels;
+        if (channels == 0) return 0;
+
+        uint32_t head = atomic_load(&player->audioHead);
+        uint32_t space = audio_space(player);
+        if (sampleCount > space) sampleCount = space;
+        sampleCount -= sampleCount % channels;
+        if (sampleCount == 0) return 0;
+
+        if (!atomic_load(&player->audioClockPrimed)) {
+            atomic_store(&player->audioClockStartFrameTime, frameTime);
+            atomic_store(&player->audioFramesRead, 0);
+            atomic_store(&player->audioClockPrimed, true);
+        }
+
+        for (uint32_t i = 0; i < sampleCount; i++) {
+            player->audioBuffer[(head + i) % AUDIO_RING_SIZE] = samples[i];
+        }
+
+        atomic_store(&player->audioHead, (head + sampleCount) % AUDIO_RING_SIZE);
+        return sampleCount / channels;
+    }
+
+    // miniaudio callbacks
+    static ma_result video_audio_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead) {
+        VideoPlayer* player = (VideoPlayer*)pDataSource;
+        float* pOut = (float*)pFramesOut;
+        uint32_t channels = player->audioChannels;
+        if (channels == 0) {
+            if (pFramesRead) *pFramesRead = 0;
+            return MA_SUCCESS;
+        }
+
+        memset(pOut, 0, frameCount * channels * sizeof(float));
+
+        uint32_t framesAvailable = audio_available(player) / channels;
+        uint32_t toRead = (frameCount < framesAvailable) ? frameCount : framesAvailable;
+        uint32_t tail = atomic_load(&player->audioTail);
+
+        for (uint32_t i = 0; i < toRead * channels; i++) {
+            pOut[i] = player->audioBuffer[(tail + i) % AUDIO_RING_SIZE];
+        }
+
+        atomic_store(&player->audioTail, (tail + toRead * channels) % AUDIO_RING_SIZE);
+        if (toRead > 0) {
+            atomic_fetch_add(&player->audioFramesRead, toRead);
+        }
+        if (pFramesRead) *pFramesRead = frameCount;
+        return MA_SUCCESS;
+    }
+
+    static ma_result video_audio_get_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap) {
+        VideoPlayer* player = (VideoPlayer*)pDataSource;
+        *pFormat = ma_format_f32;
+        *pChannels = player->audioChannels;
+        *pSampleRate = player->audioSampleRate;
+        return MA_SUCCESS;
+    }
+
+    static ma_data_source_vtable g_video_audio_vtable = {
+        .onRead = video_audio_read,
+        .onGetDataFormat = video_audio_get_format
+    };
+
+    static void video_seek(VideoPlayer* player, double seconds) {
+        int streamIndex = player->videoStreamIndex != -1 ? player->videoStreamIndex : player->audioStreamIndex;
+        if (streamIndex == -1) return;
+
+        int64_t target = (int64_t)(seconds / av_q2d(player->formatCtx->streams[streamIndex]->time_base));
+        av_seek_frame(player->formatCtx, streamIndex, target, AVSEEK_FLAG_BACKWARD);
+        if (player->videoCodecCtx) avcodec_flush_buffers(player->videoCodecCtx);
+        if (player->audioCodecCtx) avcodec_flush_buffers(player->audioCodecCtx);
+        pthread_mutex_lock(&player->frameMutex);
+        atomic_store(&player->head, 0);
+        atomic_store(&player->tail, 0);
+        pthread_mutex_unlock(&player->frameMutex);
+        atomic_store(&player->audioHead, 0);
+        atomic_store(&player->audioTail, 0);
+        atomic_store(&player->eofReached, false);
+        video_reset_playback_clock(player, seconds);
+    }
+
+    static void video_drop_oldest_frame_if_full_locked(VideoPlayer* player, int nextHead) {
+        int tail = atomic_load(&player->tail);
+        if (nextHead == tail) {
+            atomic_store(&player->tail, (tail + 1) % VIDEO_RING_SIZE);
+        }
+    }
+
+    static bool video_ensure_frame_space(VideoPlayer* player, int nextHead) {
+        while (atomic_load(&player->running)) {
+            pthread_mutex_lock(&player->frameMutex);
+            if (nextHead != atomic_load(&player->tail)) {
+                pthread_mutex_unlock(&player->frameMutex);
+                return true;
+            }
+
+            if (player->audioInitialized) {
+                // With an audio clock, stale decoded video should be dropped
+                // instead of blocking demux and starving audio.
+                video_drop_oldest_frame_if_full_locked(player, nextHead);
+                pthread_mutex_unlock(&player->frameMutex);
+                return true;
+            }
+
+            pthread_mutex_unlock(&player->frameMutex);
+            usleep(5000);
+        }
+        return false;
+    }
+
+    static bool video_queue_frame(VideoPlayer* player, AVFrame* frame, int* nextHead) {
+        if (!video_ensure_frame_space(player, *nextHead)) {
+            av_frame_unref(frame);
+            return false;
+        }
+
+        pthread_mutex_lock(&player->frameMutex);
+        if (!atomic_load(&player->running)) {
+            pthread_mutex_unlock(&player->frameMutex);
+            av_frame_unref(frame);
+            return false;
+        }
+
+        if (!atomic_load(&player->isInitialized)) {
+            player->swsCtx = sws_getContext(frame->width, frame->height, player->videoCodecCtx->pix_fmt,
+                                            frame->width, frame->height, AV_PIX_FMT_RGBA,
+                                            SWS_BILINEAR, NULL, NULL, NULL);
+            if (!player->swsCtx) {
+                pthread_mutex_unlock(&player->frameMutex);
+                fprintf(stderr, "VIDEO-LIB: sws_getContext failed\n");
+                atomic_store(&player->running, false);
+                av_frame_unref(frame);
+                return false;
+            }
+
+            bool allocatedFrames = true;
+            for (int i = 0; i < VIDEO_RING_SIZE; i++) {
+                player->frames[i].width = frame->width;
+                player->frames[i].height = frame->height;
+                player->frames[i].components = 4;
+                player->frames[i].bytesPerRow = frame->width * 4;
+                player->frames[i].data = malloc(player->frames[i].bytesPerRow * player->frames[i].height);
+                if (!player->frames[i].data) {
+                    allocatedFrames = false;
+                    break;
+                }
+            }
+            player->presentFrame.width = frame->width;
+            player->presentFrame.height = frame->height;
+            player->presentFrame.components = 4;
+            player->presentFrame.bytesPerRow = frame->width * 4;
+            player->presentFrame.uniq = 0;
+            player->presentFrame.data = malloc(player->presentFrame.bytesPerRow * player->presentFrame.height);
+            if (!player->presentFrame.data) {
+                allocatedFrames = false;
+            }
+            if (!allocatedFrames) {
+                pthread_mutex_unlock(&player->frameMutex);
+                fprintf(stderr, "VIDEO-LIB: frame buffer allocation failed\n");
+                atomic_store(&player->running, false);
+                av_frame_unref(frame);
+                return false;
+            }
+            atomic_store(&player->isInitialized, true);
+        }
+
+        Image* dest = &player->frames[*nextHead];
+        sws_scale(player->swsCtx, (const uint8_t* const*)frame->data,
+                  frame->linesize, 0, frame->height,
+                  (uint8_t* const[]){dest->data}, (int[]){dest->bytesPerRow});
+        player->frameTimes[*nextHead] = video_frame_time_seconds(player, frame);
+        atomic_store(&player->head, *nextHead);
+        *nextHead = (*nextHead + 1) % VIDEO_RING_SIZE;
+        pthread_mutex_unlock(&player->frameMutex);
+        av_frame_unref(frame);
+        return true;
+    }
+
+    static bool video_receive_video_frames(VideoPlayer* player, AVFrame* frame, int* nextHead) {
+        while (atomic_load(&player->running)) {
+            int recv_res = avcodec_receive_frame(player->videoCodecCtx, frame);
+            if (recv_res == AVERROR(EAGAIN) || recv_res == AVERROR_EOF) {
+                return true;
+            }
+            if (recv_res < 0) {
+                fprintf(stderr, "VIDEO-LIB: avcodec_receive_frame failed: %d\n", recv_res);
+                return true;
+            }
+            if (!video_queue_frame(player, frame, nextHead)) {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    static bool video_process_audio_frame(VideoPlayer* player, AVFrame* frame) {
+        if (!player->audioBuffer || player->audioChannels == 0 || player->audioSampleRate == 0) {
+            av_frame_unref(frame);
+            return true;
+        }
+
+        int maxSamples = swr_get_out_samples(player->swrCtx, frame->nb_samples);
+        if (maxSamples <= 0) {
+            av_frame_unref(frame);
+            return true;
+        }
+
+        while (audio_space(player) < (uint32_t)(maxSamples * player->audioChannels)) {
+            if (!atomic_load(&player->running)) {
+                av_frame_unref(frame);
+                return false;
+            }
+            usleep(5000);
+        }
+
+        float* converted = malloc(maxSamples * player->audioChannels * sizeof(float));
+        if (!converted) {
+            av_frame_unref(frame);
+            return true;
+        }
+
+        uint8_t* outData = (uint8_t*)converted;
+        int samples = swr_convert(player->swrCtx, &outData, maxSamples,
+                                  (const uint8_t**)frame->data, frame->nb_samples);
+        if (samples > 0) {
+            audio_write(player, converted, samples * player->audioChannels,
+                        audio_frame_time_seconds(player, frame));
+        }
+
+        free(converted);
+        av_frame_unref(frame);
+        return true;
+    }
+
+    static bool video_receive_audio_frames(VideoPlayer* player, AVFrame* frame) {
+        while (atomic_load(&player->running)) {
+            int recv_res = avcodec_receive_frame(player->audioCodecCtx, frame);
+            if (recv_res == AVERROR(EAGAIN) || recv_res == AVERROR_EOF) {
+                return true;
+            }
+            if (recv_res < 0) {
+                fprintf(stderr, "VIDEO-LIB: audio avcodec_receive_frame failed: %d\n", recv_res);
+                return true;
+            }
+            if (!video_process_audio_frame(player, frame)) {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    static bool video_drain_decoders(VideoPlayer* player, AVFrame* frame, int* nextHead) {
+        if (player->videoCodecCtx) {
+            avcodec_send_packet(player->videoCodecCtx, NULL);
+            if (!video_receive_video_frames(player, frame, nextHead)) return false;
+        }
+        if (player->audioCodecCtx && player->audioBuffer) {
+            avcodec_send_packet(player->audioCodecCtx, NULL);
+            if (!video_receive_audio_frames(player, frame)) return false;
+        }
+        return true;
+    }
+
+    static bool video_queues_empty(VideoPlayer* player) {
+        bool videoEmpty = atomic_load(&player->head) == atomic_load(&player->tail);
+        bool audioEmpty = !player->audioBuffer || audio_available(player) == 0;
+        return videoEmpty && audioEmpty;
+    }
+
+    static void* decoderLoop(void* arg) {
+        VideoPlayer* player = (VideoPlayer*)arg;
+        AVPacket* packet = av_packet_alloc();
+        AVFrame* frame = av_frame_alloc();
+        if (!packet || !frame) {
+            av_packet_free(&packet);
+            av_frame_free(&frame);
+            atomic_store(&player->running, false);
+            return NULL;
+        }
+
+        while (atomic_load(&player->running)) {
+            // Check for seek
+            if (atomic_load(&player->seekRequested)) {
+                video_seek(player, player->seekTarget);
+                atomic_store(&player->seekRequested, false);
+            }
+
+            // Limit buffer sizes
+            int nextHead = (atomic_load(&player->head) + 1) % VIDEO_RING_SIZE;
+            if (!video_ensure_frame_space(player, nextHead)) break;
+
+            if (av_read_frame(player->formatCtx, packet) < 0) {
+                if (!video_drain_decoders(player, frame, &nextHead)) break;
+
+                if (atomic_load(&player->loop)) {
+                    while (atomic_load(&player->running) && !video_queues_empty(player)) {
+                        usleep(5000);
+                    }
+                    if (!atomic_load(&player->running)) break;
+
+                    atomic_fetch_add(&player->loopCount, 1);
+                    video_seek(player, 0);
+                    continue;
+                }
+
+                atomic_store(&player->eofReached, true);
+                atomic_store(&player->running, false);
+                break;
+            }
+
+            if (packet->stream_index == player->videoStreamIndex) {
+                int send_res = avcodec_send_packet(player->videoCodecCtx, packet);
+                if (send_res < 0) {
+                    fprintf(stderr, "VIDEO-LIB: avcodec_send_packet failed: %d\n", send_res); fflush(stderr);
+                } else {
+                    if (!video_receive_video_frames(player, frame, &nextHead)) break;
+                }
+            } else if (packet->stream_index == player->audioStreamIndex && player->audioBuffer) {
+                if (avcodec_send_packet(player->audioCodecCtx, packet) >= 0) {
+                    if (!video_receive_audio_frames(player, frame)) break;
+                }
+            }
+            av_packet_unref(packet);
+        }
+
+        av_packet_free(&packet);
+        av_frame_free(&frame);
+        return NULL;
+    }
+}
+
+$gpuc proc setAudioHookPointers {void* getEnginePtr void* initPtr void* uninitPtr} void {
+    g_videoAudioGetEngine = (VideoAudioGetEngineFn)getEnginePtr;
+    g_videoAudioInit = (VideoAudioInitFn)initPtr;
+    g_videoAudioUninit = (VideoAudioUninitFn)uninitPtr;
+}
+
+$gpuc proc openVideo {char* filename bool loop bool mute} VideoPlayer* {
+    VideoPlayer* player = calloc(1, sizeof(VideoPlayer));
+    if (!player) return NULL;
+
+    if (pthread_mutex_init(&player->frameMutex, NULL) != 0) {
+        video_free_player(player);
+        return NULL;
+    }
+    player->frameMutexInitialized = true;
+
+    player->filename = strdup(filename);
+    if (!player->filename) goto fail;
+
+    atomic_store(&player->loop, loop);
+    player->videoStreamIndex = -1;
+    player->audioStreamIndex = -1;
+
+    if (avformat_open_input(&player->formatCtx, filename, NULL, NULL) < 0) goto fail;
+    if (avformat_find_stream_info(player->formatCtx, NULL) < 0) goto fail;
+
+    for (int i = 0; i < player->formatCtx->nb_streams; i++) {
+        if (player->formatCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO && player->videoStreamIndex == -1) 
+            player->videoStreamIndex = i;
+        if (player->formatCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO && player->audioStreamIndex == -1)
+            player->audioStreamIndex = i;
+    }
+
+    if (player->videoStreamIndex == -1) goto fail;
+
+    // Init Video
+    AVCodecParameters* vpar = player->formatCtx->streams[player->videoStreamIndex]->codecpar;
+    const AVCodec* vcodec = avcodec_find_decoder(vpar->codec_id);
+    if (!vcodec) {
+        fprintf(stderr, "VIDEO-LIB: Video decoder not found\n");
+        goto fail;
+    }
+
+    player->videoCodecCtx = avcodec_alloc_context3(vcodec);
+    if (!player->videoCodecCtx) goto fail;
+    if (avcodec_parameters_to_context(player->videoCodecCtx, vpar) < 0) goto fail;
+    if (avcodec_open2(player->videoCodecCtx, vcodec, NULL) < 0) goto fail;
+
+    AVStream* videoStream = player->formatCtx->streams[player->videoStreamIndex];
+    player->videoTimeBase = av_q2d(videoStream->time_base);
+    AVRational frameRate = videoStream->avg_frame_rate.num > 0 && videoStream->avg_frame_rate.den > 0
+        ? videoStream->avg_frame_rate
+        : videoStream->r_frame_rate;
+    if (frameRate.num > 0 && frameRate.den > 0) {
+        player->frameDurationSeconds = av_q2d(av_inv_q(frameRate));
+    } else {
+        player->frameDurationSeconds = 1.0 / 30.0;
+    }
+    video_reset_playback_clock(player, video_stream_start_seconds(player));
+
+    if (mute || !video_wait_for_audio_hooks()) {
+        player->audioStreamIndex = -1;
+    }
+
+    // Init Audio
+    if (player->audioStreamIndex != -1) {
+        AVStream* audioStream = player->formatCtx->streams[player->audioStreamIndex];
+        player->audioTimeBase = av_q2d(audioStream->time_base);
+        if (audioStream->start_time != AV_NOPTS_VALUE && player->audioTimeBase > 0) {
+            player->audioFallbackNextFrameTime = audioStream->start_time * player->audioTimeBase;
+        }
+
+        AVCodecParameters* apar = player->formatCtx->streams[player->audioStreamIndex]->codecpar;
+        const AVCodec* acodec = avcodec_find_decoder(apar->codec_id);
+        if (!acodec) {
+            fprintf(stderr, "VIDEO-LIB: Audio decoder not found\n");
+            player->audioStreamIndex = -1;
+        } else {
+            player->audioCodecCtx = avcodec_alloc_context3(acodec);
+            if (!player->audioCodecCtx ||
+                avcodec_parameters_to_context(player->audioCodecCtx, apar) < 0 ||
+                avcodec_open2(player->audioCodecCtx, acodec, NULL) < 0) {
+                video_disable_audio(player);
+            } else {
+
+                if (player->audioCodecCtx->ch_layout.nb_channels <= 0) {
+                    av_channel_layout_default(&player->audioCodecCtx->ch_layout, apar->ch_layout.nb_channels);
+                }
+
+                player->audioChannels = player->audioCodecCtx->ch_layout.nb_channels;
+                player->audioSampleRate = player->audioCodecCtx->sample_rate;
+
+                if (player->audioChannels <= 0 || player->audioSampleRate <= 0 ||
+                    swr_alloc_set_opts2(&player->swrCtx,
+                                        &player->audioCodecCtx->ch_layout, AV_SAMPLE_FMT_FLT, player->audioSampleRate,
+                                        &player->audioCodecCtx->ch_layout, player->audioCodecCtx->sample_fmt, player->audioSampleRate,
+                                        0, NULL) < 0 ||
+                    swr_init(player->swrCtx) < 0) {
+                    video_disable_audio(player);
+                } else {
+
+                    player->audioBuffer = malloc(AUDIO_RING_SIZE * sizeof(float));
+                    if (!player->audioBuffer) {
+                        video_disable_audio(player);
+                    } else {
+                        ma_engine* engine = g_videoAudioGetEngine();
+                        if (engine) {
+                            player->audioInitialized = g_videoAudioInit(
+                                engine, &player->base, &player->sound, &g_video_audio_vtable);
+                        }
+                        if (!player->audioInitialized) {
+                            video_disable_audio(player);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    atomic_store(&player->running, true);
+    if (pthread_create(&player->decoderThread, NULL, decoderLoop, player) != 0) {
+        atomic_store(&player->running, false);
+        goto fail;
+    }
+    player->decoderThreadStarted = true;
+    return player;
+
+fail:
+    video_free_player(player);
+    return NULL;
+}
+
+$gpuc proc getNextFrame {VideoPlayer* player} Image {
+    return video_get_next_frame_at(player, video_monotonic_seconds());
+}
+
+$gpuc proc getNextFrameAtTime {VideoPlayer* player double nowSeconds} Image {
+    return video_get_next_frame_at(player, nowSeconds);
+}
+
+$gpuc proc getAudioEnabled {VideoPlayer* player} bool {
+    return player && player->audioInitialized;
+}
+
+$gpuc proc getAudioClock {VideoPlayer* player} double {
+    if (!video_audio_clock_ready(player)) return -1.0;
+    return video_audio_clock_seconds(player);
+}
+
+$gpuc proc getLoopCount {VideoPlayer* player} uint64_t {
+    if (!player) return 0;
+    return atomic_load(&player->loopCount);
+}
+
+$gpuc proc getEofReached {VideoPlayer* player} bool {
+    return player && atomic_load(&player->eofReached);
+}
+
+$gpuc proc getVideoWidth {VideoPlayer* player} int {
+    if (!player || !player->videoCodecCtx) return 0;
+    return player->videoCodecCtx->width;
+}
+
+$gpuc proc getVideoHeight {VideoPlayer* player} int {
+    if (!player || !player->videoCodecCtx) return 0;
+    return player->videoCodecCtx->height;
+}
+
+$gpuc proc closeVideo {VideoPlayer* player} void {
+    if (!player) return;
+    atomic_store(&player->running, false);
+    if (player->decoderThreadStarted) {
+        pthread_join(player->decoderThread, NULL);
+    }
+    video_free_player(player);
+}
+
+try {
+    set videoLib [$gpuc compile]
+    Claim the video library is $videoLib
+} on error e {
+    puts $::realStderr "VIDEO-LIB: COMPILATION ERROR: $e"
+}
+
+}
+
+When the video library is /videoLib/ & the audio library is /audioLib/ {
+    try {
+        set hookc [C]
+        $hookc cflags -I./vendor/miniaudio
+        $hookc include <miniaudio.h>
+        $hookc import $videoLib setAudioHookPointers
+        $hookc import $audioLib getEngine
+        $hookc import $audioLib videoAudioInit
+        $hookc import $audioLib videoAudioUninit
+        $hookc proc attachVideoAudioHooks {} void {
+            setAudioHookPointers((void*)getEngine, (void*)videoAudioInit, (void*)videoAudioUninit);
+        }
+        set hookLib [$hookc compile]
+        $hookLib attachVideoAudioHooks
+        Claim the video library has audio hooks from $audioLib
+    } on error e {
+        puts $::realStderr "video: audio hooks unavailable: $e"
+    }
+}
