@@ -224,6 +224,7 @@ const Trie* trieAdd(const Trie* trie,
 
 
 bool trieScanVariable(Term* term, char* outVarName, int sizeOutVarName) {
+    if (term->len < 2) { return false; }
     if (term->buf[0] != '/') { return false; }
     if (term->buf[term->len - 1] != '/') { return false; }
 
