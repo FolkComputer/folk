@@ -1,13 +1,16 @@
 # This program gets directly evaluated at the top level.
 
 apply {{} {
+    set folkPidFile [expr {[info exists ::env(FOLK_PID_FILE)] ? $::env(FOLK_PID_FILE) : "folk.pid"}]
+    file mkdir [file dirname $folkPidFile]
+
     # We setpgrp so that all subprocesses spawned by Folk, even ones
     # that outlive Folk itself, can be killed later by their PGID (the
-    # PID in folk.pid).
+    # PID in folk.pid or $::env(FOLK_PID_FILE)).
     catch { setpgrp }
 
     catch {
-        set fp [open "folk.pid" r]
+        set fp [open $folkPidFile r]
         set oldPid [read $fp]; close $fp
         try {
             if {[string trim [exec ps -o state= -p $oldPid]] eq "Z"} {
@@ -22,10 +25,10 @@ apply {{} {
         }
     }
 
-    set fp [open "folk.pid" w]
+    set fp [open $folkPidFile w]
     puts -nonewline $fp [pid]; close $fp
     # in case we're running as root:
-    catch { exec chown folk folk.pid }
+    catch { exec chown folk $folkPidFile }
 }}
 
 __installLocalStdoutAndStderr "boot.folk"
@@ -64,9 +67,11 @@ local proc LoadProgram! {programFilename} {
         close $efd
     }
 
-    Hold! -on boot.folk -key [list $programFilename code] \
-        -keep 100ms \
-        Claim $programFilename has program code $code
+    set holdArgs [list -on boot.folk -key [list $programFilename code]]
+    if {$::tcl_platform(os) ne "darwin"} {
+        lappend holdArgs -keep 100ms
+    }
+    Hold! {*}$holdArgs Claim $programFilename has program code $code
 }
 foreach programFilename [list {*}[glob -nocomplain builtin-programs/*.folk] \
                              {*}[glob -nocomplain builtin-programs/*/*.folk] \

@@ -120,6 +120,7 @@ macos-bundle: folk
 	cp folk build/Folk.app/Contents/MacOS/folk
 	cp folk_interpose.dylib build/Folk.app/Contents/MacOS/folk_interpose.dylib
 	cp boot.folk prelude.tcl build/Folk.app/Contents/Resources/folk-root/
+	cp *.h build/Folk.app/Contents/Resources/folk-root/
 	rsync -a --delete builtin-programs/ build/Folk.app/Contents/Resources/folk-root/builtin-programs/
 	rsync -a --delete lib/ build/Folk.app/Contents/Resources/folk-root/lib/
 	rsync -a --delete assets/ build/Folk.app/Contents/Resources/folk-root/assets/

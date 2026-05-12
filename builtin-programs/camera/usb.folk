@@ -292,11 +292,17 @@ When camera /cameraPath/ has width /decompWidth/ height /decompHeight/ {
     }
 }
 
+fn holdCameraStatus {camera status message} {
+    Hold! -key [list camera $camera status] \
+        Claim camera $camera has status $status message $message
+}
+
 When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
     if {![string match "/dev/*" $camera]} { return }
 
     set width [dict get $options width]
     set height [dict get $options height]
+    set framerate [dict getdef $options framerate 0]
     set bufferCount [dict getdef $options bufferCount 2]
 
     if {[dict exists $options crops]} {
@@ -304,6 +310,7 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
     }
 
     fn runCamera {camObjVar} {
+        holdCameraStatus $camera opening "Opening camera"
         puts "camera/usb: Will try to open $camera"
 
         upvar $camObjVar camObj_
@@ -318,11 +325,18 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
             $camLib cameraFrameJpeg $camObj
         }
 
+        Hold! -key [list camera $camera negotiated] \
+            Claim camera $camera has negotiated width $width height $height framerate $framerate
+        holdCameraStatus $camera streaming "Receiving frames"
+
         if {[info exists crops]} {
             for {set i 0} {$i < [llength $crops]} {incr i} {
                 set crop [lindex $crops $i]
                 Claim camera [list $camera $i] has width [dict get $crop width] \
                     height [dict get $crop height]
+                Hold! -key [list camera [list $camera $i] negotiated] \
+                    Claim camera [list $camera $i] has negotiated width [dict get $crop width] \
+                        height [dict get $crop height] framerate $framerate
             }
         } else {
             Claim camera $camera has width $width height $height
@@ -353,6 +367,8 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
                     Hold! -key [list camera $cropPath jpeg] \
                         Claim camera $cropPath has jpeg frame $croppedJpeg at timestamp $timestamp \
                         -destructor [list $camLib jpegFree $croppedJpeg]
+                    Hold! -key [list camera $cropPath latest-frame] \
+                        Claim camera $cropPath has latest frame timestamp $timestamp
                 }
             }
             # Always publish the source jpeg so the preview keeps working
@@ -362,6 +378,8 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
             Hold! -key [list camera $camera jpeg] \
                 Claim camera $camera has jpeg frame $jpeg at timestamp $timestamp \
                 -destructor [list $camLib jpegFree $jpeg]
+            Hold! -key [list camera $camera latest-frame] \
+                Claim camera $camera has latest frame timestamp $timestamp
 
             tracy zoneEnd
         }
@@ -374,6 +392,7 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
             runCamera camObj
         } on error e {
             puts stderr "camera/usb: Error $e"
+            holdCameraStatus $camera error $e
         } on signal sig {
             puts stderr "camera/usb: Signal $sig"
             # This is actually a termination condition.

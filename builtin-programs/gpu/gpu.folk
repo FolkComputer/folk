@@ -138,7 +138,12 @@ fn gpuInit {useGlfw} {
 
     $gpuc proc init {bool useGlfw} void {
         $[vktry volkInitialize()]
-        $[if {$useGlfw} { expr {"glfwInit();"} }]
+        $[if {$useGlfw} { expr {{
+#if defined(__APPLE__) && defined(GLFW_COCOA_CHDIR_RESOURCES)
+            glfwInitHint(GLFW_COCOA_CHDIR_RESOURCES, GLFW_FALSE);
+#endif
+            glfwInit();
+        }} }]
 
         // Set up VkInstance instance:
         {

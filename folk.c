@@ -1669,7 +1669,43 @@ static void chdirToBundledFolkRootIfPresent(void) {
         return;
     }
 
-    if (access(bootPath, R_OK) == 0 && chdir(folkRoot) != 0) {
+    const char *home = getenv("HOME");
+    if (home && *home) {
+        char pidDir[PATH_MAX];
+        int pidDirLen = snprintf(pidDir, sizeof(pidDir),
+                                 "%s/Library/Application Support/Folk", home);
+        if (pidDirLen >= 0 && (size_t)pidDirLen < sizeof(pidDir)) {
+            char runtimeRoot[PATH_MAX];
+            int runtimeRootLen = snprintf(runtimeRoot, sizeof(runtimeRoot),
+                                          "%s/root", pidDir);
+            if (runtimeRootLen >= 0 && (size_t)runtimeRootLen < sizeof(runtimeRoot) &&
+                access(bootPath, R_OK) == 0) {
+                char copyCommand[PATH_MAX * 3];
+                int copyCommandLen = snprintf(copyCommand, sizeof(copyCommand),
+                                              "/bin/mkdir -p \"%s\" && /usr/bin/rsync -a \"%s/\" \"%s/\"",
+                                              runtimeRoot, folkRoot, runtimeRoot);
+                if (copyCommandLen >= 0 && (size_t)copyCommandLen < sizeof(copyCommand)) {
+                    int ret = system(copyCommand);
+                    if (ret == 0) {
+                        if (chdir(runtimeRoot) != 0) {
+                            dprintf(STDERR_FILENO, "folk: failed to chdir to runtime root %s\n", runtimeRoot);
+                        }
+                    } else {
+                        dprintf(STDERR_FILENO, "folk: failed to copy bundled root to %s\n", runtimeRoot);
+                    }
+                }
+            }
+
+            char pidPath[PATH_MAX];
+            int pidPathLen = snprintf(pidPath, sizeof(pidPath), "%s/folk.pid", pidDir);
+            if (pidPathLen >= 0 && (size_t)pidPathLen < sizeof(pidPath)) {
+                setenv("FOLK_PID_FILE", pidPath, 0);
+            }
+        }
+    }
+
+    if (access("boot.folk", R_OK) != 0 && access(bootPath, R_OK) == 0 &&
+        chdir(folkRoot) != 0) {
         dprintf(STDERR_FILENO, "folk: failed to chdir to bundled root %s\n", folkRoot);
     }
 #endif

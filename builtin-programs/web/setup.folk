@@ -1,4 +1,77 @@
 Wish the web server handles route "/setup" with nav "<button>Setup</button>" handler {
+    fn cameraDisplayName {camera opts} {
+        foreach key {name card model_id} {
+            if {[dict exists $opts $key] && [dict get $opts $key] ne ""} {
+                return [dict get $opts $key]
+            }
+        }
+        return $camera
+    }
+
+    fn cameraBadges {camera displayName opts} {
+        set modelId [dict getdef $opts model_id {}]
+        set haystack [string tolower [join [list $camera $displayName $modelId] " "]]
+        set badges [list]
+        if {[string match "macos:*" $camera]} {
+            lappend badges macOS
+        } elseif {[string match "/dev/*" $camera]} {
+            lappend badges Linux
+        }
+        if {[string first "virtual" $haystack] >= 0 || [string first "obs" $haystack] >= 0} {
+            lappend badges Virtual
+        } elseif {[string first "continuity" $haystack] >= 0 || [string first "iphone" $haystack] >= 0} {
+            lappend badges Continuity
+        } elseif {[string first "facetime" $haystack] >= 0 || [string first "built-in" $haystack] >= 0} {
+            lappend badges Built-in
+        } else {
+            lappend badges Camera
+        }
+        return $badges
+    }
+
+    fn numericFramerates {resolution} {
+        set out [list]
+        foreach fps [dict getdef $resolution framerates [list]] {
+            if {![catch {expr {double($fps)}} numeric]} {
+                lappend out $numeric
+            } elseif {![catch {dict get $fps max} maxFps] &&
+                      ![catch {expr {double($maxFps)}} numericMax]} {
+                lappend out $numericMax
+            }
+        }
+        if {[llength $out] == 0} { lappend out 30.0 }
+        return [lsort -real -decreasing -unique $out]
+    }
+
+    fn bestFps {resolution} {
+        return [lindex [numericFramerates $resolution] 0]
+    }
+
+    fn cameraFormatValue {resolution} {
+        set fps [bestFps $resolution]
+        return "width [dict get $resolution width] height [dict get $resolution height] framerate $fps"
+    }
+
+    fn cameraFormatLabel {resolution} {
+        set fps [bestFps $resolution]
+        return "[dict get $resolution width]x[dict get $resolution height] @ [format "%.3g" $fps] Hz"
+    }
+
+    fn pickResolutionNear {resolutions targetWidth targetHeight} {
+        set best [lindex $resolutions 0]
+        set bestScore 1e30
+        foreach resolution $resolutions {
+            set width [dict get $resolution width]
+            set height [dict get $resolution height]
+            set score [expr {abs($width - $targetWidth) * 1000 + abs($height - $targetHeight)}]
+            if {$score < $bestScore} {
+                set best $resolution
+                set bestScore $score
+            }
+        }
+        return $best
+    }
+
     html [subst {
 <!DOCTYPE html>
 <html>
@@ -39,6 +112,16 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
      </div>
 -->
 <style>
+  body {
+      margin: 16px;
+      background: #f6f7f8;
+      color: #222;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  button,
+  input {
+      font: inherit;
+  }
   .mode-select .mode input\[type=radio] {
       display: none;
   }
@@ -199,6 +282,167 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
 </div>
 
 <style>
+  .camera-section {
+      margin-top: 24px;
+  }
+  .camera-access {
+      margin: 10px 0 14px;
+      border: 1px solid #d29b30;
+      border-radius: 8px;
+      padding: 12px;
+      background: #fff7e6;
+  }
+  .camera-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 14px;
+      align-items: start;
+  }
+  .camera-card {
+      border: 1px solid #cfcfcf;
+      border-radius: 8px;
+      padding: 12px;
+      background: #fff;
+  }
+  .camera-card.active {
+      border-color: #228f4d;
+      box-shadow: 0 0 0 2px rgba(34, 143, 77, 0.14);
+  }
+  .camera-card-header {
+      display: flex;
+      gap: 10px;
+      justify-content: space-between;
+      align-items: flex-start;
+  }
+  .camera-enable {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+  }
+  .camera-title {
+      display: block;
+      font-weight: 700;
+      line-height: 1.25;
+  }
+  .camera-id {
+      margin-top: 3px;
+      color: #666;
+      font-size: 12px;
+      overflow-wrap: anywhere;
+  }
+  .camera-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      justify-content: flex-end;
+  }
+  .camera-badge,
+  .camera-status {
+      border-radius: 999px;
+      padding: 2px 7px;
+      font-size: 12px;
+      line-height: 1.4;
+      background: #ececec;
+      color: #333;
+      white-space: nowrap;
+  }
+  .camera-status.streaming {
+      background: #daf3e3;
+      color: #17623a;
+  }
+  .camera-status.opening {
+      background: #e7efff;
+      color: #244f97;
+  }
+  .camera-status.error {
+      background: #f9dddd;
+      color: #8f2922;
+  }
+  .camera-meta {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 8px;
+      margin-top: 12px;
+      color: #444;
+      font-size: 13px;
+  }
+  .camera-meta strong {
+      display: block;
+      color: #222;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0;
+  }
+  .format-presets {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+  }
+  .format-presets button,
+  .camera-toolbar button,
+  .crop-actions button {
+      border: 1px solid #bbb;
+      border-radius: 6px;
+      background: #f7f7f7;
+      padding: 6px 9px;
+      cursor: pointer;
+  }
+  .format-presets button:hover,
+  .camera-toolbar button:hover,
+  .crop-actions button:hover {
+      background: #eaf5ee;
+      border-color: #228f4d;
+  }
+  .advanced-formats {
+      margin-top: 10px;
+  }
+  .advanced-formats summary {
+      cursor: pointer;
+      color: #333;
+  }
+  .format-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-top: 6px;
+  }
+  .format-row .resolution {
+      min-width: 90px;
+      font-weight: 600;
+      cursor: pointer;
+  }
+  .camera-live {
+      margin-top: 12px;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+      align-items: start;
+  }
+  .camera-preview {
+      min-width: 0;
+  }
+  .camera-preview-frame {
+      position: relative;
+      width: 100%;
+      aspect-ratio: var(--camera-aspect);
+      background: #111;
+      border: 1px solid #999;
+      overflow: hidden;
+  }
+  .camera-preview-frame iframe {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      border: 0;
+  }
+  .crop-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+  }
   .crop-box {
       position: absolute;
       border: 2px solid #27ae60;
@@ -206,6 +450,21 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
       box-sizing: border-box;
       pointer-events: auto;
       cursor: move;
+  }
+  .crop-box.selected {
+      border-color: #0b5fff;
+      background: rgba(11,95,255,0.14);
+  }
+  .crop-label {
+      position: absolute;
+      left: 2px;
+      top: 2px;
+      padding: 1px 4px;
+      background: rgba(0, 0, 0, 0.72);
+      color: #fff;
+      font-size: 11px;
+      line-height: 1.3;
+      pointer-events: none;
   }
   .crop-handle {
       position: absolute;
@@ -215,13 +474,90 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
       box-sizing: border-box;
       pointer-events: auto;
   }
+  .crop-box.selected .crop-handle {
+      border-color: #0b5fff;
+  }
   .crop-handle\[data-corner="nw"] { top: -7px; left: -7px; cursor: nwse-resize; }
   .crop-handle\[data-corner="ne"] { top: -7px; right: -7px; cursor: nesw-resize; }
   .crop-handle\[data-corner="sw"] { bottom: -7px; left: -7px; cursor: nesw-resize; }
   .crop-handle\[data-corner="se"] { bottom: -7px; right: -7px; cursor: nwse-resize; }
+  .camera-side {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+  }
+  .exposure-controls,
+  .crop-controls {
+      border-top: 1px solid #e4e4e4;
+      padding-top: 10px;
+  }
+  .exposure-controls label,
+  .manual-exposure {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+  }
+  .manual-exposure input\[type="range"] {
+      width: 140px;
+  }
+  .manual-exposure input\[type="number"],
+  .crop-row input {
+      width: 70px;
+  }
+  .camera-toolbar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+  }
+  .crop-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
+  }
+  .crop-row {
+      border-left: 3px solid #ddd;
+      padding-left: 8px;
+  }
+  .crop-row.selected {
+      border-left-color: #0b5fff;
+      background: #f4f8ff;
+  }
+  .crop-fields,
+  .crop-actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-top: 6px;
+  }
+  .muted {
+      color: #666;
+      font-size: 13px;
+  }
+  @media (max-width: 760px) {
+      .camera-live {
+          grid-template-columns: 1fr;
+      }
+  }
 </style>
-<div class="mode-select">
+<div class="camera-section">
   <h2>Cameras</h2>
+  [HtmlWhen $::thisNode has camera access status /accessStatus/ message /accessMessage/ {
+    if {$accessStatus eq "authorized"} {
+      subst {}
+    } else {
+      subst {
+      <div class="camera-access">
+        <strong>macOS camera permission: [htmlEscape $accessStatus]</strong>
+        <div>[htmlEscape $accessMessage]</div>
+        <div class="muted">Allow camera access for Folk in System Settings, then reopen the Folk app bundle.</div>
+      </div>
+      }
+    }
+  }]
+  <div class="camera-grid">
   [HtmlWhen $::thisNode has camera /camera/ with /...opts/ {
    HtmlWhen the collected results for \
             [list /someone/ wishes $::thisNode uses camera $camera with /...usingOpts/] \
@@ -231,206 +567,470 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
       set usingOpts [dict get [lindex $results 0] usingOpts]
     }
 
+    set displayName [cameraDisplayName $camera $opts]
+    set badges [cameraBadges $camera $displayName $opts]
+
     set resolutions [list]
     foreach format [dict get $opts formats] {
-        # For now, we only support MJPG. The more raw formats are
-        # rarely used by cameras at even medium resolutions and
-        # framerates, anyway, so it's only worth supporting MJPG.
         if {$format(fourcc) eq "MJPG"} {
             lappend resolutions {*}$format(resolutions)
         }
     }
     set resolutions [lsort -command {apply {{a b} {
-        expr {[dict get $b width] - [dict get $a width]}
+        expr {([dict get $b width] * [dict get $b height]) -
+              ([dict get $a width] * [dict get $a height])}
     }}} $resolutions]
 
     if {[llength $resolutions] == 0} {
-      # Cameras often have extra camera devices with no formats (or no
-      # MJPG, at least) for some reason. Not very useful for us.
       subst {
-      <div style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
-        <strong>$camera</strong> (<code>[dict getdef $opts card ""]</code>)<br>
-        (no supported formats)
+      <div class="camera-card">
+        <div class="camera-card-header">
+          <div>
+            <strong class="camera-title">[htmlEscape $displayName]</strong>
+            <div class="camera-id">[htmlEscape $camera]</div>
+          </div>
+          <div class="camera-badges">
+            [join [lmap badge $badges { subst {<span class="camera-badge">[htmlEscape $badge]</span>} }] ""]
+          </div>
+        </div>
+        <p class="muted">No supported MJPG formats were reported for this camera.</p>
       </div>
       }
 
     } else {
-      set cameraId [string map {/ _} $camera]
-      subst {
-      <div style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
-        <label>
-          <input type="checkbox" name="camera-enabled"
-                 $($isUsingCamera ? "checked" : "")
-                 value="$camera"
-                 onchange="cameraEnabledChange.call(this, event)">
-          <strong>$camera</strong> (<code>[dict getdef $opts card ""]</code>)
-        </label>
+      set cameraId [string map [list / _ : _ " " _] $camera]
+      set fastResolution [pickResolutionNear $resolutions 640 480]
+      set qualityResolution [pickResolutionNear $resolutions 1280 720]
+      set fastFormat [cameraFormatValue $fastResolution]
+      set qualityFormat [cameraFormatValue $qualityResolution]
+      set fastLabel [cameraFormatLabel $fastResolution]
+      set qualityLabel [cameraFormatLabel $qualityResolution]
+      set defaultFormat $fastFormat
 
-        <fieldset style="margin-left: 20px; margin-top: 10px">
-          <legend>Select resolution:</legend>
-          [join [lmap resolution $resolutions { subst {
-            <div class="mode">
-              <span class="resolution" data-camera="$camera"
-                    data-resolution="width ${resolution(width)} height ${resolution(height)}"
-                    onclick="cameraResolutionClicked.call(this, event)">
+      set statusResults [Query! camera $camera has status /status/ message /message/]
+      if {[llength $statusResults] > 0} {
+        set status [dict get [lindex $statusResults 0] status]
+        set statusMessage [dict get [lindex $statusResults 0] message]
+      } elseif {$isUsingCamera} {
+        set status opening
+        set statusMessage "Opening camera"
+      } else {
+        set status idle
+        set statusMessage "Not streaming"
+      }
+
+      set negotiatedText "No stream negotiated"
+      set negotiatedResults [Query! camera $camera has negotiated width /nw/ height /nh/ framerate /nf/]
+      if {[llength $negotiatedResults] > 0} {
+        set negotiated [lindex $negotiatedResults 0]
+        set negotiatedText "[dict get $negotiated nw]x[dict get $negotiated nh] @ [format "%.3g" [dict get $negotiated nf]] Hz"
+      }
+
+      set latestResults [Query! camera $camera has latest frame timestamp /latestTs/]
+      set latestTimestamp ""
+      set latestText "No frames yet"
+      if {[llength $latestResults] > 0} {
+        set latestTimestamp [dict get [lindex $latestResults 0] latestTs]
+        set latestText "Frame received"
+      }
+
+      set requestedText "Not active"
+      set sourceWidth [dict get $fastResolution width]
+      set sourceHeight [dict get $fastResolution height]
+      set existingCrops [list]
+      set exposureAtPageLoad 1500
+      if {$isUsingCamera} {
+        set sourceWidth [dict getdef $usingOpts width $sourceWidth]
+        set sourceHeight [dict getdef $usingOpts height $sourceHeight]
+        set requestedText "${sourceWidth}x${sourceHeight} @ [format "%.3g" [dict getdef $usingOpts framerate 0]] Hz"
+        set existingCrops [dict getdef $usingOpts crops [list]]
+        set exposureResults [Query! /someone/ wishes camera $camera uses exposure time /exposureTime/ us]
+        if {[llength $exposureResults] == 1} {
+          set exposureAtPageLoad [dict get [lindex $exposureResults 0] exposureTime]
+        }
+      }
+      set autoChecked [expr {$exposureAtPageLoad == 0 ? "checked" : ""}]
+      set manualDisabled [expr {$exposureAtPageLoad == 0 ? "disabled" : ""}]
+      set manualOpacity [expr {$exposureAtPageLoad == 0 ? "0.5" : "1"}]
+      set cardClass [expr {$isUsingCamera ? "camera-card active" : "camera-card"}]
+      subst {
+      <div class="$cardClass" data-camera="[htmlEscape $camera]"
+           data-default-format="[htmlEscape $defaultFormat]"
+           data-source-width="$sourceWidth" data-source-height="$sourceHeight">
+        <div class="camera-card-header">
+          <label class="camera-enable">
+            <input type="checkbox" name="camera-enabled"
+                   $($isUsingCamera ? "checked" : "")
+                   value="[htmlEscape $camera]">
+            <span>
+              <span class="camera-title">[htmlEscape $displayName]</span>
+              <span class="camera-id">[htmlEscape $camera]</span>
+            </span>
+          </label>
+          <div class="camera-badges">
+            [join [lmap badge $badges { subst {<span class="camera-badge">[htmlEscape $badge]</span>} }] ""]
+          </div>
+        </div>
+
+        <div class="camera-meta">
+          <div><strong>Status</strong><span class="camera-status [htmlEscape $status]">[htmlEscape $status]</span> <span class="camera-status-message">[htmlEscape $statusMessage]</span></div>
+          <div><strong>Requested</strong><span class="requested-value">[htmlEscape $requestedText]</span></div>
+          <div><strong>Receiving</strong><span class="negotiated-value">[htmlEscape $negotiatedText]</span></div>
+          <div><strong>Frame</strong><span class="latest-frame-value" data-latest="$latestTimestamp">[htmlEscape $latestText]</span></div>
+        </div>
+
+        <div class="format-presets">
+          <button type="button" class="camera-preset" data-format="[htmlEscape $fastFormat]">Fast preview: [htmlEscape $fastLabel]</button>
+          <button type="button" class="camera-preset" data-format="[htmlEscape $qualityFormat]">Calibration quality: [htmlEscape $qualityLabel]</button>
+        </div>
+
+        <details class="advanced-formats">
+          <summary>All formats</summary>
+          [join [lmap resolution $resolutions {
+            set framerates [numericFramerates $resolution]
+            subst {
+            <div class="format-row">
+              <span class="resolution" data-resolution="width ${resolution(width)} height ${resolution(height)}">
                 ${resolution(width)}x${resolution(height)}
               </span>
-              [join [lmap framerate $resolution(framerates) { subst {
+              [join [lmap framerate $framerates { subst {
                 <label>
                   <input type="radio" name="camera-framerate-$cameraId"
                          $([info exists usingOpts] && 
                            $resolution(width) == $usingOpts(width) &&
                            $resolution(height) == $usingOpts(height) &&
-                           $framerate == $usingOpts(framerate) ?
+                           $framerate == [dict getdef $usingOpts framerate -1] ?
                            "checked" : "")
-                         data-camera="$camera"
-                         value="width ${resolution(width)} height ${resolution(height)} framerate $framerate"
-                         onchange="cameraFramerateChange.call(this, event)">
+                         data-format="width ${resolution(width)} height ${resolution(height)} framerate $framerate">
                   [format "%.3g" $framerate] Hz
                 </label>
               } }] \n]
             </div>
-          } }] \n]
-        </fieldset>
-        
+            }
+          }] \n]
+        </details>
+
         [if {$isUsingCamera} {
-          set iframeWidth 600
-          set cameraAreaHeight [expr {int(600.0 * $usingOpts(height) / $usingOpts(width))}]
-          set iframeHeight [expr {$cameraAreaHeight + 48}]
-          set existingCrops [dict getdef $usingOpts crops [list]]
           subst {
-          <div class="camera-preview" data-camera="$camera"
-               style="position: relative; display: inline-block; margin-top: 10px; line-height: 0;">
-            <iframe src="/camera?camera=[string map {/ %2F} $camera]"
-                    width="$iframeWidth" height="$iframeHeight"
-                    style="border: 1px solid #999; display: block;"></iframe>
-            <div class="crop-overlay"
-                 style="position: absolute; top: 1px; left: 1px;
-                        width: ${iframeWidth}px; height: ${cameraAreaHeight}px;
-                        pointer-events: none;">
-              <!-- [set i 0] -->
-              [join [lmap c $existingCrops {
-                set cx [dict get $c x]
-                set cy [dict get $c y]
-                set cw [dict get $c width]
-                set ch [dict get $c height]
-                set rx [expr {int($cx * $iframeWidth / $usingOpts(width))}]
-                set ry [expr {int($cy * $cameraAreaHeight / $usingOpts(height))}]
-                set rw [expr {int($cw * $iframeWidth / $usingOpts(width))}]
-                set rh [expr {int($ch * $cameraAreaHeight / $usingOpts(height))}]
-                set cropHtml [subst {
-                  <div class="crop-box" data-index="$i" data-crop="$cx,$cy,$cw,$ch"
-                       style="left: ${rx}px; top: ${ry}px;
-                              width: ${rw}px; height: ${rh}px;">
-                    <div class="crop-handle" data-corner="nw"></div>
-                    <div class="crop-handle" data-corner="ne"></div>
-                    <div class="crop-handle" data-corner="sw"></div>
-                    <div class="crop-handle" data-corner="se"></div>
-                  </div>
-                }]
-                incr i
-                set cropHtml
-              }] \n]
+        <div class="camera-live">
+          <div class="camera-preview" data-camera="[htmlEscape $camera]">
+            <div class="camera-preview-frame" style="--camera-aspect: $sourceWidth / $sourceHeight;">
+              <iframe src="/camera?camera=[string map [list / %2F " " %20] $camera]&controls=0"></iframe>
+              <div class="crop-overlay">
+                <!-- [set i 0] -->
+                [join [lmap c $existingCrops {
+                  set cx [dict get $c x]
+                  set cy [dict get $c y]
+                  set cw [dict get $c width]
+                  set ch [dict get $c height]
+                  set rx [expr {$cx * 100.0 / $sourceWidth}]
+                  set ry [expr {$cy * 100.0 / $sourceHeight}]
+                  set rw [expr {$cw * 100.0 / $sourceWidth}]
+                  set rh [expr {$ch * 100.0 / $sourceHeight}]
+                  set cropHtml [subst {
+                    <div class="crop-box" data-index="$i" data-crop="$cx,$cy,$cw,$ch"
+                         style="left: ${rx}%; top: ${ry}%; width: ${rw}%; height: ${rh}%;">
+                      <span class="crop-label">#${i} ${cw}x${ch}</span>
+                      <div class="crop-handle" data-corner="nw"></div>
+                      <div class="crop-handle" data-corner="ne"></div>
+                      <div class="crop-handle" data-corner="sw"></div>
+                      <div class="crop-handle" data-corner="se"></div>
+                    </div>
+                  }]
+                  incr i
+                  set cropHtml
+                }] \n]
+              </div>
             </div>
           </div>
 
-          <div style="margin-top: 10px;">
-            <button data-camera="$camera"
-                    onclick="createVirtualCroppedCamera.call(this, event)">
-              Create virtual cropped camera
-            </button>
+          <div class="camera-side">
+            <div class="exposure-controls">
+              <strong>Exposure</strong>
+              <label><input type="checkbox" class="camera-autoexposure" $autoChecked> Auto-exposure</label>
+              <div class="manual-exposure" style="opacity: $manualOpacity">
+                <input type="range" min="10" max="48" value="[expr {$exposureAtPageLoad == 0 ? 15 : $exposureAtPageLoad / 100}]" class="camera-exposure-slider" $manualDisabled>
+                <input type="number" min="1000" max="320000" step="100" value="[expr {$exposureAtPageLoad == 0 ? 1500 : $exposureAtPageLoad}]" class="camera-exposure-number" $manualDisabled> us
+              </div>
+            </div>
+
+            <div class="crop-controls">
+              <div class="camera-toolbar">
+                <strong>Crops</strong>
+                <button type="button" class="create-crop">Create crop</button>
+                <span class="muted">MCU-snapped to 16 px</span>
+              </div>
+              <div class="crop-list">
+                [if {[llength $existingCrops] == 0} {
+                  subst {<div class="muted">No virtual crops yet.</div>}
+                } else {
+                  set i 0
+                  join [lmap c $existingCrops {
+                    set cx [dict get $c x]
+                    set cy [dict get $c y]
+                    set cw [dict get $c width]
+                    set ch [dict get $c height]
+                    set cropRow [subst {
+                    <div class="crop-row" data-index="$i">
+                      <strong>Crop #$i</strong>
+                      <div class="crop-fields">
+                        <label>x <input class="crop-num" data-field="x" type="number" step="16" min="0" value="$cx"></label>
+                        <label>y <input class="crop-num" data-field="y" type="number" step="16" min="0" value="$cy"></label>
+                        <label>w <input class="crop-num" data-field="w" type="number" step="16" min="16" value="$cw"></label>
+                        <label>h <input class="crop-num" data-field="h" type="number" step="16" min="16" value="$ch"></label>
+                      </div>
+                      <div class="crop-actions">
+                        <button type="button" data-action="duplicate">Duplicate</button>
+                        <button type="button" data-action="delete">Delete</button>
+                      </div>
+                    </div>
+                    }]
+                    incr i
+                    set cropRow
+                  }] \n
+                }]
+              </div>
+            </div>
           </div>
-        } }]
+        </div>
+          }
+        }]
       </div>
       }
     }
   }}]
+  </div>
   <script>
-    function cameraEnabledChange(event) {
-      const camera = this.value;
-      if (this.checked) {
-        const firstFramerateRadio = document.querySelector(
-          `input\[type="radio"\]\[name^="camera-framerate-"\]\[data-camera="\${camera}"]`
-        );
-        firstFramerateRadio.checked = true;
-        firstFramerateRadio.dispatchEvent(new Event('change'));
-      } else {
-        folk.hold(`camera \${camera}`, '',
-                  'builtin-programs/web/setup.folk', true);
-      }
-      event.preventDefault();
+    function cardFor(el) {
+      return el.closest('.camera-card');
     }
-    function cameraResolutionClicked(event) {
-      const camera = this.dataset.camera;
-      const firstFramerateRadio = document.querySelector(
-        `input\[type="radio"\]\[name^="camera-framerate-"\]\[data-camera="\${camera}"]` +
-        `\[value^="\${this.dataset.resolution}"]`
-      );
-      firstFramerateRadio.checked = true;
-      firstFramerateRadio.dispatchEvent(new Event('change'));
-      event.preventDefault();
+    function cardsForCamera(camera) {
+      return Array.from(document.querySelectorAll('.camera-card'))
+        .filter(card => card.dataset.camera === camera);
     }
-    function cameraFramerateChange(event) {
-      if (this.checked) {
-        const camera = this.dataset.camera;
-        const format = this.value;
-        folk.hold(`camera \${camera}`, `Wish \$::thisNode uses camera "\${camera}" with \${format}`,
-                  'builtin-programs/web/setup.folk', true);
-      }
-      event.preventDefault();
+    function activeFormatForCard(card) {
+      const checked = card.querySelector('input\[type="radio"]\[name^="camera-framerate-"]:checked');
+      return checked ? checked.dataset.format : card.dataset.defaultFormat;
     }
-    const CROP_MCU = 16;
-    const snap = v => Math.floor(v / CROP_MCU) * CROP_MCU;
-
-    function getCropContext(el) {
-      let preview = el.closest('.camera-preview');
-      const camera = preview ? preview.dataset.camera : el.dataset.camera;;
-      if (!preview) {
-        preview = document.querySelector(`.camera-preview\[data-camera="\${camera}"]`);
-      }
-
-      const iframe = preview.querySelector('iframe');
-      const overlay = preview.querySelector('.crop-overlay');
-      const framerateRadio = document.querySelector(
-        `input\[type="radio"\]\[name^="camera-framerate-"\]\[data-camera="\${camera}"]:checked`);
-      if (!framerateRadio) return null;
-      const format = framerateRadio.value;
-      const m = format.match(/width (\\d+) height (\\d+)/);
-      if (!m) return null;
-      return {
-        camera, preview, iframe, overlay, format,
-        sourceWidth: parseInt(m\[1]),
-        sourceHeight: parseInt(m\[2]),
-        iframeWidth: parseInt(iframe.width),
-        canvasHeight: parseInt(iframe.height) - 48,
-      };
-    }
-
-    function issueCrops(ctx, crops) {
-      const cropsTcl = crops
-        .map((\[x,y,w,h]) => `{x \${x} y \${y} width \${w} height \${h}}`)
-        .join(' ');
-      folk.hold(`camera \${ctx.camera}`,
-        `Wish \$::thisNode uses camera "\${ctx.camera}" with \${ctx.format} crops {\${cropsTcl}}`,
+    function holdCamera(card, format, crops = null) {
+      const camera = card.dataset.camera;
+      const cropsPart = crops && crops.length
+        ? ' crops {' + crops.map((\[x, y, w, h]) => `{x \${x} y \${y} width \${w} height \${h}}`).join(' ') + '}'
+        : '';
+      folk.hold(`camera \${camera}`,
+        `Wish \$::thisNode uses camera "\${camera}" with \${format}\${cropsPart}`,
         'builtin-programs/web/setup.folk', true);
     }
+    function setStatus(card, status, message) {
+      const statusEl = card.querySelector('.camera-status');
+      const messageEl = card.querySelector('.camera-status-message');
+      if (!statusEl || !messageEl) return;
+      statusEl.className = `camera-status \${status}`;
+      statusEl.textContent = status;
+      messageEl.textContent = message || '';
+    }
+    function setSelectedCrop(card, index) {
+      card.querySelectorAll('.crop-box, .crop-row').forEach(el => {
+        el.classList.toggle('selected', el.dataset.index === String(index));
+      });
+    }
+    document.addEventListener('change', event => {
+      if (event.target.matches('input\[name="camera-enabled"]')) {
+        const card = cardFor(event.target);
+        if (event.target.checked) {
+          holdCamera(card, card.dataset.defaultFormat);
+        } else {
+          folk.hold(`camera \${card.dataset.camera}`, '',
+                    'builtin-programs/web/setup.folk', true);
+        }
+        event.preventDefault();
+      } else if (event.target.matches('input\[type="radio"]\[name^="camera-framerate-"]')) {
+        const card = cardFor(event.target);
+        if (event.target.checked) holdCamera(card, event.target.dataset.format);
+      } else if (event.target.matches('.camera-autoexposure')) {
+        const card = cardFor(event.target);
+        updateExposureControls(card, event.target.checked ? 0 : currentExposureValue(card), true);
+      } else if (event.target.matches('.crop-num')) {
+        const card = cardFor(event.target);
+        const row = event.target.closest('.crop-row');
+        const ctx = getCropContext(card);
+        if (!ctx || !row) return;
+        const crop = cropFromRow(row);
+        const box = ctx.overlay.querySelector(`.crop-box\[data-index="\${row.dataset.index}"]`);
+        if (box) {
+          box.dataset.crop = crop.join(',');
+          applyBoxStyle(ctx, box, ...crop);
+        }
+        issueCrops(ctx, readCrops(ctx.overlay));
+      }
+    });
+    document.addEventListener('input', event => {
+      if (event.target.matches('.camera-exposure-slider')) {
+        const card = cardFor(event.target);
+        updateExposureControls(card, Math.round(event.target.value * 100), true);
+      } else if (event.target.matches('.camera-exposure-number')) {
+        const card = cardFor(event.target);
+        let value = parseInt(event.target.value);
+        if (value == 0) value = 100;
+        updateExposureControls(card, value, true);
+      }
+    });
+    document.addEventListener('click', event => {
+      const preset = event.target.closest('.camera-preset');
+      if (preset) {
+        const card = cardFor(preset);
+        holdCamera(card, preset.dataset.format);
+        event.preventDefault();
+        return;
+      }
+      const resolution = event.target.closest('.format-row .resolution');
+      if (resolution) {
+        const row = resolution.closest('.format-row');
+        const radio = row.querySelector('input\[type="radio"]');
+        if (radio) {
+          radio.checked = true;
+          holdCamera(cardFor(radio), radio.dataset.format);
+        }
+        event.preventDefault();
+        return;
+      }
+      const create = event.target.closest('.create-crop');
+      if (create) {
+        createVirtualCroppedCamera(create);
+        event.preventDefault();
+        return;
+      }
+      const cropAction = event.target.closest('.crop-actions button');
+      if (cropAction) {
+        const card = cardFor(cropAction);
+        const ctx = getCropContext(card);
+        const row = cropAction.closest('.crop-row');
+        if (!ctx || !row) return;
+        const crops = readCrops(ctx.overlay);
+        const index = parseInt(row.dataset.index);
+        if (cropAction.dataset.action === 'delete') {
+          crops.splice(index, 1);
+        } else if (cropAction.dataset.action === 'duplicate') {
+          const \[x, y, w, h] = crops\[index];
+          crops.splice(index + 1, 0, \[
+            Math.min(ctx.sourceWidth - w, snap(x + CROP_MCU)),
+            Math.min(ctx.sourceHeight - h, snap(y + CROP_MCU)),
+            w, h
+          ]);
+        }
+        issueCrops(ctx, crops);
+        event.preventDefault();
+        return;
+      }
+      const cropBox = event.target.closest('.crop-box');
+      if (cropBox) {
+        setSelectedCrop(cardFor(cropBox), cropBox.dataset.index);
+      }
+    });
 
+    const latestFrames = new Map();
+    folk.watchCollected(`/someone/ claims camera /camera/ has status /status/ message /message/`, results => {
+      for (const result of results) {
+        cardsForCamera(result.camera).forEach(card => setStatus(card, result.status, result.message));
+      }
+    });
+    folk.watchCollected(`/someone/ claims camera /camera/ has negotiated width /width/ height /height/ framerate /framerate/`, results => {
+      for (const result of results) {
+        cardsForCamera(result.camera).forEach(card => {
+          const el = card.querySelector('.negotiated-value');
+          if (el) el.textContent = `\${result.width}x\${result.height} @ \${Number(result.framerate).toPrecision(3)} Hz`;
+        });
+      }
+    });
+    folk.watchCollected(`/someone/ claims camera /camera/ has latest frame timestamp /timestamp/`, results => {
+      for (const result of results) {
+        latestFrames.set(result.camera, Number(result.timestamp));
+      }
+      updateLatestFrameLabels();
+    });
+    function updateLatestFrameLabels() {
+      const now = Date.now() / 1000;
+      document.querySelectorAll('.camera-card').forEach(card => {
+        const el = card.querySelector('.latest-frame-value');
+        if (!el) return;
+        const ts = latestFrames.get(card.dataset.camera) || Number(el.dataset.latest);
+        if (!ts) return;
+        const age = Math.max(0, now - ts);
+        el.textContent = age < 1 ? 'live' : `\${age.toFixed(1)}s ago`;
+      });
+    }
+    setInterval(updateLatestFrameLabels, 1000);
+
+    function currentExposureValue(card) {
+      const number = card.querySelector('.camera-exposure-number');
+      return number ? parseInt(number.value || '1500') : 1500;
+    }
+    function updateExposureControls(card, valueInMicroseconds, doSend) {
+      const auto = valueInMicroseconds == 0;
+      const checkbox = card.querySelector('.camera-autoexposure');
+      const slider = card.querySelector('.camera-exposure-slider');
+      const number = card.querySelector('.camera-exposure-number');
+      const manual = card.querySelector('.manual-exposure');
+      if (!checkbox || !slider || !number || !manual) return;
+      checkbox.checked = auto;
+      slider.disabled = auto;
+      number.disabled = auto;
+      manual.style.opacity = auto ? 0.5 : 1;
+      if (!auto) {
+        slider.value = valueInMicroseconds / 100;
+        number.value = valueInMicroseconds;
+      }
+      if (doSend) {
+        const camera = card.dataset.camera;
+        folk.hold(`exposure \${camera}`,
+          `Wish camera \${camera} uses exposure time \${valueInMicroseconds} us`,
+          'builtin-programs/web/setup.folk', true);
+      }
+    }
+
+    const CROP_MCU = 16;
+    const snap = v => Math.floor(v / CROP_MCU) * CROP_MCU;
+    function getCropContext(el) {
+      const card = el.classList && el.classList.contains('camera-card') ? el : cardFor(el);
+      if (!card) return null;
+      const preview = card.querySelector('.camera-preview');
+      if (!preview) return null;
+      const overlay = preview.querySelector('.crop-overlay');
+      return {
+        card,
+        camera: card.dataset.camera,
+        preview,
+        overlay,
+        sourceWidth: parseInt(card.dataset.sourceWidth),
+        sourceHeight: parseInt(card.dataset.sourceHeight),
+      };
+    }
+    function issueCrops(ctx, crops) {
+      holdCamera(ctx.card, activeFormatForCard(ctx.card), crops);
+    }
     function readCrops(overlay) {
       return Array.from(overlay.querySelectorAll('.crop-box'))
+        .sort((a, b) => Number(a.dataset.index) - Number(b.dataset.index))
         .map(el => el.dataset.crop.split(',').map(Number));
     }
-
-    function applyBoxStyle(ctx, box, x, y, w, h) {
-      box.style.left = (x * ctx.iframeWidth / ctx.sourceWidth) + 'px';
-      box.style.top = (y * ctx.canvasHeight / ctx.sourceHeight) + 'px';
-      box.style.width = (w * ctx.iframeWidth / ctx.sourceWidth) + 'px';
-      box.style.height = (h * ctx.canvasHeight / ctx.sourceHeight) + 'px';
+    function cropFromRow(row) {
+      const fields = {};
+      row.querySelectorAll('.crop-num').forEach(input => {
+        fields\[input.dataset.field] = snap(Number(input.value));
+      });
+      return \[fields.x, fields.y, Math.max(CROP_MCU, fields.w), Math.max(CROP_MCU, fields.h)];
     }
-
-    function createVirtualCroppedCamera(event) {
-      const ctx = getCropContext(this);
+    function applyBoxStyle(ctx, box, x, y, w, h) {
+      box.style.left = (x * 100 / ctx.sourceWidth) + '%';
+      box.style.top = (y * 100 / ctx.sourceHeight) + '%';
+      box.style.width = (w * 100 / ctx.sourceWidth) + '%';
+      box.style.height = (h * 100 / ctx.sourceHeight) + '%';
+      const label = box.querySelector('.crop-label');
+      if (label) label.textContent = `#\${box.dataset.index} \${w}x\${h}`;
+    }
+    function createVirtualCroppedCamera(el) {
+      const ctx = getCropContext(el);
       if (!ctx) return;
-      // Default: ~1/3 of source, centered, MCU-aligned.
       const w = Math.max(CROP_MCU, snap(ctx.sourceWidth / 3));
       const h = Math.max(CROP_MCU, snap(ctx.sourceHeight / 3));
       const x = snap((ctx.sourceWidth - w) / 2);
@@ -438,13 +1038,8 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
       const crops = readCrops(ctx.overlay);
       crops.push(\[x, y, w, h]);
       issueCrops(ctx, crops);
-      event.preventDefault();
     }
 
-    // Drag to move (crop-box body) or resize (crop-handle corners).
-    // During drag the overlay flips to pointer-events: auto so the iframe
-    // underneath doesn't steal mousemove events when the cursor passes
-    // over it.
     let cropDrag = null;
     document.addEventListener('mousedown', e => {
       const handle = e.target.closest('.crop-handle');
@@ -452,15 +1047,11 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
       if (!box) return;
       const ctx = getCropContext(box);
       if (!ctx) return;
+      setSelectedCrop(ctx.card, box.dataset.index);
       const \[x0, y0, w0, h0] = box.dataset.crop.split(',').map(Number);
       const mode = handle ? 'resize' : 'move';
       const corner = handle ? handle.dataset.corner : null;
-      cropDrag = {
-        ctx, box, mode, corner,
-        sx: e.clientX, sy: e.clientY,
-        x0, y0, w0, h0,
-        live: null,
-      };
+      cropDrag = {ctx, box, mode, corner, sx: e.clientX, sy: e.clientY, x0, y0, w0, h0, live: null};
       ctx.overlay.style.pointerEvents = 'auto';
       document.body.style.cursor = mode === 'move' ? 'move'
         : (corner === 'nw' || corner === 'se') ? 'nwse-resize'
@@ -471,8 +1062,9 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
     document.addEventListener('mousemove', e => {
       const d = cropDrag;
       if (!d) return;
-      const dx = (e.clientX - d.sx) * (d.ctx.sourceWidth / d.ctx.iframeWidth);
-      const dy = (e.clientY - d.sy) * (d.ctx.sourceHeight / d.ctx.canvasHeight);
+      const rect = d.ctx.overlay.getBoundingClientRect();
+      const dx = (e.clientX - d.sx) * (d.ctx.sourceWidth / rect.width);
+      const dy = (e.clientY - d.sy) * (d.ctx.sourceHeight / rect.height);
       let x, y, w, h;
       if (d.mode === 'move') {
         x = Math.max(0, Math.min(d.ctx.sourceWidth - d.w0, snap(d.x0 + dx)));
@@ -481,23 +1073,14 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
       } else {
         let left = d.x0, top = d.y0;
         let right = d.x0 + d.w0, bottom = d.y0 + d.h0;
-        if (d.corner.includes('w')) {
-          left = Math.max(0, Math.min(right - CROP_MCU, snap(d.x0 + dx)));
-        }
-        if (d.corner.includes('e')) {
-          right = Math.max(left + CROP_MCU,
-                           Math.min(d.ctx.sourceWidth, snap(d.x0 + d.w0 + dx)));
-        }
-        if (d.corner.includes('n')) {
-          top = Math.max(0, Math.min(bottom - CROP_MCU, snap(d.y0 + dy)));
-        }
-        if (d.corner.includes('s')) {
-          bottom = Math.max(top + CROP_MCU,
-                            Math.min(d.ctx.sourceHeight, snap(d.y0 + d.h0 + dy)));
-        }
+        if (d.corner.includes('w')) left = Math.max(0, Math.min(right - CROP_MCU, snap(d.x0 + dx)));
+        if (d.corner.includes('e')) right = Math.max(left + CROP_MCU, Math.min(d.ctx.sourceWidth, snap(d.x0 + d.w0 + dx)));
+        if (d.corner.includes('n')) top = Math.max(0, Math.min(bottom - CROP_MCU, snap(d.y0 + dy)));
+        if (d.corner.includes('s')) bottom = Math.max(top + CROP_MCU, Math.min(d.ctx.sourceHeight, snap(d.y0 + d.h0 + dy)));
         x = left; y = top; w = right - left; h = bottom - top;
       }
       d.live = \[x, y, w, h];
+      d.box.dataset.crop = d.live.join(',');
       applyBoxStyle(d.ctx, d.box, x, y, w, h);
     });
     document.addEventListener('mouseup', () => {
@@ -507,7 +1090,6 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
       d.ctx.overlay.style.pointerEvents = '';
       document.body.style.cursor = '';
       if (!d.live) return;
-      d.box.dataset.crop = d.live.join(',');
       issueCrops(d.ctx, readCrops(d.ctx.overlay));
     });
   </script>
