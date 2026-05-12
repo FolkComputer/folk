@@ -24,11 +24,13 @@ set httpsDir $([info exists ::env(FOLK_HTTPS_DIR)] && $::env(FOLK_HTTPS_DIR) ne 
 set httpsCert "$httpsDir/cert.pem"
 set httpsKey "$httpsDir/key.pem"
 set scheme [expr {[file exists $httpsCert] && [file exists $httpsKey] && [exists -command load_ssl_certs] ? "https" : "http"}]
-$::realStdout puts "Web interface at: $scheme://$host:4273/"
 if {$scheme eq "https"} {
+    $::realStdout puts "Web interface at: http://$host:4273/"
+    $::realStdout puts "Secure web interface at: https://$host:4273/"
     $::realStdout puts "Trust root CA at: $scheme://$host:4273/folk-ca.cer"
-    $::realStdout puts "HTTPS mode: use https://localhost:4273/ locally; bare localhost:4273 uses HTTP and will fail."
+    $::realStdout puts "HTTPS mode: :4273 accepts both HTTP and HTTPS; use HTTPS for screenshare."
 } else {
+    $::realStdout puts "Web interface at: $scheme://$host:4273/"
     $::realStdout puts "HTTPS setup at: http://$host:4273/setup/https"
 }
 $::realStdout puts ""

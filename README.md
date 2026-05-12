@@ -162,7 +162,7 @@ local HTTPS before using `/screenshare` from another LAN device.
    local Folk root CA and a server certificate under
    `~/folk-data/https`.
 
-1. Restart Folk so the web server switches from HTTP to HTTPS.
+1. Restart Folk so the web server accepts HTTPS alongside HTTP.
 
 1. Reopen `https://<your-remote-hostname>.local:4273/setup/https`,
    download the Folk CA, and trust it on each laptop, phone, or tablet

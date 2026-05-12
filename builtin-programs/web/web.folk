@@ -31,6 +31,7 @@ if {$::webTlsEnabled} {
     $cc include <string.h>
     $cc include <sys/socket.h>
     $cc include <sys/time.h>
+    $cc include <unistd.h>
     $cc proc setSocketTimeout {Jim_Obj* chan int timeoutMs} void {
         int fd = Jim_AioFilehandle(interp, chan);
         if (fd < 0) {
@@ -51,6 +52,24 @@ if {$::webTlsEnabled} {
             FOLK_ERROR("web: failed to set send timeout: %s", strerror(errno));
         }
     }
+    $cc proc socketLooksLikeTls {Jim_Obj* chan} int {
+        int fd = Jim_AioFilehandle(interp, chan);
+        if (fd < 0) {
+            FOLK_ERROR("web: unable to open channel as socket");
+        }
+
+        unsigned char buf[3];
+        ssize_t n = recv(fd, buf, sizeof(buf), MSG_PEEK);
+        if (n <= 0) {
+            return -1;
+        }
+
+        /* TLS ClientHello starts with a handshake record: 0x16 0x03 ... */
+        if (buf[0] == 0x16 && (n == 1 || buf[1] == 0x03)) {
+            return 1;
+        }
+        return 0;
+    }
     set ::webSocketTimeouts [$cc compile]
 }
 
@@ -58,6 +77,13 @@ proc webSetSocketTimeout {chan timeoutMs} {
     if {$::webSocketTimeouts ne ""} {
         $::webSocketTimeouts setSocketTimeout $chan $timeoutMs
     }
+}
+
+proc webSocketLooksLikeTls {chan} {
+    if {$::webSocketTimeouts eq ""} {
+        return 0
+    }
+    return [$::webSocketTimeouts socketLooksLikeTls $chan]
 }
 
 # To force a rebuild: rm vendor/wslay/Makefile
@@ -335,14 +361,24 @@ while true {
         $f readable [lambda {} {f} {
             set client [$f accept addr]
             if {$::webTlsEnabled} {
-                try {
-                    webSetSocketTimeout $client $::webTlsHandshakeTimeoutMs
-                    set client [$client ssl -server $::webTlsCert $::webTlsKey]
-                    webSetSocketTimeout $client 0
-                } on error e {
-                    puts "web: TLS handshake failed for $addr: $e"
+                webSetSocketTimeout $client $::webTlsHandshakeTimeoutMs
+                set protocol [webSocketLooksLikeTls $client]
+                if {$protocol < 0} {
+                    puts "web: closing idle connection from $addr before protocol detection"
                     catch { close $client }
                     return
+                }
+                if {$protocol == 1} {
+                    try {
+                        set client [$client ssl -server $::webTlsCert $::webTlsKey]
+                        webSetSocketTimeout $client 0
+                    } on error e {
+                        puts "web: TLS handshake failed for $addr: $e"
+                        catch { close $client }
+                        return
+                    }
+                } else {
+                    webSetSocketTimeout $client 0
                 }
             }
             handleConnect $client $addr

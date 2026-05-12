@@ -56,6 +56,33 @@ fn httpsSetupFingerprint {path} {
     return ""
 }
 
+fn httpsSetupCertFiles {} {
+    return [list ca.pem ca.cer ca.key ca.srl cert.pem key.pem cert.csr]
+}
+
+fn httpsSetupArchiveCerts {} {
+    set dir [httpsSetupDir]
+    file mkdir $dir
+    set existing [list]
+    foreach name [httpsSetupCertFiles] {
+        set path "$dir/$name"
+        if {[file exists $path]} {
+            lappend existing $name
+        }
+    }
+    if {[llength $existing] == 0} {
+        return "No local HTTPS certificate files were present in $dir."
+    }
+
+    set stamp [clock format [clock seconds] -format %Y%m%d%H%M%S]
+    set archive "$dir/removed-$stamp"
+    file mkdir $archive
+    foreach name $existing {
+        file rename -force "$dir/$name" "$archive/$name"
+    }
+    return "Archived [llength $existing] local HTTPS certificate file(s) to $archive.\nRestart Folk to stop serving the old in-memory certificate and return to HTTP setup mode."
+}
+
 fn httpsSetupDates {path} {
     set dates [dict create notBefore "" notAfter ""]
     if {![file exists $path]} { return $dates }
@@ -184,6 +211,47 @@ When /someone/ wishes to generate local HTTPS certificates with request /request
     file delete -force $lockDir
 }
 
+When /someone/ wishes to remove local HTTPS certificates with request /request/ {
+    fn httpsSetupArchiveCerts
+    fn httpsSetupDir
+
+    set setupDir [httpsSetupDir]
+    file mkdir $setupDir
+    set lockDir "$setupDir/removal.lock"
+    if {[file exists $lockDir] && [expr {[clock seconds] - [file mtime $lockDir]}] > 300} {
+        file delete -force $lockDir
+    }
+    try {
+        exec mkdir $lockDir
+    } on error e {
+        Hold! -key [list https setup removal latest] \
+            Claim HTTPS setup removal $request has status busy \
+            with message "Another HTTPS certificate removal is already running." \
+            output "" at [clock seconds]
+        return
+    }
+
+    Hold! -key [list https setup removal latest] \
+        Claim HTTPS setup removal $request has status running \
+        with message "Removing local HTTPS certificates..." output "" at [clock seconds]
+
+    set status success
+    set message "Removed local HTTPS certificates."
+    set output ""
+    try {
+        set output [httpsSetupArchiveCerts]
+    } on error e {
+        set status error
+        set message "HTTPS certificate removal failed."
+        set output $e
+    }
+
+    Hold! -key [list https setup removal latest] \
+        Claim HTTPS setup removal $request has status $status \
+        with message $message output $output at [clock seconds]
+    file delete -force $lockDir
+}
+
 Wish the web server handles route "/setup/https/qr\\.svg" with hidden true handler {
     fn httpsSetupHtmlEscape
     fn httpsSetupMeta
@@ -260,6 +328,8 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
     .bad { color: #b00020; }
     .muted { color: #666; }
     .mono { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .command { user-select: all; }
+    .copy-status { min-height: 1.2em; }
     #ca-qr { width: 220px; height: 220px; background: white; border: 1px solid #9996; }
     ol { padding-left: 1.5rem; }
   </style>
@@ -285,12 +355,23 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
 
   <section>
     <h2>Generate certificates</h2>
-    <p>Certificates live in <code>__DIR_HTML__</code>. Folk keeps HTTP as the first-run default; after generating certs while running HTTP, restart Folk to serve HTTPS.</p>
+    <p>Certificates live in <code>__DIR_HTML__</code>. Folk keeps HTTP as the first-run default; after generating certs while running HTTP, restart Folk so port 4273 accepts both HTTP and HTTPS.</p>
+    <p class="muted">Trusting the CA only teaches this device to trust Folk. If this page says Folk must be restarted, HTTPS will not be accepted until Folk restarts and reloads the generated certs.</p>
     <div class="row">
       <button id="generate">Generate HTTPS Certificates</button>
       <span id="ws-status" class="muted">Connecting</span>
     </div>
     <pre id="generation-output" hidden></pre>
+  </section>
+
+  <section>
+    <h2>Reset HTTPS</h2>
+    <p>Use this when you want to rotate Folk's local CA or retest the first-run setup flow. Removing local certs archives Folk's cert files; it does not remove trust from this Mac until you run the Terminal command below.</p>
+    <div class="row">
+      <button id="remove-certs">Archive Folk HTTPS Certificates</button>
+      <span id="remove-certs-status" class="muted"></span>
+    </div>
+    <pre id="removal-output" hidden></pre>
   </section>
 
   <section>
@@ -316,12 +397,24 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
     <div class="grid">
       <div class="panel">
         <h3>macOS</h3>
+        <p>Run this in Terminal to install the Folk CA as an SSL trust root in your Login keychain.</p>
+        <pre id="macos-command" class="command"></pre>
+        <p class="row">
+          <button id="copy-macos-command" type="button">Copy Terminal Command</button>
+          <span id="copy-macos-status" class="muted copy-status"></span>
+        </p>
         <ol>
-          <li>Download the CA certificate.</li>
-          <li>Open it in Keychain Access.</li>
-          <li>Set trust for SSL to Always Trust.</li>
+          <li>Confirm the printed SHA-256 fingerprint matches this page.</li>
+          <li>Approve the keychain change if macOS asks.</li>
+          <li>If this page says Folk must be restarted, restart Folk before opening the HTTPS URL.</li>
           <li>Restart Chrome if it still says Not secure.</li>
         </ol>
+        <p>To remove this Folk CA from your Login keychain, run this in Terminal.</p>
+        <pre id="macos-remove-command" class="command"></pre>
+        <p class="row">
+          <button id="copy-macos-remove-command" type="button">Copy Removal Command</button>
+          <span id="copy-macos-remove-status" class="muted copy-status"></span>
+        </p>
       </div>
       <div class="panel">
         <h3>iPhone/iPad</h3>
@@ -403,12 +496,73 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
     protocolHttps: location.protocol === "https:",
     secureContext: window.isSecureContext,
     displayMedia: !!navigator.mediaDevices?.getDisplayMedia,
+    certMaterialPresent: server.caExists && server.certExists && server.keyExists,
     hostnameCovered: server.sans.map(s => s.toLowerCase()).includes(location.hostname.toLowerCase())
   };
   let wsConnected = false;
+  let activeGenerationRequest = null;
+  let activeRemovalRequest = null;
+  let reloadTimer = null;
 
   function setText(id, value) {
     document.getElementById(id).textContent = value || "";
+  }
+
+  function sameOriginUrl(path) {
+    return `${location.protocol}//${location.host}${path}`;
+  }
+
+  function shellSingleQuote(value) {
+    return "'" + String(value).replaceAll("'", "'\\''") + "'";
+  }
+
+  function fingerprintWithoutColons(value) {
+    return String(value || "").replaceAll(":", "");
+  }
+
+  function macosTrustCommand() {
+    if (!server.caFingerprint) {
+      return "Generate HTTPS certificates first, then reload this page.";
+    }
+    const command = [
+      `FOLK_HOST=${shellSingleQuote(server.host)}`,
+      `FOLK_CA_URL=${shellSingleQuote(sameOriginUrl("/folk-ca.cer"))}`,
+      `FOLK_SETUP_URL=${shellSingleQuote(server.httpsUrl)}`,
+      `EXPECTED_FINGERPRINT=${shellSingleQuote(server.caFingerprint)}`,
+      `FOLK_CA="/tmp/folk-ca-$FOLK_HOST.cer"`,
+      `curl -fsSk "$FOLK_CA_URL" -o "$FOLK_CA"`,
+      `ACTUAL_FINGERPRINT="$(openssl x509 -inform DER -in "$FOLK_CA" -noout -fingerprint -sha256 | sed 's/^.*=//')"`,
+      `echo "Folk CA SHA-256: $ACTUAL_FINGERPRINT"`,
+      `[ "$ACTUAL_FINGERPRINT" = "$EXPECTED_FINGERPRINT" ]`,
+      `FOLK_LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"`,
+      `security add-trusted-cert -r trustRoot -p ssl -k "$FOLK_LOGIN_KEYCHAIN" "$FOLK_CA"`,
+      `echo "If Folk was just generated in HTTP setup mode, restart Folk before opening HTTPS."`,
+      `echo "Trusted Folk CA. Quit and reopen Chrome, then open $FOLK_SETUP_URL"`
+    ];
+    return command.join(" && ");
+  }
+
+  function macosRemoveTrustCommand() {
+    if (!server.caFingerprint) {
+      return "No Folk CA fingerprint is available on this page.";
+    }
+    const command = [
+      `FOLK_CA_SHA256=${shellSingleQuote(fingerprintWithoutColons(server.caFingerprint))}`,
+      `FOLK_LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"`,
+      `security delete-certificate -Z "$FOLK_CA_SHA256" "$FOLK_LOGIN_KEYCHAIN" 2>/dev/null && echo "Removed this Folk CA from your Login keychain. Quit and reopen Chrome before testing trust again." || echo "No matching Folk CA found in your Login keychain."`
+    ];
+    return command.join(" && ");
+  }
+
+  async function copyTextFrom(id, statusId) {
+    const command = document.getElementById(id).textContent;
+    const status = document.getElementById(statusId);
+    try {
+      await navigator.clipboard.writeText(command);
+      status.textContent = "Copied.";
+    } catch (err) {
+      status.textContent = "Select the command text and copy it.";
+    }
   }
 
   function renderChecks() {
@@ -417,7 +571,8 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
       ["Browser secure context", checks.secureContext],
       ["WebSocket connected", wsConnected],
       ["Screen sharing API available", checks.displayMedia],
-      ["Current hostname covered by certificate", !checks.protocolHttps || checks.hostnameCovered]
+      ["Certificate files exist", checks.certMaterialPresent],
+      ["Current hostname covered by certificate", checks.certMaterialPresent && checks.hostnameCovered]
     ];
     document.getElementById("browser-checks").innerHTML = rows.map(([label, ok]) =>
       `<li class="${ok ? "ok" : "bad"}">${ok ? "OK" : "Needs attention"} - ${label}</li>`
@@ -425,7 +580,7 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
   }
 
   function renderSummary() {
-    const ready = checks.protocolHttps && checks.secureContext && checks.displayMedia && wsConnected && checks.hostnameCovered && server.status === "https-active";
+    const ready = checks.protocolHttps && checks.secureContext && checks.displayMedia && wsConnected && checks.certMaterialPresent && checks.hostnameCovered && server.status === "https-active";
     const next = document.getElementById("next-step");
     if (ready) {
       next.innerHTML = `Ready for <a href="${server.screenshareUrl}">screenshare</a>.`;
@@ -455,9 +610,11 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
     const serverStatus = document.getElementById("server-status");
     serverStatus.textContent = statusText[server.status] || server.status;
     serverStatus.className = `status ${statusClass[server.status] || "warn"}`;
-    document.getElementById("download-cer").href = server.caCerUrl;
-    document.getElementById("download-pem").href = server.caPemUrl;
-    document.getElementById("ca-qr").src = `/setup/https/qr.svg?text=${encodeURIComponent(server.caCerUrl)}`;
+    const caCerUrl = sameOriginUrl("/folk-ca.cer");
+    const caPemUrl = sameOriginUrl("/folk-ca.pem");
+    document.getElementById("download-cer").href = caCerUrl;
+    document.getElementById("download-pem").href = caPemUrl;
+    document.getElementById("ca-qr").src = `/setup/https/qr.svg?text=${encodeURIComponent(caCerUrl)}`;
     setText("ca-fingerprint", server.caFingerprint ? `Root SHA-256: ${server.caFingerprint}` : "Root CA has not been generated yet.");
     setText("covered-url", `Setup URL: ${server.httpsUrl}`);
     setText("screenshare-url", `Screenshare URL: ${server.screenshareUrl}`);
@@ -465,6 +622,10 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
     setText("leaf-fingerprint", server.leafFingerprint || "No leaf certificate yet.");
     setText("not-before", server.notBefore);
     setText("not-after", server.notAfter);
+    setText("macos-command", macosTrustCommand());
+    setText("macos-remove-command", macosRemoveTrustCommand());
+    document.getElementById("copy-macos-command").disabled = !server.caFingerprint;
+    document.getElementById("copy-macos-remove-command").disabled = !server.caFingerprint;
     renderChecks();
     renderSummary();
   }
@@ -477,6 +638,8 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
   });
 
   folk.watchCollected("/someone/ claims HTTPS setup generation /request/ has status /status/ with /...options/", results => {
+    if (!activeGenerationRequest || !results.length) return;
+    results = results.filter(result => result.request === activeGenerationRequest);
     if (!results.length) return;
     const latest = results[results.length - 1];
     const options = latest.options ? loadDict(latest.options) : {};
@@ -487,15 +650,58 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
     output.textContent = latest.status === "success" ? `${text}\n\nReloading certificate details...` : text;
     document.getElementById("generate").disabled = latest.status === "running";
     if (latest.status === "success") {
-      setTimeout(() => window.location.reload(), 1000);
+      clearTimeout(reloadTimer);
+      reloadTimer = setTimeout(() => window.location.reload(), 1000);
+    } else if (latest.status === "error" || latest.status === "busy") {
+      activeGenerationRequest = null;
+    }
+  });
+
+  folk.watchCollected("/someone/ claims HTTPS setup removal /request/ has status /status/ with /...options/", results => {
+    if (!activeRemovalRequest || !results.length) return;
+    results = results.filter(result => result.request === activeRemovalRequest);
+    if (!results.length) return;
+    const latest = results[results.length - 1];
+    const options = latest.options ? loadDict(latest.options) : {};
+    const output = document.getElementById("removal-output");
+    const message = options.message || latest.status;
+    const text = [message, options.output || ""].filter(Boolean).join("\n\n");
+    output.hidden = false;
+    output.textContent = latest.status === "success" ? `${text}\n\nOpening HTTP setup...` : text;
+    document.getElementById("remove-certs").disabled = latest.status === "running";
+    document.getElementById("remove-certs-status").textContent = latest.status;
+    if (latest.status === "success") {
+      clearTimeout(reloadTimer);
+      reloadTimer = setTimeout(() => {
+        window.location.href = `http://${location.host}/setup/https`;
+      }, 1000);
+    } else if (latest.status === "error" || latest.status === "busy") {
+      activeRemovalRequest = null;
     }
   });
 
   document.getElementById("generate").addEventListener("click", async () => {
     const request = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+    activeGenerationRequest = request;
+    const output = document.getElementById("generation-output");
+    output.hidden = false;
+    output.textContent = "Requesting HTTPS certificate generation...";
     document.getElementById("generate").disabled = true;
     await folk.send(tcl`Wish to generate local HTTPS certificates with request ${request}`);
   });
+  document.getElementById("remove-certs").addEventListener("click", async () => {
+    const confirmed = window.confirm("Archive Folk's local HTTPS certificate files? Folk must be restarted before this stops the currently loaded HTTPS certificate.");
+    if (!confirmed) return;
+    const request = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+    activeRemovalRequest = request;
+    const output = document.getElementById("removal-output");
+    output.hidden = false;
+    output.textContent = "Requesting HTTPS certificate removal...";
+    document.getElementById("remove-certs").disabled = true;
+    await folk.send(tcl`Wish to remove local HTTPS certificates with request ${request}`);
+  });
+  document.getElementById("copy-macos-command").addEventListener("click", () => copyTextFrom("macos-command", "copy-macos-status"));
+  document.getElementById("copy-macos-remove-command").addEventListener("click", () => copyTextFrom("macos-remove-command", "copy-macos-remove-status"));
 
   renderStatic();
 </script>

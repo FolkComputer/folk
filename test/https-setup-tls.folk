@@ -40,5 +40,9 @@ while true {
 assert {[string first "HTTPS is active" $body] >= 0}
 set status [exec curl -ks -o /dev/null -w "%{http_code}" https://127.0.0.1:4273/folk-ca.cer]
 assert {$status eq "200"}
+set httpBody [exec curl -sf http://127.0.0.1:4273/setup/https]
+assert {[string first "HTTPS is active" $httpBody] >= 0}
+set httpCaStatus [exec curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:4273/folk-ca.cer]
+assert {$httpCaStatus eq "200"}
 
 Exit! 0

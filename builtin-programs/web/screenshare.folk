@@ -105,7 +105,7 @@ Wish the web server handles route "/screenshare$" with nav "<button>Screenshare<
     });
 
     if (!window.isSecureContext) {
-      support.textContent = "Open this page over HTTPS to use browser screen sharing.";
+      support.innerHTML = 'Screen sharing needs HTTPS. <a href="/setup/https">Open HTTPS setup</a> to generate and install the Folk local certificate on this device, then return to /screenshare over HTTPS.';
     } else if (!navigator.mediaDevices?.getDisplayMedia) {
       support.textContent = "This browser does not support WebRTC screen sharing.";
     }
