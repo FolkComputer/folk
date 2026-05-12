@@ -80,7 +80,7 @@ $cc proc rgbToYCbCr {Image im} Image {
         uint8_t* dst = out + y * w * 3;
         for (int x = 0; x < w; x++) {
             int r = src[x * 3], g = src[x * 3 + 1], b = src[x * 3 + 2];
-            # coefficients from https://en.wikipedia.org/wiki/YCbCr#Approximate_8-bit_matrices_for_BT.601 (05/2026)
+            // coefficients from https://en.wikipedia.org/wiki/YCbCr#Approximate_8-bit_matrices_for_BT.601
             int Y  = (77 * r + 150 * g +  29 * b) / 256;
             int Cb = (-43 * r -  84 * g + 127 * b) / 256 + 128;
             int Cr = (127 * r - 106 * g -  21 * b) / 256 + 128;
@@ -139,6 +139,141 @@ $cc proc erode {Image im int radius} Image {
     }
     return (Image){ .width = (uint32_t)w, .height = (uint32_t)h,
                     .components = 1, .bytesPerRow = (uint32_t)w,
+                    .uniq = im.uniq, .data = out };
+}
+
+$cc code {
+    static const int CDX[8] = { 1,  1,  0, -1, -1, -1,  0,  1};
+    static const int CDY[8] = { 0,  1,  1,  1,  0, -1, -1, -1};
+
+    static int fg(Image im, int x, int y) {
+        return x >= 0 && (uint32_t)x < im.width &&
+               y >= 0 && (uint32_t)y < im.height &&
+               im.data[y * im.bytesPerRow + x];
+    }
+
+    static int dir8(int dx, int dy) {
+        for (int i = 0; i < 8; i++)
+            if (CDX[i] == dx && CDY[i] == dy) return i;
+        return 0;
+    }
+
+    // Moore neighborhood tracing with Jacob's stopping criterion.
+    // sx,sy must be a left-edge boundary pixel (pixel to its left is bg).
+    // Returns malloc'd {x,y} pairs; caller frees. *out_n = point count.
+    static int* trace_contour(Image im, int sx, int sy, int* out_n) {
+        int cap = 256, n = 0;
+        int* pts = malloc(cap * 2 * sizeof(int));
+        int bx = sx - 1, by = sy;
+        int px = sx, py = sy;
+        int steps = 0;
+
+        do {
+            if (n >= cap) { cap *= 2; pts = realloc(pts, cap * 2 * sizeof(int)); }
+            pts[n*2] = px; pts[n*2+1] = py; n++;
+
+            int d = dir8(bx - px, by - py);
+            int nbx = bx, nby = by, npx = -1, npy = -1;
+            for (int i = 0; i < 8; i++) {
+                int di = (d + i) % 8;
+                int nx = px + CDX[di], ny = py + CDY[di];
+                if (fg(im, nx, ny)) { npx = nx; npy = ny; break; }
+                nbx = nx; nby = ny;
+            }
+            if (npx == -1) break;
+
+            bx = nbx; by = nby;
+            px = npx; py = npy;
+            steps++;
+        } while (steps < 4 * (int)(im.width * im.height) && !(px == sx && py == sy));
+
+        *out_n = n;
+        return pts;
+    }
+
+    // Scans for left-edge boundary pixels, traces each contour, returns
+    // the largest. Caller frees.
+    static int* find_largest_contour(Image im, int* out_n) {
+        int w = (int)im.width, h = (int)im.height;
+        int* best = NULL;
+        int best_n = 0;
+        uint8_t* visited = calloc(h * w, 1);
+
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int left_is_bg = (x == 0) || !im.data[y * im.bytesPerRow + x - 1];
+                if (im.data[y * im.bytesPerRow + x] && left_is_bg && !visited[y * w + x]) {
+                    int n;
+                    int* pts = trace_contour(im, x, y, &n);
+                    for (int i = 0; i < n; i++)
+                        visited[pts[i*2+1] * w + pts[i*2]] = 1;
+                    if (n > best_n) {
+                        free(best); best = pts; best_n = n;
+                    } else {
+                        free(pts);
+                    }
+                }
+            }
+        }
+        free(visited);
+        *out_n = best_n;
+        return best;
+    }
+
+    static Jim_Obj* pts_to_list(Jim_Interp* interp, int* pts, int n) {
+        Jim_Obj** items = malloc(n * sizeof(Jim_Obj*));
+        for (int i = 0; i < n; i++)
+            items[i] = Jim_ObjPrintf("%d %d", pts[i*2], pts[i*2+1]);
+        Jim_Obj* result = Jim_NewListObj(interp, items, n);
+        free(items);
+        return result;
+    }
+}
+
+$cc proc traceContour {Image binary int sx int sy} Jim_Obj* {
+    FOLK_ENSURE(binary.components == 1);
+    int n;
+    int* pts = trace_contour(binary, sx, sy, &n);
+    if (!pts || n == 0) return Jim_NewListObj(interp, NULL, 0);
+    Jim_Obj* result = pts_to_list(interp, pts, n);
+    free(pts);
+    return result;
+}
+
+$cc proc findContours {Image binary} Jim_Obj* {
+    FOLK_ENSURE(binary.components == 1);
+    int n;
+    int* pts = find_largest_contour(binary, &n);
+    if (!pts || n == 0) return Jim_NewListObj(interp, NULL, 0);
+    Jim_Obj* result = pts_to_list(interp, pts, n);
+    free(pts);
+    return result;
+}
+
+$cc proc drawContour {Image im Jim_Obj* points} Image {
+    FOLK_ENSURE(im.components == 1);
+    int w = (int)im.width, h = (int)im.height;
+    uint8_t* out = malloc(w * h * 3);
+    for (int y = 0; y < h; y++) {
+        uint8_t* src = im.data + y * im.bytesPerRow;
+        uint8_t* dst = out + y * w * 3;
+        for (int x = 0; x < w; x++)
+            dst[x*3] = dst[x*3+1] = dst[x*3+2] = src[x];
+    }
+
+    int count = Jim_ListLength(interp, points);
+    for (int i = 0; i < count; i++) {
+        Jim_Obj* pair = Jim_ListGetIndex(interp, points, i);
+        long px, py;
+        Jim_GetLong(interp, Jim_ListGetIndex(interp, pair, 0), &px);
+        Jim_GetLong(interp, Jim_ListGetIndex(interp, pair, 1), &py);
+        if (px >= 0 && px < w && py >= 0 && py < h) {
+            uint8_t* pixel = out + py * w * 3 + px * 3;
+            pixel[0] = 0; pixel[1] = 255; pixel[2] = 0;
+        }
+    }
+    return (Image){ .width = (uint32_t)w, .height = (uint32_t)h,
+                    .components = 3, .bytesPerRow = (uint32_t)(w * 3),
                     .uniq = im.uniq, .data = out };
 }
 
