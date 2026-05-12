@@ -334,7 +334,7 @@ created. Therefore, it will eventually be useful for you to know
 [basic](http://antirez.com/articoli/tclmisunderstood.html) [Tcl
 syntax](https://www.ee.columbia.edu/~shane/projects/sensornet/part1.pdf).
 
-These are all implemented in `main.tcl`. For most things, you'll
+These are all implemented in `prelude.tcl` and `folk.c`. For most things, you'll
 probably only need `Wish`, `Claim`, `When`, and maybe `Hold!`.
 
 ### Wish and Claim
@@ -465,7 +465,7 @@ If you want multiple state atoms, you can also provide a key -- you
 can be like
 
 ```
-Hold! ball position {
+Hold! -key {ball position} {
   Claim $this has a ball at blahblah
 }
 ```
@@ -474,9 +474,9 @@ and then future holds with that key, `ball position`, will
 overwrite this statement but not override different holds with
 different keys
 
-You can overwrite another program's Hold! with the `on` parameter, like
-`Hold! (on 852) { ... }` (if the Hold! is from page 852) or `Hold! (on
-builtin-programs/example.folk) { ... }` (if the Hold! is from the
+You can overwrite another program's Hold! with the `-on` parameter, like
+`Hold! -on 852 { ... }` (if the Hold! is from page 852) or `Hold! -on
+builtin-programs/example.folk { ... }` (if the Hold! is from the
 example.folk builtin program)
 
 ### Subscribe: and Notify:
