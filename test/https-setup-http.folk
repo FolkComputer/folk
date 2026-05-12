@@ -32,6 +32,12 @@ while true {
 
 assert {[string first "HTTP setup mode: certificates are missing" $body] >= 0}
 assert {[string first "Generate HTTPS Certificates" $body] >= 0}
+assert {[string first "Archive Folk HTTPS Certificates" $body] >= 0}
+assert {[string first "Copy Terminal Command" $body] >= 0}
+assert {[string first "Copy Removal Command" $body] >= 0}
+assert {[string first "security add-trusted-cert -r trustRoot -p ssl -k" $body] >= 0}
+assert {[string first "security delete-certificate -Z" $body] >= 0}
+assert {[string first "login.keychain-db" $body] >= 0}
 set qr [exec curl -sf "http://127.0.0.1:4273/setup/https/qr.svg?text=hello"]
 assert {[string first "<svg" $qr] >= 0}
 
@@ -58,5 +64,25 @@ set body [exec curl -sf http://127.0.0.1:4273/setup/https]
 assert {[string first "Certificates are ready; restart Folk to enable HTTPS" $body] >= 0}
 set status [exec curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:4273/folk-ca.cer]
 assert {$status eq "200"}
+
+set removeBody "Wish to remove local HTTPS certificates with request http-remove-test"
+exec curl -sf -X POST --data-binary $removeBody http://127.0.0.1:4273/
+
+set started [clock milliseconds]
+while true {
+    set results [Query! /someone/ claims HTTPS setup removal http-remove-test has status /status/ with /...options/]
+    if {[llength $results] > 0 && [dict get [lindex $results end] status] eq "success"} {
+        break
+    }
+    if {[clock milliseconds] - $started > 8000} {
+        error "HTTPS setup remove request did not complete"
+    }
+    sleep 0.2
+}
+
+set body [exec curl -sf http://127.0.0.1:4273/setup/https]
+assert {[string first "HTTP setup mode: certificates are missing" $body] >= 0}
+set ca404 [exec curl -s -o - -w "\n%{http_code}" http://127.0.0.1:4273/folk-ca.cer]
+assert {[string match "*\n404" $ca404]}
 
 Exit! 0

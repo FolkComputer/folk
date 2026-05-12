@@ -44,6 +44,20 @@ assert {[dict get $meta caExists] == 1}
 assert {[dict get $meta certExists] == 1}
 assert {[dict get $meta keyExists] == 1}
 
+set removal [httpsSetupArchiveCerts]
+assert {[string first "Archived" $removal] >= 0}
+assert {![file exists "$tmp/ca.pem"]}
+assert {![file exists "$tmp/ca.cer"]}
+assert {![file exists "$tmp/cert.pem"]}
+assert {![file exists "$tmp/key.pem"]}
+set archives [glob -nocomplain -directory $tmp removed-*]
+assert {[llength $archives] == 1}
+assert {[file exists "[lindex $archives 0]/ca.pem"]}
+set meta [httpsSetupMeta]
+assert {[dict get $meta caExists] == 0}
+assert {[dict get $meta certExists] == 0}
+assert {[dict get $meta keyExists] == 0}
+
 file delete -force $tmp
 if {$hadHttpsDir} {
     set ::env(FOLK_HTTPS_DIR) $oldHttpsDir
