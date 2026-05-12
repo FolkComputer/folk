@@ -168,13 +168,13 @@ remote-flamegraph:
 start: folk
 	@if [ -n "$$(systemctl list-unit-files | grep folk.service)" ] && \
 	   [ -n "$$(systemctl cat folk.service | grep "ExecStart.*$$(pwd)")" ] && \
-	   [ -z "$(ENABLE_ASAN)" ] && \
+	   [ -z "$(ASAN_ENABLE)" ] && \
 	   [ -z "$$INVOCATION_ID" ] && \
 	   [ -z "$(CFLAGS)" ] ; then \
 		sudo systemctl start folk.service; \
 		journalctl --output=cat -f -u folk.service; \
 	else \
-		$(if $(ENABLE_ASAN),ASAN_OPTIONS=detect_leaks=1:halt_on_error=0,) ./folk; \
+		$(if $(ASAN_ENABLE),ASAN_OPTIONS=detect_leaks=1:halt_on_error=0,) ./folk; \
 	fi
 
 run-tracy:
