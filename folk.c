@@ -12,6 +12,11 @@
 #include <sys/syscall.h>
 #include <fcntl.h>
 
+#ifdef __APPLE__
+#include <limits.h>
+#include <mach-o/dyld.h>
+#endif
+
 #if __has_include ("tracy/TracyC.h")
 #include "tracy/TracyC.h"
 #endif
@@ -1634,12 +1639,49 @@ void *tracyDebugAllocator(void *ptr, size_t size) {
 }
 #endif
 
+static void chdirToBundledFolkRootIfPresent(void) {
+#ifdef __APPLE__
+    char executablePath[PATH_MAX];
+    uint32_t executablePathSize = sizeof(executablePath);
+    if (_NSGetExecutablePath(executablePath, &executablePathSize) != 0) {
+        return;
+    }
+
+    char resolvedPath[PATH_MAX];
+    const char *path = realpath(executablePath, resolvedPath) ? resolvedPath : executablePath;
+    const char marker[] = "/Contents/MacOS/";
+    char *markerAt = strstr(path, marker);
+    if (!markerAt) {
+        return;
+    }
+
+    char folkRoot[PATH_MAX];
+    int folkRootLen = snprintf(folkRoot, sizeof(folkRoot),
+                               "%.*s/Contents/Resources/folk-root",
+                               (int)(markerAt - path), path);
+    if (folkRootLen < 0 || (size_t)folkRootLen >= sizeof(folkRoot)) {
+        return;
+    }
+
+    char bootPath[PATH_MAX];
+    int bootPathLen = snprintf(bootPath, sizeof(bootPath), "%s/boot.folk", folkRoot);
+    if (bootPathLen < 0 || (size_t)bootPathLen >= sizeof(bootPath)) {
+        return;
+    }
+
+    if (access(bootPath, R_OK) == 0 && chdir(folkRoot) != 0) {
+        dprintf(STDERR_FILENO, "folk: failed to chdir to bundled root %s\n", folkRoot);
+    }
+#endif
+}
+
 int main(int argc, char** argv) {
     // Do all setup.
 
     // Jim_Allocator = webDebugAllocator;
 
     outputRedirectionInit();
+    chdirToBundledFolkRootIfPresent();
 
     // Set up database.
     db = dbNew();

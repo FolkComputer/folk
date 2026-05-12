@@ -1,0 +1,764 @@
+# camera/macos.folk --
+#
+#     Hardware interface with macOS cameras via AVFoundation.
+
+if {$::tcl_platform(os) ne "Darwin"} { return }
+
+set macosCameraC [C]
+$macosCameraC eval [list set compiler clang]
+$macosCameraC cflags -x objective-c -fobjc-exceptions -fblocks -Wno-deprecated-declarations
+$macosCameraC endcflags -framework Foundation -framework AVFoundation \
+    -framework CoreMedia -framework CoreVideo -lturbojpeg
+
+$macosCameraC include <pthread.h>
+$macosCameraC include <stdbool.h>
+$macosCameraC include <stdint.h>
+$macosCameraC include <stdlib.h>
+$macosCameraC include <string.h>
+$macosCameraC include <math.h>
+
+$macosCameraC struct CameraBuffer {
+    uint8_t* start;
+    size_t length;
+}
+
+$macosCameraC typedef {struct MacCamera} MacCamera false
+
+$macosCameraC code {
+    #import <Foundation/Foundation.h>
+    #import <AVFoundation/AVFoundation.h>
+    #import <CoreMedia/CoreMedia.h>
+    #import <CoreVideo/CoreVideo.h>
+    #import <dispatch/dispatch.h>
+
+    #undef EXTERN
+    #include <turbojpeg.h>
+
+    typedef struct MacCamera MacCamera;
+
+    @interface FolkMacCameraDelegate : NSObject <AVCaptureVideoDataOutputSampleBufferDelegate>
+    {
+    @public
+        MacCamera *camera;
+    }
+    - (instancetype)initWithCamera:(MacCamera *)cameraState;
+    @end
+
+    struct MacCamera {
+        char *deviceId;
+
+        AVCaptureSession *session;
+        AVCaptureDevice *device;
+        AVCaptureDeviceInput *input;
+        AVCaptureVideoDataOutput *output;
+        FolkMacCameraDelegate *delegate;
+        dispatch_queue_t queue;
+
+        pthread_mutex_t mutex;
+        pthread_cond_t cond;
+        bool closing;
+
+        uint8_t *latestJpeg;
+        size_t latestJpegCapacity;
+        size_t latestJpegLength;
+        uint64_t frameCounter;
+        uint64_t deliveredFrameCounter;
+        int requestedWidth;
+        int requestedHeight;
+        int width;
+        int height;
+        double timestamp;
+
+        tjhandle compressor;
+    };
+
+    static char *
+    folk_strdup(const char *s)
+    {
+        if (!s) s = "";
+        size_t n = strlen(s);
+        char *out = (char *)malloc(n + 1);
+        if (!out) FOLK_ERROR("camera/macos: malloc failed");
+        memcpy(out, s, n + 1);
+        return out;
+    }
+
+    static const char *
+    authorization_status_name(AVAuthorizationStatus status)
+    {
+        switch (status) {
+            case AVAuthorizationStatusAuthorized: return "authorized";
+            case AVAuthorizationStatusDenied: return "denied";
+            case AVAuthorizationStatusRestricted: return "restricted";
+            case AVAuthorizationStatusNotDetermined: return "not_determined";
+        }
+
+        return "unknown";
+    }
+
+    static bool
+    host_has_camera_usage_description(void)
+    {
+        NSString *usage = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"NSCameraUsageDescription"];
+        return [usage isKindOfClass:[NSString class]] && [usage length] > 0;
+    }
+
+    static const char *
+    request_camera_access_if_needed(void)
+    {
+        AVAuthorizationStatus status = [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeVideo];
+
+        if (status == AVAuthorizationStatusAuthorized ||
+            status == AVAuthorizationStatusDenied ||
+            status == AVAuthorizationStatusRestricted) {
+            return authorization_status_name(status);
+        }
+
+        if (!host_has_camera_usage_description()) {
+            return "missing_usage_description";
+        }
+
+        __block BOOL granted = NO;
+        dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+
+        [AVCaptureDevice requestAccessForMediaType:AVMediaTypeVideo completionHandler:^(BOOL ok) {
+            granted = ok;
+            dispatch_semaphore_signal(sem);
+        }];
+
+        dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
+
+    #if !OS_OBJECT_USE_OBJC
+        dispatch_release(sem);
+    #endif
+
+        return granted ? "authorized" : "denied";
+    }
+
+    static NSArray *
+    all_video_devices(void)
+    {
+    #pragma clang diagnostic push
+    #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        return [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
+    #pragma clang diagnostic pop
+    }
+
+    static Jim_Obj *
+    jim_string_for_nsstring(NSString *s)
+    {
+        if (!s) s = @"";
+        return Jim_NewStringObj(interp, [s UTF8String], -1);
+    }
+
+    static void
+    add_framerate(NSMutableSet *fpsSet, double fps)
+    {
+        if (!isfinite(fps) || fps <= 0.0) return;
+
+        double rounded = round(fps);
+        if (fabs(rounded - fps) < 0.01) fps = rounded;
+        [fpsSet addObject:[NSNumber numberWithDouble:fps]];
+    }
+
+    static AVCaptureDeviceFormat *
+    choose_format(AVCaptureDevice *device, int desiredWidth, int desiredHeight, double desiredFps)
+    {
+        AVCaptureDeviceFormat *best = nil;
+        double bestScore = 1.0e30;
+
+        for (AVCaptureDeviceFormat *fmt in [device formats]) {
+            CMFormatDescriptionRef desc = [fmt formatDescription];
+            CMVideoDimensions dims = CMVideoFormatDescriptionGetDimensions(desc);
+            if (dims.width <= 0 || dims.height <= 0) continue;
+
+            bool fpsOk = true;
+            double fpsPenalty = 0.0;
+            if (desiredFps > 0.0) {
+                fpsOk = false;
+                for (AVFrameRateRange *range in [fmt videoSupportedFrameRateRanges]) {
+                    if ([range minFrameRate] <= desiredFps && desiredFps <= [range maxFrameRate]) {
+                        fpsOk = true;
+                        break;
+                    }
+
+                    double penalty = fmin(fabs([range minFrameRate] - desiredFps),
+                                          fabs([range maxFrameRate] - desiredFps));
+                    if (fpsPenalty == 0.0 || penalty < fpsPenalty) fpsPenalty = penalty;
+                }
+            }
+
+            double score = 0.0;
+            if (desiredWidth > 0) score += fabs((double)dims.width - (double)desiredWidth) * 1000.0;
+            if (desiredHeight > 0) score += fabs((double)dims.height - (double)desiredHeight) * 1000.0;
+            if (!fpsOk) score += 10000000.0 + fpsPenalty * 1000.0;
+
+            if (score < bestScore) {
+                best = fmt;
+                bestScore = score;
+            }
+        }
+
+        return best;
+    }
+
+    @implementation FolkMacCameraDelegate
+
+    - (instancetype)initWithCamera:(MacCamera *)cameraState
+    {
+        self = [super init];
+        if (self) {
+            camera = cameraState;
+        }
+        return self;
+    }
+
+    - (void)captureOutput:(AVCaptureOutput *)output
+     didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
+            fromConnection:(AVCaptureConnection *)connection
+    {
+        (void)output;
+        (void)connection;
+
+        MacCamera *c = camera;
+        if (!c || c->closing) return;
+
+        CVImageBufferRef imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
+        if (!imageBuffer) return;
+
+        CVPixelBufferRef pixelBuffer = (CVPixelBufferRef)imageBuffer;
+        OSType pixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer);
+        if (pixelFormat != kCVPixelFormatType_32BGRA) return;
+
+        CVReturn lockStatus = CVPixelBufferLockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
+        if (lockStatus != kCVReturnSuccess) return;
+
+        int width = (int)CVPixelBufferGetWidth(pixelBuffer);
+        int height = (int)CVPixelBufferGetHeight(pixelBuffer);
+        int bytesPerRow = (int)CVPixelBufferGetBytesPerRow(pixelBuffer);
+        uint8_t *base = (uint8_t *)CVPixelBufferGetBaseAddress(pixelBuffer);
+
+        unsigned char *jpegBuf = NULL;
+        unsigned long jpegSize = 0;
+        int ret = tjCompress2(c->compressor, base, width, bytesPerRow, height,
+                              TJPF_BGRA, &jpegBuf, &jpegSize, TJSAMP_420, 85,
+                              TJFLAG_FASTDCT);
+
+        CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
+
+        if (ret != 0) {
+            fprintf(stderr, "camera/macos: JPEG compression failed: %s\n",
+                    tjGetErrorStr2(c->compressor));
+            if (jpegBuf) tjFree(jpegBuf);
+            return;
+        }
+
+        pthread_mutex_lock(&c->mutex);
+
+        if (c->latestJpegCapacity < (size_t)jpegSize) {
+            uint8_t *next = (uint8_t *)realloc(c->latestJpeg, (size_t)jpegSize);
+            if (!next) {
+                pthread_mutex_unlock(&c->mutex);
+                fprintf(stderr, "camera/macos: realloc failed for JPEG frame\n");
+                tjFree(jpegBuf);
+                return;
+            }
+            c->latestJpeg = next;
+            c->latestJpegCapacity = (size_t)jpegSize;
+        }
+
+        memcpy(c->latestJpeg, jpegBuf, (size_t)jpegSize);
+        c->latestJpegLength = (size_t)jpegSize;
+        c->width = width;
+        c->height = height;
+        c->timestamp = [[NSDate date] timeIntervalSince1970];
+        c->frameCounter++;
+        pthread_cond_broadcast(&c->cond);
+
+        pthread_mutex_unlock(&c->mutex);
+
+        tjFree(jpegBuf);
+    }
+
+    @end
+}
+
+$macosCameraC proc cameraAuthorizationStatus {} char* {
+    return (char *)authorization_status_name([AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeVideo]);
+}
+
+$macosCameraC proc requestCameraAccess {} char* {
+    @autoreleasepool {
+        return (char *)request_camera_access_if_needed();
+    }
+}
+
+$macosCameraC proc listCameras {} Jim_Obj* {
+    @autoreleasepool {
+        Jim_Obj *result = Jim_NewListObj(interp, NULL, 0);
+
+        for (AVCaptureDevice *device in all_video_devices()) {
+            Jim_Obj *camera = Jim_NewDictObj(interp, NULL, 0);
+
+            Jim_DictAddElement(interp, camera,
+                               Jim_NewStringObj(interp, "id", -1),
+                               jim_string_for_nsstring([device uniqueID]));
+            Jim_DictAddElement(interp, camera,
+                               Jim_NewStringObj(interp, "name", -1),
+                               jim_string_for_nsstring([device localizedName]));
+            Jim_DictAddElement(interp, camera,
+                               Jim_NewStringObj(interp, "card", -1),
+                               jim_string_for_nsstring([device localizedName]));
+            Jim_DictAddElement(interp, camera,
+                               Jim_NewStringObj(interp, "model_id", -1),
+                               jim_string_for_nsstring([device modelID]));
+
+            NSMutableDictionary *fpsByResolution = [NSMutableDictionary dictionary];
+
+            for (AVCaptureDeviceFormat *fmt in [device formats]) {
+                CMFormatDescriptionRef desc = [fmt formatDescription];
+                CMVideoDimensions dims = CMVideoFormatDescriptionGetDimensions(desc);
+                if (dims.width <= 0 || dims.height <= 0) continue;
+
+                NSString *key = [NSString stringWithFormat:@"%dx%d", dims.width, dims.height];
+                NSMutableSet *fpsSet = [fpsByResolution objectForKey:key];
+                if (!fpsSet) {
+                    fpsSet = [NSMutableSet set];
+                    [fpsByResolution setObject:fpsSet forKey:key];
+                }
+
+                for (AVFrameRateRange *range in [fmt videoSupportedFrameRateRanges]) {
+                    add_framerate(fpsSet, [range maxFrameRate]);
+                    if (fabs([range minFrameRate] - [range maxFrameRate]) > 0.01) {
+                        add_framerate(fpsSet, [range minFrameRate]);
+                    }
+                }
+            }
+
+            Jim_Obj *resolutions = Jim_NewListObj(interp, NULL, 0);
+            for (NSString *key in [fpsByResolution allKeys]) {
+                NSArray *parts = [key componentsSeparatedByString:@"x"];
+                if ([parts count] != 2) continue;
+
+                int width = [[parts objectAtIndex:0] intValue];
+                int height = [[parts objectAtIndex:1] intValue];
+
+                Jim_Obj *framerates = Jim_NewListObj(interp, NULL, 0);
+                NSArray *sortedFps = [[[fpsByResolution objectForKey:key] allObjects]
+                                      sortedArrayUsingSelector:@selector(compare:)];
+                for (NSNumber *fps in sortedFps) {
+                    Jim_ListAppendElement(interp, framerates,
+                                          Jim_NewDoubleObj(interp, [fps doubleValue]));
+                }
+                if ([sortedFps count] == 0) {
+                    Jim_ListAppendElement(interp, framerates, Jim_NewDoubleObj(interp, 30.0));
+                }
+
+                Jim_Obj *resolution = Jim_NewDictObj(interp, NULL, 0);
+                Jim_DictAddElement(interp, resolution,
+                                   Jim_NewStringObj(interp, "width", -1),
+                                   Jim_NewIntObj(interp, width));
+                Jim_DictAddElement(interp, resolution,
+                                   Jim_NewStringObj(interp, "height", -1),
+                                   Jim_NewIntObj(interp, height));
+                Jim_DictAddElement(interp, resolution,
+                                   Jim_NewStringObj(interp, "framerates", -1),
+                                   framerates);
+
+                Jim_ListAppendElement(interp, resolutions, resolution);
+            }
+
+            Jim_Obj *formats = Jim_NewListObj(interp, NULL, 0);
+            Jim_Obj *format = Jim_NewDictObj(interp, NULL, 0);
+            Jim_DictAddElement(interp, format,
+                               Jim_NewStringObj(interp, "fourcc", -1),
+                               Jim_NewStringObj(interp, "MJPG", -1));
+            Jim_DictAddElement(interp, format,
+                               Jim_NewStringObj(interp, "description", -1),
+                               Jim_NewStringObj(interp, "AVFoundation BGRA encoded to JPEG", -1));
+            Jim_DictAddElement(interp, format,
+                               Jim_NewStringObj(interp, "resolutions", -1),
+                               resolutions);
+            Jim_ListAppendElement(interp, formats, format);
+
+            Jim_DictAddElement(interp, camera,
+                               Jim_NewStringObj(interp, "formats", -1),
+                               formats);
+
+            Jim_ListAppendElement(interp, result, camera);
+        }
+
+        return result;
+    }
+}
+
+$macosCameraC proc cameraOpen {char* deviceId int width int height double fps} MacCamera* {
+    @autoreleasepool {
+        const char *auth = request_camera_access_if_needed();
+        if (strcmp(auth, "authorized") != 0) {
+            FOLK_ERROR("camera/macos: camera access is %s", auth);
+        }
+
+        AVCaptureDevice *device = nil;
+        NSString *wanted = [NSString stringWithUTF8String:deviceId ? deviceId : ""];
+
+        if (wanted && [wanted length] > 0 && ![wanted isEqualToString:@"default"]) {
+            for (AVCaptureDevice *candidate in all_video_devices()) {
+                if ([[candidate uniqueID] isEqualToString:wanted] ||
+                    [[candidate localizedName] isEqualToString:wanted]) {
+                    device = candidate;
+                    break;
+                }
+            }
+        } else {
+        #pragma clang diagnostic push
+        #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+            device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
+        #pragma clang diagnostic pop
+        }
+
+        if (!device) {
+            FOLK_ERROR("camera/macos: no matching camera device");
+        }
+
+        AVCaptureDeviceFormat *format = choose_format(device, width, height, fps);
+        if (!format) {
+            FOLK_ERROR("camera/macos: no suitable camera format");
+        }
+
+        NSError *error = nil;
+        if (![device lockForConfiguration:&error]) {
+            FOLK_ERROR("camera/macos: %s", [[error localizedDescription] UTF8String]);
+        }
+
+        [device setActiveFormat:format];
+
+        if (fps > 0.0) {
+            CMTime frameDuration = CMTimeMake(1000000, (int32_t)(fps * 1000000.0));
+            if (CMTIME_IS_VALID(frameDuration)) {
+                [device setActiveVideoMinFrameDuration:frameDuration];
+                [device setActiveVideoMaxFrameDuration:frameDuration];
+            }
+        }
+
+        [device unlockForConfiguration];
+
+        AVCaptureSession *session = [[AVCaptureSession alloc] init];
+        [session beginConfiguration];
+        if ([session canSetSessionPreset:AVCaptureSessionPresetInputPriority]) {
+            [session setSessionPreset:AVCaptureSessionPresetInputPriority];
+        }
+
+        AVCaptureDeviceInput *input = [AVCaptureDeviceInput deviceInputWithDevice:device error:&error];
+        if (!input) {
+            [session release];
+            FOLK_ERROR("camera/macos: %s", [[error localizedDescription] UTF8String]);
+        }
+
+        if (![session canAddInput:input]) {
+            [session release];
+            FOLK_ERROR("camera/macos: cannot add camera input to session");
+        }
+        [session addInput:input];
+
+        AVCaptureVideoDataOutput *output = [[AVCaptureVideoDataOutput alloc] init];
+        [output setAlwaysDiscardsLateVideoFrames:YES];
+        [output setVideoSettings:@{
+            (NSString *)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA)
+        }];
+
+        if (![session canAddOutput:output]) {
+            [output release];
+            [session release];
+            FOLK_ERROR("camera/macos: cannot add video output to session");
+        }
+
+        MacCamera *camera = (MacCamera *)calloc(1, sizeof(MacCamera));
+        if (!camera) {
+            [output release];
+            [session release];
+            FOLK_ERROR("camera/macos: calloc failed");
+        }
+
+        camera->deviceId = folk_strdup([[device uniqueID] UTF8String]);
+        camera->session = session;
+        camera->device = [device retain];
+        camera->input = [input retain];
+        camera->output = output;
+        camera->requestedWidth = width;
+        camera->requestedHeight = height;
+        camera->width = width;
+        camera->height = height;
+        camera->compressor = tjInitCompress();
+        if (!camera->compressor) {
+            free(camera->deviceId);
+            free(camera);
+            [output release];
+            [session release];
+            FOLK_ERROR("camera/macos: failed to initialize JPEG compressor");
+        }
+
+        pthread_mutex_init(&camera->mutex, NULL);
+        pthread_cond_init(&camera->cond, NULL);
+
+        camera->queue = dispatch_queue_create("computer.folk.macos-camera.capture", DISPATCH_QUEUE_SERIAL);
+        camera->delegate = [[FolkMacCameraDelegate alloc] initWithCamera:camera];
+        [output setSampleBufferDelegate:camera->delegate queue:camera->queue];
+
+        [session addOutput:output];
+        [session commitConfiguration];
+        [session startRunning];
+
+        return camera;
+    }
+}
+
+$macosCameraC proc cameraClose {MacCamera* camera} void {
+    if (!camera) return;
+
+    pthread_mutex_lock(&camera->mutex);
+    camera->closing = true;
+    pthread_cond_broadcast(&camera->cond);
+    pthread_mutex_unlock(&camera->mutex);
+
+    [camera->session stopRunning];
+    [camera->output setSampleBufferDelegate:nil queue:NULL];
+    if (camera->queue) {
+        dispatch_sync(camera->queue, ^{
+        });
+    }
+
+    [camera->delegate release];
+    [camera->output release];
+    [camera->input release];
+    [camera->device release];
+    [camera->session release];
+
+#if !OS_OBJECT_USE_OBJC
+    if (camera->queue) dispatch_release(camera->queue);
+#endif
+
+    if (camera->compressor) tjDestroy(camera->compressor);
+    free(camera->latestJpeg);
+    free(camera->deviceId);
+
+    pthread_cond_destroy(&camera->cond);
+    pthread_mutex_destroy(&camera->mutex);
+    free(camera);
+}
+
+$macosCameraC proc cameraFrameJpeg {MacCamera* camera} CameraBuffer {
+    pthread_mutex_lock(&camera->mutex);
+
+    while (!camera->closing &&
+           (camera->latestJpegLength == 0 ||
+            camera->deliveredFrameCounter == camera->frameCounter)) {
+        pthread_cond_wait(&camera->cond, &camera->mutex);
+    }
+
+    if (camera->closing) {
+        pthread_mutex_unlock(&camera->mutex);
+        FOLK_ERROR("camera/macos: camera is closing");
+    }
+
+    CameraBuffer frame = {
+        .start = (uint8_t *)malloc(camera->latestJpegLength),
+        .length = camera->latestJpegLength
+    };
+    if (!frame.start) {
+        pthread_mutex_unlock(&camera->mutex);
+        FOLK_ERROR("camera/macos: malloc failed");
+    }
+
+    memcpy(frame.start, camera->latestJpeg, camera->latestJpegLength);
+    camera->deliveredFrameCounter = camera->frameCounter;
+
+    pthread_mutex_unlock(&camera->mutex);
+    return frame;
+}
+
+$macosCameraC proc cameraWidth {MacCamera* camera} int {
+    pthread_mutex_lock(&camera->mutex);
+    int width = camera->width;
+    pthread_mutex_unlock(&camera->mutex);
+    return width;
+}
+
+$macosCameraC proc cameraHeight {MacCamera* camera} int {
+    pthread_mutex_lock(&camera->mutex);
+    int height = camera->height;
+    pthread_mutex_unlock(&camera->mutex);
+    return height;
+}
+
+$macosCameraC proc jpegFree {CameraBuffer jpeg} void {
+    free(jpeg.start);
+}
+
+$macosCameraC proc setExposure {MacCamera* camera int exposureTimeUs} void {
+    AVCaptureDevice *device = camera->device;
+    NSError *error = nil;
+
+    if (![device lockForConfiguration:&error]) {
+        FOLK_ERROR("camera/macos: %s", [[error localizedDescription] UTF8String]);
+    }
+
+    if (exposureTimeUs <= 0) {
+        if ([device isExposureModeSupported:AVCaptureExposureModeContinuousAutoExposure]) {
+            [device setExposureMode:AVCaptureExposureModeContinuousAutoExposure];
+        } else if ([device isExposureModeSupported:AVCaptureExposureModeAutoExpose]) {
+            [device setExposureMode:AVCaptureExposureModeAutoExpose];
+        }
+        [device unlockForConfiguration];
+        return;
+    }
+
+    if ([device isExposureModeSupported:AVCaptureExposureModeCustom]) {
+        AVCaptureDeviceFormat *format = [device activeFormat];
+        CMTime duration = CMTimeMake(exposureTimeUs, 1000000);
+        if (CMTimeCompare(duration, [format minExposureDuration]) < 0) {
+            duration = [format minExposureDuration];
+        }
+        if (CMTimeCompare(duration, [format maxExposureDuration]) > 0) {
+            duration = [format maxExposureDuration];
+        }
+
+        float iso = [device ISO];
+        if (iso < [format minISO]) iso = [format minISO];
+        if (iso > [format maxISO]) iso = [format maxISO];
+
+        [device setExposureModeCustomWithDuration:duration ISO:iso completionHandler:nil];
+    } else if ([device isExposureModeSupported:AVCaptureExposureModeLocked]) {
+        [device setExposureMode:AVCaptureExposureModeLocked];
+    }
+
+    [device unlockForConfiguration];
+}
+
+set macosCameraLib [$macosCameraC compile]
+
+set macosCameraAccess [$macosCameraLib requestCameraAccess]
+if {$macosCameraAccess eq "authorized"} {
+    foreach cameraInfo [$macosCameraLib listCameras] {
+        set camera "macos:[dict get $cameraInfo id]"
+        Claim $::thisNode has camera $camera with {*}$cameraInfo
+    }
+} else {
+    puts stderr "camera/macos: camera access is $macosCameraAccess; not enumerating cameras"
+}
+
+When the image library is /imageLib/ &\
+     the jpeg library is /jpegLib/ {
+    When camera /cameraPath/ has width /decompWidth/ height /decompHeight/ {
+        When camera $cameraPath has jpeg frame /jpeg/ at timestamp /ts/ {
+            set grayImage [$jpegLib jpegDecompressGray $jpeg \
+                               $decompWidth $decompHeight \
+                               [expr {int($ts * 1000)}]]
+            Hold! -key [list camera $cameraPath gray-frame] \
+                Claim camera $cameraPath has gray frame $grayImage at timestamp $ts \
+                -destructor [list $imageLib imageFree $grayImage]
+        }
+        When camera $cameraPath has jpeg frame /jpeg/ at timestamp /ts/ {
+            set frameImage [$jpegLib jpegDecompressRGB $jpeg \
+                                $decompWidth $decompHeight \
+                                [expr {int($ts * 1000)}]]
+            Hold! -key [list camera $cameraPath frame] \
+                Claim camera $cameraPath has frame $frameImage at timestamp $ts \
+                -destructor [list $imageLib imageFree $frameImage]
+        }
+    }
+}
+
+When the jpeg library is /jpegLib/ {
+    When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
+        if {![string match "macos:*" $camera]} { return }
+
+        set cameraId [string range $camera [string length "macos:"] end]
+        set width [dict getdef $options width 1280]
+        set height [dict getdef $options height 720]
+        set framerate [dict getdef $options framerate 30]
+
+        if {[dict exists $options crops]} {
+            set crops [dict get $options crops]
+        }
+
+        fn runCamera {camObjVar} {
+            puts "camera/macos: Will try to open $camera"
+
+            upvar $camObjVar camObj_
+            set camObj_ [$macosCameraLib cameraOpen $cameraId $width $height $framerate]
+            set camObj $camObj_ ;# HACK: we don't capture upvars yet.
+            puts "camera/macos: Loaded $camera -> $camObj"
+
+            for {set i 0} {$i < 5} {incr i} {
+                set warmupJpeg [$macosCameraLib cameraFrameJpeg $camObj]
+                $macosCameraLib jpegFree $warmupJpeg
+            }
+
+            set actualWidth [$macosCameraLib cameraWidth $camObj]
+            set actualHeight [$macosCameraLib cameraHeight $camObj]
+
+            if {[info exists crops]} {
+                for {set i 0} {$i < [llength $crops]} {incr i} {
+                    set crop [lindex $crops $i]
+                    Claim camera [list $camera $i] has width [dict get $crop width] \
+                        height [dict get $crop height]
+                }
+            } else {
+                Claim camera $camera has width $actualWidth height $actualHeight
+            }
+
+            When /someone/ wishes camera $camera uses exposure time /exposureTimeUs/ us {
+                $macosCameraLib setExposure $camObj [expr {int($exposureTimeUs)}]
+            }
+
+            while true {
+                tracy zoneBegin
+
+                set jpeg [$macosCameraLib cameraFrameJpeg $camObj]
+                set timestamp [expr {[clock milliseconds] / 1000.0}]
+                tracy zoneName "camera/macos: $timestamp"
+
+                if {[info exists crops]} {
+                    for {set i 0} {$i < [llength $crops]} {incr i} {
+                        set crop [lindex $crops $i]
+                        set cropPath [list $camera $i]
+                        set croppedJpeg [$jpegLib jpegSubimage $jpeg \
+                                             [dict get $crop x] \
+                                             [dict get $crop y] \
+                                             [dict get $crop width] \
+                                             [dict get $crop height]]
+                        Hold! -key [list camera $cropPath jpeg] \
+                            Claim camera $cropPath has jpeg frame $croppedJpeg at timestamp $timestamp \
+                            -destructor [list $macosCameraLib jpegFree $croppedJpeg]
+                    }
+                }
+
+                Hold! -key [list camera $camera jpeg] \
+                    Claim camera $camera has jpeg frame $jpeg at timestamp $timestamp \
+                    -destructor [list $macosCameraLib jpegFree $jpeg]
+
+                tracy zoneEnd
+            }
+        }
+
+        while true {
+            set camObj {}
+            try -signal {
+                runCamera camObj
+            } on error e {
+                puts stderr "camera/macos: Error $e"
+            } on signal sig {
+                puts stderr "camera/macos: Signal $sig"
+                break
+            } finally {
+                if {$camObj ne {}} {
+                    puts "camera/macos: Close $camObj"
+                    $macosCameraLib cameraClose $camObj
+                }
+            }
+
+            sleep 1
+        }
+    }
+}

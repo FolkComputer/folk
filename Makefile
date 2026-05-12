@@ -56,7 +56,7 @@ folk_interpose.dylib: output-redirection.c
 		-DFOLK_INTERPOSE_DYLIB \
 		-o $@ $<
 
-.PHONY: test clean deps
+.PHONY: test clean deps macos-bundle
 test: folk
 	@count=1; \
 	total=$$(ls test/*.folk | wc -l | tr -d ' '); \
@@ -103,6 +103,51 @@ deps:
 		cd vendor/jimtcl && ./configure CFLAGS='-g -fno-omit-frame-pointer'; \
 	fi
 	make -C vendor/jimtcl
+
+macos-bundle: folk
+	@if [ "$$(uname -s)" != "Darwin" ]; then \
+		echo "macos-bundle can only be built on Darwin"; \
+		exit 1; \
+	fi
+	rm -rf build/Folk.app
+	mkdir -p build/Folk.app/Contents/MacOS
+	mkdir -p build/Folk.app/Contents/Resources/folk-root
+	mkdir -p build/Folk.app/Contents/Resources/folk-root/builtin-programs
+	mkdir -p build/Folk.app/Contents/Resources/folk-root/lib
+	mkdir -p build/Folk.app/Contents/Resources/folk-root/vendor
+	mkdir -p build/Folk.app/Contents/Resources/folk-root/assets
+	mkdir -p build/Folk.app/Contents/Resources/folk-root/user-programs
+	cp folk build/Folk.app/Contents/MacOS/folk
+	cp folk_interpose.dylib build/Folk.app/Contents/MacOS/folk_interpose.dylib
+	cp boot.folk prelude.tcl build/Folk.app/Contents/Resources/folk-root/
+	rsync -a --delete builtin-programs/ build/Folk.app/Contents/Resources/folk-root/builtin-programs/
+	rsync -a --delete lib/ build/Folk.app/Contents/Resources/folk-root/lib/
+	rsync -a --delete assets/ build/Folk.app/Contents/Resources/folk-root/assets/
+	rsync -a --delete --exclude='tracy/.git' vendor/ build/Folk.app/Contents/Resources/folk-root/vendor/
+	{ \
+		printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>'; \
+		printf '%s\n' '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"'; \
+		printf '%s\n' ' "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'; \
+		printf '%s\n' '<plist version="1.0">'; \
+		printf '%s\n' '  <dict>'; \
+		printf '%s\n' '    <key>CFBundleExecutable</key>'; \
+		printf '%s\n' '    <string>folk</string>'; \
+		printf '%s\n' '    <key>CFBundleIdentifier</key>'; \
+		printf '%s\n' '    <string>computer.folk.local</string>'; \
+		printf '%s\n' '    <key>CFBundleName</key>'; \
+		printf '%s\n' '    <string>Folk</string>'; \
+		printf '%s\n' '    <key>CFBundlePackageType</key>'; \
+		printf '%s\n' '    <string>APPL</string>'; \
+		printf '%s\n' '    <key>CFBundleVersion</key>'; \
+		printf '%s\n' '    <string>0.1</string>'; \
+		printf '%s\n' '    <key>CFBundleShortVersionString</key>'; \
+		printf '%s\n' '    <string>0.1</string>'; \
+		printf '%s\n' '    <key>NSCameraUsageDescription</key>'; \
+		printf '%s\n' '    <string>Folk needs camera access to publish local camera frames.</string>'; \
+		printf '%s\n' '  </dict>'; \
+		printf '%s\n' '</plist>'; \
+	} > build/Folk.app/Contents/Info.plist
+	codesign --force --deep --sign - build/Folk.app
 
 
 kill-folk:

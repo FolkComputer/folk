@@ -1,5 +1,6 @@
 folk
 folk.pid
+build/
 *.o
 folk.dSYM
 folk_interpose.dylib
