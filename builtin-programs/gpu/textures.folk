@@ -817,22 +817,22 @@ $gpuc proc processDeferredTextureOps {} void {
 $gpuc proc initPlaceholderTexture {} void {
     // Set up a placeholder texture in slot 0 that can always be drawn
     // that we can swap in when textures get invalidated.
-    Image magentaIm = {
+    Image debugIm = {
         .width = 128, .height = 128,
         .components = 4,
         .bytesPerRow = 128 * 4,
         .data = malloc(128 * 128 * 4)
     };
-    for (int y = 0; y < magentaIm.height; y++) {
-        for (int x = 0; x < magentaIm.width; x++) {
-            int i = y * magentaIm.bytesPerRow + x * magentaIm.components;
-            magentaIm.data[i+0] = 255;
-            magentaIm.data[i+1] = 0;
-            magentaIm.data[i+2] = 255;
-            magentaIm.data[i+3] = 255;
+    for (int y = 0; y < debugIm.height; y++) {
+        for (int x = 0; x < debugIm.width; x++) {
+            int i = y * debugIm.bytesPerRow + x * debugIm.components;
+            debugIm.data[i+0] = 255;
+            debugIm.data[i+1] = 0;
+            debugIm.data[i+2] = 255;
+            debugIm.data[i+3] = 0;
         }
     }
-    GpuTextureHandle han = copyImageToGpuTexture(magentaIm);
+    GpuTextureHandle han = copyImageToGpuTexture(debugIm);
     FOLK_ENSURE(han == 0);
 
     // Fill all descriptor slots with the placeholder texture, then

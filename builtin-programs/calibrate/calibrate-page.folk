@@ -1,15 +1,9 @@
 When the print library is /printLib/ &\
      the programToPs is /programToPs/ &\
-     the calibration matLib is /matLib/ &\
-     the calibration isProjectedTag is /isProjectedTag/ &\
-     the calibration isPrintedTag is /isPrintedTag/ &\
-     the calibration unit model is /UNIT_MODEL/ &\
-     the calibration estimateHomography is /estimateHomography/ {
+     the calibration matrix library is /matLib/ &\
+     the calibration model library is /modelLib/ {
 
 fn programToPs
-fn estimateHomography
-fn isProjectedTag
-fn isPrintedTag
 
 fn makeCalibrationBoardPdf {model tagSideLengthPs} {
     package require linalg
@@ -22,7 +16,7 @@ fn makeCalibrationBoardPdf {model tagSideLengthPs} {
 
     set tagOuterLengthPs [expr {$tagSideLengthPs * 10/6}]
 
-    set H_modelToPs [estimateHomography [subst {
+    set H_modelToPs [$matLib estimateHomography [subst {
         {1 1 $tagSideLengthPs $tagSideLengthPs}
         {1 0 $tagSideLengthPs 0}
         {0 1 0 $tagSideLengthPs}
@@ -48,7 +42,7 @@ fn makeCalibrationBoardPdf {model tagSideLengthPs} {
 
         [set tagIdx -1]
         [join [lmap {id modelTag} $model {
-            if {![isPrintedTag $id]} { continue }
+            if {![$modelLib isPrintedTag $id]} { continue }
             incr tagIdx
 
             set modelInnerTopLeft [lindex [dict get $modelTag p] 3]
@@ -147,7 +141,7 @@ fn makeExampleProgramPng {} {
 Wish the web server handles route "/calibrate" with hidden true handler {
     package require base64
 
-    set calibrationBoardPdf [makeCalibrationBoardPdf $UNIT_MODEL 70]
+    set calibrationBoardPdf [makeCalibrationBoardPdf [$modelLib unitModel] 70]
 
     set exampleProgramPng [makeExampleProgramPng]
 
@@ -155,9 +149,10 @@ Wish the web server handles route "/calibrate" with hidden true handler {
     fn defaultGeomGet {key} { return [string map {mm ""} [dict get $defaultGeom $key]] }
 
     set camera $QUERY(camera)
+    set display $QUERY(display)
 
     # Query the camera resolution for proper aspect ratio in preview (defaults to 1920x1080)
-    set cameraOpts [dict getdef [lindex [Query! /someone/ wishes $::thisNode uses camera $camera with /...opts/] 0] opts {width 1920 height 1080}]
+    set cameraOpts [QueryOne! camera $camera has width /width/ height /height/]
     set cameraWidth [dict get $cameraOpts width]
     set cameraHeight [dict get $cameraOpts height]
 
@@ -166,7 +161,42 @@ Wish the web server handles route "/calibrate" with hidden true handler {
       <html>
         <head>
           <title>Folk: Calibrate</title>
-          <style>body { max-width: 600px; }</style>
+          <style>
+           body { margin: 0; }
+           article { max-width: 600px; }
+           aside {
+               position: fixed; top: 0; right: 0;
+               width: min(calc(100vw - 650px), 550px);
+               height: 100vh; overflow-y: auto;
+               padding: 1em;
+               box-sizing: border-box;
+               text-align: right;
+           }
+           aside iframe {
+               width: 100%;
+               height: calc(100cqw * $cameraHeight / $cameraWidth + 72px);
+           }
+           @media (max-width: 800px) {
+               aside {
+                   left: 0;
+                   width: 100%;
+                   height: 50vh;
+                   text-align: left;
+               }
+               aside iframe {
+                   width: 65%;
+                   height: calc(65cqw * $cameraHeight / $cameraWidth + 72px)
+               }
+               article {
+                   position: fixed;
+                   top: 50vh;
+                   left: 0; right: 0;
+                   max-height: 50vh;
+                   width: 100%; max-width: 100%;
+                   overflow-y: auto;
+               }
+           }
+          </style>
         </head>
       <body>
         <span id="status">Status</span>
@@ -179,9 +209,44 @@ Wish the web server handles route "/calibrate" with hidden true handler {
          }
          const self = uuidv4();
 
-         const ws = new FolkWS(document.getElementById('status'));
+         const folk = new FolkWS(document.getElementById('status'));
+         folk.send(`
+    On unmatch {
+        Hold! -on builtin-programs/calibrate/calibrate.folk -key {start calibration} {}
+    }
+         `);
         </script>
 
+        <aside style="container-type: inline-size">
+          <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position):</p>
+          <div style="position: relative">
+            <iframe src="/camera?camera=$[string map {/ %2F} $camera]"
+                    style="border: 1px solid #999"></iframe>
+            $[HtmlWhen /someone/ detects calibration tags /detectedTags/ on camera $camera {
+                concat \
+                  [subst {<svg class="apriltag-overlay"
+                               viewBox="0 0 $cameraWidth $cameraHeight"
+                               style="position: absolute; top: 1px; left: 1px;
+                                      width: 100%; height: calc(100cqw * $cameraHeight / $cameraWidth)%;
+                                      pointer-events: none;">}] \
+                  [join [lmap tag $detectedTags {
+                    set points [dict get $tag p]
+                    set coords [lmap point $points {
+                        format "%g,%g" [lindex $point 0] [lindex $point 1]
+                    }]
+                    lappend coords [lindex $coords 0]
+                    set id [dict get $tag id]
+                    subst {
+                        <polyline points="$coords" fill="none" stroke="green" stroke-width="3" />
+                        <text x="[lindex $points 0 0]" y="[lindex $points 0 1]" fill="green" font-size="12">${id}</text>
+                    }
+                  }] "\n"] \
+                  "</svg>"
+            }]
+          </div>
+        </aside>
+
+        <article>
         <ol>
           <li>
             <h3>Print the calibration board.</h3>
@@ -196,7 +261,7 @@ Wish the web server handles route "/calibrate" with hidden true handler {
               document.getElementById('board-print-through-folk').addEventListener('click', (e) => {
                 const boardSrc = document.getElementById('board-iframe').src.replace(/^data:application.pdf;base64,/, "");
 
-                ws.run(`
+                folk.run(`
                   set boardPdf [binary decode base64 {\${boardSrc}}]
                   set fd [open /tmp/folk-calibration-board.pdf wb]
                   puts \$fd \$boardPdf; close \$fd
@@ -231,9 +296,9 @@ Wish the web server handles route "/calibrate" with hidden true handler {
                   return;
                 }
 
-                ws.hold('start calibration', tcl`
+                folk.hold('start calibration', tcl`
                   Claim the printed calibration tag size is \${mm} mm
-                  Wish to calibrate
+                  Wish to calibrate camera "$camera" to display "$display"
                 `, 'builtin-programs/calibrate/calibrate.folk');
               });
             </script>
@@ -254,7 +319,7 @@ Wish the web server handles route "/calibrate" with hidden true handler {
             <script>
               document.getElementById('projected-tag-slider').addEventListener('input', (e) => {
                 const scale = e.target.value / 100.0;
-                ws.run(tcl`
+                folk.run(tcl`
                   set HoldDefaultModel! [dict get [lindex [Query! /someone/ claims the calibration HoldDefaultModel! is /hdm/] 0] hdm]
                   {*}[set HoldDefaultModel!] \${scale}
                 `);
@@ -267,16 +332,11 @@ Wish the web server handles route "/calibrate" with hidden true handler {
             <script>
               document.getElementById('calibration-poses-max-slider').addEventListener('input', (e) => {
                 const calibrationPosesMax = parseInt(e.target.value);
-                ws.hold(`calibration poses max`, tcl`
+                folk.hold(`calibration poses max`, tcl`
 Claim the calibration poses max is \${calibrationPosesMax}
                 `, 'builtin-programs/calibrate/calibrate.folk');
               });
             </script>
-
-            <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position):</p>
-            <iframe src="/camera?camera=$[string map {/ %2F} $camera]"
-                    width="600" height="$[expr {int(600.0 * $cameraHeight / $cameraWidth) + 84}]"
-                    style="border: 1px solid #999;"></iframe>
 
           <p>Once you've recorded the first pose, <em>slowly drag the board around your space</em>, going slow enough for the projected AprilTags to catch up with the printed AprilTags and fit into the gaps on your board. When you've moved the board at least a full board-length away from the first pose, try to slant it 45 degrees or so off the table and hold it still again to capture another pose.</p>
 
@@ -327,7 +387,7 @@ Camera Controls
             <h3>Calibration results:</h3> <div id="calibration-report"></div>
             <script>
               const calibrationReportEl = document.getElementById('calibration-report');
-              ws.watchCollected(`/someone/ claims the calibration report is /calibrationReport/`, reports => {
+              folk.watchCollected(`/someone/ claims the calibration report is /calibrationReport/`, reports => {
                 if (reports.length === 0) {
                   calibrationReportEl.innerHTML = "<pre>Not calibrating yet.</pre>";
                   return;
@@ -344,27 +404,39 @@ Camera Controls
             calibrating again.</p>
           </li>
 
-          <li id="refineCalibrationLi" style="display: $[expr {$::thisNode in {"folk-convivial" "gadget-pink"} ? "''" : "none"}]">
-            <h3>Refine calibration on the table.</h3>
+          <!-- <li id="refineCalibrationLi" style="display: $[expr {$::thisNode in {"folk-hex" "folk-omar" "gadget-pink"} ? "''" : "none"}]">
+               <h3>Interactively refine calibration.</h3>
 
-            <p>Start table refinement: <button id="table-refinement-submit">Start Table Refinement</button></p>
-            <script>
-              document.getElementById('table-refinement-submit').addEventListener('click', (e) => {
-                // HACK: duplicated code from above
-                const mm = document.getElementById("tag-side-length-mm").value;
-                if (mm === "" || isNaN(mm)) {
-                  alert("Error: You need to type in a valid inner side length (mm) of your board tags before clicking Start Calibration.");
-                  return;
-                }
-                // TODO: using Assert is a little ugly (it's so it can be
-                // retracted when calibration is done)
-                ws.send(tcl`
-                  Claim the printed calibration tag size is \${mm} mm
-                  Assert! \${self} wishes to do table refinement
-                `);
-              });
-            </script>
-          </li>
+               <p>Start interactive refine: <button id="interactively-refine-submit">Start Interactive Refine</button></p>
+               <pre id="refine-log" style="max-height: 300px; overflow-y: auto; background: #111; color: #aaa; font-size: 11px; padding: 8px; white-space: pre-wrap;"></pre>
+               <script>
+               let refineLogInterval = null;
+               document.getElementById('interactively-refine-submit').addEventListener('click', (e) => {
+               // HACK: duplicated code from above
+               const mm = document.getElementById("tag-side-length-mm").value;
+               if (mm === "" || isNaN(mm)) {
+               alert("Error: You need to type in a valid inner side length (mm) of your board tags before clicking Start Interactive Refine.");
+               return;
+               }
+               folk.hold('start calibration', tcl`
+               Claim the printed calibration tag size is \${mm} mm
+               Wish to interactively refine calibration from camera "$camera" to display "$display"
+               `, 'builtin-programs/calibrate/calibrate.folk');
+
+               if (refineLogInterval) clearInterval(refineLogInterval);
+               const logEl = document.getElementById('refine-log');
+               refineLogInterval = setInterval(() => {
+               fetch('/log/builtin-programs/calibrate/interactively-refine.folk.stderr')
+               .then(r => r.text())
+               .then(text => {
+               const atBottom = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 5;
+               logEl.textContent = text;
+               if (atBottom) logEl.scrollTop = logEl.scrollHeight;
+               });
+               }, 1000);
+               });
+               </script>
+               </li> -->
 
           <li>
             <h3>Measure program geometry.</h3>
@@ -406,7 +478,7 @@ Camera Controls
                  top: geomTopMm.value + 'mm',
                  bottom: geomBottomMm.value + 'mm'
                };
-               ws.run(tcl`
+               folk.run(tcl`
 Hold! -save -on calibration -key default-program-geometry Claim the default program geometry is \${geom}
 `);
              });
@@ -438,12 +510,13 @@ Hold! -save -on calibration -key default-program-geometry Claim the default prog
             before or after.)</p>
           </li>
         </ol>
+        </article>
       </body>
     </html>
   }]
 }
 
-When the calibration poses are /calibrationPoses/ {
+When the calibration poses from camera /camera/ to display /display/ are /calibrationPoses/ {
     # Hold reporting info for the Web page.
     set posesReport [subst {
       <p>Poses:</p><ol>
@@ -479,10 +552,10 @@ When the calibration poses are /calibrationPoses/ {
       </ol>
     }]
 
-    When /nobody/ claims the calibration is /anything/ {
+    When /nobody/ claims a calibration from camera /camera/ to display /display/ is /anything/ {
         Claim the calibration report is $posesReport
     }
-    When the calibration is /calibration/ {
+    When a calibration from camera /camera/ to display /display/ is /calibration/ {
         set calibrationReport "$posesReport
         <p>Calibration:</p><pre>
 Camera intrinsics --------

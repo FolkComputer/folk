@@ -66,7 +66,9 @@ if flashing from a Mac] -- Ubuntu doesn't have a good kernel for Pi 5)
    `folk@folk-WHATEVER.local` by name, `sudo apt install avahi-daemon`
    and then on your laptop: `ssh-copy-id folk@folk-WHATEVER.local`
 
-1. Install dependencies: `sudo apt install rsync git cmake libturbojpeg0-dev libpng-dev libdrm-dev pkg-config v4l-utils vulkan-tools libvulkan-dev libvulkan1 meson libgbm-dev glslc vulkan-validationlayers ghostscript console-data kbd psmisc qrencode zlib1g-dev libssl-dev automake libtool autoconf-archive`
+1. Install dependencies:
+
+       sudo apt install rsync git cmake libturbojpeg0-dev libpng-dev libdrm-dev pkg-config v4l-utils vulkan-tools libvulkan-dev libvulkan1 meson libgbm-dev glslc vulkan-validationlayers ghostscript console-data kbd psmisc qrencode zlib1g-dev libssl-dev automake libtool autoconf-archive
 
    (When prompted while installing `console-data` for `Policy for
    handling keymaps` type `3` (meaning `3. Keep kernel keymap`) and
@@ -97,7 +99,8 @@ if flashing from a Mac] -- Ubuntu doesn't have a good kernel for Pi 5)
      1. See [notes](https://folk.computer/notes/vulkan) and [Naveen's
         notes](https://gist.github.com/nmichaud/1c08821833449bdd3ac70dcb28486539).
 
-1. `sudo sh -c 'echo SUBSYSTEM=="input", GROUP="input", MODE="0666" > /etc/udev/rules.d/99-input.rules && udevadm control --reload-rules && udevadm trigger'`
+1.
+        sudo sh -c 'echo SUBSYSTEM=="input", GROUP="input", MODE="0666" > /etc/udev/rules.d/99-input.rules && udevadm control --reload-rules && udevadm trigger'
 
 1. Add the systemd service so it starts on boot and can be managed
    when you run it from laptop. On Ubuntu Server or Raspberry Pi OS
@@ -359,7 +362,7 @@ created. Therefore, it will eventually be useful for you to know
 [basic](http://antirez.com/articoli/tclmisunderstood.html) [Tcl
 syntax](https://www.ee.columbia.edu/~shane/projects/sensornet/part1.pdf).
 
-These are all implemented in `main.tcl`. For most things, you'll
+These are all implemented in `prelude.tcl` and `folk.c`. For most things, you'll
 probably only need `Wish`, `Claim`, `When`, and maybe `Hold!`.
 
 ### Wish and Claim
@@ -490,7 +493,7 @@ If you want multiple state atoms, you can also provide a key -- you
 can be like
 
 ```
-Hold! ball position {
+Hold! -key {ball position} {
   Claim $this has a ball at blahblah
 }
 ```
@@ -499,9 +502,9 @@ and then future holds with that key, `ball position`, will
 overwrite this statement but not override different holds with
 different keys
 
-You can overwrite another program's Hold! with the `on` parameter, like
-`Hold! (on 852) { ... }` (if the Hold! is from page 852) or `Hold! (on
-builtin-programs/example.folk) { ... }` (if the Hold! is from the
+You can overwrite another program's Hold! with the `-on` parameter, like
+`Hold! -on 852 { ... }` (if the Hold! is from page 852) or `Hold! -on
+builtin-programs/example.folk { ... }` (if the Hold! is from the
 example.folk builtin program)
 
 ### Subscribe: and Notify:
@@ -722,19 +725,6 @@ Capitalized namespace, like `Statements`.
     for a program
 - camera slices cause hop/distortion when pulled off
 
-### next
-- **calibrate render loop blinks out regularly**
-- calibrate doesn't click in afterward, have to restart system (is it
-  because of kill refiner?)
-- rename resolved geometry to geometry
-- On unmatch doesn't work if run at start of When block instead of
-  end? -- **it's probably because it gets pinned through descendant
-  statements**
-- ~~fix error reporting on table~~ clean up title, clean up points-at
-- "Added tag 1313" pileup (and removal pileup when flipped over)
-- fix calibration screwing up system state
-- persist transient errors
-
 ### ideas
 - aborted executions shouldn't be too high a percentage of total # of
 executions of the block? if they are, then we warn on the page that it
@@ -744,7 +734,8 @@ isn't meeting timing
 
 ### other stuff
 - stereo calibration
-- run segmentation model
+- ~~run segmentation model~~
+  - speed up segmentation model
 - ~~rescale camera slice to have correct aspect ratio~~
 - debug memory leaks
   - are we ever freeing AtomicallyVersion? -- no, but this isn't the
@@ -752,8 +743,6 @@ isn't meeting timing
   - not destructors
   - also not camera images
   - also not jim allocations
-- ~~bug where camera slices halt / slow down animation~~
-  - ~~animation blinky~~
 - gadget-platinum outline blink
 - slowdown where sysmon starts taking forever bc of endless chains of
   destructors/atomicallyversions
@@ -764,4 +753,17 @@ isn't meeting timing
 - ~~automatic default calibration so you can drag stuff around on laptop~~
 - automatically allow optional fields on `with` (or add object pattern-matching?)
 - try to maximize cpu usage
-- dual camera calibration -> ML
+- folk-convivial way too blinky, slow, _big board stops_
+
+#### calibration
+- try keeping a calibration history so we can diff them and see trends
+- add skew parameter?
+- **calibrate render loop blinks out regularly**
+- calibrate doesn't click in afterward, have to restart system (is it
+  because of kill refiner?)
+- show better notice that you need calib board on table to do
+  interactive refine
+- pose estimate
+  - exclude any pose estimate that dips below the table plane
+  - pick the pose estimate that maximizes projected area
+  - 

@@ -265,7 +265,7 @@ Subscribe: print code /code/ with /...options/ {
         # HACK: Forward the print request to folk-hex.
         exec curl -X POST "http://folk-hex.local:4273/" \
                 -H "Content-Type: text/plain" \
-                -d [list Notify: print code $code with printer Canon_LBP121_122]; # HACK Brian's printer for folk2 launch party
+                -d [list Notify: print code $code with printer Canon_TR150_series];
         return
     }
 

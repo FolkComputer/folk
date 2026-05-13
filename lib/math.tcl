@@ -83,6 +83,18 @@ proc ::math::geometry::pointInsidePolygon {point polygon} {
     return $c
 }
 
+proc lsort-indices {itemL} {
+    set pairL [list]
+    foreach item $itemL {
+        lappend pairL [list $item [llength $pairL]]
+    }
+    set indexL [list]
+    foreach pair [lsort -index 0 -real $pairL] {
+        lappend indexL [lindex $pair 1]
+    }
+    set indexL
+}
+
 namespace eval ::math {
     proc min {args} {
         if {[llength $args] == 0} { error "min: No args" }

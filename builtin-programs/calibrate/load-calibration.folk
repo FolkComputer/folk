@@ -1,5 +1,5 @@
 When display /disp/ has width /displayWidth/ height /displayHeight/ &\
-     the calibration is /nothing/ {
+     /nobody/ claims a calibration from camera /cam/ to display /disp/ is /anything/ {
     set warning "WARNING: Folk hasn't been calibrated!
 Using default (bad) calibration."
 
@@ -13,9 +13,9 @@ Using default (bad) calibration."
         text $warning color red scale 40
 }
 
-When the calibration is /nothing/ {
-    # Fallback: if uncalibrated, create fake intrinsics and
-    # extrinsics.
+When /nobody/ claims a calibration from camera /cam/ to display /disp/ is /anything/ {
+    # Fallback: if uncalibrated (_no calibrations at all_ are stored),
+    # create fake intrinsics and extrinsics.
 
     When display /disp/ has width /displayWidth/ height /displayHeight/ {
         Claim display $disp has intrinsics [dict create \
@@ -39,10 +39,8 @@ When the calibration is /nothing/ {
     }
 }
 
-When the calibration is /calibration/ {
+When a calibration from camera /camera/ to display /display/ is /calibration/ {
     puts "\n\n====NEW CALIBRATION ([string range $calibration 0 100])=====\n\n"
-    set camera [dict get $calibration camera name]
-    set display [dict get $calibration projector name]
 
     # Backfill p1/p2 for calibrations saved before tangential
     # distortion support was added.
