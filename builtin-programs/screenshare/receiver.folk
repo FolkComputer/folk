@@ -76,6 +76,7 @@ When /someone/ wishes to load the screenshare receiver {
             paths = frame_paths(session_id)
             seq = 0
             last_emit = 0.0
+            start_time = time.monotonic()
             while True:
                 frame = await track.recv()
                 now = time.monotonic()
@@ -101,10 +102,12 @@ When /someone/ wishes to load the screenshare receiver {
                     fp.write(arr.tobytes())
                 os.replace(tmp_path, path)
 
+                elapsed = max(now - start_time, 0.001)
+                effective_fps = float(seq + 1) / elapsed
                 meta = (
                     f"seq {seq} width {width} height {height} "
                     f"components 3 bytesPerRow {width * 3} path {path} "
-                    f"timestamp {time.time()}\n"
+                    f"fps {effective_fps:.2f} timestamp {time.time()}\n"
                 )
                 meta_tmp = f"{paths['metaPath']}.tmp"
                 with open(meta_tmp, "w") as fp:
@@ -193,9 +196,19 @@ When the image library is /imageLib/ &\
             set width [dict get $meta width]
             set height [dict get $meta height]
             set path [dict get $meta path]
+            set fps [dict getdef $meta fps 0]
+            set timestamp [dict getdef $meta timestamp 0]
         } on error e {
             return
         }
+
+        set frameAgeMs 0
+        if {$timestamp ne "0"} {
+            set frameAgeMs [expr {int([clock milliseconds] - (double($timestamp) * 1000.0))}]
+            if {$frameAgeMs < 0} { set frameAgeMs 0 }
+        }
+        Hold! -key [list screenshare stats $session] \
+            Claim screen $name has stats seq $seq width $width height $height fps $fps frameAgeMs $frameAgeMs timestamp $timestamp
 
         if {[llength [Query! /someone/ claims screen $name has latest frame /old/ width /oldWidth/ height /oldHeight/ seq $seq]] > 0} {
             return
@@ -215,5 +228,6 @@ When the image library is /imageLib/ &\
 
     On unmatch {
         Hold! -key [list screenshare frame $session] {}
+        Hold! -key [list screenshare stats $session] {}
     }
 }

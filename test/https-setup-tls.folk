@@ -6,7 +6,7 @@ if {![exists -command load_ssl_certs]} {
 if {![info exists ::env(FOLK_HTTPS_SETUP_CHILD)]} {
     set tmp [exec mktemp -d]
     try {
-        exec env FOLK_HTTPS_DIR=$tmp FOLK_HTTPS_SETUP_CHILD=1 ./folk test/https-setup-tls.folk 2>@1
+        exec env FOLK_HTTPS_DIR=$tmp FOLK_HTTPS_SETUP_CHILD=1 FOLK_WEB_PORT=45274 ./folk test/https-setup-tls.folk 2>@1
     } on error {e opts} {
         file delete -force $tmp
         error $e
@@ -17,17 +17,19 @@ if {![info exists ::env(FOLK_HTTPS_SETUP_CHILD)]} {
 
 exec env FOLK_HTTPS_DIR=$::env(FOLK_HTTPS_DIR) sh scripts/local-https-cert.sh
 
-When {
+Assert! when {
     source "builtin-programs/web/web.folk"
-}
+} with environment {}
 source "builtin-programs/web/https-ca.folk"
 source "builtin-programs/web/https-setup.folk"
 
+set httpBaseUrl "http://127.0.0.1:$::env(FOLK_WEB_PORT)"
+set httpsBaseUrl "https://127.0.0.1:$::env(FOLK_WEB_PORT)"
 set body ""
 set started [clock milliseconds]
 while true {
     try {
-        set body [exec curl -ksf https://127.0.0.1:4273/setup/https]
+        set body [exec curl -ksf "$httpsBaseUrl/setup/https"]
         break
     } on error e {
         if {[clock milliseconds] - $started > 5000} {
@@ -38,11 +40,18 @@ while true {
 }
 
 assert {[string first "HTTPS is active" $body] >= 0}
-set status [exec curl -ks -o /dev/null -w "%{http_code}" https://127.0.0.1:4273/folk-ca.cer]
+set status [exec curl -ks -o /dev/null -w "%{http_code}" "$httpsBaseUrl/folk-ca.cer"]
 assert {$status eq "200"}
-set httpBody [exec curl -sf http://127.0.0.1:4273/setup/https]
+set httpBody [exec curl -sf "$httpBaseUrl/setup/https"]
 assert {[string first "HTTPS is active" $httpBody] >= 0}
-set httpCaStatus [exec curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:4273/folk-ca.cer]
+set httpCaStatus [exec curl -s -o /dev/null -w "%{http_code}" "$httpBaseUrl/folk-ca.cer"]
 assert {$httpCaStatus eq "200"}
+
+exec sh -c "if command -v nc >/dev/null 2>&1; then printf 'NOT TLS OR HTTP\\r\\n\\r\\n' | nc -w 1 127.0.0.1 $::env(FOLK_WEB_PORT) >/dev/null 2>&1 || true; fi"
+exec sh -c "if command -v nc >/dev/null 2>&1; then sleep 3 | nc -w 3 127.0.0.1 $::env(FOLK_WEB_PORT) >/dev/null 2>&1 || true; fi"
+set afterBadHttp [exec curl -sf --max-time 2 "$httpBaseUrl/setup/https"]
+assert {[string first "HTTPS is active" $afterBadHttp] >= 0}
+set afterBadHttps [exec curl -ksf --max-time 2 "$httpsBaseUrl/setup/https"]
+assert {[string first "HTTPS is active" $afterBadHttps] >= 0}
 
 Exit! 0

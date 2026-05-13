@@ -10,6 +10,7 @@ signal handle SIGPIPE
 set ::webTlsDir $([info exists ::env(FOLK_HTTPS_DIR)] && $::env(FOLK_HTTPS_DIR) ne "" ? $::env(FOLK_HTTPS_DIR) : "$::env(HOME)/folk-data/https")
 set ::webTlsCert "$::webTlsDir/cert.pem"
 set ::webTlsKey "$::webTlsDir/key.pem"
+set ::webPort $([info exists ::env(FOLK_WEB_PORT)] && $::env(FOLK_WEB_PORT) ne "" ? $::env(FOLK_WEB_PORT) : 4273)
 set ::webTlsEnabled 0
 set ::webScheme http
 set ::webTlsHandshakeTimeoutMs 2000
@@ -23,6 +24,7 @@ if {[file exists $::webTlsCert] && [file exists $::webTlsKey]} {
     }
 }
 Claim the web server scheme is $::webScheme
+Claim the web server port is $::webPort
 
 set ::webSocketTimeouts {}
 if {$::webTlsEnabled} {
@@ -356,7 +358,7 @@ proc handleRead {chan addr} {
 
 while true {
     try {
-        set f [socket stream.server 4273]
+        set f [socket stream.server $::webPort]
         $f listen 128
         $f readable [lambda {} {f} {
             set client [$f accept addr]
@@ -385,7 +387,7 @@ while true {
         }]
         break
     } on error e {
-        # Handles failure to bind to :4273. We try again in a second.
+        # Handles failure to bind to the web port. We try again in a second.
         puts stderr "web: $e"
         sleep 1
     }

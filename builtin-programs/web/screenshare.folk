@@ -58,11 +58,14 @@ Wish the web server handles route "/screenshare$" with nav "<button>Screenshare<
     const activeScreens = new Map();
 
     let folk;
+    let wsReady = false;
     let pc = null;
     let stream = null;
     let sessionId = null;
     let answerWatcher = null;
     let errorWatcher = null;
+    let availableResults = [];
+    let reservedResults = [];
     let stopping = false;
 
     function showToast(message) {
@@ -96,7 +99,10 @@ Wish the web server handles route "/screenshare$" with nav "<button>Screenshare<
 
     function updateStartEnabled() {
       const unsupported = !window.isSecureContext || !navigator.mediaDevices?.getDisplayMedia;
-      startButton.disabled = unsupported || !!validateName() || !!pc;
+      startButton.disabled = unsupported || !wsReady || !!validateName() || !!pc;
+      if (!sessionId && !pc && !["failed", "disconnected", "closed"].includes(sessionStatus.textContent)) {
+        sessionStatus.textContent = wsReady && !unsupported ? "ready" : "connecting to Folk";
+      }
     }
 
     nameInput.addEventListener("input", () => {
@@ -110,15 +116,31 @@ Wish the web server handles route "/screenshare$" with nav "<button>Screenshare<
       support.textContent = "This browser does not support WebRTC screen sharing.";
     }
 
-    folk = new FolkWS(document.getElementById("ws-status"));
-    folk.watchCollected("/someone/ claims screen /name/ is available on /node/ with session /session/", results => {
+    function refreshActiveScreens() {
       activeScreens.clear();
-      for (const result of results) {
+      for (const result of reservedResults) {
+        if (result.node === thisNode) activeScreens.set(result.name, result.session);
+      }
+      for (const result of availableResults) {
         if (result.node === thisNode) activeScreens.set(result.name, result.session);
       }
       const error = validateName();
       setNameError(error);
       updateStartEnabled();
+    }
+
+    folk = new FolkWS(document.getElementById("ws-status"));
+    folk.connected.then(() => {
+      wsReady = true;
+      updateStartEnabled();
+    });
+    folk.watchCollected("/someone/ claims screen /name/ is reserved on /node/ with session /session/", results => {
+      reservedResults = results;
+      refreshActiveScreens();
+    });
+    folk.watchCollected("/someone/ claims screen /name/ is available on /node/ with session /session/", results => {
+      availableResults = results;
+      refreshActiveScreens();
     });
 
     function waitForIceGatheringComplete(peer) {
@@ -137,7 +159,7 @@ Wish the web server handles route "/screenshare$" with nav "<button>Screenshare<
       });
     }
 
-    async function stopSharing() {
+    async function stopSharing(clearStatus = true) {
       if (stopping) return;
       stopping = true;
       try {
@@ -152,7 +174,7 @@ Wish the web server handles route "/screenshare$" with nav "<button>Screenshare<
         stream = null;
         sessionId = null;
         preview.srcObject = null;
-        sessionStatus.textContent = "";
+        if (clearStatus) sessionStatus.textContent = "";
         stopButton.disabled = true;
         updateStartEnabled();
       } finally {
@@ -188,9 +210,14 @@ Wish the web server handles route "/screenshare$" with nav "<button>Screenshare<
         pc = new RTCPeerConnection({ iceServers: [] });
         // TODO(remote-control): add a data channel here for future input/control messages.
         pc.addEventListener("connectionstatechange", () => {
-          sessionStatus.textContent = pc.connectionState;
-          if (["failed", "closed", "disconnected"].includes(pc.connectionState)) {
-            stopSharing();
+          const state = pc.connectionState;
+          sessionStatus.textContent = state === "connected" ? "connected" : state;
+          if (state === "failed") {
+            sessionStatus.textContent = "failed";
+            stopSharing(false);
+          } else if (["closed", "disconnected"].includes(state)) {
+            sessionStatus.textContent = state;
+            stopSharing(false);
           }
         });
         stream.getTracks().forEach(track => {
@@ -224,10 +251,12 @@ Wish the web server handles route "/screenshare$" with nav "<button>Screenshare<
         await folk.hold(
           `screenshare ${sessionId}`,
           tcl`Wish to start screenshare session ${sessionId} for name ${name} with offer ${pc.localDescription.sdp} type ${pc.localDescription.type}`);
+        sessionStatus.textContent = "waiting for receiver";
         stopButton.disabled = false;
       } catch (err) {
+        sessionStatus.textContent = "failed";
         setNameError(err.message || String(err), true);
-        await stopSharing();
+        await stopSharing(false);
       }
     }
 

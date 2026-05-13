@@ -39,6 +39,99 @@ fn httpsSetupJsArray {items} {
     return "\[[join [lmap item $items {httpsSetupJsString $item}] ,]\]"
 }
 
+fn httpsSetupWebPort {} {
+    if {[info exists ::webPort] && $::webPort ne ""} {
+        return $::webPort
+    }
+    if {[info exists ::env(FOLK_WEB_PORT)] && $::env(FOLK_WEB_PORT) ne ""} {
+        return $::env(FOLK_WEB_PORT)
+    }
+    return 4273
+}
+
+fn httpsSetupActionTokenPath {} {
+    return "/var/tmp/folk-[pid]/https-setup-action-token"
+}
+
+fn httpsSetupReadActionToken {path} {
+    if {![file exists $path]} { return "" }
+    try {
+        set fp [open $path r]
+        set token [string trim [read $fp]]
+        close $fp
+        if {[regexp {^[A-Za-z0-9_.-]+$} $token]} {
+            return $token
+        }
+    } on error e {
+        catch { close $fp }
+    }
+    return ""
+}
+
+fn httpsSetupNewActionToken {} {
+    try {
+        set token [string trim [exec openssl rand -hex 24]]
+    } on error e {
+        set token "[pid]-[clock seconds]-[clock milliseconds]"
+    }
+    return $token
+}
+
+fn httpsSetupWriteActionToken {path token} {
+    set dir [file dirname $path]
+    file mkdir $dir
+    catch { exec chmod 700 $dir }
+    set tmp "$path.[__threadId].[clock milliseconds]"
+    set fp [open $tmp w]
+    puts -nonewline $fp $token
+    close $fp
+    catch { exec chmod 600 $tmp }
+    file rename -force $tmp $path
+}
+
+fn httpsSetupActionToken {} {
+    if {[info exists ::httpsSetupActionToken] && $::httpsSetupActionToken ne ""} {
+        return $::httpsSetupActionToken
+    }
+
+    set path [httpsSetupActionTokenPath]
+    set lock "$path.lock"
+    for {set attempt 0} {$attempt < 50} {incr attempt} {
+        set token [httpsSetupReadActionToken $path]
+        if {$token ne ""} {
+            set ::httpsSetupActionToken $token
+            return $token
+        }
+
+        if {![catch {
+            file mkdir [file dirname $path]
+            file mkdir $lock
+        }]} {
+            try {
+                set token [httpsSetupReadActionToken $path]
+                if {$token eq ""} {
+                    set token [httpsSetupNewActionToken]
+                    httpsSetupWriteActionToken $path $token
+                }
+            } finally {
+                file delete -force $lock
+            }
+            set ::httpsSetupActionToken $token
+            return $token
+        }
+
+        sleep 0.05
+    }
+
+    set ::httpsSetupActionToken [httpsSetupNewActionToken]
+    return $::httpsSetupActionToken
+}
+
+fn httpsSetupTokenValid {token} {
+    set actionToken [httpsSetupActionToken]
+    expr {$token eq $actionToken}
+}
+
 fn httpsSetupOpenSsl {args} {
     try {
         return [exec openssl {*}$args]
@@ -136,6 +229,7 @@ fn httpsSetupStatus {caExists certExists keyExists sslAvailable webScheme host s
 fn httpsSetupMeta {} {
     set dir [httpsSetupDir]
     set host [httpsSetupLocalHost $::thisNode]
+    set port [httpsSetupWebPort]
     set caPem "$dir/ca.pem"
     set caCer "$dir/ca.cer"
     set cert "$dir/cert.pem"
@@ -158,12 +252,13 @@ fn httpsSetupMeta {} {
         certExists $certExists \
         keyExists $keyExists \
         sslAvailable $sslAvailable \
-        httpsUrl "https://$host:4273/" \
-        setupHttpsUrl "https://$host:4273/setup/https" \
-        screenshareUrl "https://$host:4273/screenshare" \
-        localHttpsUrl "https://localhost:4273/setup/https" \
-        caCerUrl "$webScheme://$host:4273/folk-ca.cer" \
-        caPemUrl "$webScheme://$host:4273/folk-ca.pem" \
+        httpsUrl "https://$host:$port/" \
+        setupHttpsUrl "https://$host:$port/setup/https" \
+        screenshareUrl "https://$host:$port/screenshare" \
+        localHttpsUrl "https://localhost:$port/setup/https" \
+        caCerUrl "$webScheme://$host:$port/folk-ca.cer" \
+        caPemUrl "$webScheme://$host:$port/folk-ca.pem" \
+        actionToken [httpsSetupActionToken] \
         caFingerprint [httpsSetupFingerprint $caPem] \
         leafFingerprint [httpsSetupFingerprint $cert] \
         notBefore [dict get $dates notBefore] \
@@ -172,7 +267,23 @@ fn httpsSetupMeta {} {
 }
 
 When /someone/ wishes to generate local HTTPS certificates with request /request/ {
+    Hold! -key [list https setup generation latest] \
+        Claim HTTPS setup generation $request has status error \
+        with message "Refresh /setup/https and try again." \
+        output "Missing HTTPS setup action token." at [clock seconds]
+}
+
+When /someone/ wishes to generate local HTTPS certificates with request /request/ with token /token/ {
     fn httpsSetupDir
+    fn httpsSetupTokenValid
+
+    if {![httpsSetupTokenValid $token]} {
+        Hold! -key [list https setup generation latest] \
+            Claim HTTPS setup generation $request has status error \
+            with message "Refresh /setup/https and try again." \
+            output "Missing or stale HTTPS setup action token." at [clock seconds]
+        return
+    }
 
     set setupDir [httpsSetupDir]
     file mkdir $setupDir
@@ -212,8 +323,24 @@ When /someone/ wishes to generate local HTTPS certificates with request /request
 }
 
 When /someone/ wishes to remove local HTTPS certificates with request /request/ {
+    Hold! -key [list https setup removal latest] \
+        Claim HTTPS setup removal $request has status error \
+        with message "Refresh /setup/https and try again." \
+        output "Missing HTTPS setup action token." at [clock seconds]
+}
+
+When /someone/ wishes to remove local HTTPS certificates with request /request/ with token /token/ {
     fn httpsSetupArchiveCerts
     fn httpsSetupDir
+    fn httpsSetupTokenValid
+
+    if {![httpsSetupTokenValid $token]} {
+        Hold! -key [list https setup removal latest] \
+            Claim HTTPS setup removal $request has status error \
+            with message "Refresh /setup/https and try again." \
+            output "Missing or stale HTTPS setup action token." at [clock seconds]
+        return
+    }
 
     set setupDir [httpsSetupDir]
     file mkdir $setupDir
@@ -286,11 +413,13 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
         __SERVER_STATUS_JS__ [httpsSetupJsString [dict get $meta serverStatus]] \
         __WEB_SCHEME_JS__ [httpsSetupJsString [dict get $meta webScheme]] \
         __HOST_JS__ [httpsSetupJsString [dict get $meta host]] \
+        __PORT_HTML__ [httpsSetupHtmlEscape [httpsSetupWebPort]] \
         __HTTPS_URL_JS__ [httpsSetupJsString [dict get $meta setupHttpsUrl]] \
         __SCREENSHARE_URL_JS__ [httpsSetupJsString [dict get $meta screenshareUrl]] \
         __LOCAL_URL_JS__ [httpsSetupJsString [dict get $meta localHttpsUrl]] \
         __CA_CER_URL_JS__ [httpsSetupJsString [dict get $meta caCerUrl]] \
         __CA_PEM_URL_JS__ [httpsSetupJsString [dict get $meta caPemUrl]] \
+        __ACTION_TOKEN_JS__ [httpsSetupJsString [dict get $meta actionToken]] \
         __CA_FP_JS__ [httpsSetupJsString [dict get $meta caFingerprint]] \
         __LEAF_FP_JS__ [httpsSetupJsString [dict get $meta leafFingerprint]] \
         __NOT_BEFORE_JS__ [httpsSetupJsString [dict get $meta notBefore]] \
@@ -330,6 +459,9 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
     .mono { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     .command { user-select: all; }
     .copy-status { min-height: 1.2em; }
+    .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+    .step { border: 1px solid #9996; border-radius: 6px; padding: 10px; }
+    .step strong { display: block; margin-bottom: 4px; }
     #ca-qr { width: 220px; height: 220px; background: white; border: 1px solid #9996; }
     ol { padding-left: 1.5rem; }
   </style>
@@ -338,6 +470,16 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
 <main>
   <h1>HTTPS setup</h1>
   <p id="summary"></p>
+
+  <section>
+    <h2>Steps</h2>
+    <div class="steps">
+      <div class="step"><strong>1. Generate</strong><span>Create or reuse Folk's local CA and host certificate.</span></div>
+      <div class="step"><strong>2. Trust</strong><span>Install the Folk CA on this device.</span></div>
+      <div class="step"><strong>3. Restart/open HTTPS</strong><span>Restart Folk if needed, then open the HTTPS URL.</span></div>
+      <div class="step"><strong>4. Verify</strong><span>All browser checks should be green before screensharing.</span></div>
+    </div>
+  </section>
 
   <section>
     <h2>Status</h2>
@@ -355,7 +497,7 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
 
   <section>
     <h2>Generate certificates</h2>
-    <p>Certificates live in <code>__DIR_HTML__</code>. Folk keeps HTTP as the first-run default; after generating certs while running HTTP, restart Folk so port 4273 accepts both HTTP and HTTPS.</p>
+    <p>Certificates live in <code>__DIR_HTML__</code>. Folk keeps HTTP as the first-run default; after generating certs while running HTTP, restart Folk so port __PORT_HTML__ accepts both HTTP and HTTPS.</p>
     <p class="muted">Trusting the CA only teaches this device to trust Folk. If this page says Folk must be restarted, HTTPS will not be accepted until Folk restarts and reloads the generated certs.</p>
     <div class="row">
       <button id="generate">Generate HTTPS Certificates</button>
@@ -415,6 +557,12 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
           <button id="copy-macos-remove-command" type="button">Copy Removal Command</button>
           <span id="copy-macos-remove-status" class="muted copy-status"></span>
         </p>
+        <p>To remove older Folk CAs for this host while keeping the current fingerprint, run this in Terminal.</p>
+        <pre id="macos-cleanup-command" class="command"></pre>
+        <p class="row">
+          <button id="copy-macos-cleanup-command" type="button">Copy Stale CA Cleanup Command</button>
+          <span id="copy-macos-cleanup-status" class="muted copy-status"></span>
+        </p>
       </div>
       <div class="panel">
         <h3>iPhone/iPad</h3>
@@ -466,6 +614,7 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
     localUrl: __LOCAL_URL_JS__,
     caCerUrl: __CA_CER_URL_JS__,
     caPemUrl: __CA_PEM_URL_JS__,
+    actionToken: __ACTION_TOKEN_JS__,
     caFingerprint: __CA_FP_JS__,
     leafFingerprint: __LEAF_FP_JS__,
     notBefore: __NOT_BEFORE_JS__,
@@ -554,6 +703,20 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
     return command.join(" && ");
   }
 
+  function macosStaleCleanupCommand() {
+    if (!server.caFingerprint) {
+      return "No Folk CA fingerprint is available on this page.";
+    }
+    const command = [
+      `FOLK_CA_CN=${shellSingleQuote(`Folk Local CA for ${server.host}`)}`,
+      `FOLK_CA_SHA256=${shellSingleQuote(fingerprintWithoutColons(server.caFingerprint))}`,
+      `FOLK_LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"`,
+      `security find-certificate -a -c "$FOLK_CA_CN" -Z "$FOLK_LOGIN_KEYCHAIN" | awk '/SHA-256 hash:/ {print $3}' | while read FP; do if [ "$FP" != "$FOLK_CA_SHA256" ]; then security delete-certificate -Z "$FP" "$FOLK_LOGIN_KEYCHAIN" 2>/dev/null && echo "Removed stale Folk CA $FP"; fi; done`,
+      `echo "Stale Folk CA cleanup complete. Quit and reopen Chrome before testing trust again."`
+    ];
+    return command.join(" && ");
+  }
+
   async function copyTextFrom(id, statusId) {
     const command = document.getElementById(id).textContent;
     const status = document.getElementById(statusId);
@@ -624,8 +787,10 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
     setText("not-after", server.notAfter);
     setText("macos-command", macosTrustCommand());
     setText("macos-remove-command", macosRemoveTrustCommand());
+    setText("macos-cleanup-command", macosStaleCleanupCommand());
     document.getElementById("copy-macos-command").disabled = !server.caFingerprint;
     document.getElementById("copy-macos-remove-command").disabled = !server.caFingerprint;
+    document.getElementById("copy-macos-cleanup-command").disabled = !server.caFingerprint;
     renderChecks();
     renderSummary();
   }
@@ -687,7 +852,7 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
     output.hidden = false;
     output.textContent = "Requesting HTTPS certificate generation...";
     document.getElementById("generate").disabled = true;
-    await folk.send(tcl`Wish to generate local HTTPS certificates with request ${request}`);
+    await folk.send(tcl`Wish to generate local HTTPS certificates with request ${request} with token ${server.actionToken}`);
   });
   document.getElementById("remove-certs").addEventListener("click", async () => {
     const confirmed = window.confirm("Archive Folk's local HTTPS certificate files? Folk must be restarted before this stops the currently loaded HTTPS certificate.");
@@ -698,10 +863,11 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
     output.hidden = false;
     output.textContent = "Requesting HTTPS certificate removal...";
     document.getElementById("remove-certs").disabled = true;
-    await folk.send(tcl`Wish to remove local HTTPS certificates with request ${request}`);
+    await folk.send(tcl`Wish to remove local HTTPS certificates with request ${request} with token ${server.actionToken}`);
   });
   document.getElementById("copy-macos-command").addEventListener("click", () => copyTextFrom("macos-command", "copy-macos-status"));
   document.getElementById("copy-macos-remove-command").addEventListener("click", () => copyTextFrom("macos-remove-command", "copy-macos-remove-status"));
+  document.getElementById("copy-macos-cleanup-command").addEventListener("click", () => copyTextFrom("macos-cleanup-command", "copy-macos-cleanup-status"));
 
   renderStatic();
 </script>

@@ -6,6 +6,20 @@ fn screenshareTakenError {name} {
     return "$name is already taken as a device name on $::thisNode — use ${name}_ or pick another name"
 }
 
+fn screenshareNameTaken {name session} {
+    foreach result [Query! /anyone/ claims screen $name is available on $::thisNode with session /otherSession/] {
+        if {[dict get $result otherSession] ne $session} {
+            return true
+        }
+    }
+    foreach result [Query! /anyone/ claims screen $name is reserved on $::thisNode with session /otherSession/] {
+        if {[dict get $result otherSession] ne $session} {
+            return true
+        }
+    }
+    return false
+}
+
 When /someone/ wishes to start screenshare session /session/ for name /name/ with offer /offerSdp/ type /offerType/ {
     Wish to load the screenshare receiver
 }
@@ -14,6 +28,7 @@ When the screenshare receiver is /receiver/ &\
      /someone/ wishes to start screenshare session /session/ for name /name/ with offer /offerSdp/ type /offerType/ {
     fn screenshareNameValid
     fn screenshareTakenError
+    fn screenshareNameTaken
 
     if {![screenshareNameValid $name]} {
         Hold! -key [list screenshare error $session] \
@@ -24,16 +39,17 @@ When the screenshare receiver is /receiver/ &\
         return
     }
 
-    foreach result [Query! /anyone/ claims screen $name is available on $::thisNode with session /otherSession/] {
-        if {[dict get $result otherSession] ne $session} {
-            Hold! -key [list screenshare error $session] \
-                Claim screenshare session $session has error [screenshareTakenError $name]
-            On unmatch {
-                Hold! -key [list screenshare error $session] {}
-            }
-            return
+    if {[screenshareNameTaken $name $session]} {
+        Hold! -key [list screenshare error $session] \
+            Claim screenshare session $session has error [screenshareTakenError $name]
+        On unmatch {
+            Hold! -key [list screenshare error $session] {}
         }
+        return
     }
+
+    Hold! -key [list screenshare reservation $session] \
+        Claim screen $name is reserved on $::thisNode with session $session
 
     try {
         set answer [$receiver createSession $session $name $offerSdp $offerType]
@@ -41,6 +57,7 @@ When the screenshare receiver is /receiver/ &\
         Hold! -key [list screenshare error $session] \
             Claim screenshare session $session has error $e
         catch { $receiver closeSession $session }
+        Hold! -key [list screenshare reservation $session] {}
         On unmatch {
             Hold! -key [list screenshare error $session] {}
         }
@@ -56,10 +73,12 @@ When the screenshare receiver is /receiver/ &\
 
     On unmatch {
         catch { $receiver closeSession $session }
+        Hold! -key [list screenshare reservation $session] {}
         Hold! -key [list screenshare available $session] {}
         Hold! -key [list screenshare answer $session] {}
         Hold! -key [list screenshare meta $session] {}
         Hold! -key [list screenshare frame $session] {}
+        Hold! -key [list screenshare stats $session] {}
         Hold! -key [list screenshare error $session] {}
     }
 }

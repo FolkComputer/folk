@@ -17,6 +17,19 @@ assert {![screenshareNameValid "abcdefghijklmnopqrstuvwxyzabcdefg"]}
 set expected "bluey is already taken as a device name on $::thisNode — use bluey_ or pick another name"
 assert {[screenshareTakenError bluey] eq $expected}
 
+assert {![screenshareNameTaken race-test race-session-1]}
+Claim screen race-test is reserved on $::thisNode with session race-session-1
+assert {![screenshareNameTaken race-test race-session-1]}
+assert {[screenshareNameTaken race-test race-session-2]}
+Claim screen race-active is available on $::thisNode with session race-active-1
+assert {[screenshareNameTaken race-active race-active-2]}
+
+set pageFp [open builtin-programs/web/screenshare.folk r]
+set pageSource [read $pageFp]
+close $pageFp
+assert {[string first "unsupported || !wsReady" $pageSource] >= 0}
+assert {[string first "connecting to Folk" $pageSource] >= 0}
+
 set started [clock milliseconds]
 while {[llength [Query! /someone/ claims the screenshare frame bridge is /bridge/]] == 0} {
     if {[clock milliseconds] - $started > 3000} {
@@ -27,6 +40,28 @@ while {[llength [Query! /someone/ claims the screenshare frame bridge is /bridge
 
 set imageLib [dict get [lindex [Query! /someone/ claims the image library is /imageLib/] 0] imageLib]
 set bridge [dict get [lindex [Query! /someone/ claims the screenshare frame bridge is /bridge/] 0] bridge]
+
+set statsFramePath "/tmp/folk-test-screenshare-stats.rgb"
+set statsMetaPath "/tmp/folk-test-screenshare-stats.meta"
+set fp [open $statsFramePath wb]
+fconfigure $fp -translation binary
+puts -nonewline $fp [binary format c* {0 0 255 255 255 0}]
+close $fp
+set timestamp [expr {[clock milliseconds] / 1000.0}]
+set fp [open $statsMetaPath w]
+puts $fp "seq 11 width 2 height 1 components 3 bytesPerRow 6 path $statsFramePath fps 12.5 timestamp $timestamp"
+close $fp
+Claim screen statsy is available on $::thisNode with session stats-session
+Claim screenshare session stats-session has frame meta path $statsMetaPath
+
+sleep 0.5
+set statsFrames [Query! /someone/ claims screen statsy has latest frame /im/ width 2 height 1 seq 11]
+set statsClaims [Query! /someone/ claims screen statsy has stats seq 11 width 2 height 1 fps /fps/ frameAgeMs /frameAgeMs/ timestamp /seenTimestamp/]
+assert {[llength $statsFrames] > 0}
+assert {[llength $statsClaims] > 0}
+assert {[dict get [lindex $statsClaims end] fps] eq "12.5"}
+assert {[dict get [lindex $statsClaims end] frameAgeMs] >= 0}
+
 set framePath "/tmp/folk-test-screenshare.rgb"
 set fp [open $framePath wb]
 fconfigure $fp -translation binary
@@ -111,7 +146,7 @@ assert {[dict get [lindex $stackedSlotQuads 0] q] eq {moved STACKED up 110% up 6
 
 Claim multiThing has resolved geometry {width 1 height 1}
 Claim multiThing has quad MULTI
-foreach name {multi-a multi-b multi-c multi-d multi-e multi-f} {
+foreach name {multi-a multi-b multi-c multi-d multi-e multi-f multi-g multi-h} {
     Wish multiThing displays screen $name
 }
 
@@ -123,6 +158,8 @@ foreach {index name expectedQuad} {
     3 multi-d {moved MULTI down 110% down 6cm}
     4 multi-e {moved MULTI left 110% left 6cm}
     5 multi-f {moved MULTI up 220% up 12cm}
+    6 multi-g {moved MULTI right 220% right 12cm}
+    7 multi-h {moved MULTI down 220% down 12cm}
 } {
     set slot [screenshareSlotThing multiThing $index]
     set slotWishes [Query! /someone/ wishes screenshare slot $slot displays screen $name for multiThing at index $index]
@@ -146,5 +183,5 @@ assert {[llength $missingLabels] == 0}
 assert {[llength $missingTexts] == 0}
 
 $imageLib imageFree $im
-file delete -force $framePath
+file delete -force $framePath $statsFramePath $statsMetaPath
 Exit! 0
