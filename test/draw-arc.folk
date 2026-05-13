@@ -1,6 +1,9 @@
 source builtin-programs/draw/arc.folk
 source builtin-programs/draw/spaces.folk
 
+assert {$::PI == 3.14159}
+assert {$::TAU == 6.28318}
+
 set options [drawSpaceNormalizeOptions arc {
     center {3 4cm}
     radius 3

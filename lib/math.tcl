@@ -3,6 +3,9 @@
 #     This file provides global math datatypes and utilities.
 #
 
+set ::PI 3.14159
+set ::TAU 6.28318
+
 namespace eval ::vec2 {
     proc add {a b} {
         list [+ [lindex $a 0] [lindex $b 0]] [+ [lindex $a 1] [lindex $b 1]]

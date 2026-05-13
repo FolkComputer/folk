@@ -1,18 +1,18 @@
 # Example
 # When the clock time is /t/ {
 #     # Draw a spinning cyan arc
-#     set spinAngle [expr {fmod($t, 6.28318)}]
+#     set spinAngle [expr {fmod($t, $::TAU)}]
 #
 #     Wish to draw an arc onto $this with \
 #         center {0.05 0.05} \
 #         radius 0.04 \
 #         thickness 0.005 \
 #         start $spinAngle \
-#         arclen 3.14159 \
+#         arclen $::PI \
 #         color "cyan"
 # }
 
-Wish the GPU compiles pipeline "arc" {
+Wish the GPU compiles pipeline "arc" [list \
     {vec2 viewport mat3 surfaceToClip
      vec2 center float radius float thickness float start float arclen vec4 color} {
         float r = radius + thickness;
@@ -28,31 +28,30 @@ Wish the GPU compiles pipeline "arc" {
 
         vec3 v = surfaceToClip * vec3(vertices[gl_VertexIndex], 1.0);
         return vec4(v.xy / v.z, 0.0, 1.0);
-    } {
+    } [subst {
         vec2 clipXy = (gl_FragCoord.xy / viewport) * 2.0 - 1.0;
         vec3 surfaceXy = inverse(surfaceToClip) * vec3(clipXy, 1.0);
         surfaceXy /= surfaceXy.z;
 
-        float M_TWO_PI = 6.283185307179586;
-        float c_start = clamp(start, 0.0, M_TWO_PI);
-        float c_arclen = clamp(arclen, 0.0, M_TWO_PI);
+        const float TAU = $::TAU;
+        float c_start = clamp(start, 0.0, TAU);
+        float c_arclen = clamp(arclen, 0.0, TAU);
 
         float dist = length(surfaceXy.xy - center) - radius;
         float angle = atan(-(surfaceXy.y - center.y), surfaceXy.x - center.x);
 
-        angle = (angle < 0.0) ? (angle + M_TWO_PI) : angle;
+        angle = (angle < 0.0) ? (angle + TAU) : angle;
         float end = c_start + c_arclen;
 
         if (dist < thickness && dist > 0.0) {
-            if ((end < M_TWO_PI && angle > c_start && angle < end) ||
-                (end >= M_TWO_PI && (angle > c_start || angle < end - M_TWO_PI))) {
+            if ((end < TAU && angle > c_start && angle < end) ||
+                (end >= TAU && (angle > c_start || angle < end - TAU))) {
                 return color;
             }
         }
 
         return vec4(0.0);
-    }
-}
+    }]]
 
 When the color map is /colorMap/ &\
      /p/ has canvas /id/ with /...wiOptions/ &\

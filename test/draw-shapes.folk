@@ -1,0 +1,10 @@
+source builtin-programs/draw/shapes.folk
+
+set points [drawShapeRegularPolygon {0 0} 1 4 0]
+
+assert {abs([lindex $points 0 0]) < 0.00001}
+assert {abs([lindex $points 0 1] + 1.0) < 0.00001}
+assert {abs([lindex $points 1 0] - 1.0) < 0.00001}
+assert {abs([lindex $points 1 1]) < 0.00001}
+
+Exit! 0

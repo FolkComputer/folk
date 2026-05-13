@@ -122,7 +122,7 @@ proc drawShapeRegularPolygon {center radius sides radians} {
     lassign $center cx cy
     set points [list]
     for {set i 0} {$i < $sides} {incr i} {
-        set theta [expr {$radians + $i * 2.0 * 3.141592653589793 / $sides - 1.5707963267948966}]
+        set theta [expr {$radians + $i * $::TAU / $sides - $::PI / 2.0}]
         lappend points [list [expr {$cx + $radius * cos($theta)}] \
                              [expr {$cy + $radius * sin($theta)}]]
     }
@@ -311,7 +311,7 @@ Claim $this has demo {
     Wish $this draws text "rect" with color cyan offset [list [expr {$baseX + $dx * 3}] [expr {$baseY - 0.018}]] scale 0.004
 
     Wish $this draws a triangle with color skyblue radius 0.012 thickness 0.001 offset [list $baseX $baseY]
-    Wish $this draws a square with color green radius 0.012 thickness 0.0015 radians 0.785398 offset [list [expr {$baseX + $dx}] $baseY]
+    Wish $this draws a square with color green radius 0.012 thickness 0.0015 radians [expr {$::PI / 4.0}] offset [list [expr {$baseX + $dx}] $baseY]
     Wish $this draws a pentagon with color gold radius 0.012 filled true offset [list [expr {$baseX + $dx * 2}] $baseY]
     Wish $this draws a rect with width 0.026 height 0.014 color cyan radians 0.4 offset [list [expr {$baseX + $dx * 3}] $baseY]
 
