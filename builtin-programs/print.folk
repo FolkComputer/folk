@@ -333,7 +333,7 @@ Subscribe: print program /id/ with /...options/ {
     exec ps2pdf $saveDir/$id.ps $saveDir/$id.pdf
 
     puts "Printing program $id on $::thisNode"
-    exec lpr {*}$args $saveDir/$id.pdf
+    exec lpr -o print-scaling=none {*}$args $saveDir/$id.pdf
 }
 
 }
