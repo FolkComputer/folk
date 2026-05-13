@@ -233,9 +233,18 @@ static int __installLocalStdoutAndStderrFunc(Jim_Interp *interp, int argc, Jim_O
     installLocalStdoutAndStderr(stdoutfd, stderrfd);
 
     // Set ::_folk_localStdout/Stderr as non-owning channels for the exec wrapper.
-    Jim_AioMakeChannelFromFd(interp, stdoutfd, 0);
+    // Delete the previous channels (if any) before creating new ones, to avoid
+    // accumulating one channel pair per when-block execution in the interpreter's
+    // command table. Use keepopen=1 since the fds are managed by programFdsTable.
+    Jim_Obj *oldChan;
+    oldChan = Jim_GetVariableStr(interp, "::_folk_localStdout", JIM_NONE);
+    if (oldChan) { Jim_DeleteCommand(interp, oldChan); }
+    oldChan = Jim_GetVariableStr(interp, "::_folk_localStderr", JIM_NONE);
+    if (oldChan) { Jim_DeleteCommand(interp, oldChan); }
+
+    Jim_AioMakeChannelFromFd(interp, stdoutfd, 1);
     Jim_SetVariableStr(interp, "::_folk_localStdout", Jim_GetResult(interp));
-    Jim_AioMakeChannelFromFd(interp, stderrfd, 0);
+    Jim_AioMakeChannelFromFd(interp, stderrfd, 1);
     Jim_SetVariableStr(interp, "::_folk_localStderr", Jim_GetResult(interp));
 
     return JIM_OK;
