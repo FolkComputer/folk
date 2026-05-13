@@ -20,18 +20,19 @@ proc terminalUiLocalHost {host} {
 }
 
 set host [terminalUiLocalHost $::thisNode]
+set port $([info exists ::webPort] && $::webPort ne "" ? $::webPort : ([info exists ::env(FOLK_WEB_PORT)] && $::env(FOLK_WEB_PORT) ne "" ? $::env(FOLK_WEB_PORT) : 4273))
 set httpsDir $([info exists ::env(FOLK_HTTPS_DIR)] && $::env(FOLK_HTTPS_DIR) ne "" ? $::env(FOLK_HTTPS_DIR) : "$::env(HOME)/folk-data/https")
 set httpsCert "$httpsDir/cert.pem"
 set httpsKey "$httpsDir/key.pem"
 set scheme [expr {[file exists $httpsCert] && [file exists $httpsKey] && [exists -command load_ssl_certs] ? "https" : "http"}]
 if {$scheme eq "https"} {
-    $::realStdout puts "Web interface at: http://$host:4273/"
-    $::realStdout puts "Secure web interface at: https://$host:4273/"
-    $::realStdout puts "Trust root CA at: $scheme://$host:4273/folk-ca.cer"
-    $::realStdout puts "HTTPS mode: :4273 accepts both HTTP and HTTPS; use HTTPS for screenshare."
+    $::realStdout puts "Web interface at: http://$host:$port/"
+    $::realStdout puts "Secure web interface at: https://$host:$port/"
+    $::realStdout puts "Trust root CA at: $scheme://$host:$port/folk-ca.cer"
+    $::realStdout puts "HTTPS mode: :$port accepts both HTTP and HTTPS; use HTTPS for screenshare."
 } else {
-    $::realStdout puts "Web interface at: $scheme://$host:4273/"
-    $::realStdout puts "HTTPS setup at: http://$host:4273/setup/https"
+    $::realStdout puts "Web interface at: $scheme://$host:$port/"
+    $::realStdout puts "HTTPS setup at: http://$host:$port/setup/https"
 }
 $::realStdout puts ""
 $::realStdout flush
