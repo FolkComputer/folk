@@ -12,6 +12,7 @@ if {[info exists this] && $::tcl_platform(os) eq "darwin"} {
 
 When the GPU library is /gpuLib/ &\
      the GPU Vulkan handle type definer is /defineVulkanHandleType/ &\
+     the GPU texture library is /gpuTextureLib/ &\
      the GPU pipeline library is /pipelineLib/ {
 
 fn defineVulkanHandleType
@@ -59,7 +60,7 @@ $cc code [subst {
         uint32_t imageIndex;
 
         VkSemaphore imageAvailableSemaphore;
-        VkSemaphore renderFinishedSemaphore;
+        VkSemaphore* renderFinishedSemaphores;
         VkFence inFlightFence;
         [expr { $useGlfw ? "GLFWwindow* window;" : "" }]
     } DisplayState;
@@ -343,7 +344,10 @@ $cc proc initDisplay {char* display uint32_t width uint32_t height uint32_t refr
         fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
         $[vktry {vkCreateSemaphore(device, &semaphoreInfo, NULL, &ds->imageAvailableSemaphore)}]
-        $[vktry {vkCreateSemaphore(device, &semaphoreInfo, NULL, &ds->renderFinishedSemaphore)}]
+        ds->renderFinishedSemaphores = calloc(ds->swapchainImageCount, sizeof(VkSemaphore));
+        for (uint32_t i = 0; i < ds->swapchainImageCount; i++) {
+            $[vktry {vkCreateSemaphore(device, &semaphoreInfo, NULL, &ds->renderFinishedSemaphores[i])}]
+        }
         $[vktry {vkCreateFence(device, &fenceInfo, NULL, &ds->inFlightFence)}]
     }
 
@@ -358,7 +362,13 @@ $cc proc drawStart {DisplayState* ds} void {
 
     vkResetFences(device, 1, &ds->inFlightFence);
 
-    vkAcquireNextImageKHR(device, ds->swapchain, UINT64_MAX, ds->imageAvailableSemaphore, VK_NULL_HANDLE, &ds->imageIndex);
+    VkResult acquireResult = vkAcquireNextImageKHR(device, ds->swapchain, UINT64_MAX,
+                                                   ds->imageAvailableSemaphore, VK_NULL_HANDLE,
+                                                   &ds->imageIndex);
+    if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR) {
+        FOLK_ERROR("Failed vkAcquireNextImageKHR: %s (%d)\n",
+                   VkResultToString(acquireResult), acquireResult);
+    }
 
     vkResetCommandBuffer(commandBuffer, 0);
 
@@ -445,7 +455,7 @@ $cc proc drawEnd {} void {
     vkCmdEndRenderPass(commandBuffer);
     $[vktry {vkEndCommandBuffer(commandBuffer)}]
 
-    VkSemaphore signalSemaphores[] = {ds->renderFinishedSemaphore};
+    VkSemaphore signalSemaphores[] = {ds->renderFinishedSemaphores[ds->imageIndex]};
     {
         VkSubmitInfo submitInfo = {0};
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -466,6 +476,7 @@ $cc proc drawEnd {} void {
         $[vktry {vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo, ds->inFlightFence)}]
         pthread_mutex_unlock(graphicsQueueMutex_ptr());
     }
+
     {
         VkPresentInfoKHR presentInfo = {0};
         presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -479,8 +490,12 @@ $cc proc drawEnd {} void {
         presentInfo.pResults = NULL;
 
         pthread_mutex_lock(graphicsQueueMutex_ptr());
-        vkQueuePresentKHR(*presentQueue_ptr(), &presentInfo);
+        VkResult presentResult = vkQueuePresentKHR(*presentQueue_ptr(), &presentInfo);
         pthread_mutex_unlock(graphicsQueueMutex_ptr());
+        if (presentResult != VK_SUCCESS && presentResult != VK_SUBOPTIMAL_KHR) {
+            FOLK_ERROR("Failed vkQueuePresentKHR: %s (%d)\n",
+                       VkResultToString(presentResult), presentResult);
+        }
     }
 
     // Wait for this display's submission to complete before we
@@ -937,7 +952,8 @@ When /wisher/ wishes the GPU compiles pipeline /name/ /source/ {
 
 set missingPipelines [dict create]
 while true {
-    # Run prelude handlers once per frame (textures, canvases).
+    # Advance texture retirement once per frame, then run canvas redraw work.
+    $gpuTextureLib beginTextureFrame
     ForEach! /someone/ wishes the GPU runs frame prelude handler /hd/ {
         {*}$hd
     }
@@ -1003,6 +1019,10 @@ while true {
             continue
         }
     }
+
+    # Make textures published while building the display list drawable
+    # before we record display command buffers.
+    $gpuTextureLib drainDeferredTextureOps
 
     # Draw to each active display.
     dict for {displayName ds} $displays {

@@ -22,6 +22,8 @@ $gpuc code {
     VmaAllocator vmaGetAllocator();
 }
 $gpuc include <pthread.h>
+$gpuc include <stdlib.h>
+$gpuc include <string.h>
 $gpuc include <stdatomic.h>
 
 $gpuc extend $gpuLib
@@ -87,9 +89,11 @@ defineVulkanHandleType $gpuc VkImageView
 defineVulkanHandleType $gpuc VkSampler
 $gpuc struct GpuTextureBlock {
     bool _Atomic alive;
+    bool _Atomic retiring;
 
     int width;
     int height;
+    int retireAfterFrame;
 
     GpuTextureHandle handle;
 
@@ -118,6 +122,9 @@ $gpuc code {
     struct DeferredTextureEntry deferredQueue[DEFERRED_QUEUE_CAP];
     int _Atomic deferredQueueCount = 0;
     pthread_mutex_t deferredQueueMutex = PTHREAD_MUTEX_INITIALIZER;
+
+    #define TEXTURE_RETIRE_GRACE_FRAMES 2
+    int textureFrameEpoch = 0;
 }
 $gpuc proc textureManagerInit {} void {
     $[vktry volkInitialize()]
@@ -520,6 +527,8 @@ $gpuc proc createGpuTexture {int width int height int format} GpuTextureBlock* {
 
     block->width = width;
     block->height = height;
+    block->retiring = false;
+    block->retireAfterFrame = 0;
 
     createImage(width, height,
                 (VkFormat) format, VK_IMAGE_TILING_OPTIMAL,
@@ -568,13 +577,8 @@ $gpuc proc createGpuTexture {int width int height int format} GpuTextureBlock* {
     return block;
 }
 
-# In-flight texture upload ring, per worker thread. Lets
-# copyImageToGpuTexture submit a staging-buffer->image copy without
-# waiting for it to complete; the staging buffer is reclaimed lazily
-# on a later call once the GPU is done with it. We only block when
-# the ring fills up (i.e. we've pipelined enough uploads that the
-# oldest one still isn't done), which is the natural backpressure
-# point for a single worker.
+# Per-worker reusable texture upload slots. Staging buffers stay alive
+# until their slot is reused and the previous upload fence has signaled.
 $gpuc code {
     #define INFLIGHT_UPLOADS 8
     struct InflightUpload {
@@ -605,6 +609,8 @@ $gpuc code {
 #endif
             vmaDestroyBuffer(vmaGetAllocator(),
                              slot->stagingBuffer, slot->stagingBufferAllocation);
+            slot->stagingBuffer = VK_NULL_HANDLE;
+            slot->stagingBufferAllocation = NULL;
             slot->inUse = false;
         }
         if (slot->fence == VK_NULL_HANDLE) {
@@ -621,6 +627,8 @@ $gpuc code {
             allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
             allocInfo.commandBufferCount = 1;
             vkAllocateCommandBuffers(device, &allocInfo, &slot->cmdBuffer);
+        } else {
+            vkResetCommandBuffer(slot->cmdBuffer, 0);
         }
         return slot;
     }
@@ -757,8 +765,17 @@ $gpuc proc freeGpuTexture {GpuTextureHandle gim} void {
 # Actually destroy a texture's GPU resources. Must only be called
 # on the GPU thread between frames when the GPU is idle.
 $gpuc code {
+    static void retireGpuTexture(GpuTextureHandle gim) {
+        GpuTextureBlock* block = &gpuTextures[gim];
+        if (gim == 0 || !block->alive || block->retiring) return;
+
+        block->retiring = true;
+        block->retireAfterFrame = textureFrameEpoch + TEXTURE_RETIRE_GRACE_FRAMES;
+    }
+
     static void destroyGpuTextureResources(GpuTextureHandle gim) {
         GpuTextureBlock* block = &gpuTextures[gim];
+        if (gim == 0 || !block->alive) return;
 
         // Point this descriptor slot at the placeholder texture (slot 0)
         // so later frames don't reference a destroyed image.
@@ -783,18 +800,34 @@ $gpuc code {
 #ifdef TRACY_ENABLE
         TracyCFree(block->textureImageAllocation);
 #endif
-        vmaDestroyImage(vmaGetAllocator(), block->textureImage, block->textureImageAllocation);
         vkDestroySampler(device, block->textureSampler, NULL);
         vkDestroyImageView(device, block->textureImageView, NULL);
+        vmaDestroyImage(vmaGetAllocator(), block->textureImage, block->textureImageAllocation);
 
         free(block->description);
+        block->description = NULL;
+        block->textureImage = VK_NULL_HANDLE;
+        block->textureImageAllocation = NULL;
+        block->textureImageView = VK_NULL_HANDLE;
+        block->textureSampler = VK_NULL_HANDLE;
+        block->retiring = false;
+        block->retireAfterFrame = 0;
         block->alive = false;
+    }
+
+    static void destroyRetiredGpuTextures() {
+        for (GpuTextureHandle gim = 1; gim < getMaxTextures(); gim++) {
+            GpuTextureBlock* block = &gpuTextures[gim];
+            if (block->alive && block->retiring &&
+                block->retireAfterFrame <= textureFrameEpoch) {
+                destroyGpuTextureResources(gim);
+            }
+        }
     }
 }
 
-# Called on the GPU thread between frames, after the previous
-# frame's fence has been waited on (GPU is idle).
-$gpuc proc processDeferredTextureOps {} void {
+# Called on the GPU thread before recording work that may sample textures.
+$gpuc proc drainDeferredTextureOps {} void {
     pthread_mutex_lock(&deferredQueueMutex);
     int count = deferredQueueCount;
     struct DeferredTextureEntry localQueue[DEFERRED_QUEUE_CAP];
@@ -808,10 +841,19 @@ $gpuc proc processDeferredTextureOps {} void {
             writeTextureDescriptor(localQueue[i].handle);
             break;
         case DEFERRED_FREE:
-            destroyGpuTextureResources(localQueue[i].handle);
+            retireGpuTexture(localQueue[i].handle);
             break;
         }
     }
+
+    destroyRetiredGpuTextures();
+}
+
+# Called once per GPU frame so retired textures age exactly once,
+# even though descriptor work may be drained multiple times.
+$gpuc proc beginTextureFrame {} void {
+    textureFrameEpoch++;
+    drainDeferredTextureOps();
 }
 
 $gpuc proc initPlaceholderTexture {} void {
@@ -829,7 +871,7 @@ $gpuc proc initPlaceholderTexture {} void {
             debugIm.data[i+0] = 255;
             debugIm.data[i+1] = 0;
             debugIm.data[i+2] = 255;
-            debugIm.data[i+3] = 0;
+            debugIm.data[i+3] = 255;
         }
     }
     GpuTextureHandle han = copyImageToGpuTexture(debugIm);
@@ -839,7 +881,7 @@ $gpuc proc initPlaceholderTexture {} void {
     // drain the queued DEFERRED_ADD for slot 0 (which is now redundant
     // but harmless).
     initializeDescriptorSet(han);
-    processDeferredTextureOps();
+    drainDeferredTextureOps();
 }
 
 set gpuTextureLib [$gpuc compile]
@@ -847,10 +889,6 @@ set gpuTextureLib [$gpuc compile]
 $gpuTextureLib textureManagerInit
 
 Claim the GPU texture library is $gpuTextureLib
-
-Wish the GPU runs frame prelude handler [list apply {{gpuTextureLib} {
-    $gpuTextureLib processDeferredTextureOps
-}} $gpuTextureLib]
 
 When /someone/ wishes the GPU loads image /im/ as texture {
     set gtex [$gpuTextureLib copyImageToGpuTexture $im]
