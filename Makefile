@@ -124,10 +124,10 @@ sync:
 	rsync --timeout=15 -e "ssh -o StrictHostKeyChecking=no" \
 		--archive --delete --itemize-changes \
 		--exclude='/.git' \
-		--exclude-from='.git/ignores.tmp' \
 		--exclude='vendor/tracy/public/TracyClient.o' \
 		--include='vendor/tracy/public/***' \
 		--exclude='vendor/tracy/*' \
+		--exclude-from='.git/ignores.tmp' \
 		./ $(FOLK_REMOTE_NODE):~/folk/
 
 remote-setup:
