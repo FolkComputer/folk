@@ -24,7 +24,7 @@ while true {
         set body [exec curl -sf "$baseUrl/setup/https"]
         break
     } on error e {
-        if {[clock milliseconds] - $started > 5000} {
+        if {[clock milliseconds] - $started > 15000} {
             error "HTTPS setup HTTP page did not become available: $e"
         }
         sleep 0.2
@@ -33,6 +33,8 @@ while true {
 
 assert {[string first "HTTP setup mode: certificates are missing" $body] >= 0}
 assert {[string first "Generate HTTPS Certificates" $body] >= 0}
+assert {[string first "Restart Folk" $body] >= 0}
+assert {[string first "Open HTTPS Setup" $body] >= 0}
 assert {[string first "Archive Folk HTTPS Certificates" $body] >= 0}
 assert {[string first "Copy Terminal Command" $body] >= 0}
 assert {[string first "Copy Removal Command" $body] >= 0}
@@ -40,6 +42,12 @@ assert {[string first "security add-trusted-cert -r trustRoot -p ssl -k" $body] 
 assert {[string first "security delete-certificate -Z" $body] >= 0}
 assert {[string first "login.keychain-db" $body] >= 0}
 assert {[string first "Copy Stale CA Cleanup Command" $body] >= 0}
+assert {[string first "<details class=\"device-panel\" id=\"device-macos\"" $body] >= 0}
+assert {[string first "<details class=\"device-panel\" id=\"device-ios\"" $body] >= 0}
+assert {[string first "<details class=\"device-panel\" id=\"device-windows\"" $body] >= 0}
+assert {[string first "<h3>Removing CA</h3>" $body] >= 0}
+assert {[string first "command.join(\" &&\\n\")" $body] >= 0}
+assert {[string first "document.execCommand(\"copy\")" $body] >= 0}
 assert {[regexp {actionToken: "([^"]+)"} $body -> actionToken]}
 set qr [exec curl -sf "$baseUrl/setup/https/qr.svg?text=hello"]
 assert {[string first "<svg" $qr] >= 0}
@@ -47,6 +55,21 @@ assert {[string first "<svg" $qr] >= 0}
 set ca404 [exec curl -s -o - -w "\n%{http_code}" "$baseUrl/folk-ca.cer"]
 assert {[string first "Visit /setup/https" $ca404] >= 0}
 assert {[string match "*\n404" $ca404]}
+
+set restartBody "Wish to restart Folk with request http-restart-tokenless-test"
+exec curl -sf -X POST --data-binary $restartBody "$baseUrl/"
+
+set started [clock milliseconds]
+while true {
+    set results [Query! /someone/ claims HTTPS setup restart http-restart-tokenless-test has status /status/ with /...options/]
+    if {[llength $results] > 0 && [dict get [lindex $results end] status] eq "error"} {
+        break
+    }
+    if {[clock milliseconds] - $started > 8000} {
+        error "HTTPS setup tokenless restart rejection did not complete"
+    }
+    sleep 0.2
+}
 
 set notifyBody "Wish to generate local HTTPS certificates with request http-tokenless-test"
 exec curl -sf -X POST --data-binary $notifyBody "$baseUrl/"

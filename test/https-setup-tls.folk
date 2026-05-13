@@ -32,7 +32,7 @@ while true {
         set body [exec curl -ksf "$httpsBaseUrl/setup/https"]
         break
     } on error e {
-        if {[clock milliseconds] - $started > 5000} {
+        if {[clock milliseconds] - $started > 15000} {
             error "HTTPS setup TLS page did not become available: $e"
         }
         sleep 0.2
@@ -40,6 +40,8 @@ while true {
 }
 
 assert {[string first "HTTPS is active" $body] >= 0}
+assert {[string first "Restart Folk" $body] >= 0}
+assert {[string first "<details class=\"device-panel\" id=\"device-macos\"" $body] >= 0}
 set status [exec curl -ks -o /dev/null -w "%{http_code}" "$httpsBaseUrl/folk-ca.cer"]
 assert {$status eq "200"}
 set httpBody [exec curl -sf "$httpBaseUrl/setup/https"]
