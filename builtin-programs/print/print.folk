@@ -239,7 +239,9 @@ fn nextId {} {
         incr id
     }
 
-    Hold! -save -key next-id the next program id is $id
+    # HACK: using old path for backward compatibility.
+    Hold! -save -on builtin-programs/print.folk -key next-id \
+        the next program id is $id
 
     set id
 }
@@ -333,7 +335,7 @@ Subscribe: print program /id/ with /...options/ {
     exec ps2pdf $saveDir/$id.ps $saveDir/$id.pdf
 
     puts "Printing program $id on $::thisNode"
-    exec lpr -o print-scaling=none {*}$args $saveDir/$id.pdf
+    exec lpr {*}$args $saveDir/$id.pdf
 }
 
 }
