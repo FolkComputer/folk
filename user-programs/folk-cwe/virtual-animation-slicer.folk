@@ -1,0 +1,167 @@
+set VIRTUAL_ANIM_FRAMES 12
+set VIRTUAL_ANIM_COLS 4
+set VIRTUAL_ANIM_FPS 24
+set VIRTUAL_ANIM_FRAME_W 320
+set VIRTUAL_ANIM_FRAME_H 240
+
+When the image library is /imageLib/ {
+    set cc [C]
+    $cc extend $imageLib
+    $cc cflags -O2 -Wall
+    $cc include <math.h>
+    $cc include <stdint.h>
+    $cc include <stdlib.h>
+    $cc include <string.h>
+
+    $cc code {
+        #define VAS_MAX_FRAMES 16
+
+        static Image frames[VAS_MAX_FRAMES];
+        static int frameCount = 0;
+        static int frameWidth = 0;
+        static int frameHeight = 0;
+        static uint64_t sequence = 1;
+
+        static uint8_t clampByte(int v) {
+            if (v < 0) return 0;
+            if (v > 255) return 255;
+            return (uint8_t)v;
+        }
+    }
+
+    $cc proc init {int nFrames int width int height} void {
+        FOLK_ENSURE(nFrames > 0 && nFrames <= VAS_MAX_FRAMES);
+        frameCount = nFrames;
+        frameWidth = width;
+        frameHeight = height;
+        for (int i = 0; i < frameCount; i++) {
+            frames[i] = imageNew(width, height, 4, 0);
+            memset(frames[i].data, 0, frames[i].bytesPerRow * frames[i].height);
+        }
+    }
+
+    $cc proc render {int activeFrame} void {
+        sequence++;
+        if (activeFrame < 0) activeFrame = 0;
+        activeFrame %= frameCount;
+
+        for (int f = 0; f < frameCount; f++) {
+            Image im = frames[f];
+            im.uniq = sequence * 100 + f;
+            frames[f].uniq = im.uniq;
+
+            int phase = (int)(sequence + f * 17);
+            int isActive = (f == activeFrame);
+            for (int y = 0; y < frameHeight; y++) {
+                uint8_t* row = im.data + y * im.bytesPerRow;
+                for (int x = 0; x < frameWidth; x++) {
+                    int checker = ((x / 24) + (y / 24) + f + phase / 3) & 1;
+                    int stripe = (x + phase * 9 + f * 31) % 255;
+                    int glow = isActive ? 90 : 0;
+                    int base = checker ? 72 : 24;
+                    int idx = x * 4;
+
+                    row[idx + 0] = clampByte(base + stripe / 3 + glow);
+                    row[idx + 1] = clampByte(40 + ((y + phase * 5 + f * 13) % 180) + glow / 2);
+                    row[idx + 2] = clampByte(130 + ((x + y + f * 19) % 90));
+                    row[idx + 3] = 255;
+                }
+            }
+        }
+    }
+
+    $cc proc getFrame {int index} Image {
+        FOLK_ENSURE(index >= 0 && index < frameCount);
+        return frames[index];
+    }
+
+    set virtualAnimSlicerLib [$cc compile]
+    $virtualAnimSlicerLib init \
+        $VIRTUAL_ANIM_FRAMES \
+        $VIRTUAL_ANIM_FRAME_W \
+        $VIRTUAL_ANIM_FRAME_H
+
+    Claim the virtual animation slicer library is $virtualAnimSlicerLib
+}
+
+When display /disp/ has width /displayWidth/ height /displayHeight/ &\
+     the virtual animation slicer library is /virtualAnimSlicerLib/ &\
+     the clock time is /t/ {
+
+    set frameNumber [expr {int($t * $VIRTUAL_ANIM_FPS)}]
+    set active [expr {$frameNumber % $VIRTUAL_ANIM_FRAMES}]
+    $virtualAnimSlicerLib render $active
+
+    Hold! -key [list virtual-animation-slicer $disp] -keep 45ms {
+        Wish to draw a quad onto $disp with \
+            p0 [list 0 0] \
+            p1 [list $displayWidth 0] \
+            p2 [list $displayWidth $displayHeight] \
+            p3 [list 0 $displayHeight] \
+            color {0.01 0.015 0.018 1.0} \
+            layer -100
+
+        set margin 48
+        set gap 18
+        set mainWByWidth [expr {$displayWidth * 0.58}]
+        set mainWByHeight [expr {$displayHeight * 0.72 * 4.0 / 3.0}]
+        if {$mainWByWidth < $mainWByHeight} {
+            set mainW $mainWByWidth
+        } else {
+            set mainW $mainWByHeight
+        }
+        set mainH [expr {$mainW * 3.0 / 4.0}]
+        set mainX $margin
+        set mainY [expr {($displayHeight - $mainH) / 2.0}]
+
+        set mainIm [$virtualAnimSlicerLib getFrame $active]
+        Wish to draw an image onto $disp with \
+            image $mainIm \
+            position [list $mainX $mainY] \
+            anchor topleft \
+            width $mainW \
+            layer 10
+
+        set mainOutline [list \
+            [list $mainX $mainY] \
+            [list [expr {$mainX + $mainW}] $mainY] \
+            [list [expr {$mainX + $mainW}] [expr {$mainY + $mainH}]] \
+            [list $mainX [expr {$mainY + $mainH}]] \
+            [list $mainX $mainY]]
+        Wish to draw a line onto $disp with \
+            points $mainOutline width 6 color green layer 20
+
+        set gridX [expr {$mainX + $mainW + 48}]
+        set availableW [expr {$displayWidth - $gridX - $margin}]
+        set cellW [expr {($availableW - ($VIRTUAL_ANIM_COLS - 1) * $gap) / $VIRTUAL_ANIM_COLS}]
+        set cellH [expr {$cellW * 3.0 / 4.0}]
+        set rows [expr {($VIRTUAL_ANIM_FRAMES + $VIRTUAL_ANIM_COLS - 1) / $VIRTUAL_ANIM_COLS}]
+        set gridH [expr {$rows * $cellH + ($rows - 1) * $gap}]
+        set gridY [expr {($displayHeight - $gridH) / 2.0}]
+
+        for {set i 0} {$i < $VIRTUAL_ANIM_FRAMES} {incr i} {
+            set col [expr {$i % $VIRTUAL_ANIM_COLS}]
+            set row [expr {$i / $VIRTUAL_ANIM_COLS}]
+            set x [expr {$gridX + $col * ($cellW + $gap)}]
+            set y [expr {$gridY + $row * ($cellH + $gap)}]
+            set im [$virtualAnimSlicerLib getFrame $i]
+
+            Wish to draw an image onto $disp with \
+                image $im \
+                position [list $x $y] \
+                anchor topleft \
+                width $cellW \
+                layer 10
+
+            set color [expr {$i == $active ? "green" : "red"}]
+            set box [list \
+                [list $x $y] \
+                [list [expr {$x + $cellW}] $y] \
+                [list [expr {$x + $cellW}] [expr {$y + $cellH}]] \
+                [list $x [expr {$y + $cellH}]] \
+                [list $x $y]]
+            Wish to draw a line onto $disp with \
+                points $box width 4 color $color layer 20
+        }
+    }
+}

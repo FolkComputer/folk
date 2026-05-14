@@ -1,24 +1,51 @@
 Wish the web server handles route {/camera} with handler {
     if {[dict exists $QUERY camera]} {
         set camera [dict get $QUERY camera]
+        set frameWidth [dict getdef $QUERY width {}]
+        set frameHeight [dict getdef $QUERY height {}]
     } else {
         set cameraResults [Query! camera /camera/ has width /w/ height /h/]
-        if {[llength $cameraResults] == 1} {
-            set camera [dict get [lindex $cameraResults 0] camera]
+        set cameras {}
+        set cameraSizes {}
+        foreach result $cameraResults {
+            set resultCamera [dict get $result camera]
+            if {[lsearch -exact $cameras $resultCamera] < 0} {
+                lappend cameras $resultCamera
+                dict set cameraSizes $resultCamera [list \
+                    [dict get $result w] [dict get $result h]]
+            }
+        }
+        if {[llength $cameras] == 1} {
+            set camera [lindex $cameras 0]
+            lassign [dict get $cameraSizes $camera] frameWidth frameHeight
         } else {
             return [html [subst {
                 <html>
                 <body>
                 <p>Choose a camera:</p>
                 <ul>
-                [join [lmap result $cameraResults { subst {
-                    <li><a href="/camera?camera=[string map [list / %2F " " %20] $result(camera)]">$result(camera)</a></li>
+                [join [lmap camera $cameras { subst {
+                    [lassign [dict get $cameraSizes $camera] choiceWidth choiceHeight]
+                    <li><a href="/camera?camera=[string map [list / %2F " " %20] $camera]&width=$choiceWidth&height=$choiceHeight">$camera</a></li>
                 } }] \n]
                 </ul>
                 </body>
                 </html>
             }]]
         }
+    }
+
+    if {$frameWidth eq {} || $frameHeight eq {}} {
+        set sizeResults [Query! camera $camera has width /w/ height /h/]
+        if {[llength $sizeResults] > 0} {
+            set firstSize [lindex $sizeResults 0]
+            set frameWidth [dict get $firstSize w]
+            set frameHeight [dict get $firstSize h]
+        }
+    }
+    set frameUrl "/camera-frame?camera=[string map [list / %2F " " %20] $camera]"
+    if {$frameWidth ne {} && $frameHeight ne {}} {
+        append frameUrl "&width=$frameWidth&height=$frameHeight"
     }
 
     # in case it's a virtual camera, we want to get the base path.
@@ -58,7 +85,7 @@ Wish the web server handles route {/camera} with handler {
           setTimeout(advanceCamera, 0);
         };
         img.onerror = () => setTimeout(advanceCamera, 500);
-        img.src = '/camera-frame?camera=[string map [list / %2F " " %20] $camera]&uniq=' + Math.random();
+        img.src = '$frameUrl&uniq=' + Math.random();
       }
       advanceCamera();
 

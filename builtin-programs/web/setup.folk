@@ -715,7 +715,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
         <div class="camera-live">
           <div class="camera-preview" data-camera="[htmlEscape $camera]">
             <div class="camera-preview-frame" style="--camera-aspect: $sourceWidth / $sourceHeight;">
-              <iframe src="/camera?camera=[string map [list / %2F " " %20] $camera]&controls=0"></iframe>
+              <iframe src="/camera?camera=[string map [list / %2F " " %20] $camera]&width=$sourceWidth&height=$sourceHeight&controls=0"></iframe>
               <div class="crop-overlay">
                 <!-- [set i 0] -->
                 [join [lmap c $existingCrops {

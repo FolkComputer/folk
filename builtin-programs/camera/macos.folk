@@ -707,14 +707,41 @@ When the jpeg library is /jpegLib/ {
             set crops [dict get $options crops]
         }
 
-        fn runCamera {camObjVar} {
+        fn runCamera {camObjVar stopVar} {
             holdCameraStatus $camera opening "Opening camera"
             puts "camera/macos: Will try to open $camera"
 
             upvar $camObjVar camObj_
+            upvar $stopVar stop_
+            while true {
+                set streamWanted false
+                foreach wish [Query! /someone/ wishes $::thisNode uses camera $camera with /...wishOptions/] {
+                    set wishOptions [dict get $wish wishOptions]
+                    set wishWidth [dict getdef $wishOptions width 1280]
+                    set wishHeight [dict getdef $wishOptions height 720]
+                    set wishFramerate [dict getdef $wishOptions framerate 30]
+                    if {$wishWidth == $width && $wishHeight == $height &&
+                        double($wishFramerate) == double($framerate)} {
+                        set streamWanted true
+                        break
+                    }
+                }
+                if {!$streamWanted} {
+                    set stop_ true
+                    return
+                }
+
+                set activeStreams [Query! camera $camera has active stream /activeStream/]
+                if {[llength $activeStreams] == 0} {
+                    break
+                }
+                sleep 0.1
+            }
+
             set camObj_ [$macosCameraLib cameraOpen $cameraId $width $height $framerate]
             set camObj $camObj_ ;# HACK: we don't capture upvars yet.
             puts "camera/macos: Loaded $camera -> $camObj"
+            set streamKey [list $camera $width $height $framerate $camObj]
 
             for {set i 0} {$i < 5} {incr i} {
                 set warmupJpeg [$macosCameraLib cameraFrameJpeg $camObj]
@@ -723,6 +750,8 @@ When the jpeg library is /jpegLib/ {
 
             set actualWidth [$macosCameraLib cameraWidth $camObj]
             set actualHeight [$macosCameraLib cameraHeight $camObj]
+            Hold! -key [list camera $camera active-stream] \
+                Claim camera $camera has active stream $streamKey
             Hold! -key [list camera $camera negotiated] \
                 Claim camera $camera has negotiated width $actualWidth height $actualHeight \
                     framerate $framerate
@@ -731,14 +760,17 @@ When the jpeg library is /jpegLib/ {
             if {[info exists crops]} {
                 for {set i 0} {$i < [llength $crops]} {incr i} {
                     set crop [lindex $crops $i]
-                    Claim camera [list $camera $i] has width [dict get $crop width] \
-                        height [dict get $crop height]
+                    set cropPath [list $camera $i]
+                    Hold! -key [list camera $cropPath dimensions] \
+                        Claim camera $cropPath has width [dict get $crop width] \
+                            height [dict get $crop height]
                     Hold! -key [list camera [list $camera $i] negotiated] \
                         Claim camera [list $camera $i] has negotiated width [dict get $crop width] \
                             height [dict get $crop height] framerate $framerate
                 }
             } else {
-                Claim camera $camera has width $actualWidth height $actualHeight
+                Hold! -key [list camera $camera dimensions] \
+                    Claim camera $camera has width $actualWidth height $actualHeight
             }
 
             When /someone/ wishes camera $camera uses exposure time /exposureTimeUs/ us {
@@ -747,6 +779,60 @@ When the jpeg library is /jpegLib/ {
 
             while true {
                 tracy zoneBegin
+
+                set streamWanted false
+                foreach wish [Query! /someone/ wishes $::thisNode uses camera $camera with /...wishOptions/] {
+                    set wishOptions [dict get $wish wishOptions]
+                    set wishWidth [dict getdef $wishOptions width 1280]
+                    set wishHeight [dict getdef $wishOptions height 720]
+                    set wishFramerate [dict getdef $wishOptions framerate 30]
+                    if {$wishWidth == $width && $wishHeight == $height &&
+                        double($wishFramerate) == double($framerate)} {
+                        set streamWanted true
+                        break
+                    }
+                }
+                if {!$streamWanted} {
+                    set activeStreams [Query! camera $camera has active stream /activeStream/]
+                    if {[llength $activeStreams] == 1 &&
+                        [dict get [lindex $activeStreams 0] activeStream] eq $streamKey} {
+                        Hold! -key [list camera $camera active-stream] {}
+                        Hold! -key [list camera $camera dimensions] {}
+                    }
+                    set stop_ true
+                    tracy zoneEnd
+                    return
+                }
+
+                set activeStreams [Query! camera $camera has active stream /activeStream/]
+                if {[llength $activeStreams] == 1 &&
+                    [dict get [lindex $activeStreams 0] activeStream] ne $streamKey} {
+                    tracy zoneEnd
+                    return
+                } elseif {[llength $activeStreams] == 0} {
+                    Hold! -key [list camera $camera active-stream] \
+                        Claim camera $camera has active stream $streamKey
+                    Hold! -key [list camera $camera negotiated] \
+                        Claim camera $camera has negotiated width $actualWidth height $actualHeight \
+                            framerate $framerate
+                    holdCameraStatus $camera streaming "Receiving frames"
+
+                    if {[info exists crops]} {
+                        for {set i 0} {$i < [llength $crops]} {incr i} {
+                            set crop [lindex $crops $i]
+                            set cropPath [list $camera $i]
+                            Hold! -key [list camera $cropPath dimensions] \
+                                Claim camera $cropPath has width [dict get $crop width] \
+                                    height [dict get $crop height]
+                            Hold! -key [list camera [list $camera $i] negotiated] \
+                                Claim camera [list $camera $i] has negotiated width [dict get $crop width] \
+                                    height [dict get $crop height] framerate $framerate
+                        }
+                    } else {
+                        Hold! -key [list camera $camera dimensions] \
+                            Claim camera $camera has width $actualWidth height $actualHeight
+                    }
+                }
 
                 set jpeg [$macosCameraLib cameraFrameJpeg $camObj]
                 set timestamp [expr {[clock milliseconds] / 1000.0}]
@@ -781,8 +867,9 @@ When the jpeg library is /jpegLib/ {
 
         while true {
             set camObj {}
+            set stopCamera false
             try -signal {
-                runCamera camObj
+                runCamera camObj stopCamera
             } on error e {
                 puts stderr "camera/macos: Error $e"
                 holdCameraStatus $camera error $e
@@ -791,9 +878,18 @@ When the jpeg library is /jpegLib/ {
                 break
             } finally {
                 if {$camObj ne {}} {
+                    set activeStreams [Query! camera $camera has active stream /activeStream/]
+                    if {[llength $activeStreams] == 1 &&
+                        [dict get [lindex $activeStreams 0] activeStream] eq $streamKey} {
+                        Hold! -key [list camera $camera active-stream] {}
+                        Hold! -key [list camera $camera dimensions] {}
+                    }
                     puts "camera/macos: Close $camObj"
                     $macosCameraLib cameraClose $camObj
                 }
+            }
+            if {$stopCamera} {
+                break
             }
 
             sleep 1

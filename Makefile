@@ -56,7 +56,7 @@ folk_interpose.dylib: output-redirection.c
 		-DFOLK_INTERPOSE_DYLIB \
 		-o $@ $<
 
-.PHONY: test clean deps macos-bundle
+.PHONY: test clean deps macos-bundle kill-folk
 test: folk
 	@count=1; \
 	total=$$(ls test/*.folk | wc -l | tr -d ' '); \
@@ -152,12 +152,47 @@ macos-bundle: folk
 
 
 kill-folk:
-	sudo systemctl stop folk
-	if [ -f folk.pid ]; then \
-		OLD_PID=`cat folk.pid`; \
-		pkill -9 --pgroup $$OLD_PID; \
-		sudo pkill -9 --pgroup $$OLD_PID; \
-		while sudo pkill -0 --pgroup $$OLD_PID; do sleep 0.2; done; \
+	@if [ "$$(uname -s)" = "Darwin" ]; then \
+		APP_EXEC="$$(pwd)/build/Folk.app/Contents/MacOS/folk"; \
+		LOCAL_EXEC="$$(pwd)/folk"; \
+		kill_pid() { \
+			OLD_PID="$$1"; \
+			if [ -z "$$OLD_PID" ] || ! kill -0 "$$OLD_PID" 2>/dev/null; then return 0; fi; \
+			CMD="$$(ps -p "$$OLD_PID" -o command= 2>/dev/null || true)"; \
+			case "$$CMD" in \
+				*"$$APP_EXEC"*|*"$$LOCAL_EXEC"*) ;; \
+				*) echo "Skipping PID $$OLD_PID ($$CMD)"; return 1 ;; \
+			esac; \
+			PGID="$$(ps -o pgid= -p "$$OLD_PID" 2>/dev/null | tr -d ' ' || true)"; \
+			echo "Stopping Folk PID $$OLD_PID"; \
+			if [ -n "$$PGID" ]; then kill -TERM -$$PGID 2>/dev/null || true; fi; \
+			kill -TERM "$$OLD_PID" 2>/dev/null || true; \
+			WAIT=0; \
+			while kill -0 "$$OLD_PID" 2>/dev/null && [ "$$WAIT" -lt 50 ]; do sleep 0.1; WAIT=$$((WAIT + 1)); done; \
+			if kill -0 "$$OLD_PID" 2>/dev/null; then \
+				if [ -n "$$PGID" ]; then kill -KILL -$$PGID 2>/dev/null || true; fi; \
+				kill -KILL "$$OLD_PID" 2>/dev/null || true; \
+			fi; \
+		}; \
+		for PID_FILE in "folk.pid" "$$HOME/Library/Application Support/Folk/folk.pid"; do \
+			if [ -f "$$PID_FILE" ]; then \
+				OLD_PID="$$(cat "$$PID_FILE" 2>/dev/null || true)"; \
+				if kill_pid "$$OLD_PID"; then \
+					rm -f "$$PID_FILE"; \
+				fi; \
+			fi; \
+		done; \
+		for OLD_PID in $$(pgrep -f "$$APP_EXEC" 2>/dev/null || true); do \
+			kill_pid "$$OLD_PID"; \
+		done; \
+	else \
+		sudo systemctl stop folk; \
+		if [ -f folk.pid ]; then \
+			OLD_PID=`cat folk.pid`; \
+			pkill -9 --pgroup $$OLD_PID; \
+			sudo pkill -9 --pgroup $$OLD_PID; \
+			while sudo pkill -0 --pgroup $$OLD_PID; do sleep 0.2; done; \
+		fi; \
 	fi
 
 FOLK_REMOTE_NODE ?= folk-live
