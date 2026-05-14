@@ -779,7 +779,9 @@ if {[__isTracyEnabled]} {
             TracyCSetThreadName(strdup(name));
         }
         $tracyCpp code {
-            __thread TracyCZoneCtx __zoneCtx;
+            #define __ZONE_CTX_MAX 16
+            __thread TracyCZoneCtx __zoneCtxs[__ZONE_CTX_MAX];
+            __thread int __zoneCtxIdx;
         }
         $tracyCpp proc zoneBegin {} void {
             Jim_Obj* scriptObj = interp->evalFrame->scriptObj;
@@ -801,13 +803,23 @@ if {[__isTracyEnabled]} {
                                                  fnName != NULL ? fnName : "<unknown>",
                                                  fnName != NULL ? strlen(fnName) : strlen("<unknown>"),
                                                  0);
-            __zoneCtx = ___tracy_emit_zone_begin_alloc(loc, 1);
+            if (__zoneCtxIdx >= __ZONE_CTX_MAX) {
+                fprintf(stderr, "tracy: zone stack overflow (max %d)\n", __ZONE_CTX_MAX);
+                exit(1);
+            }
+            __zoneCtxs[__zoneCtxIdx++] = ___tracy_emit_zone_begin_alloc(loc, 1);
         }
         $tracyCpp proc zoneName {char* name} void {
-            ___tracy_emit_zone_name(__zoneCtx, name, strlen(name));
+            if (__zoneCtxIdx > 0) {
+                ___tracy_emit_zone_name(__zoneCtxs[__zoneCtxIdx - 1], name, strlen(name));
+            }
         }
         $tracyCpp proc zoneEnd {} void {
-            ___tracy_emit_zone_end(__zoneCtx);
+            if (__zoneCtxIdx <= 0) {
+                fprintf(stderr, "tracy: zone stack underflow\n");
+                exit(1);
+            }
+            ___tracy_emit_zone_end(__zoneCtxs[--__zoneCtxIdx]);
         }
         return [$tracyCpp compile $tracyCid]
     }
