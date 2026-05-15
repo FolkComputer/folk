@@ -488,7 +488,7 @@ When the GPU library is /gpuLib/ &\
         # can draw onto it using the canvas-oriented interface.
         set dispCanvas [list $disp canvas]
         Wish the GPU creates canvas $dispCanvas with \
-            width $dispWidth height $dispHeight settle 0ms
+            width $dispWidth height $dispHeight settle 0ms layer 100
 
         When the GPU has created canvas $dispCanvas with /...canvOpts/ {
             Claim $disp has canvas $dispCanvas with {*}$canvOpts

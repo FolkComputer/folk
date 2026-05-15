@@ -5,6 +5,9 @@ When /k/ is a keyboard with /...opts/ {
 
     When $k points up with length 0.3 at /program/ &\
          /nobody/ claims /program/ is an editor {
+
+        Wish tag $program is stabilized
+
         # Create a synthetic editor on top of the program being edited,.
         set editor [list $k editor]
         Claim $editor is an editor
@@ -148,11 +151,11 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
         Wish the GPU draws pipeline "fillTriangle" onto canvas $editorCanvas \
             with arguments [list {{1 0 0} {0 1 0} {0 0 1}} \
                                 [list -1 -1] [list 1 -1] [list 1 1] $bgColor] \
-                 layer -1
+                 layer -2
         Wish the GPU draws pipeline "fillTriangle" onto canvas $editorCanvas \
             with arguments [list {{1 0 0} {0 1 0} {0 0 1}} \
                                 [list -1 -1] [list 1 1] [list -1 1] $bgColor] \
-                 layer -1
+                 layer -2
     }
 
     Subscribe: keyboard $kbPath claims key /key/ is /keyState/ with /...options/ {
