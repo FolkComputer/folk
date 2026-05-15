@@ -9,7 +9,7 @@ When /k/ is a keyboard with /...opts/ {
         set editor [list $k editor]
         Claim $editor is an editor
         Claim editor $editor has selected program $program
-        Wish $editor has a canvas with priority 99
+        Wish $editor has a canvas with layer 99
 
         When $program has resolved geometry /geom/ {
             Claim $editor has resolved geometry $geom

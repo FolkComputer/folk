@@ -761,9 +761,10 @@ When the quad changer is /quadChange/ &\
 
         Hold! -keep 2ms -key [list $tag image] \
             Wish the GPU draws pipeline "image" with arguments \
-            [list [list $displayWidth $displayHeight] \
-                 $displayToClip \
-                 [dict get $wiOptions texture] $a $b $c $d]
+                [list [list $displayWidth $displayHeight] \
+                  $displayToClip \
+                  [dict get $wiOptions texture] $a $b $c $d] \
+                layer [dict getdef $wiOptions layer 0]
     }
 
     On unmatch {

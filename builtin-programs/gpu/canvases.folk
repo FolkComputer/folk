@@ -268,14 +268,14 @@ When the GPU library is /gpuLib/ &\
     When /someone/ wishes the GPU creates canvas /id/ with /...options/ {
         puts "Create canvas: $id"
 
-        set width [dict getdef $options width 1024]
-        set height [dict getdef $options height 1024]
-        set settle [dict getdef $options settle 3ms]
+        dict set options width [dict getdef $options width 1024]
+        dict set options height [dict getdef $options height 1024]
+        dict set options settle [dict getdef $options settle 3ms]
 
-        set wi [$gpuCanvasLib create $width $height]
+        set wi [$gpuCanvasLib create $options(width) $options(height)]
 
         Claim the GPU has created canvas $id with \
-            width $width height $height \
+            {*}$options \
             texture [$gpuCanvasLib gpuTexture $wi] \
             writableInfo $wi \
             -destructor [list $gpuCanvasLib destroy $wi]
@@ -283,7 +283,7 @@ When the GPU library is /gpuLib/ &\
         Wish to collect results for \
             [list /wisher/ wishes the GPU draws pipeline /name/ \
                  onto canvas $id with /...options/] \
-            with settle $settle
+            with settle $options(settle)
     }
 
     Wish the GPU runs frame prelude handler [list apply {{gpuCanvasLib gpuTextureLib} {
@@ -516,7 +516,7 @@ When the GPU library is /gpuLib/ &\
                 [list [list $dispWidth $dispHeight] \
                      $surfaceToClip \
                      [dict get $canvOpts texture] $a $b $c $d] \
-                priority [dict getdef $canvOpts priority 0]
+                layer [dict getdef $canvOpts layer 0]
         }
     }
 }
