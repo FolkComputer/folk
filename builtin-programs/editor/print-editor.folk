@@ -1,0 +1,25 @@
+Subscribe: print program from editor /editor/ {
+    set program [dict get [QueryOne! editor $editor has selected program /program/] program]
+    set code [dict get [QueryOne! editor buffer for $program is /code/] code]
+
+    set lineCount [min [- [llength [split $code "\n"]] $vpY] $vpHeight]
+    set lineNumbers [$utils lineNumberView $vpY $lineCount]
+
+    set marginLeft [lindex $margin 3]
+    set lineNumbersRight $($marginLeft + $advance*1.5)
+
+    # TODO: paginate
+    foreach page {
+        # TODO: construct postscript
+        Wish to draw text onto $editor with \
+            position [list $lineNumbersRight [lindex $margin 0]] \
+            text $lineNumbers \
+            scale $textScale anchor topright font NeomatrixCode
+
+        set text [$utils applyTextViewport $code $vpX $vpY $vpWidth $vpHeight]
+        set pos [list [+ $lineNumbersRight $advance] [lindex $margin 0]]
+        Wish to draw text onto $editor with \
+            position $pos text $text \
+            scale $textScale anchor topleft font NeomatrixCode
+    }
+}
