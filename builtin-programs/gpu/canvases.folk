@@ -516,7 +516,7 @@ When the GPU library is /gpuLib/ &\
                 [list [list $dispWidth $dispHeight] \
                      $surfaceToClip \
                      [dict get $canvOpts texture] $a $b $c $d] \
-                layer [dict getdef $canvOpts layer 0]
+                layer [dict getdef $canvOpts layer 99]
         }
     }
 }

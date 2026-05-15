@@ -9,7 +9,7 @@ When /k/ is a keyboard with /...opts/ {
         set editor [list $k editor]
         Claim $editor is an editor
         Claim editor $editor has selected program $program
-        Wish $editor has a canvas with layer 99
+        Wish $editor has a canvas with layer 98
 
         When $program has resolved geometry /geom/ {
             Claim $editor has resolved geometry $geom
@@ -140,7 +140,20 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
      /keyboard/ is typing into /editor/ &\
      /editor/ is an editor with /...anything/ &\
      editor /editor/ has selected program /program/ {
+
     Wish $editor is outlined green
+
+    When $editor has canvas /editorCanvas/ with /...wiOpts/ {
+        set bgColor [list 0 0 0 0.8]
+        Wish the GPU draws pipeline "fillTriangle" onto canvas $editorCanvas \
+            with arguments [list {{1 0 0} {0 1 0} {0 0 1}} \
+                                [list -1 -1] [list 1 -1] [list 1 1] $bgColor] \
+                 layer -1
+        Wish the GPU draws pipeline "fillTriangle" onto canvas $editorCanvas \
+            with arguments [list {{1 0 0} {0 1 0} {0 0 1}} \
+                                [list -1 -1] [list 1 1] [list -1 1] $bgColor] \
+                 layer -1
+    }
 
     Subscribe: keyboard $kbPath claims key /key/ is /keyState/ with /...options/ {
         ForEach! editor $editor has viewport position /vpPos/ &\
