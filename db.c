@@ -881,7 +881,11 @@ void matchRemoveSelf(Db* db, Match* match) {
         // execution.
         ThreadControlBlock *workerThread = &threads[match->workerThreadIndex];
         if (timestamp_get(workerThread->clockid) - workerThread->currentItemStartTimestamp > 100000000) {
-            char buf[10000]; traceItem(buf, sizeof(buf), workerThread->currentItem);
+            mutexLock(&workerThread->currentItemMutex);
+            WorkQueueItem item = workerThread->currentItem;
+            mutexUnlock(&workerThread->currentItemMutex);
+
+            char buf[10000]; traceItem(buf, sizeof(buf), item);
             fprintf(stderr, "KILL (%.150s)\n", buf);
             kill(workerThread->tid, SIGUSR1);
         }
