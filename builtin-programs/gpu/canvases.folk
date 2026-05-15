@@ -268,8 +268,8 @@ When the GPU library is /gpuLib/ &\
     When /someone/ wishes the GPU creates canvas /id/ with /...options/ {
         puts "Create canvas: $id"
 
-        set width [dict get $options width]
-        set height [dict get $options height]
+        set width [dict getdef $options width 1024]
+        set height [dict getdef $options height 1024]
         set settle [dict getdef $options settle 3ms]
 
         set wi [$gpuCanvasLib create $width $height]
@@ -515,7 +515,8 @@ When the GPU library is /gpuLib/ &\
             Wish the GPU draws pipeline "composite-canvas" with arguments \
                 [list [list $dispWidth $dispHeight] \
                      $surfaceToClip \
-                     [dict get $canvOpts texture] $a $b $c $d]
+                     [dict get $canvOpts texture] $a $b $c $d] \
+                priority [dict getdef $canvOpts priority 0]
         }
     }
 }
