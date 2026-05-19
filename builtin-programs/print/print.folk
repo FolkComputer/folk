@@ -83,150 +83,83 @@ $cc proc tagPsForId {int id} char* {
 set printLib [$cc compile]
 Claim the print library is $printLib
 
-fn paginate {text maxlines linelen {linelenOverrides {}}} {
-    set lines [split $text "\n"]
+fn codeToPostScript {id code opts {mixins {}}} {
+    # All opts should be passed in as points (1/2834.65 of a meter).
+    lassign $opts(pageSize) PageWidth PageHeight
+    lassign $opts(tagSize) tagWidth tagHeight
+    lassign $opts(margin) marginTop marginRight marginBottom marginLeft
+    set lineHeight $opts(lineHeight)
+    set maxLines $(int(($PageHeight - $marginTop - $marginBottom) / $lineHeight))
 
-    for {set i 0} {$i < [llength $lines]} {incr i} {
-        # tag each line with its 1-indexed line number
-        lset lines $i [list [expr {$i+1}] [lindex $lines $i]]
-    }
+    set lineNumbersRight $($marginLeft + $opts(advance)*1.5)
 
-    set safeline 0
-    set firstline 0
-    set pages ""
-    for {set i 0} {$i < [llength $lines]} {incr i} { # hard-wrap lines
-        if {$i - $firstline > $maxlines - 1} {
-            set pagelines [lrange $lines $firstline $safeline-1]
-            lappend pagelines [list "..." ""]
-            lappend pages $pagelines
-            set firstline $safeline
-        }
+    set lines [split $code "\n"]
 
-        lassign [lindex $lines $i] linenum line
-        set max [dict getdef $linelenOverrides $i $linelen]
-        if {$max == 0} {
-            lset lines $i [list "" ""]
-            set lines [linsert $lines $i+1 [list $linenum $line]]
+    set image [$printLib tagPsForId $id]
 
-        } elseif {[string length $line] > $max} {
-            lset lines $i 1 [string range $line 0 $max]
-            set lines [linsert $lines $i+1 [list "" [string range $line $max+1 end]]]
+    set outPages [list]
+    set lineIdx 0
+    while {[llength $lines] > 0} {
+        set pageLines [lrange $lines 0 $maxLines]
+        set lines [lreplace $lines 0 $maxLines]
 
-        } elseif {$linenum ne ""} {
-            set safeline $i
-        }
-    }
+        # The typesetting here is meant to exactly duplicate the
+        # layout in the editor.
+        lappend outPages [subst {
+            %!PS
+            << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
 
-    lappend pages [lrange $lines $firstline end]
+            /settextcolor {0 setgray} def
 
-    return $pages
-}
+            /NeomatrixCode findfont
+            $lineHeight scalefont
+            setfont
 
-fn rangeDict {from to val} {
-    set res ""
-    for {set i $from} {$i < $to} {incr i} {
-        lappend res $i $val
-    }
-    return $res
-}
+            newpath
+            [join [lmap line $pageLines {
+                set line [string map {"\\" "\\\\" ")" "\\)" "(" "\\("} $line]
+                incr lineIdx
+                subst {
+                    $lineNumbersRight [expr {$PageHeight-$marginTop-$lineIdx*$lineHeight}] moveto
+                    0.4 setgray ([format "% 3s" $lineIdx])
+                    dup stringwidth pop neg 0 rmoveto
+                    show
 
-fn programToPs {id text {format "letter"} {mixins {}}} {
-    set defaults {
-        margin 36
-        fontsize 12
-        tagsize {150 150}
-        maxcharsOverride {}
-    }
-    set formats [subst {
-        letter {
-            pagesize {612 792}
-            maxlines 40
-            maxchars 72
-            maxcharsOverride {[rangeDict 0 8 49]}
-        }
-        a4 {
-            pagesize {595 842}
-            maxlines 43
-            maxchars 68
-            maxcharsOverride {[rangeDict 0 8 46]}
-        }
-        indexcard {
-            fontsize 24
-            tagsize {300 300}
-            pagesize {612 792}
-            maxlines 22
-            maxchars 34
-            maxcharsOverride {[rangeDict 0 9 0]}
-        }
-    }]
-    # indexcard (really receipt) assumes fake letter/A4 size:
-    # https://github.com/NaitLee/Cat-Printer/discussions/8#discussioncomment-2557843
+                    [+ $lineNumbersRight $opts(advance)] [expr {$PageHeight-$marginTop-$lineIdx*$lineHeight}] moveto
+                    settextcolor ($line) show
+                }
+            }] "\n"]
 
-    set params [dict merge $defaults [dict get $formats $format]]
-    dict with params {
-        lassign $pagesize PageWidth PageHeight
-        lassign $tagsize tagwidth tagheight
-        set lineheight [expr $fontsize*1.5]
+            [expr {[llength $outPages] > 0 ? {} : [subst {
+                gsave
+                [expr {$PageWidth-$tagWidth-$marginRight}] [expr {$PageHeight-$tagHeight-$marginTop}] translate
+                $tagWidth $tagHeight scale
+                $image
+                grestore
 
-        set image [$printLib tagPsForId $id]
-
-        set pages [paginate $text $maxlines $maxchars $maxcharsOverride]
-
-        set out ""
-        set pageidx 0
-        foreach lines $pages {
-            set lineidx 0
-            append out [subst {
-                %!PS
-                << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
-
-                /settextcolor {0 setgray} def
-
-                /Courier findfont
-                $fontsize scalefont
+                /Helvetica-Narrow findfont
+                11 scalefont
                 setfont
                 newpath
-                [join [lmap lineinfo $lines {
-                    lassign $lineinfo linenum line
-                    set line [string map {"\\" "\\\\" ")" "\\)" "(" "\\("} $line]
-                    incr lineidx
-                    subst {
-                        $margin [expr $PageHeight-$margin-$lineidx*$lineheight] moveto
-                        0.4 setgray ([format "%- 3s" $linenum]) show settextcolor ($line) show
-                    }
+                [expr {$PageWidth-$tagWidth-$marginRight}] [expr {$PageHeight-$tagHeight-14-$marginTop}] moveto
+                ($id ([clock format [clock seconds] -format "%a, %d %b %Y, %r"])) show
+
+                [join [lmap mixin $mixins {
+                    # We run mixins only on page 1 for now.  They
+                    # get access to everything in scope. Kind of
+                    # hacky, but OK for now.
+
+                    subst $mixin
                 }] "\n"]
+            }] }]
 
-                [expr {$pageidx ? {} : [subst {
-                  gsave
-                  [expr $PageWidth-$tagwidth-$margin] [expr $PageHeight-$tagheight-$margin] translate
-                  $tagwidth $tagheight scale
-                  $image
-                  grestore
-
-                  /Helvetica-Narrow findfont
-                  [- $fontsize 2] scalefont
-                  setfont
-                  newpath
-                  [expr $PageWidth-$tagwidth-$margin] [expr $PageHeight-$tagheight-16-$margin] moveto
-                  ($id ([clock format [clock seconds] -format "%a, %d %b %Y, %r"])) show
-
-                  [join [lmap mixin $mixins {
-                      # We run mixins only on page 1 for now.  They
-                      # get access to everything in scope. Kind of
-                      # hacky, but OK for now.
-
-                      subst $mixin
-                  }] "\n"]
-                }] }]
-                showpage
-            }]
-            incr pageidx
-        }
+            showpage
+        }]
     }
-
-    return $out
+    return [join $outPages "\n"]
 }
-Claim the programToPs is [fn programToPs]
+Claim the codeToPostScript is [fn codeToPostScript]
+
 fn nextId {} {
     set idResults [Query! the next program id is /id/]
     if {[llength $idResults] == 0} {
@@ -262,18 +195,17 @@ When $::thisNode claims printer /name/ is a cups printer with /...options/ {
     exec {*}$command
 }
 
-Subscribe: print code /code/ with /...options/ {
+Subscribe: print a new program with /...options/ {
     if {$::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial"} {
         # HACK: Forward the print request to folk-hex.
         exec curl -X POST "http://folk-hex.local:4273/" \
                 -H "Content-Type: text/plain" \
-                -d [list Notify: print code $code with printer Canon_TR150_series];
+                -d [list Notify: print a new program with {*}$options];
         return
     }
 
     set id [nextId]
-    if {![info exists options]} { set options [dict create]}
-    Notify: print program $id with code $code {*}$options
+    Notify: print program $id with {*}$options
 }
 Subscribe: print program /id/ with /...options/ {
     set code [dict get $options code]
@@ -318,21 +250,17 @@ Subscribe: print program /id/ with /...options/ {
         set args [list -P [dict get $options printer]]
     }
 
-    set ps [programToPs $id $code $format]
+    set ps [codeToPostScript $id $code $options]
 
     # save code and ps to disk
     if {[file exists "$saveDir/$id.folk"]} {
         error "Program $id already exists on disk. Aborting print."
     }
-    set fp [open "$saveDir/$id.folk" w]
-    puts $fp $code
-    close $fp
+    set fp [open "$saveDir/$id.folk" w]; puts $fp $code; close $fp
 
-    set fp [open "$saveDir/$id.ps" w]
-    puts $fp $ps
-    close $fp
-
-    exec ps2pdf $saveDir/$id.ps $saveDir/$id.pdf
+    set fp [open "$saveDir/$id.ps" w]; puts $fp $ps; close $fp
+    exec ps2pdf -dPDFSETTINGS=/prepress -sFONTPATH=vendor/fonts \
+        $saveDir/$id.ps $saveDir/$id.pdf
 
     puts "Printing program $id on $::thisNode"
     exec lpr {*}$args $saveDir/$id.pdf

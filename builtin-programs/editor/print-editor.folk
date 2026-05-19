@@ -1,5 +1,3 @@
-When the print library is /printLib/ {
-
 set formats [subst {
     letter {
         tagSize {150 150}
@@ -17,135 +15,74 @@ set formats [subst {
 # indexcard (really receipt) assumes fake letter/A4 size:
 # https://github.com/NaitLee/Cat-Printer/discussions/8#discussioncomment-2557843
 
-fn codeToPs {id code opts {mixins {}}} {
-    # All opts should be passed in as points (1/2834.65 of a meter).
-    lassign $opts(pageSize) PageWidth PageHeight
-    lassign $opts(tagSize) tagWidth tagHeight
-    lassign $opts(margin) marginTop marginRight marginBottom marginLeft
-    set lineHeight $opts(lineHeight)
-    set maxLines $(int(($PageHeight - $marginTop - $marginBottom) / $lineHeight))
-
-    set lineNumbersRight $($marginLeft + $opts(advance)*1.5)
-
-    set lines [split $code "\n"]
-
-    set image [$printLib tagPsForId $id]
-
-    set outPages [list]
-    set lineIdx 0
-    while {[llength $lines] > 0} {
-        set pageLines [lrange $lines 0 $maxLines]
-        set lines [lreplace $lines 0 $maxLines]
-
-        # The typesetting here is meant to exactly duplicate the
-        # layout in the editor.
-        lappend outPages [subst {
-            %!PS
-            << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
-
-            /settextcolor {0 setgray} def
-
-            /NeomatrixCode findfont
-            $lineHeight scalefont
-            setfont
-
-            newpath
-            [join [lmap line $pageLines {
-                set line [string map {"\\" "\\\\" ")" "\\)" "(" "\\("} $line]
-                incr lineIdx
-                subst {
-                    $lineNumbersRight [expr {$PageHeight-$marginTop-$lineIdx*$lineHeight}] moveto
-                    0.4 setgray ([format "% 3s" $lineIdx])
-                    dup stringwidth pop neg 0 rmoveto
-                    show
-
-                    [+ $lineNumbersRight $opts(advance)] [expr {$PageHeight-$marginTop-$lineIdx*$lineHeight}] moveto
-                    settextcolor ($line) show
-                }
-            }] "\n"]
-
-            [expr {[llength $outPages] > 0 ? {} : [subst {
-                gsave
-                [expr {$PageWidth-$tagWidth-$marginRight}] [expr {$PageHeight-$tagHeight-$marginTop}] translate
-                $tagWidth $tagHeight scale
-                $image
-                grestore
-
-                /Helvetica-Narrow findfont
-                11 scalefont
-                setfont
-                newpath
-                [expr {$PageWidth-$tagWidth-$marginRight}] [expr {$PageHeight-$tagHeight-14-$marginTop}] moveto
-                ($id ([clock format [clock seconds] -format "%a, %d %b %Y, %r"])) show
-
-                [join [lmap mixin $mixins {
-                    # We run mixins only on page 1 for now.  They
-                    # get access to everything in scope. Kind of
-                    # hacky, but OK for now.
-
-                    subst $mixin
-                }] "\n"]
-            }] }]
-
-            showpage
-        }]
-    }
-    return [join $outPages "\n"]
-}
-
-# TODO: handle Ctrl-P to print here
-# TODO: separate option to enable live preview?
-
-# Subscribe: print program from editor /editor/ {
-    # set program [dict get [QueryOne! editor $editor has selected program /program/] program]
-# set code [dict get [QueryOne! editor buffer for $program is /code/] code] }
-When editor /editor/ has selected program /program/ &\
-     editor buffer for /program/ is /code/ {
-    set lines [split $code "\n"]
+fn editorToPrintOptions {editor} {
+    set program [dict get [QueryOne! editor $editor has selected program /program/] program]
+    set code [dict get [QueryOne! editor buffer for $program is /code/] code]
 
     set fontOptions [dict get [QueryOne! editor $editor has font options with /...opts/] opts]
     set textScale $fontOptions(scale)
     set margin [dict get [QueryOne! editor $editor has margin /margin/] margin]
 
-    # TODO: scan for mixins (a mixin should be, like, Field detector)
-    set id 48700
-    # TODO: support other formats
+    # TODO: support other formats (it should be set in the editor so
+    # the user gets an accurate preview.)
+    #     if {![dict exists $options format]} {
+    #     set defaultFormatMatches [Query! paper format /format/ is the default paper format]
+    #     if {[llength $defaultFormatMatches] > 0} {
+    #         dict set options format [dict get [lindex $defaultFormatMatches 0] format]
+    #     }
+    # }
     set fmt $formats(letter)
     set mToPt 2834.646
-    set opts [dict merge $fmt \
-                  [dict create \
-                       lineHeight [* $textScale $mToPt] \
-                       advance [* 0.5859375 $textScale $mToPt] \
-                       margin [lmap x $margin {* $x $mToPt}]]]
-    set ps [codeToPs $id $code $opts {}]
+    return [dict merge $fmt \
+                [dict create \
+                     code $code \
+                     lineHeight [* $textScale $mToPt] \
+                     advance [* 0.5859375 $textScale $mToPt] \
+                     margin [lmap x $margin {* $x $mToPt}]]]
+}
 
-    puts stderr "Render!"
-    set fp [open "/tmp/$id.ps" w]; puts $fp $ps; close $fp
-    puts stderr [exec ps2pdf -dPDFSETTINGS=/prepress -sFONTPATH=vendor/fonts \
-                     /tmp/$id.ps /tmp/$id.pdf]
+Subscribe: print program from editor /editor/ {
+    set options [editorToPrintOptions $editor]
+    Notify: print a new program with {*}$options
+}
 
-    # TODO: save to a temporary pdf, puts the temporary pdf's filename
-    # TODO: preview the pdf next to the editor for now
-    # Hold! {
-        set preview [list $editor preview]
-        Wish $preview has a canvas
-        set previewGeom [list width [/ [lindex $fmt(pageSize) 0] $mToPt] \
-                             height [/ [lindex $fmt(pageSize) 1] $mToPt]]
-        Claim $preview has resolved geometry $previewGeom
+# Print preview:
+When the codeToPostScript is /codeToPostScript/ &\
+     /someone/ wishes editor /editor/ has a print preview &\
+     editor /editor/ has selected program /program/ {
 
-        When the quad library is /quadLib/ & $editor has quad /q/ {
-            Claim $preview has quad [$quadLib alignGeometry \
-                                         [$quadLib move $q right 100%] \
-                                         $previewGeom]
-        }
-        set pngFile [file tempfile /tmp/$id-XXXXXX].png
-        exec gs -dNOPAUSE -dBATCH -sDEVICE=png16m -r300 -sOutputFile=$pngFile /tmp/$id.pdf
-        # FIXME: display without margin!
-        Wish $preview is outlined white
+         # I want these lines to be 4-indented, not 8-indented,
+         # based on the When being 0-indented that corresponds to the
+         # most recent opening brace.
+         puts "I want this line to be 4-indented, but it's 8-indented"
+
+    set preview [list $editor preview]
+    Wish $preview has a canvas
+    set fmt $formats(letter)
+    set mToPt 2834.646
+    set previewGeom [list width [/ [lindex $fmt(pageSize) 0] $mToPt] \
+                         height [/ [lindex $fmt(pageSize) 1] $mToPt]]
+    Claim $preview has resolved geometry $previewGeom
+    When the quad library is /quadLib/ & $editor has quad /q/ {
+        Claim $preview has quad [$quadLib alignGeometry \
+                                     [$quadLib move $q right 100%] \
+                                     $previewGeom]
+    }
+    Wish $preview is outlined white
+
+    fn codeToPostScript
+    When editor buffer for $program is /code/ {
+        set ps [codeToPostScript 48700 $code [editorToPrintOptions $editor]]
+
+        set psFile [file tempfile].ps
+        set fp [open $psFile w]; puts $fp $ps; close $fp
+        set pngFile [file tempfile].png
+        set result [exec gs -dNOPAUSE -dBATCH -sFONTPATH=vendor/fonts \
+                        -sDEVICE=png16m -r300 \
+                        -sOutputFile=$pngFile $psFile]
+        puts stderr "gs to render preview: $result"
         Wish $preview displays image $pngFile with width $previewGeom(width)
-    # }
-    sleep 10
-    # Hold! {}
+    }
 }
 
 }
