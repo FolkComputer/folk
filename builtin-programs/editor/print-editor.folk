@@ -54,10 +54,12 @@ fn codeToPs {id code opts {mixins {}}} {
                 set line [string map {"\\" "\\\\" ")" "\\)" "(" "\\("} $line]
                 incr lineIdx
                 subst {
-                    $marginLeft [expr {$PageHeight-$marginTop-$lineIdx*$lineHeight}] moveto
-                    0.4 setgray ([format "%- 3s" $lineIdx]) show
-
                     $lineNumbersRight [expr {$PageHeight-$marginTop-$lineIdx*$lineHeight}] moveto
+                    0.4 setgray ([format "% 3s" $lineIdx])
+                    dup stringwidth pop neg 0 rmoveto
+                    show
+
+                    [+ $lineNumbersRight $opts(advance)] [expr {$PageHeight-$marginTop-$lineIdx*$lineHeight}] moveto
                     settextcolor ($line) show
                 }
             }] "\n"]
@@ -91,6 +93,9 @@ fn codeToPs {id code opts {mixins {}}} {
     return [join $outPages "\n"]
 }
 
+# TODO: handle Ctrl-P to print here
+# TODO: separate option to enable live preview?
+
 # Subscribe: print program from editor /editor/ {
     # set program [dict get [QueryOne! editor $editor has selected program /program/] program]
 # set code [dict get [QueryOne! editor buffer for $program is /code/] code] }
@@ -113,21 +118,6 @@ When editor /editor/ has selected program /program/ &\
                        advance [* 0.5859375 $textScale $mToPt] \
                        margin [lmap x $margin {* $x $mToPt}]]]
     set ps [codeToPs $id $code $opts {}]
-        
-        # Wish to draw text onto $editor with \
-        #     position [list $lineNumbersRight [lindex $margin 0]] \
-        #     text $lineNumbers \
-        #     scale $textScale anchor topright font NeomatrixCode
-
-        # set text [$utils applyTextViewport $code $vpX $vpY $vpWidth $vpHeight]
-        # set pos [list [+ $lineNumbersRight $advance] [lindex $margin 0]]
-        # # TODO: construct postscript such that the text is set down
-        # # from top-left by $pos
-        # Wish to draw text onto $editor with \
-        #     position $pos text $text \
-        #     scale $textScale anchor topleft font NeomatrixCode
-
-        # lappend postScript {..}
 
     puts stderr "Render!"
     set fp [open "/tmp/$id.ps" w]; puts $fp $ps; close $fp
