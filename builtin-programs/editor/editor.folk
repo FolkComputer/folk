@@ -242,7 +242,7 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                             Notify: save code on editor $editor
                         }
                         Control_p {
-                            Notify: print code $code
+                            Notify: print program from editor $editor
 
                             # Give the user some feedback
                             Hold! -key printing-alert:$editor \

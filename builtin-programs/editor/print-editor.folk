@@ -1,25 +1,150 @@
+When the print library is /printLib/ {
+
+set formats [subst {
+    letter {
+        tagSize {150 150}
+        pageSize {612 792}
+    }
+    a4 {
+        tagSize {150 150}
+        pageSize {595 842}
+    }
+    indexcard {
+        tagSize {300 300}
+        pageSize {612 792}
+    }
+}]
+# indexcard (really receipt) assumes fake letter/A4 size:
+# https://github.com/NaitLee/Cat-Printer/discussions/8#discussioncomment-2557843
+
+fn codeToPs {id code opts {mixins {}}} {
+    # All opts should be passed in as points (1/2834.65 of a meter).
+    lassign $opts(pageSize) PageWidth PageHeight
+    lassign $opts(tagSize) tagWidth tagHeight
+    lassign $opts(margin) marginTop marginRight marginBottom marginLeft
+    set lineHeight $opts(lineHeight)
+    set maxLines $(int(($PageHeight - $marginTop - $marginBottom) / $lineHeight))
+
+    set lineNumbersRight $($marginLeft + $opts(advance)*1.5)
+
+    set lines [split $code "\n"]
+
+    set image [$printLib tagPsForId $id]
+
+    set outPages [list]
+    set lineIdx 0
+    while {[llength $lines] > 0} {
+        set pageLines [lrange $lines 0 $maxLines]
+        set lines [lreplace $lines 0 $maxLines]
+
+        # The typesetting here is meant to exactly duplicate the
+        # layout in the editor.
+        lappend outPages [subst {
+            %!PS
+            << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
+
+            /settextcolor {0 setgray} def
+
+            /Neomatrix-Code findfont
+            $lineHeight scalefont
+            setfont
+
+            newpath
+            [join [lmap line $pageLines {
+                set line [string map {"\\" "\\\\" ")" "\\)" "(" "\\("} $line]
+                incr lineIdx
+                subst {
+                    $marginLeft [expr {$PageHeight-$marginTop-$lineIdx*$lineHeight}] moveto
+                    0.4 setgray ([format "%- 3s" [+ $lineIdx 1]]) show settextcolor ($line) show
+                }
+            }] "\n"]
+
+            [expr {[llength $outPages] == 0 ? {} : [subst {
+                gsave
+                [expr {$PageWidth-$tagWidth-$marginRight}] [expr {$PageHeight-$tagHeight-$marginTop}] translate
+                $tagWidth $tagHeight scale
+                $image
+                grestore
+
+                /Helvetica-Narrow findfont
+                [- $lineHeight 2] scalefont
+                setfont
+                newpath
+                [expr {$PageWidth-$tagWidth-$marginRight}] [expr {$PageHeight-$tagHeight-16-$marginTop}] moveto
+                ($id ([clock format [clock seconds] -format "%a, %d %b %Y, %r"])) show
+
+                  [join [lmap mixin $mixins {
+                      # We run mixins only on page 1 for now.  They
+                      # get access to everything in scope. Kind of
+                      # hacky, but OK for now.
+
+                      subst $mixin
+                  }] "\n"]
+            }] }]
+
+            showpage
+        }]
+    }
+    return [join $outPages "\n"]
+}
+
 Subscribe: print program from editor /editor/ {
     set program [dict get [QueryOne! editor $editor has selected program /program/] program]
     set code [dict get [QueryOne! editor buffer for $program is /code/] code]
+    set lines [split $code "\n"]
 
-    set lineCount [min [- [llength [split $code "\n"]] $vpY] $vpHeight]
-    set lineNumbers [$utils lineNumberView $vpY $lineCount]
+    set fontOptions [dict get [QueryOne! editor $editor has font options with /...opts/] opts]
+    set textScale $fontOptions(scale)
+    set margin [dict get [QueryOne! editor $editor has margin /margin/] margin]
 
-    set marginLeft [lindex $margin 3]
-    set lineNumbersRight $($marginLeft + $advance*1.5)
+    # TODO: scan for mixins (a mixin should be, like, Field detector)
+    set id 100
+    # TODO: support other formats
+    set mToPt 2834.646
+    set opts [dict merge $formats(letter) \
+                  [dict create \
+                       lineHeight [* $textScale $mToPt] \
+                       advance [* 0.5859375 $textScale $mToPt] \
+                       margin [lmap x $margin {* $x $mToPt}]]]
+    set ps [codeToPs $id $code $opts {}]
+        
+        # Wish to draw text onto $editor with \
+        #     position [list $lineNumbersRight [lindex $margin 0]] \
+        #     text $lineNumbers \
+        #     scale $textScale anchor topright font NeomatrixCode
 
-    # TODO: paginate
-    foreach page {
-        # TODO: construct postscript
-        Wish to draw text onto $editor with \
-            position [list $lineNumbersRight [lindex $margin 0]] \
-            text $lineNumbers \
-            scale $textScale anchor topright font NeomatrixCode
+        # set text [$utils applyTextViewport $code $vpX $vpY $vpWidth $vpHeight]
+        # set pos [list [+ $lineNumbersRight $advance] [lindex $margin 0]]
+        # # TODO: construct postscript such that the text is set down
+        # # from top-left by $pos
+        # Wish to draw text onto $editor with \
+        #     position $pos text $text \
+        #     scale $textScale anchor topleft font NeomatrixCode
 
-        set text [$utils applyTextViewport $code $vpX $vpY $vpWidth $vpHeight]
-        set pos [list [+ $lineNumbersRight $advance] [lindex $margin 0]]
-        Wish to draw text onto $editor with \
-            position $pos text $text \
-            scale $textScale anchor topleft font NeomatrixCode
+        # lappend postScript {..}
+
+
+    set fp [open "/tmp/$id.ps" w]; puts $fp $ps; close $fp
+    exec ps2pdf -dPDFSETTINGS=/prepress -sFONTPATH="vendor/fonts" \
+        /tmp/$id.ps /tmp/$id.pdf
+
+    # TODO: save to a temporary pdf, puts the temporary pdf's filename
+    # TODO: preview the pdf next to the editor for now
+    Hold! {
+        set preview [list $editor preview]
+        Wish $preview has a canvas
+        When $editor has resolved geometry /geom/ {
+            Claim $preview has resolved geometry $geom
+        }
+        When the quad library is /quadLib/ & $editor has quad /q/ {
+            Claim $editor has quad [$quadLib move $editor right 100%]
+        }
+        # FIXME: convert the pdf to an image, display it.
+        # FIXME: display without margin!
+        Wish $preview displays image $pdf
     }
+    sleep 10
+    Hold! {}
+}
+
 }
