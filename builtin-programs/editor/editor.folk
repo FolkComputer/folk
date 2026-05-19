@@ -250,23 +250,23 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                             sleep 0.25
                             Hold! -key printing-alert:$editor {}
                         }
-                        # Control_underscore {
-                        #     # ctrl and - (zoom out)
-                        #     set textScale [dict get $textOptions scale]
-                        #     set textScale [/ $textScale 1.1]
+                        Control_underscore {
+                            # ctrl and - (zoom out)
+                            set textScale [dict get $textOptions scale]
+                            set textScale [/ $textScale 1.1]
 
-                        #     Hold! -save -key font-options-of:$editor \
-                        #         Claim editor $editor has font options with scale $textScale
-                        # }
-                        # equal {
-                        #     # Dunno why it registers as equal instead of Control_equal? It works regardless, lol
-                        #     # ctrl and + (zoom in)
-                        #     set textScale [dict get $textOptions scale]
-                        #     set textScale [* $textScale 1.1]
+                            Hold! -save -key font-options-of:$editor \
+                                Claim editor $editor has font options with scale $textScale
+                        }
+                        equal {
+                            # Dunno why it registers as equal instead of Control_equal? It works regardless, lol
+                            # ctrl and + (zoom in)
+                            set textScale [dict get $textOptions scale]
+                            set textScale [* $textScale 1.1]
 
-                        #     Hold! -save -key font-options-of:$editor \
-                        #         Claim editor $editor has font options with scale $textScale
-                        # }
+                            Hold! -save -key font-options-of:$editor \
+                                Claim editor $editor has font options with scale $textScale
+                        }
                     }
                 }
             }
