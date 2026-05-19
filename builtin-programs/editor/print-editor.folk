@@ -137,11 +137,12 @@ Subscribe: print program from editor /editor/ {
             Claim $preview has resolved geometry $geom
         }
         When the quad library is /quadLib/ & $editor has quad /q/ {
-            Claim $editor has quad [$quadLib move $editor right 100%]
+            Claim $preview has quad [$quadLib move $q right 100%]
         }
-        # FIXME: convert the pdf to an image, display it.
+        # FIXME: convert the pdf to an image with imagemagick at 144dpi, display it.
+        exec gs -dNOPAUSE -dBATCH -sDEVICE=png16m -r300 -sOutputFile=/tmp/$id.png /tmp/$id.pdf
         # FIXME: display without margin!
-        Wish $preview displays image $pdf
+        Wish $preview displays image /tmp/$id.png
     }
     sleep 10
     Hold! {}
