@@ -55,7 +55,7 @@ fn codeToPs {id code opts {mixins {}}} {
                 incr lineIdx
                 subst {
                     $marginLeft [expr {$PageHeight-$marginTop-$lineIdx*$lineHeight}] moveto
-                    0.4 setgray ([format "%- 3s" [+ $lineIdx 1]]) show settextcolor ($line) show
+                    0.4 setgray ([format "%- 3s" $lineIdx]) show settextcolor ($line) show
                 }
             }] "\n"]
 
@@ -73,13 +73,13 @@ fn codeToPs {id code opts {mixins {}}} {
                 [expr {$PageWidth-$tagWidth-$marginRight}] [expr {$PageHeight-$tagHeight-16-$marginTop}] moveto
                 ($id ([clock format [clock seconds] -format "%a, %d %b %Y, %r"])) show
 
-                  [join [lmap mixin $mixins {
-                      # We run mixins only on page 1 for now.  They
-                      # get access to everything in scope. Kind of
-                      # hacky, but OK for now.
+                [join [lmap mixin $mixins {
+                    # We run mixins only on page 1 for now.  They
+                    # get access to everything in scope. Kind of
+                    # hacky, but OK for now.
 
-                      subst $mixin
-                  }] "\n"]
+                    subst $mixin
+                }] "\n"]
             }] }]
 
             showpage
@@ -100,8 +100,9 @@ Subscribe: print program from editor /editor/ {
     # TODO: scan for mixins (a mixin should be, like, Field detector)
     set id 100
     # TODO: support other formats
+    set fmt $formats(letter)
     set mToPt 2834.646
-    set opts [dict merge $formats(letter) \
+    set opts [dict merge $fmt \
                   [dict create \
                        lineHeight [* $textScale $mToPt] \
                        advance [* 0.5859375 $textScale $mToPt] \
@@ -133,16 +134,19 @@ Subscribe: print program from editor /editor/ {
     Hold! {
         set preview [list $editor preview]
         Wish $preview has a canvas
-        When $editor has resolved geometry /geom/ {
-            Claim $preview has resolved geometry $geom
-        }
+        set previewGeom [list width [/ [lindex $fmt(pageSize) 0] $mToPt] \
+                             height [/ [lindex $fmt(pageSize) 1] $mToPt]]
+        Claim $preview has resolved geometry $previewGeom
+
         When the quad library is /quadLib/ & $editor has quad /q/ {
-            Claim $preview has quad [$quadLib move $q right 100%]
+            Claim $preview has quad [$quadLib alignGeometry \
+                                         [$quadLib move $q right 100%] \
+                                         $previewGeom]
         }
-        # FIXME: convert the pdf to an image with imagemagick at 144dpi, display it.
         exec gs -dNOPAUSE -dBATCH -sDEVICE=png16m -r300 -sOutputFile=/tmp/$id.png /tmp/$id.pdf
         # FIXME: display without margin!
-        Wish $preview displays image /tmp/$id.png
+        Wish $preview is outlined white
+        Wish $preview displays image /tmp/$id.png with width $previewGeom(width)
     }
     sleep 10
     Hold! {}

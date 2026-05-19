@@ -615,6 +615,19 @@ set quadLib [library create quadLib {} {
         }
         return [create [space $q] [list $topLeft $topRight $bottomRight $bottomLeft]]
     }
+
+    # Move an existing geometry geom (object with width and height
+    # keys) to align onto the plane & the top edge & left edge of the
+    # existing quad q.
+    proc alignGeometry {q geom} {
+        lassign [vertices $q] topLeft topRight bottomRight bottomLeft
+        set topDisp [scaleVector $geom(width) [unitLengthVector [sub $topRight $topLeft]]]
+        set leftDisp [scaleVector $geom(height) [unitLengthVector [sub $bottomLeft $topLeft]]]
+        set topRight [add $topLeft $topDisp]
+        set bottomRight [add $topRight $leftDisp]
+        set bottomLeft [add $topLeft $leftDisp]
+        return [create [space $q] [list $topLeft $topRight $bottomRight $bottomLeft]]
+    }
 }]
 Claim the quad library is $quadLib
 
