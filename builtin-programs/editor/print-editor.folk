@@ -55,7 +55,10 @@ fn codeToPs {id code opts {mixins {}}} {
                 incr lineIdx
                 subst {
                     $marginLeft [expr {$PageHeight-$marginTop-$lineIdx*$lineHeight}] moveto
-                    0.4 setgray ([format "%- 3s" $lineIdx]) show settextcolor ($line) show
+                    0.4 setgray ([format "%- 3s" $lineIdx]) show
+
+                    $lineNumbersRight [expr {$PageHeight-$marginTop-$lineIdx*$lineHeight}] moveto
+                    settextcolor ($line) show
                 }
             }] "\n"]
 
@@ -88,9 +91,11 @@ fn codeToPs {id code opts {mixins {}}} {
     return [join $outPages "\n"]
 }
 
-Subscribe: print program from editor /editor/ {
-    set program [dict get [QueryOne! editor $editor has selected program /program/] program]
-    set code [dict get [QueryOne! editor buffer for $program is /code/] code]
+# Subscribe: print program from editor /editor/ {
+    # set program [dict get [QueryOne! editor $editor has selected program /program/] program]
+# set code [dict get [QueryOne! editor buffer for $program is /code/] code] }
+When editor /editor/ has selected program /program/ &\
+     editor buffer for /program/ is /code/ {
     set lines [split $code "\n"]
 
     set fontOptions [dict get [QueryOne! editor $editor has font options with /...opts/] opts]
@@ -98,7 +103,7 @@ Subscribe: print program from editor /editor/ {
     set margin [dict get [QueryOne! editor $editor has margin /margin/] margin]
 
     # TODO: scan for mixins (a mixin should be, like, Field detector)
-    set id 100
+    set id 48700
     # TODO: support other formats
     set fmt $formats(letter)
     set mToPt 2834.646
@@ -124,14 +129,14 @@ Subscribe: print program from editor /editor/ {
 
         # lappend postScript {..}
 
-
+    puts stderr "Render!"
     set fp [open "/tmp/$id.ps" w]; puts $fp $ps; close $fp
     exec ps2pdf -dPDFSETTINGS=/prepress -sFONTPATH="vendor/fonts" \
         /tmp/$id.ps /tmp/$id.pdf
 
     # TODO: save to a temporary pdf, puts the temporary pdf's filename
     # TODO: preview the pdf next to the editor for now
-    Hold! {
+    # Hold! {
         set preview [list $editor preview]
         Wish $preview has a canvas
         set previewGeom [list width [/ [lindex $fmt(pageSize) 0] $mToPt] \
@@ -143,13 +148,14 @@ Subscribe: print program from editor /editor/ {
                                          [$quadLib move $q right 100%] \
                                          $previewGeom]
         }
-        exec gs -dNOPAUSE -dBATCH -sDEVICE=png16m -r300 -sOutputFile=/tmp/$id.png /tmp/$id.pdf
+        set pngFile [file tempfile /tmp/$id-XXXXXX].png
+        exec gs -dNOPAUSE -dBATCH -sDEVICE=png16m -r300 -sOutputFile=$pngFile /tmp/$id.pdf
         # FIXME: display without margin!
         Wish $preview is outlined white
-        Wish $preview displays image /tmp/$id.png with width $previewGeom(width)
-    }
+        Wish $preview displays image $pngFile with width $previewGeom(width)
+    # }
     sleep 10
-    Hold! {}
+    # Hold! {}
 }
 
 }

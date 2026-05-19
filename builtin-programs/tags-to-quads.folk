@@ -772,18 +772,12 @@ When the quad changer is /quadChange/ &\
                 $displayWidth $displayHeight $v
         }] a b c d
 
-        Hold! -keep 2ms -key [list $tag image] \
-            Wish the GPU draws pipeline "image" with arguments \
-                [list [list $displayWidth $displayHeight] \
-                  $displayToClip \
-                  [dict get $wiOptions texture] $a $b $c $d] \
-                layer [dict getdef $wiOptions layer 0]
+        Wish the GPU draws pipeline "image" with arguments \
+            [list [list $displayWidth $displayHeight] \
+                 $displayToClip \
+                 [dict get $wiOptions texture] $a $b $c $d] \
+            layer [dict getdef $wiOptions layer 0]
     }
-
-    On unmatch {
-        Hold! -key [list $tag image] {}
-    }
-    # TODO: How to prevent a race if the tag returns?
 }
 
 }
