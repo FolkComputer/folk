@@ -45,7 +45,7 @@ fn codeToPs {id code opts {mixins {}}} {
 
             /settextcolor {0 setgray} def
 
-            /Neomatrix-Code findfont
+            /NeomatrixCode findfont
             $lineHeight scalefont
             setfont
 
@@ -59,7 +59,7 @@ fn codeToPs {id code opts {mixins {}}} {
                 }
             }] "\n"]
 
-            [expr {[llength $outPages] == 0 ? {} : [subst {
+            [expr {[llength $outPages] > 0 ? {} : [subst {
                 gsave
                 [expr {$PageWidth-$tagWidth-$marginRight}] [expr {$PageHeight-$tagHeight-$marginTop}] translate
                 $tagWidth $tagHeight scale
@@ -67,10 +67,10 @@ fn codeToPs {id code opts {mixins {}}} {
                 grestore
 
                 /Helvetica-Narrow findfont
-                [- $lineHeight 2] scalefont
+                14 scalefont
                 setfont
                 newpath
-                [expr {$PageWidth-$tagWidth-$marginRight}] [expr {$PageHeight-$tagHeight-16-$marginTop}] moveto
+                [expr {$PageWidth-$tagWidth-$marginRight}] [expr {$PageHeight-$tagHeight-$lineHeight-$marginTop}] moveto
                 ($id ([clock format [clock seconds] -format "%a, %d %b %Y, %r"])) show
 
                 [join [lmap mixin $mixins {
