@@ -70,10 +70,10 @@ fn codeToPs {id code opts {mixins {}}} {
                 grestore
 
                 /Helvetica-Narrow findfont
-                14 scalefont
+                11 scalefont
                 setfont
                 newpath
-                [expr {$PageWidth-$tagWidth-$marginRight}] [expr {$PageHeight-$tagHeight-$lineHeight-$marginTop}] moveto
+                [expr {$PageWidth-$tagWidth-$marginRight}] [expr {$PageHeight-$tagHeight-14-$marginTop}] moveto
                 ($id ([clock format [clock seconds] -format "%a, %d %b %Y, %r"])) show
 
                 [join [lmap mixin $mixins {
@@ -131,8 +131,8 @@ When editor /editor/ has selected program /program/ &\
 
     puts stderr "Render!"
     set fp [open "/tmp/$id.ps" w]; puts $fp $ps; close $fp
-    exec ps2pdf -dPDFSETTINGS=/prepress -sFONTPATH="vendor/fonts" \
-        /tmp/$id.ps /tmp/$id.pdf
+    puts stderr [exec ps2pdf -dPDFSETTINGS=/prepress -sFONTPATH=vendor/fonts \
+                     /tmp/$id.ps /tmp/$id.pdf]
 
     # TODO: save to a temporary pdf, puts the temporary pdf's filename
     # TODO: preview the pdf next to the editor for now
