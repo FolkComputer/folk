@@ -184,12 +184,13 @@ Wish the web server handles route "/calibrate" with hidden true handler {
           <li>
             <h3>Print the calibration board.</h3>
 
-            <p>Print this calibration board and glue/tape it to
+            <p>We're going to print this calibration board and glue/tape it to
             something solid and flat (hardcover book, solid cardboard,
             etc):</p>
             <iframe id="board-iframe" width="500px" height="300px" src="data:application/pdf;base64,$[binary encode base64 $calibrationBoardPdf]">
             </iframe>
-            <p>You can download the PDF and print it yourself, or print through Folk if your printer is set up: <button id="board-print-through-folk">Print Calibration Board through Folk</button></p>
+            <p>Make sure your printer is set up.</p>
+            <p>Print the calibration board through Folk: <button id="board-print-through-folk">Print Calibration Board through Folk</button></p>
             <script>
               document.getElementById('board-print-through-folk').addEventListener('click', (e) => {
                 const boardSrc = document.getElementById('board-iframe').src.replace(/^data:application.pdf;base64,/, "");

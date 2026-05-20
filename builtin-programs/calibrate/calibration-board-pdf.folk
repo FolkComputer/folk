@@ -2,14 +2,25 @@ When the print library is /printLib/ &\
      the calibration model library is /modelLib/ &\
      the calibration matrix library is /matLib/ {
 
+# Goal of the calibration board is to have the user do three measurements:
+# - paper edge to top margin, to account for vertical margin.
+# - paper edge to right margin, to account for horizontal margin.
+# - tag inner width, to account for scaling.
+#
+# Then we can correct for these factors in all future prints, so we
+# can print mm-accurate.
+# 
+
+puts stderr "Reload 4"
 fn makeCalibrationBoardPdf {} {
+    puts stderr "Reloaded 2!"
     set model [$modelLib unitModel]
     set tagSideLengthPs 70
 
     package require linalg
     namespace import ::math::linearalgebra::add
 
-    set marginTop 72; set marginLeft 36
+    set marginTop 36; set marginLeft 36
     set PageWidth 612; set PageHeight 792
 
     set innerToOuter 0.333333
@@ -26,6 +37,20 @@ fn makeCalibrationBoardPdf {} {
     set ps [subst {
         %!PS
         << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
+
+        % Draw horizontal line along top of page.
+        newpath
+        $marginLeft $marginTop moveto
+        [expr {$PageWidth - $marginLeft*2}] $marginTop lineto
+        closepath
+        4 setlinewidth 0.67 0.1 0.1 setrgbcolor stroke
+
+        % Draw vertical line along left of page.
+        newpath
+        $marginLeft $marginTop moveto
+        $marginLeft [expr {$PageHeight - $marginTop*2}] lineto
+        closepath
+        4 setlinewidth 0.1 0.1 0.67 setrgbcolor stroke
 
         % (0, 0) is bottom-left of portrait page right now.
         90 rotate 1 -1 scale
@@ -73,7 +98,8 @@ fn makeCalibrationBoardPdf {} {
         }] "\n"]
     }]
 
-    set fp [open [list |ps2pdf - - <<$ps] rb]
+    set fp [open [list |ps2pdf -dEncryptionR=3 -sOwnerPassword=password -dPermissions=-2056 \
+                      - - <<$ps] rb]
     set pdf [read $fp]; close $fp
     return $pdf
 }

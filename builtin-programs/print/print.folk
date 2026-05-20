@@ -263,7 +263,11 @@ Subscribe: print program /id/ with /...options/ {
         $saveDir/$id.ps $saveDir/$id.pdf
 
     puts "Printing program $id on $::thisNode"
-    exec lpr {*}$args $saveDir/$id.pdf
+    Notify: print pdf $saveDir/$id.pdf with {*}$args
 }
 
+}
+
+Subscribe: print pdf /pdfPath/ with /...arguments/ {
+    exec lpr {*}$arguments $saveDir/$id.pdf
 }
