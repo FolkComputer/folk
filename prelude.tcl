@@ -46,7 +46,9 @@ proc unknown {cmdName args} {
                 # environment (probably passed through a statement)
                 # and can just be applied to args.
                 set fnObj [lindex $fn 0]
-                proc $cmdName args {fnObj} { tailcall {*}$fnObj {*}$args }
+                uplevel [list local proc $cmdName \
+                             args [list [list fnObj $fnObj]] \
+                             { tailcall {*}$fnObj {*}$args }]
                 tailcall $cmdName {*}$args
             }
 
@@ -75,9 +77,11 @@ proc unknown {cmdName args} {
             set env [dict merge {*}[lrange $envStack 0 $i]]
             dict set env __envStack $envStack
             dict set env __env $env
-            dict with env {
-                proc $cmdName $argNames [dict keys $env] $body
-            }
+
+            set envPairs [list]
+            dict for {k v} $env { lappend envPairs [list $k $v] }
+            uplevel [list local proc $cmdName \
+                         $argNames $envPairs $body]
 
             tailcall $cmdName {*}$args
         }
