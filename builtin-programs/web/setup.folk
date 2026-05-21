@@ -515,7 +515,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
 
 <div>
   <h2>Projector-camera calibration</h2>
-  <p>Select one display and one or more cameras to calibrate:</p>
+  <p>Select <strong>one display</strong> and <strong>one or more cameras</strong> to calibrate:</p>
 
   <fieldset style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
     <legend><strong>Display (projector)</strong></legend>
@@ -582,6 +582,12 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
 
       window.location.href = `/calibrate?\${params.toString()}`;
     }
+
+    const firstDisplay = document.querySelector('input\[name="calibration-display"]');
+    if (firstDisplay) firstDisplay.checked = true;
+    const firstCamera = document.querySelector('input\[name="calibration-camera"]');
+    if (firstCamera) firstCamera.checked = true;
+    calibrationSelectionChange();
   </script>
 </div>
 
