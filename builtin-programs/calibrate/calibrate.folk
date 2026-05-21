@@ -29,8 +29,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      the jpeg library is /jpegLib/ &\
      the calibration model library is /modelLib/ &\
      the calibration matrix library is /matLib/ &\
-     the printed calibration tag size is /printedSideLengthMm/ mm &\
-     /someone/ wishes to calibrate camera /camera/ to display /display/ {
+     /someone/ wishes to calibrate camera /camera/ to display /display/ \
+         using tag size /printedSideLengthMm/ mm {
 
     fn makeAprilTagDetector
     set calibrationTagDetector [makeAprilTagDetector "tagStandard52h13" 2.0 3]

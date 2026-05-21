@@ -197,7 +197,7 @@ fn makeCalibrationBoardPng {} {
 }
 Claim the makeCalibrationBoardPng is [fn makeCalibrationBoardPng]
 
-Wish the web server handles route {/calibrate/board.pdf} with handler {
+Wish the web server handles route {/calibrate/board.pdf} with hidden true handler {
     dict create statusAndHeaders "HTTP/1.1 200 OK
 Connection: close
 Content-Type: application/pdf
@@ -206,7 +206,7 @@ Content-Type: application/pdf
         body [makeCalibrationBoardPdf]
 }
 
-Wish the web server handles route {/calibrate/board.png} with handler {
+Wish the web server handles route {/calibrate/board.png} with hidden true handler {
     dict create statusAndHeaders "HTTP/1.1 200 OK
 Connection: close
 Content-Type: image/png

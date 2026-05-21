@@ -183,17 +183,17 @@ Wish the web server handles route "/calibrate" with hidden true handler {
             <p>We're going to print this calibration board and glue/tape it to
             something solid and flat (hardcover book, solid cardboard,
             etc):</p>
-            <img id="board-img" width="200" src="/calibrate/board.png" style="border: 1px solid gray">
+            <img width="200" src="/calibrate/board.png" style="border: 1px solid gray">
             <p>Make sure your printer is set up for Folk to print.</p>
-            <p>Print the calibration board through Folk: <button id="board-print-through-folk">Print Calibration Board through Folk</button> (print through Folk so that we can calibrate the way you will actually print)</p>
+            <p>Print the calibration board through Folk: <button id="boardPrintThroughFolk">Print Calibration Board through Folk</button> (print through Folk so that we can calibrate the way you will actually print)</p>
             <script>
-              document.getElementById('board-print-through-folk').addEventListener('click', (e) => {
+              boardPrintThroughFolk.addEventListener('click', (e) => {
                 folk.run(`
                   set maker [dict get [lindex [Query! /someone/ claims the makeCalibrationBoardPdf is /maker/] 0] maker]
                   set boardPdf [{*}\$maker]
-                  set fd [open /tmp/folk-calibration-board.pdf wb]
-                  puts \$fd \$boardPdf; close \$fd
-                  exec lpr /tmp/folk-calibration-board.pdf
+                  set boardPdfFile [file tempfile /tmp/folk-calibration-board-XXXXXX].pdf
+                  set fd [open \$boardPdfFile wb]; puts \$fd \$boardPdf; close \$fd
+                  Notify: print pdf \$boardPdfFile
                 `);
               });
             </script>
@@ -228,17 +228,17 @@ Wish the web server handles route "/calibrate" with hidden true handler {
                 const measurements = {
                   tagSideLength: boardTagSideLengthMm.value + 'mm',
                   left: boardLeftMm.value + 'mm',
-                  right: boardLeftMm.value + 'mm',
                   top: boardTopMm.value + 'mm',
                   bottom: boardBottomMm.value + 'mm'
                 };
 
                 folk.run(tcl`
-Hold! -save -on calibration -key default-program-geometry Claim the default program geometry is \${geom}
+                  Hold! -save -on calibration -key calibration-measurements \
+                    Claim the calibration measurements are \${measurements}
                 `);
                 folk.hold('start calibration', tcl`
-                  Claim the printed calibration tag size is \${mm} mm
-                  Wish to calibrate camera "$camera" to display "$display"
+                  Wish to calibrate camera "$camera" to display "$display" \
+                    using tag size \${boardTagSideLengthMm.value} mm
                 `, 'builtin-programs/calibrate/calibrate.folk');
               });
             </script>
