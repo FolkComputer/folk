@@ -86,7 +86,7 @@ debug: folk
 	if [ "$$(uname)" = "Darwin" ]; then \
 		lldb -o "process handle -p true -s false SIGUSR1" -- ./folk; \
 	else \
-		gdb -ex "handle SIGUSR1 nostop" -ex "handle SIGPIPE nostop" ./folk; \
+		DEBUGINFOD_URLS="" gdb -ex "handle SIGUSR1 nostop" -ex "handle SIGPIPE nostop" ./folk; \
 	fi
 
 clean:
