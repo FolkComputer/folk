@@ -2,25 +2,29 @@ When the print library is /printLib/ &\
      the calibration model library is /modelLib/ &\
      the calibration matrix library is /matLib/ {
 
-# Goal of the calibration board is to have the user do three measurements:
+# Goal of the calibration board is to have the user do three
+# measurements:
+#
 # - paper edge to top margin, to account for vertical margin.
+#
 # - paper edge to right margin, to account for horizontal margin.
-# - tag inner width, to account for scaling.
+#
+# - tag inner width, to account for scaling. We want this tag inner
+#   width to be exactly the same as the tag inner width that we use on
+#   every printed program, so the calibration isn't too
+#   measurement dependent.
 #
 # Then we can correct for these factors in all future prints, so we
 # can print mm-accurate.
-# 
 
-puts stderr "Reload 4"
 fn makeCalibrationBoardPdf {} {
-    puts stderr "Reloaded 2!"
     set model [$modelLib unitModel]
     set tagSideLengthPs 70
 
     package require linalg
     namespace import ::math::linearalgebra::add
 
-    set marginTop 36; set marginLeft 36
+    set marginTop 24; set marginLeft 24
     set PageWidth 612; set PageHeight 792
 
     set innerToOuter 0.333333
@@ -38,32 +42,90 @@ fn makeCalibrationBoardPdf {} {
         %!PS
         << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
 
-        % Draw horizontal line along top of page.
-        newpath
-        $marginLeft $marginTop moveto
-        [expr {$PageWidth - $marginLeft*2}] $marginTop lineto
-        closepath
-        4 setlinewidth 0.67 0.1 0.1 setrgbcolor stroke
-
-        % Draw vertical line along left of page.
-        newpath
-        $marginLeft $marginTop moveto
-        $marginLeft [expr {$PageHeight - $marginTop*2}] lineto
-        closepath
-        4 setlinewidth 0.1 0.1 0.67 setrgbcolor stroke
-
-        % (0, 0) is bottom-left of portrait page right now.
-        90 rotate 1 -1 scale
-        % Now (0, 0) is top-left of landscape page.
-
         gsave
-        $marginLeft [- $marginTop 18] translate
-        1 -1 scale
+        $marginLeft [- $PageHeight [/ $marginTop 2]] translate
         0 setgray /Helvetica findfont 14 scalefont setfont
         newpath 0 0 moveto (Folk calibration board) show
         grestore
 
-        $marginLeft $marginTop translate
+        /Helvetica findfont 7 scalefont setfont
+        1 setlinecap
+        2 setlinewidth 0.67 0.1 0.1 setrgbcolor
+
+        % Short red segment at top margin, with arrow up to top edge.
+        2 setlinewidth
+        newpath
+        [expr {$PageWidth/2 - 20}] [- $PageHeight $marginTop] moveto
+        [expr {$PageWidth/2 + 20}] [- $PageHeight $marginTop] lineto
+        stroke
+        1 setlinewidth
+        newpath
+        [/ $PageWidth 2] [- $PageHeight $marginTop] moveto
+        [/ $PageWidth 2] [expr {$PageHeight - 2}] lineto
+        stroke
+        newpath
+        [/ $PageWidth 2] [expr {$PageHeight - 2}] moveto
+        [expr {$PageWidth/2 - 4}] [expr {$PageHeight - 8}] lineto
+        stroke
+        newpath
+        [/ $PageWidth 2] [expr {$PageHeight - 2}] moveto
+        [expr {$PageWidth/2 + 4}] [expr {$PageHeight - 8}] lineto
+        stroke
+        newpath [expr {$PageWidth/2 + 25}] [expr {$PageHeight - $marginTop/2 - 3}] moveto
+        (Measure to top edge of paper) show
+
+        % Short red segment at bottom margin, with arrow down to bottom edge.
+        2 setlinewidth
+        newpath
+        [expr {$PageWidth/2 - 20}] $marginTop moveto
+        [expr {$PageWidth/2 + 20}] $marginTop lineto
+        stroke
+        1 setlinewidth
+        newpath
+        [/ $PageWidth 2] $marginTop moveto
+        [/ $PageWidth 2] 2 lineto
+        stroke
+        newpath
+        [/ $PageWidth 2] 2 moveto
+        [expr {$PageWidth/2 - 4}] 8 lineto
+        stroke
+        newpath
+        [/ $PageWidth 2] 2 moveto
+        [expr {$PageWidth/2 + 4}] 8 lineto
+        stroke
+        newpath [expr {$PageWidth/2 + 25}] [expr {$marginTop/2- 3}] moveto
+        (Measure to bottom edge of paper) show
+
+        0.1 0.1 0.67 setrgbcolor
+
+        % Short blue segment at left margin, with arrow left to left edge.
+        2 setlinewidth
+        newpath
+        $marginLeft [expr {$PageHeight/2 - 20}] moveto
+        $marginLeft [expr {$PageHeight/2 + 20}] lineto
+        stroke
+        1 setlinewidth
+        newpath
+        $marginLeft [/ $PageHeight 2] moveto
+        2 [/ $PageHeight 2] lineto
+        stroke
+        newpath
+        2 [/ $PageHeight 2] moveto
+        8 [expr {$PageHeight/2 - 4}] lineto
+        stroke
+        newpath
+        2 [/ $PageHeight 2] moveto
+        8 [expr {$PageHeight/2 + 4}] lineto
+        stroke
+        newpath [/ $marginLeft 4] [expr {$PageHeight/2 - 30}] moveto
+        (Measure to) show
+        [/ $marginLeft 4] [expr {$PageHeight/2 - 37}] moveto
+        (left edge of paper) show
+
+        % We should flip the coordinate system to match the model coordinate system,
+        % so (0, 0) is top-left.
+        1 -1 scale
+        $marginLeft [- $marginTop $PageHeight] translate        
 
         [set tagIdx -1]
         [join [lmap {id modelTag} $model {
@@ -80,13 +142,19 @@ fn makeCalibrationBoardPdf {} {
                 [$printLib tagPsForId $id]
                 grestore
 
+                gsave
+                0 setgray /Helvetica findfont 14 scalefont setfont
+                1 0 0 setrgbcolor
+                newpath $psX $psY moveto 1 -1 scale ($tagIdx) show
+                grestore
+
                 % Label the inner side length:
                 [if {$tagIdx == 1} { subst {
                     gsave
                     [expr {$psX + ($tagOuterLengthPs - $tagSideLengthPs)/2}]
                     [expr {$psY - 15}] translate
                     1 -1 scale
-                    0.1 0.67 0.1 setrgbcolor
+                    0.1 0.67 0.1 setrgbcolor 2 setlinewidth
                     newpath 0 0 moveto $tagSideLengthPs 0 lineto stroke
                     newpath 0 0 moveto 0 -5 lineto stroke
                     newpath $tagSideLengthPs 0 moveto $tagSideLengthPs -5 lineto stroke
@@ -98,11 +166,19 @@ fn makeCalibrationBoardPdf {} {
         }] "\n"]
     }]
 
-    set fp [open [list |ps2pdf -dEncryptionR=3 -sOwnerPassword=password -dPermissions=-2056 \
-                      - - <<$ps] rb]
+    set fp [open [list |ps2pdf - - <<$ps] rb]
     set pdf [read $fp]; close $fp
     return $pdf
 }
 Claim the makeCalibrationBoardPdf is [fn makeCalibrationBoardPdf]
+
+Wish the web server handles route {/calibrate/board.pdf} with handler {
+    dict create statusAndHeaders "HTTP/1.1 200 OK
+Connection: close
+Content-Type: application/pdf
+
+" \
+        body [makeCalibrationBoardPdf]
+}
 
 }

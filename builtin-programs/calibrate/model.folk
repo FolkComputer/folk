@@ -7,8 +7,8 @@ Claim the calibration model library is [library create modelLib {
     namespace import ::math::linearalgebra::scale \
         ::math::linearalgebra::add
 
-    variable ROWS 3
-    variable COLS 5
+    variable ROWS 4
+    variable COLS 3
     proc rows {} { variable ROWS; return $ROWS }
     proc cols {} { variable COLS; return $COLS }
     # A model is a dictionary whose keys are tag IDs and where each
