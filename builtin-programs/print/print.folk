@@ -216,6 +216,27 @@ Subscribe: print program /id/ with /...options/ {
         return
     }
 
+    set ps [codeToPostScript $id $code $options]
+
+    # save code and ps to disk
+    if {[file exists "$saveDir/$id.folk"]} {
+        error "Program $id already exists on disk. Aborting print."
+    }
+    set fp [open "$saveDir/$id.folk" w]; puts $fp $code; close $fp
+
+    set fp [open "$saveDir/$id.ps" w]; puts $fp $ps; close $fp
+    exec ps2pdf -dPDFSETTINGS=/prepress -sFONTPATH=vendor/fonts \
+        $saveDir/$id.ps $saveDir/$id.pdf
+
+    puts "Printing program $id on $::thisNode"
+    Notify: print pdf $saveDir/$id.pdf with {*}$options
+}
+
+}
+
+Subscribe: print pdf /pdfPath/ with /...options/ {
+    if {![info exists options]} { set options {} }
+
     if {![dict exists $options printer]} {
         set defaultPrinterMatches [Query! printer /printer/ is the default printer]
         if {[llength $defaultPrinterMatches] > 0} {
@@ -250,24 +271,5 @@ Subscribe: print program /id/ with /...options/ {
         set args [list -P [dict get $options printer]]
     }
 
-    set ps [codeToPostScript $id $code $options]
-
-    # save code and ps to disk
-    if {[file exists "$saveDir/$id.folk"]} {
-        error "Program $id already exists on disk. Aborting print."
-    }
-    set fp [open "$saveDir/$id.folk" w]; puts $fp $code; close $fp
-
-    set fp [open "$saveDir/$id.ps" w]; puts $fp $ps; close $fp
-    exec ps2pdf -dPDFSETTINGS=/prepress -sFONTPATH=vendor/fonts \
-        $saveDir/$id.ps $saveDir/$id.pdf
-
-    puts "Printing program $id on $::thisNode"
-    Notify: print pdf $saveDir/$id.pdf with {*}$args
-}
-
-}
-
-Subscribe: print pdf /pdfPath/ with /...arguments/ {
-    exec lpr {*}$arguments $saveDir/$id.pdf
+    exec lpr {*}$args $pdfPath
 }
