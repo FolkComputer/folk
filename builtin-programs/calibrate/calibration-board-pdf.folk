@@ -190,7 +190,6 @@ fn makeCalibrationBoardPng {} {
     exec gs -dNOPAUSE -dBATCH -sFONTPATH=vendor/fonts \
         -sDEVICE=png16m -r144 \
         -sOutputFile=$pngFile $psFile
-    puts stderr $pngFile
     set fp [open $pngFile rb]
     set png [read $fp]; close $fp
     return $png
