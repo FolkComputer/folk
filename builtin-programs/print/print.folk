@@ -271,5 +271,5 @@ Subscribe: print pdf /pdfPath/ with /...options/ {
         set args [list -P [dict get $options printer]]
     }
 
-    exec lpr {*}$args $pdfPath
+    exec lpr -o print-scaling=none {*}$args $pdfPath
 }
