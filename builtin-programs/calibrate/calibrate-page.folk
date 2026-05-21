@@ -241,15 +241,6 @@ Wish the web server handles route "/calibrate" with hidden true handler {
               });
             </script>
 
-            <p>Once you start calibration, you'll see some AprilTags get automatically projected on your table. Move your board to the projected tags <em>so that at least one projected tag sits inside the gap between printed AprilTags</em>, wait a second for the projected tags to refit into the grid,
-              then <strong>hold the board still for a few seconds until
-              the pose is recorded.</strong></p>
-
-            <p><strong>You should be lifting your board above the table plane and tilting it in the air. Don't just keep it flat on the table!</strong></p>
-
-            <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/l1liP4_yiVM?si=DqgfNKq05EPBT3hT" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
-
-            <p style="font-style: italic; width: 100%; text-align: center;">Example video of Andr&eacute;s calibrating the folk0 system (2x speed)</p>
 
             <p><strong>Are the projected tags too big to fit in the gaps between printed tags?</strong> Adjust this slider to reset & adjust the default projected tag size:
               <input type="range" min="10" max="100" value="100" class="slider" id="projected-tag-slider">
@@ -275,6 +266,16 @@ Claim the calibration poses max is \${calibrationPosesMax}
                 `, 'builtin-programs/calibrate/calibrate.folk');
               });
             </script>
+
+            <p>Once you start calibration, you'll see some AprilTags get automatically projected on your table. Move your board to the projected tags <em>so that at least one projected tag sits inside the gap between printed AprilTags</em>, wait a second for the projected tags to refit into the grid,
+              then <strong>hold the board still for a few seconds until
+              the pose is recorded.</strong></p>
+
+            <p><strong>You should be lifting your board above the table plane and tilting it in the air. Don't just keep it flat on the table!</strong></p>
+
+            <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/l1liP4_yiVM?si=DqgfNKq05EPBT3hT" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+
+            <p style="font-style: italic; width: 100%; text-align: center;">Example video of Andr&eacute;s calibrating the folk0 system (2x speed)</p>
 
           <p>Once you've recorded the first pose, <em>slowly drag the board around your space</em>, going slow enough for the projected AprilTags to catch up with the printed AprilTags and fit into the gaps on your board. When you've moved the board at least a full board-length away from the first pose, try to slant it 45 degrees or so off the table and hold it still again to capture another pose.</p>
 
@@ -356,18 +357,6 @@ Camera Controls
             <p>Fold the program in half if you want half-height programs. Measure the tag inner side length in millimeters, along with the distances in millimeters from the tag inner perimeter to each edge of the paper. Enter them below.</p>
             <img width="306" src="data:image/png;base64,$[binary encode base64 $exampleProgramPng]"
               style="border: 2px solid black; height: 198px; object-fit: cover; object-position: 0 0;">
-
-            <ul>
-              <li style="color: green">Tag inner side length (try to be accurate to half a millimeter or better):
-                <input id="geomTagSizeMm" type="text" placeholder="$[defaultGeomGet tagSize]">mm</li>
-
-              <li style="color: red">Left: <input id="geomLeftMm" type="text" placeholder="$[defaultGeomGet left]">mm</li>
-              <li style="color: red">Right: <input id="geomRightMm" type="text" placeholder="$[defaultGeomGet right]">mm</li>
-              <li style="color: blue">Top: <input id="geomTopMm" type="text" placeholder="$[defaultGeomGet top]">mm</li>
-              <li style="color: blue">Bottom: <input id="geomBottomMm" type="text" placeholder="$[defaultGeomGet bottom]">mm</li>
-            </ul>
-
-            <p><button id="geomSave">Save Program Geometry</button></p>
 
             <details>
               <summary>How to manually override the geometry of a specific program</summary>
