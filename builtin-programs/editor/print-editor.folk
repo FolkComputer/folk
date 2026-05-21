@@ -51,11 +51,6 @@ When the codeToPostScript is /codeToPostScript/ &\
      /someone/ wishes editor /editor/ has a print preview &\
      editor /editor/ has selected program /program/ {
 
-         # I want these lines to be 4-indented, not 8-indented,
-         # based on the When being 0-indented that corresponds to the
-         # most recent opening brace.
-         puts "I want this line to be 4-indented, but it's 8-indented"
-
     set preview [list $editor preview]
     Wish $preview has a canvas
     set fmt $formats(letter)
@@ -83,6 +78,4 @@ When the codeToPostScript is /codeToPostScript/ &\
         puts stderr "gs to render preview: $result"
         Wish $preview displays image $pngFile with width $previewGeom(width)
     }
-}
-
 }
