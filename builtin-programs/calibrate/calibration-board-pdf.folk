@@ -17,14 +17,16 @@ When the print library is /printLib/ &\
 # Then we can correct for these factors in all future prints, so we
 # can print mm-accurate.
 
-fn makeCalibrationBoardPdf {} {
+fn makeCalibrationBoardPs {} {
     set model [$modelLib unitModel]
     set tagSideLengthPs 70
 
     package require linalg
     namespace import ::math::linearalgebra::add
 
-    set marginTop 24; set marginLeft 24
+    set marginTop 48; set marginLeft 48
+    set measureTop [/ $marginTop 2]; set measureLeft [/ $marginLeft 2]
+
     set PageWidth 612; set PageHeight 792
 
     set innerToOuter 0.333333
@@ -52,15 +54,15 @@ fn makeCalibrationBoardPdf {} {
         1 setlinecap
         2 setlinewidth 0.67 0.1 0.1 setrgbcolor
 
-        % Short red segment at top margin, with arrow up to top edge.
+        % Short red segment at top measure, with arrow up to top edge.
         2 setlinewidth
         newpath
-        [expr {$PageWidth/2 - 20}] [- $PageHeight $marginTop] moveto
-        [expr {$PageWidth/2 + 20}] [- $PageHeight $marginTop] lineto
+        [expr {$PageWidth/2 - 20}] [- $PageHeight $measureTop] moveto
+        [expr {$PageWidth/2 + 20}] [- $PageHeight $measureTop] lineto
         stroke
         1 setlinewidth
         newpath
-        [/ $PageWidth 2] [- $PageHeight $marginTop] moveto
+        [/ $PageWidth 2] [- $PageHeight $measureTop] moveto
         [/ $PageWidth 2] [expr {$PageHeight - 2}] lineto
         stroke
         newpath
@@ -71,18 +73,18 @@ fn makeCalibrationBoardPdf {} {
         [/ $PageWidth 2] [expr {$PageHeight - 2}] moveto
         [expr {$PageWidth/2 + 4}] [expr {$PageHeight - 8}] lineto
         stroke
-        newpath [expr {$PageWidth/2 + 25}] [expr {$PageHeight - $marginTop/2 - 3}] moveto
+        newpath [expr {$PageWidth/2 + 12}] [expr {$PageHeight - $measureTop/2 - 3}] moveto
         (Measure to top edge of paper) show
 
-        % Short red segment at bottom margin, with arrow down to bottom edge.
+        % Short red segment at bottom measure, with arrow down to bottom edge.
         2 setlinewidth
         newpath
-        [expr {$PageWidth/2 - 20}] $marginTop moveto
-        [expr {$PageWidth/2 + 20}] $marginTop lineto
+        [expr {$PageWidth/2 - 20}] $measureTop moveto
+        [expr {$PageWidth/2 + 20}] $measureTop lineto
         stroke
         1 setlinewidth
         newpath
-        [/ $PageWidth 2] $marginTop moveto
+        [/ $PageWidth 2] $measureTop moveto
         [/ $PageWidth 2] 2 lineto
         stroke
         newpath
@@ -93,20 +95,20 @@ fn makeCalibrationBoardPdf {} {
         [/ $PageWidth 2] 2 moveto
         [expr {$PageWidth/2 + 4}] 8 lineto
         stroke
-        newpath [expr {$PageWidth/2 + 25}] [expr {$marginTop/2- 3}] moveto
+        newpath [expr {$PageWidth/2 + 12}] [expr {$measureTop/2- 3}] moveto
         (Measure to bottom edge of paper) show
 
         0.1 0.1 0.67 setrgbcolor
 
-        % Short blue segment at left margin, with arrow left to left edge.
+        % Short blue segment at left measure, with arrow left to left edge.
         2 setlinewidth
         newpath
-        $marginLeft [expr {$PageHeight/2 - 20}] moveto
-        $marginLeft [expr {$PageHeight/2 + 20}] lineto
+        $measureLeft [expr {$PageHeight/2 - 20}] moveto
+        $measureLeft [expr {$PageHeight/2 + 20}] lineto
         stroke
         1 setlinewidth
         newpath
-        $marginLeft [/ $PageHeight 2] moveto
+        $measureLeft [/ $PageHeight 2] moveto
         2 [/ $PageHeight 2] lineto
         stroke
         newpath
@@ -117,9 +119,9 @@ fn makeCalibrationBoardPdf {} {
         2 [/ $PageHeight 2] moveto
         8 [expr {$PageHeight/2 + 4}] lineto
         stroke
-        newpath [/ $marginLeft 4] [expr {$PageHeight/2 - 30}] moveto
+        newpath [/ $measureLeft 4] [expr {$PageHeight/2 - 30}] moveto
         (Measure to) show
-        [/ $marginLeft 4] [expr {$PageHeight/2 - 37}] moveto
+        [/ $measureLeft 4] [expr {$PageHeight/2 - 37}] moveto
         (left edge of paper) show
 
         % We should flip the coordinate system to match the model coordinate system,
@@ -142,11 +144,11 @@ fn makeCalibrationBoardPdf {} {
                 [$printLib tagPsForId $id]
                 grestore
 
-                gsave
-                0 setgray /Helvetica findfont 14 scalefont setfont
-                1 0 0 setrgbcolor
-                newpath $psX $psY moveto 1 -1 scale ($tagIdx) show
-                grestore
+                % gsave
+                % 0 setgray /Helvetica findfont 14 scalefont setfont
+                % 1 0 0 setrgbcolor
+                % newpath $psX $psY moveto 1 -1 scale ($tagIdx) show
+                % grestore
 
                 % Label the inner side length:
                 [if {$tagIdx == 1} { subst {
@@ -164,13 +166,36 @@ fn makeCalibrationBoardPdf {} {
                 } }]
             }
         }] "\n"]
+
+        showpage
     }]
 
+    return $ps
+}
+Claim the makeCalibrationBoardPs is [fn makeCalibrationBoardPs]
+
+fn makeCalibrationBoardPdf {} {
+    set ps [makeCalibrationBoardPs]
     set fp [open [list |ps2pdf - - <<$ps] rb]
     set pdf [read $fp]; close $fp
     return $pdf
 }
 Claim the makeCalibrationBoardPdf is [fn makeCalibrationBoardPdf]
+
+fn makeCalibrationBoardPng {} {
+    set ps [makeCalibrationBoardPs]
+    set psFile [file tempfile].ps
+    set fp [open $psFile w]; puts $fp $ps; close $fp
+    set pngFile [file tempfile].png
+    exec gs -dNOPAUSE -dBATCH -sFONTPATH=vendor/fonts \
+        -sDEVICE=png16m -r144 \
+        -sOutputFile=$pngFile $psFile
+    puts stderr $pngFile
+    set fp [open $pngFile rb]
+    set png [read $fp]; close $fp
+    return $png
+}
+Claim the makeCalibrationBoardPng is [fn makeCalibrationBoardPng]
 
 Wish the web server handles route {/calibrate/board.pdf} with handler {
     dict create statusAndHeaders "HTTP/1.1 200 OK
@@ -179,6 +204,15 @@ Content-Type: application/pdf
 
 " \
         body [makeCalibrationBoardPdf]
+}
+
+Wish the web server handles route {/calibrate/board.png} with handler {
+    dict create statusAndHeaders "HTTP/1.1 200 OK
+Connection: close
+Content-Type: image/png
+
+" \
+        body [makeCalibrationBoardPng]
 }
 
 }

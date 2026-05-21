@@ -1,8 +1,6 @@
-When the codeToPostScript is /codeToPostScript/ &\
-     the makeCalibrationBoardPdf is /makeCalibrationBoardPdf/ {
+When the codeToPostScript is /codeToPostScript/ {
 
 fn codeToPostScript
-fn makeCalibrationBoardPdf
 
 fn makeExampleProgramPng {} {
     # HACK: we hard-code letter, since this is just for documentation
@@ -73,8 +71,6 @@ fn makeExampleProgramPng {} {
 
 Wish the web server handles route "/calibrate" with hidden true handler {
     package require base64
-
-    set calibrationBoardPdf [makeCalibrationBoardPdf]
 
     set exampleProgramPng [makeExampleProgramPng]
 
@@ -187,16 +183,14 @@ Wish the web server handles route "/calibrate" with hidden true handler {
             <p>We're going to print this calibration board and glue/tape it to
             something solid and flat (hardcover book, solid cardboard,
             etc):</p>
-            <iframe id="board-iframe" width="500px" height="300px" src="data:application/pdf;base64,$[binary encode base64 $calibrationBoardPdf]">
-            </iframe>
-            <p>Make sure your printer is set up.</p>
-            <p>Print the calibration board through Folk: <button id="board-print-through-folk">Print Calibration Board through Folk</button></p>
+            <img id="board-img" width="200" src="/calibrate/board.png" style="border: 1px solid gray">
+            <p>Make sure your printer is set up for Folk to print.</p>
+            <p>Print the calibration board through Folk: <button id="board-print-through-folk">Print Calibration Board through Folk</button> (print through Folk so that we can calibrate the way you will actually print)</p>
             <script>
               document.getElementById('board-print-through-folk').addEventListener('click', (e) => {
-                const boardSrc = document.getElementById('board-iframe').src.replace(/^data:application.pdf;base64,/, "");
-
                 folk.run(`
-                  set boardPdf [binary decode base64 {\${boardSrc}}]
+                  set maker [dict get [lindex [Query! /someone/ claims the makeCalibrationBoardPdf is /maker/] 0] maker]
+                  set boardPdf [{*}\$maker]
                   set fd [open /tmp/folk-calibration-board.pdf wb]
                   puts \$fd \$boardPdf; close \$fd
                   exec lpr /tmp/folk-calibration-board.pdf
@@ -204,10 +198,6 @@ Wish the web server handles route "/calibrate" with hidden true handler {
               });
             </script>
             <p>Try to keep the board from bending or warping. Printing on cardstock can help.</p>
-            <p>(During calibration, Folk will want to project AprilTags in the gaps on the grid of tags on the board. Instead of printing, you can
-            try just maximizing the board on your computer/tablet
-            screen, but you'll need to cover each gap with sticky note or something else that Folk can project
-            tags on.)</p>
           </li>
 
           <li>
