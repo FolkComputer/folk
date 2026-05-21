@@ -538,7 +538,7 @@ fn setCameraToProjectorExtrinsics {modelLib calibrationVar calibrationPoses} {
     # to find the rotation and translation from 3D camera-space to 3D
     # projector-space.
 
-    upvar $calibrationVar calibration
+    upvar $calibrationVar cal
 
     # Let's take all the points for which we have a corresponding
     # camera frame point and projector frame point.
@@ -547,12 +547,12 @@ fn setCameraToProjectorExtrinsics {modelLib calibrationVar calibrationPoses} {
 
     for {set i 0} {$i < [llength $calibrationPoses]} {incr i} {
         set calibrationPose [lindex $calibrationPoses $i]
-        
-        set Rc [dict get [lindex [dict get $calibration camera extrinsics] $i] R]
-        set tc [dict get [lindex [dict get $calibration camera extrinsics] $i] t]
 
-        set Rp [dict get [lindex [dict get $calibration projector extrinsics] $i] R]
-        set tp [dict get [lindex [dict get $calibration projector extrinsics] $i] t]
+        set Rc [dict get [lindex [dict get $cal camera extrinsics] $i] R]
+        set tc [dict get [lindex [dict get $cal camera extrinsics] $i] t]
+
+        set Rp [dict get [lindex [dict get $cal projector extrinsics] $i] R]
+        set tp [dict get [lindex [dict get $cal projector extrinsics] $i] t]
 
         # TODO: Try using pose estimation instead?
         dict for {id tag} [dict get $calibrationPose model] {
@@ -594,8 +594,8 @@ fn setCameraToProjectorExtrinsics {modelLib calibrationVar calibrationPoses} {
     set t [sub $projectorFramePointsCentroid \
                [matmul $R $cameraFramePointsCentroid]]
 
-    dict set calibration R_cameraToProjector $R
-    dict set calibration t_cameraToProjector $t
+    dict set cal R_cameraToProjector $R
+    dict set cal t_cameraToProjector $t
 }
 
 # End-to-end calibrates a camera-projector pair. calibrationPoses is
@@ -701,6 +701,7 @@ When the calibration model library is /modelLib/ &\
 
     set calibration [{*}$refineCalibration \
                          $modelLib $matLib \
+                         [fn setCameraToProjectorExtrinsics] \
                          $calibrationPoses $calibration]
     puts "======== Refined calibration intrinsics ========="
 
