@@ -1,42 +1,58 @@
-When the print library is /printLib/ &\
-     the calibration model library is /modelLib/ &\
-     the calibration matrix library is /matLib/ {
-
-# Goal of the calibration board is to have the user do three
+# Goal of the calibration board is to have the user do four
 # measurements:
 #
-# - paper edge to top margin, to account for vertical margin.
+# - paper edge to top margin
 #
-# - paper edge to right margin, to account for horizontal margin.
+# - paper edge to bottom margin
 #
-# - tag inner width, to account for scaling. We want this tag inner
-#   width to be exactly the same as the tag inner width that we use on
-#   every printed program, so the calibration isn't too
-#   measurement dependent.
+# - paper edge to left margin
+#
+# - tag inner width, to account for scaling. (We also want this tag
+#   inner width to be exactly the same as the tag inner width that we
+#   use on every printed program, so that if the user measures the tag
+#   wrong, it still looks OK on the average program.)
 #
 # Then we can correct for these factors in all future prints, so we
 # can print mm-accurate.
 
+# These values are all in points (1/72 of an inch).
+set marginTop 48; set marginLeft 48
+
+set measureTop [/ $marginTop 2]; set measureLeft [/ $marginLeft 2]
+set tagInnerSideLength 70
+
+When the calibration measurements are /measurements/ {
+    # FIXME: use the measurements and our knowledge of
+    # measureTop/measureLeft/tagInnerSideLength when we did an
+    # unmediated calibration board print -> generate some PostScript
+    # that mediates (scales, transforms) future printouts so that the
+    # coordinate spaces starts at (0, 0) bottom-left of physical page,
+    # and is to-scale with 1 = 1 physical point.
+
+    # FIXME: Claim that PostScript string out so it can be used by the
+    # print system later.
+}
+
+When the print library is /printLib/ &\
+     the calibration model library is /modelLib/ &\
+     the calibration matrix library is /matLib/ {
+
 fn makeCalibrationBoardPs {} {
     set model [$modelLib unitModel]
-    set tagSideLengthPs 70
 
     package require linalg
     namespace import ::math::linearalgebra::add
-
-    set marginTop 48; set marginLeft 48
-    set measureTop [/ $marginTop 2]; set measureLeft [/ $marginLeft 2]
 
     set PageWidth 612; set PageHeight 792
 
     set innerToOuter 0.333333
 
-    set tagOuterLengthPs [expr {$tagSideLengthPs * 10/6}]
+    set tagOuterLengthPs [expr {$tagInnerSideLength * 10/6}]
 
     set H_modelToPs [$matLib estimateHomography [subst {
-        {1 1 $tagSideLengthPs $tagSideLengthPs}
-        {1 0 $tagSideLengthPs 0}
-        {0 1 0 $tagSideLengthPs}
+        {1 1 $tagInnerSideLength $tagInnerSideLength}
+        {1 0 $tagInnerSideLength 0}
+        {0 1 0 $tagInnerSideLength}
         {0 0 0 0}
     }]]
 
@@ -153,13 +169,13 @@ fn makeCalibrationBoardPs {} {
                 % Label the inner side length:
                 [if {$tagIdx == 1} { subst {
                     gsave
-                    [expr {$psX + ($tagOuterLengthPs - $tagSideLengthPs)/2}]
+                    [expr {$psX + ($tagOuterLengthPs - $tagInnerSideLength)/2}]
                     [expr {$psY - 15}] translate
                     1 -1 scale
                     0.1 0.67 0.1 setrgbcolor 2 setlinewidth
-                    newpath 0 0 moveto $tagSideLengthPs 0 lineto stroke
+                    newpath 0 0 moveto $tagInnerSideLength 0 lineto stroke
                     newpath 0 0 moveto 0 -5 lineto stroke
-                    newpath $tagSideLengthPs 0 moveto $tagSideLengthPs -5 lineto stroke
+                    newpath $tagInnerSideLength 0 moveto $tagInnerSideLength -5 lineto stroke
                     /Helvetica findfont 7 scalefont setfont
                     newpath 0 5 moveto (inner side length) show
                     grestore
