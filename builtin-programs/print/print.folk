@@ -86,7 +86,9 @@ Claim the print library is $printLib
 fn codeToPostScript {id code opts {mixins {}}} {
     # All opts should be passed in as points (1/2834.65 of a meter).
     lassign $opts(pageSize) PageWidth PageHeight
-    lassign $opts(tagSize) tagWidth tagHeight
+    set tagInnerSideLength $opts(tagInnerSideLength)
+    set tagWidth [expr {$tagInnerSideLength * 10.0 / 6}]
+    set tagHeight $tagWidth
     lassign $opts(margin) marginTop marginRight marginBottom marginLeft
     set lineHeight $opts(lineHeight)
     set maxLines $(int(($PageHeight - $marginTop - $marginBottom) / $lineHeight))
@@ -108,6 +110,8 @@ fn codeToPostScript {id code opts {mixins {}}} {
         lappend outPages [subst {
             %!PS
             << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
+
+            [dict getdef $opts calibrationPreamble {}]
 
             /settextcolor {0 setgray} def
 
@@ -214,6 +218,17 @@ Subscribe: print program /id/ with /...options/ {
              printer /printer/ is the default printer {
         Notify: print program $id on receipt printer $printer with code $code
         return
+    }
+
+    set calibPreambleResults [Query! the calibrated print preamble is /preamble/]
+    if {[llength $calibPreambleResults] > 0} {
+        dict set options calibrationPreamble [dict get [lindex $calibPreambleResults 0] preamble]
+    }
+
+    set calibScaleResults [Query! the calibrated print scale is /scale/]
+    if {[llength $calibScaleResults] > 0} {
+        set calibScale [dict get [lindex $calibScaleResults 0] scale]
+        dict set options tagInnerSideLength [expr {70.0 / $calibScale}]
     }
 
     set ps [codeToPostScript $id $code $options]

@@ -1,14 +1,14 @@
 set formats [subst {
     letter {
-        tagSize {150 150}
+        tagInnerSideLength 70
         pageSize {612 792}
     }
     a4 {
-        tagSize {150 150}
+        tagInnerSideLength 70
         pageSize {595 842}
     }
     indexcard {
-        tagSize {300 300}
+        tagInnerSideLength 70
         pageSize {612 792}
     }
 }]

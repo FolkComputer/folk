@@ -7,7 +7,7 @@ fn makeExampleProgramPng {} {
     # purposes, and we want to cut the bottom half off so we need
     # known dimensions.
     set opts [dict create \
-                  tagSize {150 150} \
+                  tagInnerSideLength 70 \
                   pageSize {612 792} \
                   lineHeight 16 \
                   advance [* 0.5859375 16] \

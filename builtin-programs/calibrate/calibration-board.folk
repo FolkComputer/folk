@@ -22,15 +22,25 @@ set measureTop [/ $marginTop 2]; set measureLeft [/ $marginLeft 2]
 set tagInnerSideLength 70
 
 When the calibration measurements are /measurements/ {
-    # FIXME: use the measurements and our knowledge of
-    # measureTop/measureLeft/tagInnerSideLength when we did an
-    # unmediated calibration board print -> generate some PostScript
-    # that mediates (scales, transforms) future printouts so that the
-    # coordinate spaces starts at (0, 0) bottom-left of physical page,
-    # and is to-scale with 1 = 1 physical point.
+    set m_tag [expr {double([string trimright [dict get $measurements tagSideLength] mm])}]
+    set m_left [expr {double([string trimright [dict get $measurements left] mm])}]
+    set m_bottom [expr {double([string trimright [dict get $measurements bottom] mm])}]
 
-    # FIXME: Claim that PostScript string out so it can be used by the
-    # print system later.
+    # Derive a PostScript CTM that maps calibrated space (origin at
+    # paper bottom-left, 1 unit = 1 physical point = 25.4/72 mm) to
+    # the printer's raw PS coordinate space.
+    #
+    # The calibration board was printed unmediated, so its PS coords
+    # are the printer's raw coords.  The measurement lines were drawn
+    # at PS positions measureLeft and measureTop; the tag inner side
+    # was tagInnerSideLength PS points.  From the physical measurements
+    # (in mm) we can recover the printer's scale and origin offset.
+    set scale [expr {25.4 * $tagInnerSideLength / (72.0 * $m_tag)}]
+    set tx [expr {$measureLeft - $m_left * $tagInnerSideLength / $m_tag}]
+    set ty [expr {$measureTop - $m_bottom * $tagInnerSideLength / $m_tag}]
+
+    Claim the calibrated print preamble is "\[$scale 0 0 $scale $tx $ty\] concat"
+    Claim the calibrated print scale is $scale
 }
 
 When the print library is /printLib/ &\
