@@ -1272,9 +1272,11 @@ struct JimParserCtx
     const char *p;              /* Pointer to the point of the program we are parsing */
     int len;                    /* Remaining length */
     int linenr;                 /* Current line number */
+    const char *line_start;     /* Pointer to the start of the current line */
     const char *tstart;
     const char *tend;           /* Returned token is at tstart-tend in 'prg'. */
     int tline;                  /* Line number of the returned token */
+    int tcol;                   /* Column number of the returned token (0-based) */
     int tt;                     /* Token type */
     int eof;                    /* Non zero if EOF condition is true. */
     int inquote;                /* Parsing a quoted string */
@@ -1299,17 +1301,20 @@ static Jim_Obj *JimParserGetTokenObj(Jim_Interp *interp, struct JimParserCtx *pc
 /* Initialize a parser context.
  * 'prg' is a pointer to the program text, linenr is the line
  * number of the first line contained in the program. */
-static void JimParserInit(struct JimParserCtx *pc, const char *prg, int len, int linenr)
+static void JimParserInit(struct JimParserCtx *pc, const char *prg, int len, int linenr, int col)
 {
     pc->p = prg;
     pc->len = len;
     pc->tstart = NULL;
     pc->tend = NULL;
     pc->tline = 0;
+    pc->tcol = 0;
     pc->tt = JIM_TT_NONE;
     pc->eof = 0;
     pc->inquote = 0;
     pc->linenr = linenr;
+    /* Offset line_start so that tcol values are file-relative */
+    pc->line_start = prg - col;
     pc->comment = 1;
     pc->missing.ch = ' ';
     pc->missing.line = linenr;
@@ -1322,6 +1327,7 @@ static int JimParseScript(struct JimParserCtx *pc)
             pc->tstart = pc->p;
             pc->tend = pc->p - 1;
             pc->tline = pc->linenr;
+            pc->tcol = pc->tstart - pc->line_start;
             pc->tt = JIM_TT_EOL;
             if (pc->inquote) {
                 pc->missing.ch = '"';
@@ -1358,6 +1364,7 @@ static int JimParseScript(struct JimParserCtx *pc)
                 if (JimParseVar(pc) == JIM_ERR) {
                     /* An orphan $. Create as a separate token */
                     pc->tstart = pc->tend = pc->p++;
+                    pc->tcol = pc->tstart - pc->line_start;
                     pc->len--;
                     pc->tt = JIM_TT_ESC;
                 }
@@ -1380,6 +1387,7 @@ static int JimParseSep(struct JimParserCtx *pc)
 {
     pc->tstart = pc->p;
     pc->tline = pc->linenr;
+    pc->tcol = pc->tstart - pc->line_start;
     while (isspace(UCHAR(*pc->p)) || (*pc->p == '\\' && *(pc->p + 1) == '\n')) {
         if (*pc->p == '\n') {
             break;
@@ -1388,6 +1396,7 @@ static int JimParseSep(struct JimParserCtx *pc)
             pc->p++;
             pc->len--;
             pc->linenr++;
+            pc->line_start = pc->p + 1;
         }
         pc->p++;
         pc->len--;
@@ -1401,9 +1410,12 @@ static int JimParseEol(struct JimParserCtx *pc)
 {
     pc->tstart = pc->p;
     pc->tline = pc->linenr;
+    pc->tcol = pc->tstart - pc->line_start;
     while (isspace(UCHAR(*pc->p)) || *pc->p == ';') {
-        if (*pc->p == '\n')
+        if (*pc->p == '\n') {
             pc->linenr++;
+            pc->line_start = pc->p + 1;
+        }
         pc->p++;
         pc->len--;
     }
@@ -1453,6 +1465,7 @@ static void JimParseSubBrace(struct JimParserCtx *pc)
                 if (pc->len > 1) {
                     if (*++pc->p == '\n') {
                         pc->linenr++;
+                        pc->line_start = pc->p + 1;
                     }
                     pc->len--;
                 }
@@ -1473,6 +1486,7 @@ static void JimParseSubBrace(struct JimParserCtx *pc)
 
             case '\n':
                 pc->linenr++;
+                pc->line_start = pc->p + 1;
                 break;
         }
         pc->p++;
@@ -1507,6 +1521,7 @@ static int JimParseSubQuote(struct JimParserCtx *pc)
                 if (pc->len > 1) {
                     if (*++pc->p == '\n') {
                         pc->linenr++;
+                        pc->line_start = pc->p + 1;
                     }
                     pc->len--;
                     tt = JIM_TT_ESC;
@@ -1526,6 +1541,7 @@ static int JimParseSubQuote(struct JimParserCtx *pc)
 
             case '\n':
                 pc->linenr++;
+                pc->line_start = pc->p + 1;
                 break;
 
             case '$':
@@ -1562,6 +1578,7 @@ static void JimParseSubCmd(struct JimParserCtx *pc)
                 if (pc->len > 1) {
                     if (*++pc->p == '\n') {
                         pc->linenr++;
+                        pc->line_start = pc->p + 1;
                     }
                     pc->len--;
                 }
@@ -1597,6 +1614,7 @@ static void JimParseSubCmd(struct JimParserCtx *pc)
 
             case '\n':
                 pc->linenr++;
+                pc->line_start = pc->p + 1;
                 break;
         }
         startofword = isspace(UCHAR(*pc->p));
@@ -1612,6 +1630,7 @@ static int JimParseBrace(struct JimParserCtx *pc)
 {
     pc->tstart = pc->p + 1;
     pc->tline = pc->linenr;
+    pc->tcol = pc->tstart - pc->line_start;
     pc->tt = JIM_TT_STR;
     JimParseSubBrace(pc);
     return JIM_OK;
@@ -1621,6 +1640,7 @@ static int JimParseCmd(struct JimParserCtx *pc)
 {
     pc->tstart = pc->p + 1;
     pc->tline = pc->linenr;
+    pc->tcol = pc->tstart - pc->line_start;
     pc->tt = JIM_TT_CMD;
     JimParseSubCmd(pc);
     return JIM_OK;
@@ -1630,6 +1650,7 @@ static int JimParseQuote(struct JimParserCtx *pc)
 {
     pc->tstart = pc->p + 1;
     pc->tline = pc->linenr;
+    pc->tcol = pc->tstart - pc->line_start;
     pc->tt = JimParseSubQuote(pc);
     return JIM_OK;
 }
@@ -1652,14 +1673,17 @@ static int JimParseVar(struct JimParserCtx *pc)
     pc->tstart = pc->p;
     pc->tt = JIM_TT_VAR;
     pc->tline = pc->linenr;
+    pc->tcol = pc->tstart - pc->line_start;
 
     if (*pc->p == '{') {
         pc->tstart = ++pc->p;
+        pc->tcol = pc->tstart - pc->line_start;
         pc->len--;
 
         while (pc->len && *pc->p != '}') {
             if (*pc->p == '\n') {
                 pc->linenr++;
+                pc->line_start = pc->p + 1;
             }
             pc->p++;
             pc->len--;
@@ -1760,6 +1784,7 @@ static int JimParseStr(struct JimParserCtx *pc)
     }
     pc->tstart = pc->p;
     pc->tline = pc->linenr;
+    pc->tcol = pc->tstart - pc->line_start;
     while (1) {
         if (pc->len == 0) {
             if (pc->inquote) {
@@ -1779,6 +1804,7 @@ static int JimParseStr(struct JimParserCtx *pc)
                 if (pc->len >= 2) {
                     if (*(pc->p + 1) == '\n') {
                         pc->linenr++;
+                        pc->line_start = pc->p + 2;
                     }
                     pc->p++;
                     pc->len--;
@@ -1826,6 +1852,7 @@ static int JimParseStr(struct JimParserCtx *pc)
                 }
                 else if (*pc->p == '\n') {
                     pc->linenr++;
+                    pc->line_start = pc->p + 1;
                 }
                 break;
             case '"':
@@ -1857,12 +1884,14 @@ static int JimParseComment(struct JimParserCtx *pc)
             }
             if (*pc->p == '\n') {
                 pc->linenr++;
+                pc->line_start = pc->p + 1;
             }
         }
         else if (*pc->p == '\n') {
             pc->p++;
             pc->len--;
             pc->linenr++;
+            pc->line_start = pc->p;
             break;
         }
         pc->p++;
@@ -2130,6 +2159,7 @@ static int JimParseList(struct JimParserCtx *pc)
 
     pc->tstart = pc->tend = pc->p;
     pc->tline = pc->linenr;
+    pc->tcol = pc->tstart - pc->line_start;
     pc->tt = JIM_TT_EOL;
     pc->eof = 1;
     return JIM_OK;
@@ -2139,9 +2169,11 @@ static int JimParseListSep(struct JimParserCtx *pc)
 {
     pc->tstart = pc->p;
     pc->tline = pc->linenr;
+    pc->tcol = pc->tstart - pc->line_start;
     while (isspace(UCHAR(*pc->p))) {
         if (*pc->p == '\n') {
             pc->linenr++;
+            pc->line_start = pc->p + 1;
         }
         pc->p++;
         pc->len--;
@@ -2158,6 +2190,7 @@ static int JimParseListQuote(struct JimParserCtx *pc)
 
     pc->tstart = pc->p;
     pc->tline = pc->linenr;
+    pc->tcol = pc->tstart - pc->line_start;
     pc->tt = JIM_TT_STR;
 
     while (pc->len) {
@@ -2173,6 +2206,7 @@ static int JimParseListQuote(struct JimParserCtx *pc)
                 break;
             case '\n':
                 pc->linenr++;
+                pc->line_start = pc->p + 1;
                 break;
             case '"':
                 pc->tend = pc->p - 1;
@@ -2192,6 +2226,7 @@ static int JimParseListStr(struct JimParserCtx *pc)
 {
     pc->tstart = pc->p;
     pc->tline = pc->linenr;
+    pc->tcol = pc->tstart - pc->line_start;
     pc->tt = JIM_TT_STR;
 
     while (pc->len) {
@@ -3214,13 +3249,13 @@ static const Jim_ObjType scriptLineObjType = {
     JIM_NONE,
 };
 
-static Jim_Obj *JimNewScriptLineObj(Jim_Interp *interp, int argc, int line)
+static Jim_Obj *JimNewScriptLineObj(Jim_Interp *interp, int argc, int line, int col)
 {
     Jim_Obj *objPtr;
 
 #ifdef DEBUG_SHOW_SCRIPT
     char buf[100];
-    snprintf(buf, sizeof(buf), "line=%d, argc=%d", line, argc);
+    snprintf(buf, sizeof(buf), "line=%d, col=%d, argc=%d", line, col, argc);
     objPtr = Jim_NewStringObj(interp, buf, -1);
 #else
     objPtr = Jim_NewEmptyStringObj(interp);
@@ -3228,6 +3263,7 @@ static Jim_Obj *JimNewScriptLineObj(Jim_Interp *interp, int argc, int line)
     objPtr->typePtr = &scriptLineObjType;
     objPtr->internalRep.scriptLineValue.argc = argc;
     objPtr->internalRep.scriptLineValue.line = line;
+    objPtr->internalRep.scriptLineValue.col = col;
 
     return objPtr;
 }
@@ -3339,6 +3375,7 @@ typedef struct ScriptObj
                                    shimmering of the currently evaluated object. */
     int firstline;              /* Line number of the first line */
     int linenr;                 /* Error line number, if any */
+    int colnr;                  /* Error column number, if any */
     int missing;                /* Missing char if script failed to parse, (or space or backslash if OK) */
 } ScriptObj;
 
@@ -3382,6 +3419,7 @@ typedef struct
     int len;                    /* Length of this token */
     int type;                   /* Token type */
     int line;                   /* Line number */
+    int column;                 /* Column number (0-based) */
 } ParseToken;
 
 /* A list of parsed tokens representing a script.
@@ -3417,7 +3455,7 @@ static void ScriptTokenListFree(ParseTokenList *tokenlist)
  * The token list is resized as necessary.
  */
 static void ScriptAddToken(ParseTokenList *tokenlist, const char *token, int len, int type,
-    int line)
+    int line, int column)
 {
     ParseToken *t;
 
@@ -3440,6 +3478,7 @@ static void ScriptAddToken(ParseTokenList *tokenlist, const char *token, int len
     t->len = len;
     t->type = type;
     t->line = line;
+    t->column = column;
 }
 
 /* Counts the number of adjoining non-separator tokens.
@@ -3465,6 +3504,7 @@ static int JimCountWordTokens(struct ScriptObj *script, ParseToken *t)
                 /* This is a "extra characters after close-brace" error. Report the first error */
                 script->missing = '}';
                 script->linenr = t[1].line;
+                script->colnr = t[1].column;
             }
         }
     }
@@ -3521,6 +3561,7 @@ static void ScriptObjAddTokens(Jim_Interp *interp, struct ScriptObj *script,
     ScriptToken *linefirst;
     int count;
     int linenr;
+    int colnr;
 
 #ifdef DEBUG_SHOW_SCRIPT_TOKENS
     printf("==== Tokens ====\n");
@@ -3538,6 +3579,7 @@ static void ScriptObjAddTokens(Jim_Interp *interp, struct ScriptObj *script,
         }
     }
     linenr = script->firstline = tokenlist->list[0].line;
+    colnr = tokenlist->list[0].column;
 
     token = script->token = Jim_Alloc(sizeof(ScriptToken) * count);
 
@@ -3559,7 +3601,7 @@ static void ScriptObjAddTokens(Jim_Interp *interp, struct ScriptObj *script,
             /* None, so at end of line */
             if (lineargs) {
                 linefirst->type = JIM_TT_LINE;
-                linefirst->objPtr = JimNewScriptLineObj(interp, lineargs, linenr);
+                linefirst->objPtr = JimNewScriptLineObj(interp, lineargs, linenr, colnr);
                 Jim_IncrRefCount(linefirst->objPtr);
 
                 /* Reset for new line */
@@ -3584,8 +3626,9 @@ static void ScriptObjAddTokens(Jim_Interp *interp, struct ScriptObj *script,
         }
 
         if (lineargs == 0) {
-            /* First real token on the line, so record the line number */
+            /* First real token on the line, so record the line and column number */
             linenr = tokenlist->list[i].line;
+            colnr = tokenlist->list[i].column;
         }
         lineargs++;
 
@@ -3600,7 +3643,7 @@ static void ScriptObjAddTokens(Jim_Interp *interp, struct ScriptObj *script,
             /* Every object is initially a string of type 'source', but the
              * internal type may be specialized during execution of the
              * script. */
-            Jim_SetSourceInfo(interp, token->objPtr, script->fileNameObj, t->line);
+            Jim_SetSourceInfo(interp, token->objPtr, script->fileNameObj, t->line, t->column);
             token++;
         }
     }
@@ -3683,14 +3726,16 @@ static int JimParseCheckMissing(Jim_Interp *interp, int ch)
     return JIM_ERR;
 }
 
-Jim_Obj *Jim_GetSourceInfo(Jim_Interp *interp, Jim_Obj *objPtr, int *lineptr)
+Jim_Obj *Jim_GetSourceInfo(Jim_Interp *interp, Jim_Obj *objPtr, int *lineptr, int *colptr)
 {
     int line;
+    int col = 0;
     Jim_Obj *fileNameObj;
 
     if (objPtr->typePtr == &sourceObjType) {
         fileNameObj = objPtr->internalRep.sourceValue.fileNameObj;
         line = objPtr->internalRep.sourceValue.lineNumber;
+        col = objPtr->internalRep.sourceValue.columnNumber;
     }
     else if (objPtr->typePtr == &scriptObjType) {
         ScriptObj *script = JimGetScript(interp, objPtr);
@@ -3702,17 +3747,19 @@ Jim_Obj *Jim_GetSourceInfo(Jim_Interp *interp, Jim_Obj *objPtr, int *lineptr)
         line = 1;
     }
     *lineptr = line;
+    if (colptr) *colptr = col;
     return fileNameObj;
 }
 
 void Jim_SetSourceInfo(Jim_Interp *interp, Jim_Obj *objPtr,
-    Jim_Obj *fileNameObj, int lineNumber)
+    Jim_Obj *fileNameObj, int lineNumber, int columnNumber)
 {
     JimPanic((Jim_IsShared(objPtr), "Jim_SetSourceInfo called with shared object"));
     Jim_FreeIntRep(interp, objPtr);
     Jim_IncrRefCount(fileNameObj);
     objPtr->internalRep.sourceValue.fileNameObj = fileNameObj;
     objPtr->internalRep.sourceValue.lineNumber = lineNumber;
+    objPtr->internalRep.sourceValue.columnNumber = columnNumber;
     objPtr->typePtr = &sourceObjType;
 }
 
@@ -3756,22 +3803,23 @@ static void JimSetScriptFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
     ParseTokenList tokenlist;
     Jim_Obj *fileNameObj;
     int line;
+    int col;
 
     /* Try to get information about filename / line number */
-    fileNameObj = Jim_GetSourceInfo(interp, objPtr, &line);
+    fileNameObj = Jim_GetSourceInfo(interp, objPtr, &line, &col);
 
     /* Initially parse the script into tokens (in tokenlist) */
     ScriptTokenListInit(&tokenlist);
 
-    JimParserInit(&parser, scriptText, scriptTextLen, line);
+    JimParserInit(&parser, scriptText, scriptTextLen, line, col);
     while (!parser.eof) {
         JimParseScript(&parser);
         ScriptAddToken(&tokenlist, parser.tstart, parser.tend - parser.tstart + 1, parser.tt,
-            parser.tline);
+            parser.tline, parser.tcol);
     }
 
     /* Add a final EOF token */
-    ScriptAddToken(&tokenlist, scriptText + scriptTextLen, 0, JIM_TT_EOF, 0);
+    ScriptAddToken(&tokenlist, scriptText + scriptTextLen, 0, JIM_TT_EOF, 0, 0);
 
     /* Create the "real" script tokens from the parsed tokens */
     script = Jim_Alloc(sizeof(*script));
@@ -6061,6 +6109,16 @@ static Jim_Obj *JimProcForEvalFrame(Jim_Interp *interp, Jim_EvalFrame *frame)
     return NULL;
 }
 
+static Jim_Obj *JimLineColObj(Jim_Interp *interp, int line, int col)
+{
+    if (col > 0) {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%d:%d", line, col);
+        return Jim_NewStringObj(interp, buf, -1);
+    }
+    return Jim_NewIntObj(interp, line);
+}
+
 /**
  * Append stack trace info (proc, file, line, cmd) from the eval frame
  * to listObj
@@ -6070,16 +6128,18 @@ static void JimAddStackFrame(Jim_Interp *interp, Jim_EvalFrame *frame, Jim_Obj *
     Jim_Obj *procNameObj = JimProcForEvalFrame(interp, frame);
     Jim_Obj *fileNameObj = interp->emptyObj;
     int linenr = 1;
+    int colnr = 0;
 
     if (frame->scriptObj) {
         ScriptObj *script = JimGetScript(interp, frame->scriptObj);
         fileNameObj = script->fileNameObj;
         linenr = script->linenr;
+        colnr = script->colnr;
     }
 
     Jim_ListAppendElement(interp, listObj, procNameObj ? procNameObj : interp->emptyObj);
     Jim_ListAppendElement(interp, listObj, fileNameObj);
-    Jim_ListAppendElement(interp, listObj, Jim_NewIntObj(interp, linenr));
+    Jim_ListAppendElement(interp, listObj, JimLineColObj(interp, linenr, colnr));
     Jim_ListAppendElement(interp, listObj, Jim_NewListObj(interp, frame->argv, frame->argc));
 }
 
@@ -6104,7 +6164,7 @@ static void JimSetErrorStack(Jim_Interp *interp, ScriptObj *script)
              */
             Jim_ListAppendElement(interp, stackTrace, interp->emptyObj);
             Jim_ListAppendElement(interp, stackTrace, script->fileNameObj);
-            Jim_ListAppendElement(interp, stackTrace, Jim_NewIntObj(interp, script->linenr));
+            Jim_ListAppendElement(interp, stackTrace, JimLineColObj(interp, script->linenr, script->colnr));
             Jim_ListAppendElement(interp, stackTrace, interp->emptyObj);
         }
         else {
@@ -6853,7 +6913,7 @@ static int SetListFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
     }
 
     /* Try to preserve information about filename / line number */
-    fileNameObj = Jim_GetSourceInfo(interp, objPtr, &linenr);
+    fileNameObj = Jim_GetSourceInfo(interp, objPtr, &linenr, NULL);
     Jim_IncrRefCount(fileNameObj);
 
     /* Get the string representation */
@@ -6869,7 +6929,7 @@ static int SetListFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
 
     /* Convert into a list */
     if (strLen) {
-        JimParserInit(&parser, str, strLen, linenr);
+        JimParserInit(&parser, str, strLen, linenr, 0);
         while (!parser.eof) {
             Jim_Obj *elementPtr;
 
@@ -6877,7 +6937,7 @@ static int SetListFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
             if (parser.tt != JIM_TT_STR && parser.tt != JIM_TT_ESC)
                 continue;
             elementPtr = JimParserGetTokenObj(interp, &parser);
-            Jim_SetSourceInfo(interp, elementPtr, fileNameObj, parser.tline);
+            Jim_SetSourceInfo(interp, elementPtr, fileNameObj, parser.tline, 0);
             ListAppendElement(objPtr, elementPtr);
         }
     }
@@ -9169,6 +9229,7 @@ static int JimParseExpression(struct JimParserCtx *pc)
         while (isspace(UCHAR(*pc->p)) || (*(pc->p) == '\\' && *(pc->p + 1) == '\n')) {
             if (*pc->p == '\n') {
                 pc->linenr++;
+                pc->line_start = pc->p + 1;
             }
             pc->p++;
             pc->len--;
@@ -9185,6 +9246,7 @@ static int JimParseExpression(struct JimParserCtx *pc)
     /* Common case */
     pc->tline = pc->linenr;
     pc->tstart = pc->p;
+    pc->tcol = pc->tstart - pc->line_start;
 
     if (pc->len == 0) {
         pc->tend = pc->p;
@@ -9726,7 +9788,7 @@ missingoperand:
                 objPtr = Jim_NewStringObj(interp, t->token, t->len);
                 if (t->type == JIM_TT_CMD) {
                     /* Only commands need source info */
-                    Jim_SetSourceInfo(interp, objPtr, builder->fileNameObj, t->line);
+                    Jim_SetSourceInfo(interp, objPtr, builder->fileNameObj, t->line, 0);
                 }
             }
 
@@ -9826,7 +9888,7 @@ static int SetExprFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
     int rc = JIM_ERR;
 
     /* Try to get information about filename / line number */
-    fileNameObj = Jim_GetSourceInfo(interp, objPtr, &line);
+    fileNameObj = Jim_GetSourceInfo(interp, objPtr, &line, NULL);
     Jim_IncrRefCount(fileNameObj);
 
     exprText = Jim_GetString(objPtr, &exprTextLen);
@@ -9834,7 +9896,7 @@ static int SetExprFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
     /* Initially tokenise the expression into tokenlist */
     ScriptTokenListInit(&tokenlist);
 
-    JimParserInit(&parser, exprText, exprTextLen, line);
+    JimParserInit(&parser, exprText, exprTextLen, line, 0);
     while (!parser.eof) {
         if (JimParseExpression(&parser) != JIM_OK) {
             ScriptTokenListFree(&tokenlist);
@@ -9847,7 +9909,7 @@ static int SetExprFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
         }
 
         ScriptAddToken(&tokenlist, parser.tstart, parser.tend - parser.tstart + 1, parser.tt,
-            parser.tline);
+            parser.tline, parser.tcol);
     }
 
 #ifdef DEBUG_SHOW_EXPR_TOKENS
@@ -11186,8 +11248,8 @@ static Jim_Obj *JimInterpolateTokens(Jim_Interp *interp, const ScriptToken * tok
     else if (tokens && intv[0] && intv[0]->typePtr == &sourceObjType) {
         /* The first interpolated token is source, so preserve the source info */
         int line;
-        Jim_Obj *fileNameObj = Jim_GetSourceInfo(interp, intv[0], &line);
-        Jim_SetSourceInfo(interp, objPtr, fileNameObj, line);
+        Jim_Obj *fileNameObj = Jim_GetSourceInfo(interp, intv[0], &line, NULL);
+        Jim_SetSourceInfo(interp, objPtr, fileNameObj, line, 0);
     }
 
 
@@ -11326,6 +11388,7 @@ int Jim_EvalObj(Jim_Interp *interp, Jim_Obj *scriptObjPtr)
         /* First token of the line is always JIM_TT_LINE */
         argc = token[i].objPtr->internalRep.scriptLineValue.argc;
         script->linenr = token[i].objPtr->internalRep.scriptLineValue.line;
+        script->colnr = token[i].objPtr->internalRep.scriptLineValue.col;
 
         /* Allocate the arguments vector if required */
         if (argc > JIM_EVAL_SARGV_LEN)
@@ -11708,7 +11771,7 @@ int Jim_EvalSource(Jim_Interp *interp, const char *filename, int lineno, const c
     scriptObjPtr = Jim_NewStringObj(interp, script, -1);
     Jim_IncrRefCount(scriptObjPtr);
     if (filename) {
-        Jim_SetSourceInfo(interp, scriptObjPtr, Jim_NewStringObj(interp, filename, -1), lineno);
+        Jim_SetSourceInfo(interp, scriptObjPtr, Jim_NewStringObj(interp, filename, -1), lineno, 0);
     }
     retval = Jim_EvalObj(interp, scriptObjPtr);
     Jim_DecrRefCount(interp, scriptObjPtr);
@@ -11795,7 +11858,7 @@ int Jim_EvalFile(Jim_Interp *interp, const char *filename)
     }
 
     filenameObj = Jim_NewStringObj(interp, filename, -1);
-    Jim_SetSourceInfo(interp, scriptObjPtr, filenameObj, 1);
+    Jim_SetSourceInfo(interp, scriptObjPtr, filenameObj, 1, 0);
 
     oldFilenameObj = JimPushInterpObj(interp->currentFilenameObj, filenameObj);
 
@@ -11822,6 +11885,7 @@ static void JimParseSubst(struct JimParserCtx *pc, int flags)
 {
     pc->tstart = pc->p;
     pc->tline = pc->linenr;
+    pc->tcol = pc->tstart - pc->line_start;
 
     if (pc->len == 0) {
         pc->tend = pc->p;
@@ -11839,6 +11903,7 @@ static void JimParseSubst(struct JimParserCtx *pc, int flags)
         }
         /* Not a var, so treat as a string */
         pc->tstart = pc->p;
+        pc->tcol = pc->tstart - pc->line_start;
         /* Skip this $ */
         pc->p++;
         pc->len--;
@@ -11881,7 +11946,7 @@ static int SetSubstFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr, int flags
     /* Initially parse the subst into tokens (in tokenlist) */
     ScriptTokenListInit(&tokenlist);
 
-    JimParserInit(&parser, scriptText, scriptTextLen, 1);
+    JimParserInit(&parser, scriptText, scriptTextLen, 1, 0);
     while (1) {
         JimParseSubst(&parser, flags);
         if (parser.eof) {
@@ -11889,7 +11954,7 @@ static int SetSubstFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr, int flags
             break;
         }
         ScriptAddToken(&tokenlist, parser.tstart, parser.tend - parser.tstart + 1, parser.tt,
-            parser.tline);
+            parser.tline, parser.tcol);
     }
 
     /* Create the "real" subst/script tokens from the initial token list */
@@ -12135,6 +12200,8 @@ static int JimInfoFrame(Jim_Interp *interp, Jim_Obj *levelObjPtr, Jim_Obj **objP
                 ScriptObj *script = JimGetScript(interp, frame->scriptObj);
                 Jim_ListAppendElement(interp, listObj, Jim_NewStringObj(interp, "line", -1));
                 Jim_ListAppendElement(interp, listObj, Jim_NewIntObj(interp, script->linenr));
+                Jim_ListAppendElement(interp, listObj, Jim_NewStringObj(interp, "col", -1));
+                Jim_ListAppendElement(interp, listObj, Jim_NewIntObj(interp, script->colnr));
                 Jim_ListAppendElement(interp, listObj, Jim_NewStringObj(interp, "file", -1));
                 Jim_ListAppendElement(interp, listObj, script->fileNameObj);
             }
@@ -15844,11 +15911,11 @@ static int Jim_InfoCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
                         return JIM_ERR;
                     }
                     resObjPtr = Jim_NewStringObj(interp, Jim_String(argv[2]), Jim_Length(argv[2]));
-                    Jim_SetSourceInfo(interp, resObjPtr, argv[3], line);
+                    Jim_SetSourceInfo(interp, resObjPtr, argv[3], line, 0);
                 }
                 else {
                     int line;
-                    fileNameObj = Jim_GetSourceInfo(interp, argv[2], &line);
+                    fileNameObj = Jim_GetSourceInfo(interp, argv[2], &line, NULL);
                     resObjPtr = Jim_NewListObj(interp, NULL, 0);
                     Jim_ListAppendElement(interp, resObjPtr, fileNameObj);
                     Jim_ListAppendElement(interp, resObjPtr, Jim_NewIntObj(interp, line));
