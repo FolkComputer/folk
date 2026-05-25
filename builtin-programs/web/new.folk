@@ -237,9 +237,8 @@ Wish the web server handles route "/new" with nav "<button>New program</button>"
           [add [matmul $R [sub $v4 $centroid]] $centroid] \
       ]
 
-      set programQuad [$quadLib create "display $disp" $rotated_vertices]
-      Claim ${program} has quad $programQuad
-      Claim ${program} has drawing quad $programQuad
+      Claim ${program} has quad \
+          [$quadLib create "display $disp" $rotated_vertices]
   `);
   }
   function handleSave() {
