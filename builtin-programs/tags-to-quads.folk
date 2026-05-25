@@ -754,13 +754,7 @@ When the quad changer is /quadChange/ &\
         [list 0 0 1]]
 
     When $tag has quad /quad/ {
-        try {
-            set displayQuad [quadChange $quad "display $disp"]
-        } on error {} {
-            return
-        }
-
-        lassign [lmap v [$quadLib vertices $displayQuad] {
+        lassign [lmap v [$quadLib vertices [quadChange $quad "display $disp"]] {
             $poseLib project $displayIntrinsics \
                 $displayWidth $displayHeight $v
         }] a b c d
