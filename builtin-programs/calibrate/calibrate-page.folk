@@ -2,77 +2,8 @@ When the codeToPostScript is /codeToPostScript/ {
 
 fn codeToPostScript
 
-fn makeExampleProgramPng {} {
-    # HACK: we hard-code letter, since this is just for documentation
-    # purposes, and we want to cut the bottom half off so we need
-    # known dimensions.
-    set opts [dict create \
-                  tagInnerSideLength 70 \
-                  pageSize {612 792} \
-                  lineHeight 16 \
-                  advance [* 0.5859375 16] \
-                  margin [lmap x {0.01 0.005 0.005 0.01} \
-                              {* 2834.646 $x}]]
-    set ps [codeToPostScript 0 {# This image is for illustration purposes; don't
-# print it. You should print a program normally
-# through the Folk editor and measure that.
-} $opts {{
-
-        [set left [expr {$PageWidth-$tagWidth-$marginRight}]]
-        [set bottom [expr {$PageHeight-$tagHeight-$marginTop}]]
-        [set outerToInner [expr {($tagWidth / 10.0) * 2}]]
-
-        % These take in x1 y1 x2 y2 on stack.
-        /markXDistance {
-            newpath moveto
-            0 -15 rlineto 0 30 rmoveto 0 -15 rlineto
-            lineto
-            0 -15 rlineto 0 30 rmoveto 0 -15 rlineto
-            6 setlinewidth stroke
-        } def
-        /markYDistance {
-            newpath moveto
-            -15 0 rlineto 30 0 rmoveto -15 0 rlineto
-            lineto
-            -15 0 rlineto 30 0 rmoveto -15 0 rlineto
-            6 setlinewidth stroke
-        } def
-
-        % Left
-        [+ $left $outerToInner] [expr {$bottom + $tagHeight/2.0}]
-        0                       [expr {$bottom + $tagHeight/2.0}]
-        1 0 0 setrgbcolor markXDistance
-
-        % Right
-        [expr {$left + $tagWidth - $outerToInner}] [expr {$bottom + $tagHeight/2.0}]
-        $PageWidth                                 [expr {$bottom + $tagHeight/2.0}]
-        1 0 0 setrgbcolor markXDistance
-
-        % Top
-        [expr {$left + $tagWidth/2.0}] [expr {$bottom + $tagHeight - $outerToInner}]
-        [expr {$left + $tagWidth/2.0}] $PageHeight
-        0 0.5 1 setrgbcolor markYDistance
-
-        % Bottom
-        [expr {$left + $tagWidth/2.0}] [expr {$bottom + $outerToInner}]
-        [expr {$left + $tagWidth/2.0}] [expr {$PageHeight/2.0}]
-        0 0.5 1 setrgbcolor markYDistance
-
-        % Tag inner
-        [+ $left $outerToInner]                    [+ $bottom $outerToInner 5]
-        [expr {$left + $tagWidth - $outerToInner}] [+ $bottom $outerToInner 5]
-        0 1 0 setrgbcolor markXDistance
-    }}]
-
-    set fp [open [list |gs -sDEVICE=png16m -q -dBATCH -r300 -sOutputFile=- - <<$ps] rb]
-    set png [read $fp]; close $fp
-    return $png
-}
-
 Wish the web server handles route "/calibrate" with hidden true handler {
     package require base64
-
-    set exampleProgramPng [makeExampleProgramPng]
 
     set defaultGeom [dict get [lindex [Query! /someone/ claims the default program geometry is /defaultGeom/] 0] defaultGeom]
     fn defaultGeomGet {key} { return [string map {mm ""} [dict get $defaultGeom $key]] }
@@ -341,34 +272,6 @@ Camera Controls
 
             <p>If you have a bad calibration, you can try just
             calibrating again.</p>
-          </li>
-
-          <li>
-            <h3>Measure program geometry.</h3>
-
-            <p>Now we need to tell Folk the exact geometry of an
-              average program page: what is the physical size of the
-              AprilTag on the page? how far is the tag from the edges
-              of the page?</p>
-
-            <p><a href="/new">Print a program that outlines itself</a>,
-              if you don't have one already.</p>
-
-            <p>Fold the program in half if you want half-height programs. Measure the tag inner side length in millimeters, along with the distances in millimeters from the tag inner perimeter to each edge of the paper. Enter them below.</p>
-            <img width="306" src="data:image/png;base64,$[binary encode base64 $exampleProgramPng]"
-              style="border: 2px solid black; height: 198px; object-fit: cover; object-position: 0 0;">
-
-            <details>
-              <summary>How to manually override the geometry of a specific program</summary>
-
-              <p>If you've, for example, printed out program 30 at a
-              different size, or you manually cut and pasted the tag
-              30 somewhere and want to create a specially sized region
-              around that, you can set tag 30's geometry manually by making a
-              30.meta.folk text file in ~/folk-printed-programs, with content like this:</p>
-
-              <pre>Claim tag \$this has geometry {tagSize 30mm top 28mm right 28mm left 157mm bottom 80mm}</pre>
-            </details>
           </li>
 
           <li>
