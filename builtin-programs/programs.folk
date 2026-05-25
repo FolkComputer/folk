@@ -26,9 +26,9 @@ When -noncapturing the program save directory is /saveDir/ {
                 # way of finding the 'authoritative' node on the local
                 # network, or broadcasting out, and getting pages from
                 # there.
-                exec curl --output "$saveDir/$obj.folk" \
+                exec curl -f --output "$saveDir/$obj.folk" \
                     "http://folk-hex.local:4273/printed-programs/$obj.folk" &
-                exec curl --output "$saveDir/$obj.meta.folk" \
+                exec curl -f --output "$saveDir/$obj.meta.folk" \
                     "http://folk-hex.local:4273/printed-programs/$obj.meta.folk" &
                 # HACK: It won't be reloaded until you redetect the tag.
             }
