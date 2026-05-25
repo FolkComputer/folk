@@ -119,7 +119,6 @@ When the quad library is /quadLib/ &\
                 try {
                     set displayQuad [quadChange $q "display $disp"]
                 } on error {} {
-                    Hold! -key $titleKey {}
                     return
                 }
                 set vertices [$quadLib vertices $displayQuad]
@@ -134,9 +133,7 @@ When the quad library is /quadLib/ &\
                 dict set drawOptions position $dispPosition
                 dict set drawOptions radians $dispRadians
 
-                Hold! -keep 50ms -key $titleKey {
-                    Wish to draw text onto $disp with {*}$drawOptions
-                }
+                Wish to draw text onto $disp with {*}$drawOptions
             }
         }
     }

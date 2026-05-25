@@ -33,46 +33,46 @@ Wish draw-shapes-explicit-circle draws a circle with \
 
 sleep 0.5
 
-set circleDraws [Query! /someone/ wishes to draw a circle onto draw-shapes-default-circle with /...drawOptions/]
+set circleDraws [Query! /someone/ wishes to draw a circle onto draw-shapes-default-circle with /...rest/]
 assert {[llength $circleDraws] == 1}
-set drawOptions [dict get [lindex $circleDraws 0] drawOptions]
+set drawOptions [dict get [lindex $circleDraws 0] rest]
 assert {[dict get $drawOptions center] eq {0.1 0.05}}
 assert {[nearly [dict get $drawOptions radius] 0.025]}
 assert {[dict get $drawOptions color] eq "white"}
 assert {[drawTruthy [dict get $drawOptions filled]]}
 
-set rectDraws [Query! /someone/ wishes to draw a polygon onto draw-shapes-default-rect with /...drawOptions/]
+set rectDraws [Query! /someone/ wishes to draw a polygon onto draw-shapes-default-rect with /...rest/]
 assert {[llength $rectDraws] == 1}
-set rectPoints [dict get [dict get [lindex $rectDraws 0] drawOptions] points]
+set rectPoints [dict get [dict get [lindex $rectDraws 0] rest] points]
 assert {[nearly [lindex $rectPoints 0 0] 0.075]}
 assert {[nearly [lindex $rectPoints 2 0] 0.125]}
 
-set octagonDraws [Query! /someone/ wishes to draw a polygon onto draw-shapes-default-octagon with /...drawOptions/]
+set octagonDraws [Query! /someone/ wishes to draw a polygon onto draw-shapes-default-octagon with /...rest/]
 assert {[llength $octagonDraws] == 1}
-assert {[llength [dict get [dict get [lindex $octagonDraws 0] drawOptions] points]] == 8}
+assert {[llength [dict get [dict get [lindex $octagonDraws 0] rest] points]] == 8}
 
-set textDraws [Query! /someone/ wishes to draw text onto draw-shapes-default-text with /...drawOptions/]
+set textDraws [Query! /someone/ wishes to draw text onto draw-shapes-default-text with /...rest/]
 assert {[llength $textDraws] == 1}
-set drawOptions [dict get [lindex $textDraws 0] drawOptions]
+set drawOptions [dict get [lindex $textDraws 0] rest]
 assert {[dict get $drawOptions position] eq {0.1 0.05}}
 assert {[dict get $drawOptions color] eq "white"}
 
-set polylineDraws [Query! /someone/ wishes to draw a line onto draw-shapes-default-polyline with /...drawOptions/]
+set polylineDraws [Query! /someone/ wishes to draw a line onto draw-shapes-default-polyline with /...rest/]
 assert {[llength $polylineDraws] == 1}
-set drawOptions [dict get [lindex $polylineDraws 0] drawOptions]
+set drawOptions [dict get [lindex $polylineDraws 0] rest]
 assert {[nearly [dict get $drawOptions width] 0.002]}
 assert {[dict get $drawOptions points] eq {{0.075 0.05} {0.125 0.05}}}
 
-set pointDraws [Query! /someone/ wishes to draw a circle onto draw-shapes-default-points with /...drawOptions/]
+set pointDraws [Query! /someone/ wishes to draw a circle onto draw-shapes-default-points with /...rest/]
 assert {[llength $pointDraws] == 1}
-set drawOptions [dict get [lindex $pointDraws 0] drawOptions]
+set drawOptions [dict get [lindex $pointDraws 0] rest]
 assert {[dict get $drawOptions center] eq {0.1 0.05}}
 assert {[nearly [dict get $drawOptions radius] 0.003]}
 assert {[drawTruthy [dict get $drawOptions filled]]}
 
-set explicitDraws [Query! /someone/ wishes to draw a circle onto draw-shapes-explicit-circle with /...drawOptions/]
+set explicitDraws [Query! /someone/ wishes to draw a circle onto draw-shapes-explicit-circle with /...rest/]
 assert {[llength $explicitDraws] == 1}
-set drawOptions [dict get [lindex $explicitDraws 0] drawOptions]
+set drawOptions [dict get [lindex $explicitDraws 0] rest]
 assert {[dict get $drawOptions center] eq {0.05 0.075}}
 assert {[nearly [dict get $drawOptions radius] 0.025]}
 assert {[dict get $drawOptions color] eq "cyan"}

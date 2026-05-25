@@ -17,20 +17,20 @@ Wish $aliasPage draws fill
 Wish $colorPage draws fill with color teal layer 3
 sleep 0.5
 
-set filledDraws [Query! /someone/ wishes to draw a polygon onto $filledPage with /...drawOptions/]
+set filledDraws [Query! /someone/ wishes to draw a polygon onto $filledPage with /...rest/]
 assert {[llength $filledDraws] == 1}
-set drawOptions [dict get [lindex $filledDraws 0] drawOptions]
+set drawOptions [dict get [lindex $filledDraws 0] rest]
 assert {[dict get $drawOptions color] eq "white"}
 assert {[dict get $drawOptions points] eq {{0 0} {0.2 0} {0.2 0.1} {0 0.1}}}
 
-set aliasDraws [Query! /someone/ wishes to draw a polygon onto $aliasPage with /...drawOptions/]
+set aliasDraws [Query! /someone/ wishes to draw a polygon onto $aliasPage with /...rest/]
 assert {[llength $aliasDraws] == 1}
-set drawOptions [dict get [lindex $aliasDraws 0] drawOptions]
+set drawOptions [dict get [lindex $aliasDraws 0] rest]
 assert {[dict get $drawOptions color] eq "white"}
 
-set colorDraws [Query! /someone/ wishes to draw a polygon onto $colorPage with /...drawOptions/]
+set colorDraws [Query! /someone/ wishes to draw a polygon onto $colorPage with /...rest/]
 assert {[llength $colorDraws] == 1}
-set drawOptions [dict get [lindex $colorDraws 0] drawOptions]
+set drawOptions [dict get [lindex $colorDraws 0] rest]
 assert {[dict get $drawOptions color] eq "teal"}
 assert {[dict get $drawOptions layer] == 3}
 
