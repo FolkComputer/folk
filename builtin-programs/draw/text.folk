@@ -113,8 +113,10 @@ $cc proc textShape {Jim_Obj* viewport Jim_Obj* surfaceToClip
         ch = charOrFallback(font, ch);
         GlyphInfo* glyphInfo = &font->glyphInfos[ch];
         if (ch != ' ') {
-            // Calculate the absolute glyph position.
-            float lineOffsetX = -(lineAnchorX * lineWidth) - blockOffsetX;
+            // Calculate the absolute glyph position. The block anchor places the
+            // text block relative to the requested position; the line anchor then
+            // aligns each individual line inside that block.
+            float lineOffsetX = lineAnchorX * (extent.x - lineWidth);
             // `lineOffsetY` doesn't exist, since it's already included in the `blockOffsetY` calculation.
             vec2f rotatedLineOffset = vec2f_rotate((vec2f) { lineOffsetX, 0 }, radians);
             vec2f combinedOffset = vec2f_add(blockStart, rotatedLineOffset);
@@ -201,7 +203,7 @@ When the image loader is /loadImage/ {
         }
 
         set im [{*}$loadImage "[pwd]/vendor/fonts/$name.png"]
-        Wish the GPU loads image $im as texture
+        Wish the GPU loads image $im as texture with pinned true
         When the GPU has loaded image $im as texture /gim/ {
             puts "text: Loaded $name as GPU texture $gim"
             set font [$fontLib fontNew $im $gim $glyphInfos]
@@ -319,4 +321,22 @@ When the color map is /colorMap/ &\
     }
 }
 
+}
+
+Hold! -on builtin-programs/draw/text.folk -key draw-text-demo-code \
+    Claim builtin-programs/draw/text.folk has demo code {
+Wish $this is filled with color {0.035 0.035 0.05 1.0}
+Wish $this draws text "text" with position {50% 16%} scale 3cm color white anchor center layer 8
+Wish to draw text onto $this with \
+    position {0.040 0.065} scale 0.03 text "top" \
+    anchor topleft color {0.52 0.86 1.0 1.0} layer 5
+Wish to draw text onto $this with \
+    position {0.175 0.140} scale 0.03 text "right" \
+    anchor bottomright color {1.0 0.78 0.32 1.0} layer 5
+When the clock time is /t/ {
+    set radians [expr {sin($t * 1.2) * 0.20}]
+    Wish to draw text onto $this with \
+        position {0.105 0.105} scale 0.03 text "rotating" \
+        anchor center radians $radians color {0.95 0.42 0.75 1.0} layer 6
+}
 }

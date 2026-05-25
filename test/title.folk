@@ -1,0 +1,44 @@
+source builtin-programs/title.folk
+
+proc nearly {actual expected} {
+    expr {abs($actual - $expected) < 1e-9}
+}
+
+proc nearlyPoint {actual expected} {
+    foreach a $actual e $expected {
+        if {![nearly $a $e]} {
+            return false
+        }
+    }
+    return true
+}
+
+set results [list \
+    [dict create text hello options [dict create color cyan padding 1cm]] \
+    [dict create text world options [dict create layer 7]]]
+lassign [titleDrawOptions $results bottom] paddingMeters drawOptions
+
+assert {[nearly $paddingMeters 0.01]}
+assert {[dict get $drawOptions text] eq "hello\nworld"}
+assert {[dict get $drawOptions anchor] eq "bottom"}
+assert {[dict get $drawOptions color] eq "cyan"}
+assert {[dict get $drawOptions layer] == 7}
+assert {![dict exists $drawOptions padding]}
+
+set vertices {{0 0 0} {0.2 0 0} {0.2 0.1 0} {0 0.1 0}}
+assert {[nearlyPoint [titleEdgePosition $vertices top 0.02] {0.1 -0.02 0}]}
+assert {[nearlyPoint [titleEdgePosition $vertices bottom 0.02] {0.1 0.12 0}]}
+assert {[nearlyPoint [titleEdgePosition $vertices right 0.02] {0.22 0.05 0}]}
+assert {[nearlyPoint [titleEdgePosition $vertices left 0.02] {-0.02 0.05 0}]}
+
+proc fakePoseLib {method intrinsics width height point} {
+    if {$method ne "project"} {
+        error "unexpected fake pose method $method"
+    }
+    lrange $point 0 1
+}
+
+assert {[nearly [titleDisplayRadians fakePoseLib {} 100 100 {0 0 0} {1 0 0}] 0.0]}
+assert {[nearly [titleDisplayRadians fakePoseLib {} 100 100 {0 0 0} {0 1 0}] [expr {-atan2(1, 0)}]]}
+
+Exit! 0

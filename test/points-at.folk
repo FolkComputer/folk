@@ -1,0 +1,38 @@
+source builtin-programs/points-at.folk
+
+proc nearly {actual expected} {
+    expr {abs($actual - $expected) < 1e-9}
+}
+
+proc nearlyPoint {actual expected} {
+    foreach a $actual e $expected {
+        if {![nearly $a $e]} {
+            return false
+        }
+    }
+    return true
+}
+
+set geom {width 0.2 height 0.1}
+
+assert {[nearly [pointsAtLength 1 $geom height] 0.1]}
+assert {[nearly [pointsAtLength 50% $geom width] 0.1]}
+assert {[nearly [pointsAtLength 5cm $geom height] 0.05]}
+
+set segment [pointsAtLocalSegment $geom up 1]
+assert {[dict get $segment color] eq "blue"}
+assert {[nearlyPoint [dict get $segment from] {0.1 0}]}
+assert {[nearlyPoint [dict get $segment to] {0.1 -0.1}]}
+
+set segment [pointsAtLocalSegment $geom right 50%]
+assert {[dict get $segment color] eq "red"}
+assert {[nearlyPoint [dict get $segment from] {0.2 0.05}]}
+assert {[nearlyPoint [dict get $segment to] {0.3 0.05}]}
+
+set vertices {{0 0 0} {0.2 0 0} {0.2 0.1 0} {0 0.1 0}}
+assert {[nearlyPoint [pointsAtQuadPoint $vertices $geom {0.1 0.05}] {0.1 0.05 0}]}
+assert {[nearlyPoint [pointsAtQuadPoint $vertices $geom {0.1 -0.1}] {0.1 -0.1 0}]}
+assert {[pointsAtPointInsidePolygon {0.1 0.05} $vertices]}
+assert {![pointsAtPointInsidePolygon {0.3 0.05} $vertices]}
+
+Exit! 0

@@ -13,6 +13,7 @@ $gpuc code {
     #include "volk/volk.h"
 
     #include "vk_mem_alloc.h"
+    #include <stdint.h>
 
     void vmaInit(VkInstance instance, VkPhysicalDevice physicalDevice, VkDevice device,
                  PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr,
@@ -104,6 +105,15 @@ $gpuc struct GpuTextureBlock {
 
     // mostly for debugging:
     char* description;
+
+    // Image-wish cache metadata. Cached textures stay resident after the
+    // last claim releases them, then get reclaimed oldest-first under
+    // texture-slot pressure.
+    bool cached;
+    bool pinned;
+    int refCount;
+    int lastUsedFrame;
+    char* cacheKey;
 }
 $gpuc code {
     // Array of GpuTextureBlocks. Each element points to all GPU-side
@@ -125,6 +135,40 @@ $gpuc code {
 
     #define TEXTURE_RETIRE_GRACE_FRAMES 2
     int textureFrameEpoch = 0;
+    pthread_mutex_t imageTextureCacheMutex = PTHREAD_MUTEX_INITIALIZER;
+
+    static bool evictLeastRecentlyUsedCachedTexture();
+    static void destroyGpuTextureResources(GpuTextureHandle gim);
+
+    static char* copyCString(const char* s) {
+        size_t len = strlen(s) + 1;
+        char* ret = malloc(len);
+        memcpy(ret, s, len);
+        return ret;
+    }
+
+    static void clearTextureCacheMetadataLocked(GpuTextureBlock* block) {
+        if (block->cacheKey != NULL) {
+            free(block->cacheKey);
+            block->cacheKey = NULL;
+        }
+        block->cached = false;
+        block->pinned = false;
+        block->refCount = 0;
+        block->lastUsedFrame = 0;
+    }
+
+    static void clearTextureCacheMetadata(GpuTextureBlock* block) {
+        pthread_mutex_lock(&imageTextureCacheMutex);
+        clearTextureCacheMetadataLocked(block);
+        pthread_mutex_unlock(&imageTextureCacheMutex);
+    }
+
+    static void imageTextureKey(Image im, char* out, size_t outSize) {
+        snprintf(out, outSize, "%p:%ux%u:%d:%u:%llu",
+                 (void*)im.data, im.width, im.height, im.components,
+                 im.bytesPerRow, (unsigned long long)im.uniq);
+    }
 }
 $gpuc proc textureManagerInit {} void {
     $[vktry volkInitialize()]
@@ -446,11 +490,34 @@ $gpuc code [csubst {
                 return i;
             }
         }
+
+        if (evictLeastRecentlyUsedCachedTexture()) {
+            for (int i = 1; i < getMaxTextures(); i++) {
+                bool notAlive = false;
+                if (atomic_compare_exchange_weak(&gpuTextures[i].alive, &notAlive, true)) {
+                    gpuTextures[i].handle = i;
+                    return i;
+                }
+            }
+        }
+
         fprintf(stderr, "gpu/textures: Exceeded GPU max textures (%d):\n", getMaxTextures());
         for (int i = 0; i < getMaxTextures(); i++) {
-            fprintf(stderr, "  %d: %s\n", i, gpuTextures[i].alive ? gpuTextures[i].description : "<not alive>");
+            GpuTextureBlock* block = &gpuTextures[i];
+            if (block->alive) {
+                fprintf(stderr, "  %d: %s%s refs=%d last=%d%s%s\n",
+                        i,
+                        block->description ? block->description : "<no description>",
+                        block->pinned ? " pinned" : "",
+                        block->refCount,
+                        block->lastUsedFrame,
+                        block->cacheKey ? " key=" : "",
+                        block->cacheKey ? block->cacheKey : "");
+            } else {
+                fprintf(stderr, "  %d: <not alive>\n", i);
+            }
         }
-        exit(1);
+        return -1;
     }
 }]
 
@@ -521,17 +588,20 @@ $gpuc proc getGpuTexture {GpuTextureHandle handle} GpuTextureBlock* {
 
 # NOTE: The caller must call addToTextureDescriptorSet at some point
 # after calling this to actually use the texture.
-$gpuc proc createGpuTexture {int width int height int format} GpuTextureBlock* {
-    GpuTextureHandle textureId = allocateGpuTextureHandle();
-    GpuTextureBlock* block = &gpuTextures[textureId];
+$gpuc code [csubst {
+    GpuTextureBlock* createGpuTextureOrNull(int width, int height, int format) {
+        GpuTextureHandle textureId = allocateGpuTextureHandle();
+        if (textureId < 0) return NULL;
+        GpuTextureBlock* block = &gpuTextures[textureId];
 
-    block->width = width;
-    block->height = height;
-    block->retiring = false;
-    block->retireAfterFrame = 0;
+        block->width = width;
+        block->height = height;
+        block->retiring = false;
+        block->retireAfterFrame = 0;
+        clearTextureCacheMetadata(block);
 
-    createImage(width, height,
-                (VkFormat) format, VK_IMAGE_TILING_OPTIMAL,
+        createImage(width, height,
+                    (VkFormat) format, VK_IMAGE_TILING_OPTIMAL,
                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
                 VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
@@ -572,8 +642,17 @@ $gpuc proc createGpuTexture {int width int height int format} GpuTextureBlock* {
         $[vktry {vkCreateSampler(device, &samplerInfo, NULL, &block->textureSampler)}]
     }
 
-    block->description = malloc(32);
-    snprintf(block->description, 32, "%dx%d texture", width, height);
+        block->description = malloc(32);
+        snprintf(block->description, 32, "%dx%d texture", width, height);
+        return block;
+    }
+}]
+$gpuc proc createGpuTexture {int width int height int format} GpuTextureBlock* {
+    GpuTextureBlock* block = createGpuTextureOrNull(width, height, format);
+    if (block == NULL) {
+        fprintf(stderr, "gpu/textures: Could not create %dx%d texture\n", width, height);
+        exit(1);
+    }
     return block;
 }
 
@@ -635,10 +714,19 @@ $gpuc code {
 }
 
 $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
-    struct InflightUpload* upload = acquireInflightUpload();
-
     size_t size = im.width * im.height * 4;
     FOLK_ENSURE(size > 0);
+
+    // Allocate the GPU slot before staging, so an exhausted texture pool
+    // can fall back cleanly without leaking a staging buffer.
+    GpuTextureBlock* block = createGpuTextureOrNull(im.width, im.height, VK_FORMAT_R8G8B8A8_SRGB);
+    if (block == NULL) {
+        fprintf(stderr, "gpu/textures: Falling back to placeholder for %ux%u image\n",
+                im.width, im.height);
+        return 0;
+    }
+
+    struct InflightUpload* upload = acquireInflightUpload();
 
     createBuffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -656,9 +744,6 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
         copyImageToRgba(im, stagingIm);
         vmaUnmapMemory(vmaGetAllocator(), upload->stagingBufferAllocation);
     }
-
-    // Allocate a texture and texture block:
-    GpuTextureBlock* block = createGpuTexture(im.width, im.height, VK_FORMAT_R8G8B8A8_SRGB);
 
     // Record + submit staging buffer -> image copy. We do NOT wait on
     // the fence here; a later call to acquireInflightUpload will
@@ -738,6 +823,53 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
 
     return block->handle;
 }
+
+$gpuc proc acquireImageTexture {Image im bool pinned} GpuTextureHandle {
+    char key[160];
+    imageTextureKey(im, key, sizeof(key));
+
+    pthread_mutex_lock(&imageTextureCacheMutex);
+    for (GpuTextureHandle gim = 1; gim < getMaxTextures(); gim++) {
+        GpuTextureBlock* block = &gpuTextures[gim];
+        if (block->alive && block->cached && !block->retiring &&
+            block->cacheKey != NULL && strcmp(block->cacheKey, key) == 0) {
+
+            block->refCount++;
+            block->lastUsedFrame = textureFrameEpoch;
+            if (pinned) block->pinned = true;
+            pthread_mutex_unlock(&imageTextureCacheMutex);
+            return gim;
+        }
+    }
+    pthread_mutex_unlock(&imageTextureCacheMutex);
+
+    GpuTextureHandle gim = copyImageToGpuTexture(im);
+    if (gim == 0) return 0;
+
+    pthread_mutex_lock(&imageTextureCacheMutex);
+    GpuTextureBlock* block = &gpuTextures[gim];
+    clearTextureCacheMetadataLocked(block);
+    block->cached = true;
+    block->pinned = pinned;
+    block->refCount = 1;
+    block->lastUsedFrame = textureFrameEpoch;
+    block->cacheKey = copyCString(key);
+    pthread_mutex_unlock(&imageTextureCacheMutex);
+
+    return gim;
+}
+
+$gpuc proc releaseImageTexture {GpuTextureHandle gim} void {
+    if (gim <= 0 || gim >= getMaxTextures()) return;
+
+    pthread_mutex_lock(&imageTextureCacheMutex);
+    GpuTextureBlock* block = &gpuTextures[gim];
+    if (block->alive && block->cached) {
+        if (block->refCount > 0) block->refCount--;
+        block->lastUsedFrame = textureFrameEpoch;
+    }
+    pthread_mutex_unlock(&imageTextureCacheMutex);
+}
 # Replace a descriptor slot with a different texture. Must only be
 # called on the GPU thread between frames (used by canvases).
 $gpuc proc replaceInTextureDescriptorSet {GpuTextureHandle oldHandle GpuTextureHandle newHandle} void {
@@ -806,6 +938,7 @@ $gpuc code {
 
         free(block->description);
         block->description = NULL;
+        clearTextureCacheMetadata(block);
         block->textureImage = VK_NULL_HANDLE;
         block->textureImageAllocation = NULL;
         block->textureImageView = VK_NULL_HANDLE;
@@ -815,7 +948,75 @@ $gpuc code {
         block->alive = false;
     }
 
+    static bool waitForTextureRetireIdleLocked() {
+        VkResult res = vkQueueWaitIdle(*graphicsQueue_ptr());
+
+        if (res != VK_SUCCESS) {
+            fprintf(stderr, "gpu/textures: Failed vkQueueWaitIdle before texture retire: %s (%d)\n",
+                    VkResultToString(res), res);
+            return false;
+        }
+
+        return true;
+    }
+
+    static bool evictLeastRecentlyUsedCachedTexture() {
+        GpuTextureHandle candidate = -1;
+        int oldestFrame = 0;
+
+        pthread_mutex_lock(&imageTextureCacheMutex);
+        for (GpuTextureHandle gim = 1; gim < getMaxTextures(); gim++) {
+            GpuTextureBlock* block = &gpuTextures[gim];
+            if (!block->alive || block->retiring || !block->cached ||
+                block->pinned || block->refCount > 0) {
+                continue;
+            }
+
+            if (candidate < 0 || block->lastUsedFrame < oldestFrame) {
+                candidate = gim;
+                oldestFrame = block->lastUsedFrame;
+            }
+        }
+
+        if (candidate >= 0) {
+            gpuTextures[candidate].retiring = true;
+        }
+        pthread_mutex_unlock(&imageTextureCacheMutex);
+
+        if (candidate < 0) return false;
+
+        pthread_mutex_lock(graphicsQueueMutex_ptr());
+        if (!waitForTextureRetireIdleLocked()) {
+            gpuTextures[candidate].retiring = false;
+            pthread_mutex_unlock(graphicsQueueMutex_ptr());
+            return false;
+        }
+
+        destroyGpuTextureResources(candidate);
+        pthread_mutex_unlock(graphicsQueueMutex_ptr());
+        fprintf(stderr, "gpu/textures: Evicted cached texture slot %d\n", candidate);
+        return true;
+    }
+
     static void destroyRetiredGpuTextures() {
+        bool hasRetiredTexture = false;
+        for (GpuTextureHandle gim = 1; gim < getMaxTextures(); gim++) {
+            GpuTextureBlock* block = &gpuTextures[gim];
+            if (block->alive && block->retiring &&
+                block->retireAfterFrame <= textureFrameEpoch) {
+                hasRetiredTexture = true;
+                break;
+            }
+        }
+
+        if (!hasRetiredTexture) return;
+
+        pthread_mutex_lock(graphicsQueueMutex_ptr());
+        if (!waitForTextureRetireIdleLocked()) {
+            pthread_mutex_unlock(graphicsQueueMutex_ptr());
+            return;
+        }
+
         for (GpuTextureHandle gim = 1; gim < getMaxTextures(); gim++) {
             GpuTextureBlock* block = &gpuTextures[gim];
             if (block->alive && block->retiring &&
@@ -823,6 +1024,7 @@ $gpuc code {
                 destroyGpuTextureResources(gim);
             }
         }
+        pthread_mutex_unlock(graphicsQueueMutex_ptr());
     }
 }
 
@@ -838,7 +1040,10 @@ $gpuc proc drainDeferredTextureOps {} void {
     for (int i = 0; i < count; i++) {
         switch (localQueue[i].op) {
         case DEFERRED_ADD:
-            writeTextureDescriptor(localQueue[i].handle);
+            if (gpuTextures[localQueue[i].handle].alive &&
+                !gpuTextures[localQueue[i].handle].retiring) {
+                writeTextureDescriptor(localQueue[i].handle);
+            }
             break;
         case DEFERRED_FREE:
             retireGpuTexture(localQueue[i].handle);
@@ -891,9 +1096,15 @@ $gpuTextureLib textureManagerInit
 Claim the GPU texture library is $gpuTextureLib
 
 When /someone/ wishes the GPU loads image /im/ as texture {
-    set gtex [$gpuTextureLib copyImageToGpuTexture $im]
+    Wish the GPU loads image $im as texture with pinned false
+}
+
+When /someone/ wishes the GPU loads image /im/ as texture with /...options/ {
+    if {![info exists options]} { return }
+    set pinned [dict getdef $options pinned false]
+    set gtex [$gpuTextureLib acquireImageTexture $im $pinned]
     Claim the GPU has loaded image $im as texture $gtex \
-        -destructor [list $gpuTextureLib freeGpuTexture $gtex]
+        -destructor [list $gpuTextureLib releaseImageTexture $gtex]
 }
 
 }

@@ -1,0 +1,69 @@
+source builtin-programs/collect.folk
+source builtin-programs/image/image-lib.folk
+source builtin-programs/draw/color-map.folk
+
+When the image library is /imageLib/ {
+    fn fakeLoadImage {path} {
+        $imageLib imageNew 8 8 4 1
+    }
+    Claim the image loader is [fn fakeLoadImage]
+}
+
+source builtin-programs/draw/text.folk
+
+When /someone/ wishes the GPU loads image /im/ as texture {
+    Claim the GPU has loaded image $im as texture 17
+}
+
+When /someone/ wishes the GPU loads image /im/ as texture with /...options/ {
+    if {![info exists options]} { return }
+    Claim the GPU has loaded image $im as texture 17
+}
+
+fn drawTextAnchorBounds {instances} {
+    set minX 1000000.0
+    set maxX -1000000.0
+    foreach instance $instances {
+        foreach point [list \
+                           [lindex $instance 4] \
+                           [lindex $instance 5] \
+                           [lindex $instance 6] \
+                           [lindex $instance 7]] {
+            set x [lindex $point 0]
+            if {$x < $minX} { set minX $x }
+            if {$x > $maxX} { set maxX $x }
+        }
+    }
+    dict create minX $minX maxX $maxX
+}
+
+Assert! text-page has canvas canvas-id with width 400 height 300
+Assert! text-page has canvas projection {1 0 0 0 1 0 0 0 1}
+
+set fonts [list]
+for {set i 0} {$i < 100 && [llength $fonts] == 0} {incr i} {
+    sleep 0.1
+    set fonts [Query! the GPU has font CourierPrimeCode with data /fontData/]
+}
+assert {[llength $fonts] == 1}
+
+Wish to draw text onto text-page with \
+    position {100 100} \
+    scale 10.0 \
+    font CourierPrimeCode \
+    anchor {1.0 0.5 0.0 0.5} \
+    text "A\nAA" \
+    color white
+
+set draws [list]
+for {set i 0} {$i < 100 && [llength $draws] == 0} {incr i} {
+    sleep 0.1
+    set draws [Query! /someone/ wishes the GPU draws pipeline "glyph" onto canvas canvas-id with instances /instances/ layer /layer/]
+}
+assert {[llength $draws] == 1}
+
+set bounds [drawTextAnchorBounds [dict get [lindex $draws 0] instances]]
+assert {[dict get $bounds minX] < 95.0}
+assert {[dict get $bounds maxX] < 101.0}
+
+Exit! 0

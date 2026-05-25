@@ -35,6 +35,37 @@ When the gif library is /gifLib/ {
 
 
 When the collected results for {/loader/ is an image loader} are /loaders/ {
+    fn imageUrlCachePath {url} {
+        set cleanUrl [regsub {[?#].*$} $url ""]
+        set ext [file extension $cleanUrl]
+        set cachePath /tmp/[regsub -all {\W+} $url "_"]
+        if {$ext ne "" && ![string match "*$ext" $cachePath]} {
+            append cachePath $ext
+        }
+        return $cachePath
+    }
+
+    fn imageDownloadUrl {url} {
+        set path [imageUrlCachePath $url]
+        if {[file exists $path] && [file size $path] > 0} {
+            return $path
+        }
+
+        file delete -force $path
+        set tmp "$path.[pid].tmp"
+        try {
+            exec curl -fsSL --connect-timeout 10 --retry 2 -o $tmp $url
+            if {![file exists $tmp] || [file size $tmp] == 0} {
+                error "Downloaded empty image from $url"
+            }
+            file rename -force $tmp $path
+        } on error {e opts} {
+            file delete -force $tmp
+            return -options $opts $e
+        }
+        return $path
+    }
+
     # Pass coerceToImage = 0 if the caller is willing to handle a Gif
     # object, not just a normal Image.
     fn loadImage {im {coerceToImage 1}} {
@@ -45,10 +76,7 @@ When the collected results for {/loader/ is an image loader} are /loaders/ {
 
         set impath $im
         if {[string match "http*://*" $impath]} {
-            set im /tmp/[regsub -all {\W+} $impath "_"]
-            if {![file exists $im]} {
-                exec curl -s -L -o$im $impath
-            }
+            set im [imageDownloadUrl $impath]
         }
         set path [expr {[string index $im 0] eq "/" ?
                         $im : "$::env(HOME)/folk-images/$im"}]
@@ -68,6 +96,19 @@ When the collected results for {/loader/ is an image loader} are /loaders/ {
         return $im
     }
     Claim the image loader is [fn loadImage]
+}
+
+fn drawImageScalar {value geom axis} {
+    drawRelativePhysicalLength $value \
+        [dict get $geom width] [dict get $geom height] $axis draw/image
+}
+
+fn drawImagePoint {point geom} {
+    if {[llength $point] != 2} {
+        error "draw/image: expected a 2D point, got $point"
+    }
+    list [drawImageScalar [lindex $point 0] $geom x] \
+         [drawImageScalar [lindex $point 1] $geom y]
 }
 
 Wish the GPU compiles pipeline "image" {
@@ -173,13 +214,34 @@ When the image library is /imageLib/ &\
     if {$derivedHeight > $geomHeight} {
         set width $($geomHeight / $derivedHeight * $width)
     }
-    Wish to draw an image onto $p with \
+    set drawOptions [dict create \
         image $im \
-        position [dict getdef $options position [list 0 0]] \
-        anchor topleft width [dict getdef $options width $width]
+        position [drawImagePoint [dict getdef $options position {0cm 0cm}] $geom] \
+        anchor [dict getdef $options anchor topleft]]
+    if {[dict exists $options width]} {
+        dict set drawOptions width [drawImageScalar [dict get $options width] $geom width]
+    }
+    if {[dict exists $options height]} {
+        dict set drawOptions height [drawImageScalar [dict get $options height] $geom height]
+    }
+    if {![dict exists $drawOptions width] && ![dict exists $drawOptions height]} {
+        dict set drawOptions width $width
+    }
+
+    Wish to draw an image onto $p with {*}$drawOptions
 
 }
 
 When /someone/ wishes /p/ displays image /im/ {
-    Wish $p displays image $im with scale 1.0
+    Wish $p displays image $im with position {0cm 0cm}
+}
+
+Hold! -on builtin-programs/draw/image.folk -key draw-image-demo-code \
+    Claim builtin-programs/draw/image.folk has demo code {
+Wish $this is filled with color {0.035 0.035 0.045 1.0}
+Wish $this draws text "image" with position {50% 16%} scale 3cm color white anchor center layer 8
+Wish $this draws a rect with position {50% 56%} width 10cm height 7cm \
+    color {0.25 0.36 0.48 1.0} filled false thickness 0.18cm layer 2
+Wish $this displays image "https://folk.computer/_media/logo.png" with \
+    position {50% 56%} anchor center width 8cm
 }

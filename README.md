@@ -517,7 +517,8 @@ Use it in an animation:
 
 ```
 When the clock time is /t/ {
-  Wish $this draws a circle with offset [list [expr {sin($t) * 50}] 0]
+  set x [format "%.3fcm" [expr {sin($t) * 5.0}]]
+  Wish $this draws a circle with offset [list $x 0cm] radius 1.2cm
 }
 ```
 

@@ -4,9 +4,94 @@
 # Wish $this is footnoted "This is a footnote"
 # Wish $this is right-margined "This is right-margined text"
 # Wish $this is left-margined "This is left-margined text"
+# Any of those can also take text drawing options:
+# Wish $this is left-margined "code" with font CourierPrimeCode padding 1cm
 
 When /thing/ has quad /quad/ {
     Claim -keep 50ms $thing has a quad
+}
+
+When /someone/ wishes /thing/ is titled /text/ {
+    Wish $thing is titled $text with scale 36.0
+}
+
+When /someone/ wishes /thing/ is footnoted /text/ {
+    Wish $thing is footnoted $text with scale 36.0
+}
+
+When /someone/ wishes /thing/ is right-margined /text/ {
+    Wish $thing is right-margined $text with scale 36.0
+}
+
+When /someone/ wishes /thing/ is left-margined /text/ {
+    Wish $thing is left-margined $text with scale 36.0
+}
+
+fn titleDrawOptions {results textAnchor} {
+    set text [join [lmap result $results {dict get $result text}] "\n"]
+    if {$text eq ""} { return "" }
+
+    set drawOptions [dict create \
+        scale 36.0 \
+        anchor $textAnchor \
+        layer 100 \
+        text $text]
+    foreach result $results {
+        set drawOptions [dict merge $drawOptions \
+            [dict getdef $result options [dict create]]]
+    }
+
+    set padding [dict getdef $drawOptions padding 2cm]
+    if {[dict exists $drawOptions padding]} {
+        dict unset drawOptions padding
+    }
+
+    list [drawPhysicalLength $padding] $drawOptions
+}
+
+fn titleEdgePosition {vertices edge paddingMeters} {
+    package require linalg
+    namespace import \
+        ::math::linearalgebra::add \
+        ::math::linearalgebra::sub \
+        ::math::linearalgebra::scale \
+        ::math::linearalgebra::unitLengthVector
+
+    lassign $vertices topLeft topRight bottomRight bottomLeft
+
+    switch -- $edge {
+        top {
+            set physicalPos [scale 0.5 [add $topLeft $topRight]]
+            set physicalDir [sub $topLeft $bottomLeft]
+        }
+        bottom {
+            set physicalPos [scale 0.5 [add $bottomLeft $bottomRight]]
+            set physicalDir [sub $bottomLeft $topLeft]
+        }
+        right {
+            set physicalPos [scale 0.5 [add $topRight $bottomRight]]
+            set physicalDir [sub $topRight $topLeft]
+        }
+        left {
+            set physicalPos [scale 0.5 [add $topLeft $bottomLeft]]
+            set physicalDir [sub $topLeft $topRight]
+        }
+        default {
+            error "title: invalid edge $edge"
+        }
+    }
+
+    set offset [scale $paddingMeters [unitLengthVector $physicalDir]]
+    add $physicalPos $offset
+}
+
+fn titleDisplayRadians {poseLib displayIntrinsics displayWidth displayHeight topLeft topRight} {
+    set dispTopLeft [$poseLib project $displayIntrinsics \
+        $displayWidth $displayHeight $topLeft]
+    set dispTopRight [$poseLib project $displayIntrinsics \
+        $displayWidth $displayHeight $topRight]
+    set dispTop [vec2 sub $dispTopRight $dispTopLeft]
+    expr {-atan2([lindex $dispTop 1], [lindex $dispTop 0])}
 }
 
 When the quad library is /quadLib/ &\
@@ -24,56 +109,34 @@ When the quad library is /quadLib/ &\
         right-margined right  left
         left-margined  left   right
     } {
-        When the collected results for [list /someone/ wishes $thing is $label /text/] are /results/ {
-            set text [join [lmap result $results {dict get $result text}] "\n"]
-            if {$text eq ""} { return }
+        When the collected results for [list /someone/ wishes $thing is $label /text/ with /...options/] are /results/ {
+            set optionPair [titleDrawOptions $results $textAnchor]
+            if {$optionPair eq ""} { return }
+            lassign $optionPair paddingMeters drawOptions
 
             When -atomically $thing has quad /q/ {
-                package require linalg
-                namespace import \
-                    ::math::linearalgebra::add \
-                    ::math::linearalgebra::sub \
-                    ::math::linearalgebra::scale \
-                    ::math::linearalgebra::unitLengthVector
-
-                lassign [$quadLib vertices [quadChange $q "display $disp"]] \
-                    topLeft topRight bottomRight bottomLeft
-
-                switch $edge {
-                    top { 
-                        set physicalPos [scale 0.5 [add $topLeft $topRight]]
-                        set physicalDir [sub $topLeft $bottomLeft]
-                    }
-                    bottom { 
-                        set physicalPos [scale 0.5 [add $bottomLeft $bottomRight]]
-                        set physicalDir [sub $bottomLeft $topLeft]
-                    }
-                    right { 
-                        set physicalPos [scale 0.5 [add $topRight $bottomRight]]
-                        set physicalDir [sub $topRight $topLeft]
-                    }
-                    left { 
-                        set physicalPos [scale 0.5 [add $topLeft $bottomLeft]]
-                        set physicalDir [sub $topLeft $topRight]
-                    }
+                set titleKey [list title $disp $edge $thing $textAnchor]
+                try {
+                    set displayQuad [quadChange $q "display $disp"]
+                } on error {} {
+                    Hold! -key $titleKey {}
+                    return
                 }
+                set vertices [$quadLib vertices $displayQuad]
+                lassign $vertices topLeft topRight bottomRight bottomLeft
 
-                set paddingMeters 0.02
-                set offset [scale $paddingMeters [unitLengthVector $physicalDir]]
-                set physicalPos [add $physicalPos $offset]
+                set physicalPos [titleEdgePosition $vertices $edge $paddingMeters]
+                set dispPosition [$poseLib project $displayIntrinsics \
+                    $displayWidth $displayHeight $physicalPos]
+                set dispRadians [titleDisplayRadians $poseLib $displayIntrinsics \
+                    $displayWidth $displayHeight $topLeft $topRight]
 
-                set dispPosition [$poseLib project $displayIntrinsics $displayWidth $displayHeight $physicalPos]
+                dict set drawOptions position $dispPosition
+                dict set drawOptions radians $dispRadians
 
-                set dispTopLeft [$poseLib project $displayIntrinsics $displayWidth $displayHeight $topLeft]
-                set dispTopRight [$poseLib project $displayIntrinsics $displayWidth $displayHeight $topRight]
-                
-                set dispTop [vec2 sub $dispTopRight $dispTopLeft]
-                set dispRadians [expr {-atan2([lindex $dispTop 1], [lindex $dispTop 0])}]
-
-                Wish to draw text onto $disp with \
-                    position $dispPosition \
-                    scale 36.0 radians $dispRadians anchor $textAnchor \
-                    text $text
+                Hold! -keep 50ms -key $titleKey {
+                    Wish to draw text onto $disp with {*}$drawOptions
+                }
             }
         }
     }

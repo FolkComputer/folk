@@ -1,0 +1,92 @@
+# Bezier implementation adapted from https://www.shadertoy.com/view/XdVBWd
+
+Wish the GPU compiles function "curveSegmentDistance" {{vec2 p vec2 a vec2 b} float {
+    vec2 pa = p - a;
+    vec2 ba = b - a;
+    float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+    vec2 d = pa - ba * h;
+    return dot(d, d);
+}}
+
+Wish the GPU compiles function "curveBezierDistance" {{vec2 p0 vec2 p1 vec2 p2 vec2 p3 vec2 pos fn curveSegmentDistance} float {
+    const int kNumSamples = 50;
+    float distance = 1e10;
+    vec2 a = p0;
+    for (int i = 1; i < kNumSamples; i++) {
+        float t = float(i) / float(kNumSamples - 1);
+        float s = 1.0 - t;
+        vec2 b = p0 * s * s * s +
+                 p1 * 3.0 * s * s * t +
+                 p2 * 3.0 * s * t * t +
+                 p3 * t * t * t;
+        distance = min(distance, curveSegmentDistance(pos, a, b));
+        a = b;
+    }
+    return sqrt(distance);
+}}
+
+Wish the GPU compiles pipeline "curve" {
+    {vec2 viewport mat3 surfaceToClip
+     vec2 p0 vec2 p1 vec2 p2 vec2 p3 float thickness vec4 color} {
+        vec2 from = min(min(p0, p1), min(p2, p3)) - thickness;
+        vec2 to = max(max(p0, p1), max(p2, p3)) + thickness;
+
+        vec2 vertices[6] = vec2[6](
+            from,
+            vec2(to.x, from.y),
+            vec2(from.x, to.y),
+            vec2(to.x, from.y),
+            to,
+            vec2(from.x, to.y)
+        );
+
+        vec3 v = surfaceToClip * vec3(vertices[gl_VertexIndex], 1.0);
+        return vec4(v.xy / v.z, 0.0, 1.0);
+    } {fn curveBezierDistance} {
+        vec2 clipXy = (gl_FragCoord.xy / viewport) * 2.0 - 1.0;
+        vec3 surfaceXy = inverse(surfaceToClip) * vec3(clipXy, 1.0);
+        surfaceXy /= surfaceXy.z;
+
+        float distance = curveBezierDistance(p0, p1, p2, p3, surfaceXy.xy);
+        float edge = max(fwidth(distance), thickness * 0.05);
+        float alpha = 1.0 - smoothstep(thickness, thickness + edge, distance);
+
+        return (alpha < 0.01) ? vec4(0.0) : vec4(color.rgb, color.a * alpha);
+    }
+}
+
+When the color map is /colorMap/ &\
+     /p/ has canvas /id/ with /...wiOptions/ &\
+     /p/ has canvas projection /surfaceToClip/ &\
+     /someone/ wishes to draw a curve onto /p/ with /...options/ {
+
+    set p0 [dict get $options p0]
+    set p1 [dict get $options p1]
+    set p2 [dict get $options p2]
+    set p3 [dict get $options p3]
+    set thickness [dict get $options thickness]
+
+    set color [dict get $options color]
+    set color [dict getdef $colorMap $color $color]
+    set layer [dict getdef $options layer 0]
+
+    set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
+
+    Wish the GPU draws pipeline "curve" onto canvas $id with arguments \
+        [list $wiResolution $surfaceToClip \
+              $p0 $p1 $p2 $p3 $thickness $color] \
+        layer $layer
+}
+
+Hold! -on builtin-programs/draw/curve.folk -key draw-curve-demo-code \
+    Claim builtin-programs/draw/curve.folk has demo code {
+Wish $this is filled with color {0.035 0.04 0.055 1.0}
+Wish $this draws text "curve" with position {50% 18%} scale 3cm color white anchor center layer 8
+When the clock time is /t/ {
+    set lift [expr {0.018 * sin($t * 1.4)}]
+    Wish to draw a curve onto $this with \
+        p0 {0.035 0.125} p1 [list 0.070 [expr {0.030 + $lift}]] \
+        p2 [list 0.140 [expr {0.165 - $lift}]] p3 {0.175 0.070} \
+        thickness 0.006 color {0.55 0.88 1.0 1.0} layer 4
+}
+}

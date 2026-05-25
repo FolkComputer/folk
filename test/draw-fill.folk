@@ -1,0 +1,37 @@
+source builtin-programs/draw/fill.folk
+
+Assert! the color map is {white {1 1 1 1} teal {0 0.5 0.5 1}}
+sleep 0.2
+
+set geom {width 0.2 height 0.1}
+set filledPage draw-fill-default-page
+set aliasPage draw-fill-alias-page
+set colorPage draw-fill-color-page
+
+Assert! $filledPage has resolved geometry $geom
+Assert! $aliasPage has resolved geometry $geom
+Assert! $colorPage has resolved geometry $geom
+
+Wish $filledPage is filled
+Wish $aliasPage draws fill
+Wish $colorPage draws fill with color teal layer 3
+sleep 0.5
+
+set filledDraws [Query! /someone/ wishes to draw a polygon onto $filledPage with /...drawOptions/]
+assert {[llength $filledDraws] == 1}
+set drawOptions [dict get [lindex $filledDraws 0] drawOptions]
+assert {[dict get $drawOptions color] eq "white"}
+assert {[dict get $drawOptions points] eq {{0 0} {0.2 0} {0.2 0.1} {0 0.1}}}
+
+set aliasDraws [Query! /someone/ wishes to draw a polygon onto $aliasPage with /...drawOptions/]
+assert {[llength $aliasDraws] == 1}
+set drawOptions [dict get [lindex $aliasDraws 0] drawOptions]
+assert {[dict get $drawOptions color] eq "white"}
+
+set colorDraws [Query! /someone/ wishes to draw a polygon onto $colorPage with /...drawOptions/]
+assert {[llength $colorDraws] == 1}
+set drawOptions [dict get [lindex $colorDraws 0] drawOptions]
+assert {[dict get $drawOptions color] eq "teal"}
+assert {[dict get $drawOptions layer] == 3}
+
+Exit! 0
