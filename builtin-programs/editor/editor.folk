@@ -1,3 +1,6 @@
+# Old editor data is incompatible.
+file delete $::env(HOME)/folk-data/hold/editor.folk
+
 # This makes all keyboards create editors automatically. May choose to
 # change later, or exclude keyboards that opt out.
 When /k/ is a keyboard with /...opts/ {
