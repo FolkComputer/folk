@@ -90,6 +90,7 @@ fn codeToPostScript {id code opts {mixins {}}} {
     set tagWidth [expr {$tagInnerSideLength * 10.0 / 6}]
     set tagHeight $tagWidth
     lassign $opts(margin) marginTop marginRight marginBottom marginLeft
+    set tagInset $opts(tagInset)
     set lineHeight $opts(lineHeight)
     set maxLines $(int(($PageHeight - $marginTop - $marginBottom) / $lineHeight))
 
@@ -136,16 +137,16 @@ fn codeToPostScript {id code opts {mixins {}}} {
 
             [expr {[llength $outPages] > 0 ? {} : [subst {
                 gsave
-                [expr {$PageWidth-$tagWidth-$marginRight}] [expr {$PageHeight-$tagHeight-$marginTop}] translate
+                [expr {$PageWidth-$tagWidth-$marginRight-$tagInset}] [expr {$PageHeight-$tagHeight-$marginTop-$tagInset}] translate
                 $tagWidth $tagHeight scale
                 $image
                 grestore
 
                 /Helvetica-Narrow findfont
-                11 scalefont
+                8 scalefont
                 setfont
                 newpath
-                [expr {$PageWidth-$tagWidth-$marginRight}] [expr {$PageHeight-$tagHeight-14-$marginTop}] moveto
+                [expr {$PageWidth-$tagWidth-$marginRight-$tagInset}] [expr {$PageHeight-$tagHeight-14-$marginTop-$tagInset}] moveto
                 ($id ([clock format [clock seconds] -format "%a, %d %b %Y, %r"])) show
 
                 [join [lmap mixin $mixins {
@@ -231,6 +232,8 @@ Subscribe: print program /id/ with /...options/ {
         dict set options tagInnerSideLength [expr {70.0 / $calibScale}]
     }
 
+    dict set options tagInset 16
+
     set ps [codeToPostScript $id $code $options]
 
     # save code and ps to disk
@@ -242,6 +245,35 @@ Subscribe: print program /id/ with /...options/ {
     set fp [open "$saveDir/$id.ps" w]; puts $fp $ps; close $fp
     exec ps2pdf -dPDFSETTINGS=/prepress -sFONTPATH=vendor/fonts \
         $saveDir/$id.ps $saveDir/$id.pdf
+
+    # Write geometry to meta.folk so the camera system can interpret
+    # this program's quad and map (line, col) -> physical position.
+    # All opts are in calibrated points; 1 calibrated pt = 25.4/72 mm.
+    set ptmm [expr {25.4 / 72.0}]
+    lassign [dict get $options pageSize] PageWidth PageHeight
+    set tagInn [dict get $options tagInnerSideLength]
+    set tagOut [expr {$tagInn * 10.0 / 6}]
+    lassign [dict get $options margin] marginTop marginRight marginBottom marginLeft
+    set lh [dict get $options lineHeight]
+    set adv [dict get $options advance]
+
+    set tagInset [dict get $options tagInset]
+    set border [expr {($tagOut - $tagInn) / 2.0}]
+    set gLeft   [expr {($PageWidth - $tagOut - $marginRight - $tagInset + $border) * $ptmm}]
+    set gRight  [expr {($marginRight + $tagInset + $border) * $ptmm}]
+    set gTop    [expr {($marginTop + $tagInset + $border) * $ptmm}]
+    set gBottom [expr {($PageHeight - $tagOut - $marginTop - $tagInset + $border) * $ptmm}]
+
+    set geomStr [format \
+        {tagSize %.4gmm left %.4gmm right %.4gmm top %.4gmm bottom %.4gmm lineHeight %.4gmm advance %.4gmm codeLeft %.4gmm codeTop %.4gmm} \
+        [expr {$tagInn * $ptmm}] $gLeft $gRight $gTop $gBottom \
+        [expr {$lh * $ptmm}] [expr {$adv * $ptmm}] \
+        [expr {($marginLeft + $adv * 2.5) * $ptmm}] \
+        [expr {$marginTop * $ptmm}]]
+
+    set fp [open "$saveDir/$id.meta.folk" w]
+    puts $fp "Claim tag \$this has geometry \{$geomStr\}"
+    close $fp
 
     puts "Printing program $id on $::thisNode"
     Notify: print pdf $saveDir/$id.pdf with {*}$options
