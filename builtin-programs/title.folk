@@ -133,7 +133,9 @@ When the quad library is /quadLib/ &\
                 dict set drawOptions position $dispPosition
                 dict set drawOptions radians $dispRadians
 
-                Wish to draw text onto $disp with {*}$drawOptions
+                Hold! -key $titleKey {
+                    Wish to draw text onto $disp with {*}$drawOptions
+                }
             }
         }
     }

@@ -73,19 +73,36 @@ When /someone/ wishes to draw a polygon onto /p/ with /...options/ &\
 
 When /someone/ wishes /page/ is filled with /...options/ &\
      /page/ has resolved geometry /geom/ {
-    if {![info exists options]} { set options {color white} }
+    set fillOpts [list]
+    if {[info exists options]} { set fillOpts $options } else { set fillOpts {color white} }
     dict with geom {
         set points [list [list 0 0] \
                          [list $width 0] \
                          [list $width $height] \
                          [list 0 $height]]
     }
-    Wish to draw a polygon onto $page with points $points {*}$options
+    Wish to draw a polygon onto $page with points $points {*}$fillOpts
 }
 
 When /someone/ wishes /page/ draws fill with /...options/ {
-    if {![info exists options]} { set options {color white} }
-    Wish $page is filled with {*}$options
+    set fillOpts [list]
+    if {[info exists options]} { set fillOpts $options } else { set fillOpts {color white} }
+    Wish $page is filled with {*}$fillOpts
+}
+
+When /someone/ wishes /thing/ is filled /color/ {
+    Wish $thing is filled with color $color
+}
+
+When /someone/ wishes /thing/ is filled /color/ with /optionKey/ /optionValue/ /...optionRest/ {
+    if {![info exists optionKey] || ![info exists optionValue]} { return }
+    if {![info exists optionRest]} { set optionRest [list] }
+    Wish $thing is filled with color $color $optionKey $optionValue {*}$optionRest
+}
+
+When /someone/ wishes /thing/ is filled /color/ with /optionKey/ /optionValue/ {
+    if {![info exists optionKey] || ![info exists optionValue]} { return }
+    Wish $thing is filled with color $color $optionKey $optionValue
 }
 
 }
