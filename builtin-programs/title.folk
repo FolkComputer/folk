@@ -136,6 +136,7 @@ When the quad library is /quadLib/ &\
                 Hold! -key $titleKey {
                     Wish to draw text onto $disp with {*}$drawOptions
                 }
+                On unmatch { Hold! -key $titleKey {} }
             }
         }
     }
