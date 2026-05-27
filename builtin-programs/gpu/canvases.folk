@@ -374,18 +374,12 @@ When the GPU library is /gpuLib/ &\
 
             set resultsStmt [lindex $resultsList 0]
             set ref [dict get $resultsStmt __ref]
+            set results [dict get $resultsStmt results]
             try {
                 StatementAcquire! $ref
                 lappend acquiredRefs $ref
-                set results [dict get $resultsStmt results]
-
             } on error e {
-                # Couldn't acquire the collect statement (it
-                # must have just been invalidated). Just reuse
-                # the last one.
-                dict set drawListsByTexture $id \
-                    [dict getdef $mostRecentDrawListsByTexture $id [list]]
-                continue
+                puts stderr "canvases: StatementAcquire! failed on $id ($ref): $e. Using query results directly."
             }
 
             foreach result $results { dict with result {
