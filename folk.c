@@ -1400,6 +1400,7 @@ WorkQueueItem workerSteal() {
 }
 void workerLoop() {
     int64_t schedtick = 0;
+    int idleSpins = 0;
     for (;;) {
         schedtick++;
         if (interp->sigmask & (1 << SIGUSR1)) {
@@ -1422,9 +1423,17 @@ void workerLoop() {
             item = globalWorkQueueTake();
         }
         if (item.op == NONE) {
+            idleSpins++;
+            if (idleSpins >= 32) {
+                usleep(1000);
+                idleSpins = 0;
+            } else {
+                sched_yield();
+            }
             continue;
         }
 
+        idleSpins = 0;
         workerRun(item);
     }
  die:

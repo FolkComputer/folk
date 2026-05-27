@@ -746,7 +746,7 @@ if {[__isTracyEnabled]} {
         # We should only compile this once, then load the same library
         # everywhere in Folk (no matter what thread).
         set tracyCpp [C++]
-        $tracyCpp cflags -std=c++20 -I./vendor/tracy/public
+        $tracyCpp cflags -std=c++20 -DTRACY_ENABLE -I./vendor/tracy/public
         $tracyCpp include <string.h>
         $tracyCpp include "tracy/TracyC.h"
         $tracyCpp proc init {} void {
@@ -779,7 +779,8 @@ if {[__isTracyEnabled]} {
             TracyCSetThreadName(strdup(name));
         }
         $tracyCpp code {
-            __thread TracyCZoneCtx __zoneCtx;
+            __thread TracyCZoneCtx __zoneCtxStack[128];
+            __thread int __zoneCtxDepth = 0;
         }
         $tracyCpp proc zoneBegin {} void {
             Jim_Obj* scriptObj = interp->evalFrame->scriptObj;
@@ -801,13 +802,22 @@ if {[__isTracyEnabled]} {
                                                  fnName != NULL ? fnName : "<unknown>",
                                                  fnName != NULL ? strlen(fnName) : strlen("<unknown>"),
                                                  0);
-            __zoneCtx = ___tracy_emit_zone_begin_alloc(loc, 1);
+            if (__zoneCtxDepth >= 128) {
+                return;
+            }
+            __zoneCtxStack[__zoneCtxDepth++] = ___tracy_emit_zone_begin_alloc(loc, 1);
         }
         $tracyCpp proc zoneName {char* name} void {
-            ___tracy_emit_zone_name(__zoneCtx, name, strlen(name));
+            if (__zoneCtxDepth <= 0) {
+                return;
+            }
+            ___tracy_emit_zone_name(__zoneCtxStack[__zoneCtxDepth - 1], name, strlen(name));
         }
         $tracyCpp proc zoneEnd {} void {
-            ___tracy_emit_zone_end(__zoneCtx);
+            if (__zoneCtxDepth <= 0) {
+                return;
+            }
+            ___tracy_emit_zone_end(__zoneCtxStack[--__zoneCtxDepth]);
         }
         return [$tracyCpp compile $tracyCid]
     }

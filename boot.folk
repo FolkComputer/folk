@@ -68,12 +68,48 @@ local proc LoadProgram! {programFilename} {
         -keep 100ms \
         Claim $programFilename has program code $code
 }
+local proc BootEnvBool {name {default false}} {
+    if {![info exists ::env($name)]} {
+        return $default
+    }
+
+    set value [string tolower [string trim $::env($name)]]
+    switch -- $value {
+        "" -
+        0 -
+        false -
+        no -
+        off {
+            return false
+        }
+    }
+    return true
+}
+local proc BootSkipsProgram {programFilename} {
+    if {![BootEnvBool FOLK_MEDIA_PROFILE_MODE false]} {
+        return false
+    }
+
+    switch -glob -- $programFilename {
+        builtin-programs/camera/* -
+        builtin-programs/apriltags.folk -
+        builtin-programs/tags-to-quads.folk {
+            return true
+        }
+    }
+
+    return false
+}
 foreach programFilename [list {*}[glob -nocomplain builtin-programs/*.folk] \
                              {*}[glob -nocomplain builtin-programs/*/*.folk] \
                              {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"] \
                              {*}[glob -nocomplain "$::env(HOME)/folk-data/local-program/*.folk"] \
                              {*}[glob -nocomplain "$::env(HOME)/folk-data/local-program/*/*.folk"]] {
     if {[string match "*/_archive/*" $programFilename]} {
+        continue
+    }
+    if {[BootSkipsProgram $programFilename]} {
+        puts stderr "boot: skipping $programFilename (FOLK_MEDIA_PROFILE_MODE)"
         continue
     }
 

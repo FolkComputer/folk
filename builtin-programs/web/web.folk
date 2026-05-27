@@ -295,6 +295,7 @@ while true {
     try {
         set f [socket stream.server 4273]
         $f listen 128
+        Claim the web server is listening on 4273
         $f readable [lambda {} {f} {
             set client [$f accept addr]
             handleConnect $client $addr
