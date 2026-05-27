@@ -1021,6 +1021,7 @@ static void dbAtomicallyReapAllVersions(Db* db, Atomically* atomically,
             Match* rootMatch = x->version->rootMatch;
             x->version->rootMatch = NULL;
             if (rootMatch != NULL) {
+                rootMatch->atomicallyVersion = NULL;
                 if (rootMatch->parentWasRemoved) {
                     matchRemoveSelf(db, rootMatch);
                 }

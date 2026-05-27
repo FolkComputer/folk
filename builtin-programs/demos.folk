@@ -47,8 +47,10 @@ Claim 45008 has demo code {
 
 When /someone/ wishes /program/ runs demo code from /filename/ {
     Hold! -key "active-demo-$program" Claim $program running demo code from $filename
-    Destructor {
-        Hold! -key "active-demo-$program"
+    On unmatch {
+        if {[llength [Query! /someone/ wishes $program runs demo code from /any/]] == 0} {
+            Hold! -key "active-demo-$program"
+        }
     }
 }
 
