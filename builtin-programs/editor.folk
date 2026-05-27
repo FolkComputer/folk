@@ -14,15 +14,20 @@ When /k/ is a keyboard with /...opts/ &\
         Claim $editor has resolved geometry $geom
     }
     When the quad library is /quadLib/ & $k has quad /q/ {
-        Claim $editor has quad [$quadLib move $q up 105%]
+        set editorQuad [$quadLib move $q up 105%]
+        Claim $editor has quad $editorQuad
+        Claim $editor has drawing quad $editorQuad
     }
     Claim $k has created editor $editor
-    Claim $k is typing into $editor
+    When /nobody/ claims $k has focused input target /anything/ {
+        Claim $k is typing into $editor
+    }
 }
 When /k/ is a keyboard with /...opts/ &\
      /nobody/ claims /k/ has created editor /any/ &\
-     /k/ points up at /editor/ & /editor/ is an editor with /...opts/ {
+     /k/ points up with length 3cm at /editor/ & /editor/ is an editor with /...opts/ {
 
+    Claim $k has focused input target $editor
     Claim $k is typing into $editor
 }
 
@@ -73,6 +78,7 @@ set editorLib [library create editorLib {margin defaults} {
 
 When /someone/ claims /editor/ is an editor {
     Claim $editor is an editor with {*}$defaults
+    Claim $editor accepts keyboard input
 }
 
 When /editor/ is an editor with /...options/ {
@@ -84,7 +90,7 @@ When /editor/ is an editor with /...options/ {
     Wish tag $editor is stabilized
 
     # Select which program the editor is viewing
-    When $editor points up with length 0.3 at /program/ {
+    When $editor points up with length 3cm at /program/ {
         Claim editor $editor has selected program $program
     }
 
