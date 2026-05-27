@@ -110,12 +110,14 @@ When the quad library is /quadLib/ &\
         left-margined  left   right
     } {
         When the collected results for [list /someone/ wishes $thing is $label /text/ with /...options/] are /results/ {
+            set titleKey [list title $disp $edge $thing $textAnchor]
+            On unmatch { Hold! -key $titleKey {} }
+
             set optionPair [titleDrawOptions $results $textAnchor]
             if {$optionPair eq ""} { return }
             lassign $optionPair paddingMeters drawOptions
 
             When -atomically $thing has quad /q/ {
-                set titleKey [list title $disp $edge $thing $textAnchor]
                 try {
                     set displayQuad [quadChange $q "display $disp"]
                 } on error {} {
@@ -136,7 +138,6 @@ When the quad library is /quadLib/ &\
                 Hold! -key $titleKey {
                     Wish to draw text onto $disp with {*}$drawOptions
                 }
-                On unmatch { Hold! -key $titleKey {} }
             }
         }
     }
