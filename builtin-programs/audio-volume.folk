@@ -1,0 +1,335 @@
+# Global JACK master volume and physical volume dial.
+
+source "lib/audio-volume.tcl"
+
+if {[string equal -nocase $::tcl_platform(os) "Darwin"]} {
+    Claim the audio volume controller has error "JACK volume control is only available on Linux"
+    return
+}
+
+set audioVolumeC [C]
+$audioVolumeC cflags -I/usr/include
+$audioVolumeC endcflags -ljack -lpthread
+$audioVolumeC include <jack/jack.h>
+$audioVolumeC include <math.h>
+$audioVolumeC include <pthread.h>
+$audioVolumeC include <stdatomic.h>
+$audioVolumeC include <stdbool.h>
+$audioVolumeC include <stdio.h>
+$audioVolumeC include <string.h>
+$audioVolumeC include <unistd.h>
+$audioVolumeC code {
+    static jack_client_t* g_volume_client = NULL;
+    static jack_port_t* g_inputs[2] = { NULL, NULL };
+    static jack_port_t* g_outputs[2] = { NULL, NULL };
+    static pthread_mutex_t g_volume_mutex = PTHREAD_MUTEX_INITIALIZER;
+    static _Atomic float g_volume = 0.5f;
+    static pthread_t g_route_thread;
+    static _Atomic bool g_route_running = false;
+    static _Atomic bool g_route_thread_started = false;
+
+    static float volume_clamp(float value) {
+        if (!isfinite(value)) return 0.5f;
+        if (value < 0.0f) return 0.0f;
+        if (value > 1.0f) return 1.0f;
+        return value;
+    }
+
+    static int folk_volume_process(jack_nframes_t nframes, void* arg) {
+        float volume = atomic_load(&g_volume);
+        for (int ch = 0; ch < 2; ch++) {
+            jack_default_audio_sample_t* in =
+                (jack_default_audio_sample_t*)jack_port_get_buffer(g_inputs[ch], nframes);
+            jack_default_audio_sample_t* out =
+                (jack_default_audio_sample_t*)jack_port_get_buffer(g_outputs[ch], nframes);
+
+            if (!in || !out) continue;
+            for (jack_nframes_t i = 0; i < nframes; i++) {
+                out[i] = in[i] * volume;
+            }
+        }
+        return 0;
+    }
+
+    static jack_client_t* folk_volume_client(void) {
+        pthread_mutex_lock(&g_volume_mutex);
+        jack_client_t* client = g_volume_client;
+        pthread_mutex_unlock(&g_volume_mutex);
+        return client;
+    }
+
+    static bool folk_volume_has_connection(jack_client_t* client, const char* source, const char* dest) {
+        if (!client || !source || !dest) return false;
+
+        jack_port_t* sourcePort = jack_port_by_name(client, source);
+        if (!sourcePort || !jack_port_by_name(client, dest)) {
+            return false;
+        }
+
+        const char** connections = jack_port_get_all_connections(client, sourcePort);
+        if (!connections) {
+            return false;
+        }
+
+        bool found = false;
+        for (int i = 0; connections[i] != NULL; i++) {
+            if (strcmp(connections[i], dest) == 0) {
+                found = true;
+                break;
+            }
+        }
+        jack_free(connections);
+        return found;
+    }
+
+    static void folk_volume_try_connect(jack_client_t* client, const char* source, const char* dest) {
+        if (!client || !source || !dest) return;
+        if (folk_volume_has_connection(client, source, dest)) return;
+        if (!jack_port_by_name(client, source) || !jack_port_by_name(client, dest)) return;
+        jack_connect(client, source, dest);
+    }
+
+    static void folk_volume_try_disconnect(jack_client_t* client, const char* source, const char* dest) {
+        if (!client || !source || !dest) return;
+        if (!folk_volume_has_connection(client, source, dest)) return;
+        jack_disconnect(client, source, dest);
+    }
+
+    static void folk_volume_disconnect_system_bypasses(jack_client_t* client, const char* sourcePrefix, int firstSource, int sourceCount) {
+        char source[64];
+        char dest[64];
+        for (int i = 0; i < sourceCount; i++) {
+            snprintf(source, sizeof source, sourcePrefix, firstSource + i);
+            for (int j = 1; j <= 16; j++) {
+                snprintf(dest, sizeof dest, "system:playback_%d", j);
+                folk_volume_try_disconnect(client, source, dest);
+            }
+        }
+    }
+
+    static void folk_volume_route_once(void) {
+        jack_client_t* client = folk_volume_client();
+        if (!client) return;
+
+        folk_volume_try_connect(client, "miniaudio:playback0", "folk-volume:in_1");
+        folk_volume_try_connect(client, "miniaudio:playback1", "folk-volume:in_2");
+        folk_volume_try_connect(client, "SuperCollider:out_1", "folk-volume:in_1");
+        folk_volume_try_connect(client, "SuperCollider:out_2", "folk-volume:in_2");
+        folk_volume_try_connect(client, "folk-volume:out_1", "system:playback_1");
+        folk_volume_try_connect(client, "folk-volume:out_2", "system:playback_2");
+
+        folk_volume_disconnect_system_bypasses(client, "miniaudio:playback%d", 0, 16);
+        folk_volume_disconnect_system_bypasses(client, "SuperCollider:out_%d", 1, 16);
+    }
+
+    static void* folk_volume_route_main(void* arg) {
+        (void)arg;
+        while (atomic_load(&g_route_running)) {
+            folk_volume_route_once();
+            usleep(500 * 1000);
+        }
+        return NULL;
+    }
+
+    static void folk_volume_start_route_thread(void) {
+        bool expected = false;
+        if (!atomic_compare_exchange_strong(&g_route_thread_started, &expected, true)) {
+            return;
+        }
+
+        atomic_store(&g_route_running, true);
+        int err = pthread_create(&g_route_thread, NULL, folk_volume_route_main, NULL);
+        if (err != 0) {
+            atomic_store(&g_route_running, false);
+            atomic_store(&g_route_thread_started, false);
+            fprintf(stderr, "audio-volume: failed to start JACK routing thread: %d\n", err);
+            return;
+        }
+        pthread_detach(g_route_thread);
+    }
+}
+
+$audioVolumeC proc audioVolumeInit {char* clientName} bool {
+    pthread_mutex_lock(&g_volume_mutex);
+    if (g_volume_client != NULL) {
+        pthread_mutex_unlock(&g_volume_mutex);
+        folk_volume_route_once();
+        folk_volume_start_route_thread();
+        return true;
+    }
+
+    jack_status_t status = 0;
+    jack_client_t* client =
+        jack_client_open(clientName, JackNoStartServer | JackUseExactName, &status);
+    if (client == NULL) {
+        fprintf(stderr, "audio-volume: failed to open JACK client %s (status=0x%x)\n",
+                clientName, status);
+        pthread_mutex_unlock(&g_volume_mutex);
+        return false;
+    }
+
+    g_inputs[0] = jack_port_register(client, "in_1", JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput, 0);
+    g_inputs[1] = jack_port_register(client, "in_2", JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput, 0);
+    g_outputs[0] = jack_port_register(client, "out_1", JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, 0);
+    g_outputs[1] = jack_port_register(client, "out_2", JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, 0);
+    if (!g_inputs[0] || !g_inputs[1] || !g_outputs[0] || !g_outputs[1]) {
+        fprintf(stderr, "audio-volume: failed to register JACK ports\n");
+        jack_client_close(client);
+        g_inputs[0] = g_inputs[1] = g_outputs[0] = g_outputs[1] = NULL;
+        pthread_mutex_unlock(&g_volume_mutex);
+        return false;
+    }
+
+    jack_set_process_callback(client, folk_volume_process, NULL);
+    if (jack_activate(client) != 0) {
+        fprintf(stderr, "audio-volume: failed to activate JACK client\n");
+        jack_client_close(client);
+        g_inputs[0] = g_inputs[1] = g_outputs[0] = g_outputs[1] = NULL;
+        pthread_mutex_unlock(&g_volume_mutex);
+        return false;
+    }
+
+    g_volume_client = client;
+    pthread_mutex_unlock(&g_volume_mutex);
+    folk_volume_route_once();
+    folk_volume_start_route_thread();
+    return true;
+}
+
+$audioVolumeC proc audioVolumeSet {double volume} double {
+    float clamped = volume_clamp((float)volume);
+    atomic_store(&g_volume, clamped);
+    return clamped;
+}
+
+$audioVolumeC proc audioVolumeGet {} double {
+    return (double)atomic_load(&g_volume);
+}
+
+try {
+    set audioVolumeLib [$audioVolumeC compile]
+} on error {e opts} {
+    puts stderr "audio-volume: compile failed: $e"
+    Claim the audio volume controller has error "compile failed" with detail $e
+    return
+}
+
+fn audioVolumeClaimCurrent {volumeLib {keep 1500ms}} {
+    set volume [audioVolumeClamp [$volumeLib audioVolumeGet]]
+    Claim -keep $keep the audio system volume is $volume percent [audioVolumePercent $volume]
+}
+
+When the audio system has JACK ready with /...jackOpts/ {
+    if {![$audioVolumeLib audioVolumeInit "folk-volume"]} {
+        Claim the audio volume controller has error "failed to open JACK client" with jack $jackOpts
+        return
+    }
+
+    Claim the audio volume controller is $audioVolumeLib
+    Claim the audio volume controller is ready with backend JACK client folk-volume
+}
+
+When the audio volume controller is /volumeLib/ {
+    fn audioVolumeClamp
+    fn audioVolumePercent
+    fn audioVolumeClaimCurrent
+    audioVolumeClaimCurrent $volumeLib
+
+    When the clock time is /t/ {
+        fn audioVolumeClamp
+        fn audioVolumePercent
+        fn audioVolumeClaimCurrent
+        audioVolumeClaimCurrent $volumeLib
+    }
+}
+
+When /someone/ wishes the audio system volume is /volumeValue/ & \
+     the audio volume controller is /volumeLib/ {
+    fn audioVolumeNormalizeValue
+    fn audioVolumePercent
+    set volume [audioVolumeNormalizeValue $volumeValue]
+    set volume [$volumeLib audioVolumeSet $volume]
+    Claim -keep 500ms the audio system volume is $volume percent [audioVolumePercent $volume]
+}
+
+When /someone/ wishes /dial/ is a volume dial {
+    fn audioVolumeDefault
+    fn audioVolumeDialPointerFromVolume
+    fn audioVolumePercent
+    Wish $dial has a canvas
+
+    When $dial has resolved geometry /geom/ {
+        fn audioVolumeDefault
+        fn audioVolumeDialPointerFromVolume
+        fn audioVolumePercent
+        set currentRows [Query! the audio system volume is /volume/ percent /percent/]
+        if {[llength $currentRows] > 0} {
+            set current [lindex $currentRows end]
+            set volume [dict get $current volume]
+            set percent [dict get $current percent]
+            set label "Volume $percent%"
+        } else {
+            set volume [audioVolumeDefault]
+            set percent [audioVolumePercent $volume]
+            set label "Volume --%"
+        }
+
+        set width [dict get $geom width]
+        set height [dict get $geom height]
+        set size [expr {$width < $height ? $width : $height}]
+        set center [list [expr {$width / 2.0}] [expr {$height / 2.0}]]
+        set radius [expr {$size * 0.30}]
+        set thickness [expr {$size * 0.018}]
+        lassign [audioVolumeDialPointerFromVolume $volume [expr {$radius * 0.82}]] dx dy
+        set pointerEnd [list \
+            [expr {[lindex $center 0] + $dx}] \
+            [expr {[lindex $center 1] + $dy}]]
+
+        Wish $dial is labelled $label
+        Wish to draw a circle onto $dial with \
+            center $center radius $radius thickness $thickness \
+            color white filled false layer 30
+        Wish to draw a line onto $dial with \
+            points [list $center $pointerEnd] width [expr {$thickness * 1.4}] \
+            color gold layer 31
+        Wish to draw a circle onto $dial with \
+            center $center radius [expr {$thickness * 1.8}] thickness $thickness \
+            color gold filled true layer 32
+        Wish to draw text onto $dial with \
+            position [list [lindex $center 0] [expr {[lindex $center 1] + $radius * 0.58}]] \
+            scale [expr {$size * 0.095}] text "$percent%" \
+            color white anchor center layer 33
+    }
+
+    When the quad library is /quadLib/ & \
+         the pose library is /poseLib/ & \
+         the quad changer is /quadChange/ & \
+         display /disp/ has width /displayWidth/ height /displayHeight/ & \
+         display /disp/ has intrinsics /displayIntrinsics/ & \
+         $dial has quad /quad/ {
+        fn quadChange
+        fn audioVolumeDialVolumeFromVector
+        fn audioVolumePercent
+        set displayQuad [quadChange $quad "display $disp"]
+        lassign [lmap v [$quadLib vertices $displayQuad] {
+            $poseLib project $displayIntrinsics $displayWidth $displayHeight $v
+        }] topLeft topRight bottomRight bottomLeft
+
+        set topCenter [list \
+            [expr {([lindex $topLeft 0] + [lindex $topRight 0]) / 2.0}] \
+            [expr {([lindex $topLeft 1] + [lindex $topRight 1]) / 2.0}]]
+        set bottomCenter [list \
+            [expr {([lindex $bottomLeft 0] + [lindex $bottomRight 0]) / 2.0}] \
+            [expr {([lindex $bottomLeft 1] + [lindex $bottomRight 1]) / 2.0}]]
+        set dx [expr {[lindex $topCenter 0] - [lindex $bottomCenter 0]}]
+        set dy [expr {[lindex $topCenter 1] - [lindex $bottomCenter 1]}]
+        set percent [audioVolumePercent [audioVolumeDialVolumeFromVector $dx $dy]]
+
+        Hold! -on $dial -key audio-volume-dial-wish -keep 150ms \
+            Wish the audio system volume is $percent%
+    }
+}
+
+Claim builtin-programs/audio-volume.folk has demo code {
+    Wish $this is a volume dial
+}
