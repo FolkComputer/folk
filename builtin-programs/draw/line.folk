@@ -2,7 +2,9 @@ Wish the GPU compiles pipeline "line" {
     {vec2 viewport mat3 surfaceToClip
      vec2 from vec2 to float thickness vec4 color float capFrom float capTo} {
 
-        vec2 dir = normalize(to - from);
+        vec2 diff = to - from;
+        if (length(diff) < 0.0001) return vec4(0.0);
+        vec2 dir = normalize(diff);
         vec2 perp = vec2(-dir.y, dir.x) * (thickness / 2.0);
 
         // Push the quad outward so the rounded caps don't get clipped by the geometry bounds
@@ -43,9 +45,7 @@ Wish the GPU compiles pipeline "line" {
     }
 }
 
-fn drawLineClosed {points} {
-    expr {[llength $points] > 2 && [lindex $points 0] eq [lindex $points end]}
-}
+
 
 fn drawLineCapFlags {index segmentCount closed capStyle} {
     switch -- $capStyle {
@@ -77,15 +77,13 @@ When the color map is /colorMap/ &\
     set instances [list]
     set numPoints [llength $points]
     set segmentCount [expr {$numPoints - 1}]
-    set closed [drawLineClosed $points]
+
+    # 1.0 = flat, 0.0 = round
+    lassign [drawLineCapFlags 0 $segmentCount 0 $caps] capFrom capTo
 
     for {set i 0} {$i < $segmentCount} {incr i} {
         set from [lindex $points $i]
         set to [lindex $points [+ $i 1]]
-
-        # 1.0 = flat
-        # 0.0 = round
-        lassign [drawLineCapFlags $i $segmentCount $closed $caps] capFrom capTo
 
         lappend instances [list $wiResolution $surfaceToClip $from $to $width $color $capFrom $capTo]
     }
@@ -96,14 +94,17 @@ When the color map is /colorMap/ &\
 
 Hold! -on builtin-programs/draw/line.folk -key draw-line-demo-code \
     Claim builtin-programs/draw/line.folk has demo code {
-Wish $this is filled with color {0.03 0.04 0.055 1.0}
-Wish $this draws text "line caps" with position {50% 18%} scale 3cm color white anchor center layer 8
-Wish to draw a line onto $this with \
-    points {{0.035 0.075} {0.175 0.075}} width 0.010 \
-    color {0.35 0.86 1.0 1.0} caps round layer 4
-Wish to draw a line onto $this with \
-    points {{0.035 0.120} {0.175 0.120}} width 0.010 \
-    color {1.0 0.72 0.22 1.0} caps square layer 4
-Wish $this draws points {{20% 38%} {80% 38%} {20% 61%} {80% 61%}} with \
-    radius 0.25cm color white filled true layer 6
+    Wish $this is filled with color {0.03 0.04 0.055 1.0}
+
+    Wish $this draws text "line caps" with position {50% 8%} scale 3cm color white anchor center layer 8
+    
+    Wish to draw a line onto $this with \
+        points {{0.035 0.075} {0.175 0.075}} width 0.010 \
+        color {0.35 0.86 1.0 1.0} caps round layer 4
+    Wish to draw a line onto $this with \
+        points {{0.035 0.120} {0.175 0.120}} width 0.010 \
+        color {1.0 0.72 0.22 1.0} caps square layer 4
+
+    Wish $this draws points {{20% 38%} {80% 38%} {20% 61%} {80% 61%}} with \
+        radius 0.25cm color white filled true layer 6
 }

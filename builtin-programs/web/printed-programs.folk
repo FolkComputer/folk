@@ -1,9 +1,13 @@
 Wish the web server handles route {/printed-programs/([^/]+)\.folk$} with handler {
     set programDir [dict get [QueryOne! the program save directory is /programDir/] programDir]
     set filename "$programDir/$1.folk"
+    if {![file exists $filename]} {
+        return [dict create statusAndHeaders "HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n" body "Not found"]
+    }
+    
     set fp [open $filename r]
     set data [read $fp]
     close $fp
 
-    dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: text/plain; charset=utf-8\n\n" body $data
+    dict create statusAndHeaders "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n" body $data
 }
