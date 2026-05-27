@@ -951,100 +951,159 @@ When /wisher/ wishes the GPU compiles pipeline /name/ /source/ {
 }
 
 set missingPipelines [dict create]
+set prevFrameMs [clock milliseconds]
+set smoothedFrameMs 0.0
 while true {
     # Advance texture retirement once per frame, then run canvas redraw work.
-    $gpuTextureLib beginTextureFrame
-    ForEach! /someone/ wishes the GPU runs frame prelude handler /hd/ {
-        {*}$hd
+    tracy zoneBegin
+    tracy zoneName "gpuFramePrelude"
+    try {
+        $gpuTextureLib beginTextureFrame
+        ForEach! /someone/ wishes the GPU runs frame prelude handler /hd/ {
+            {*}$hd
+        }
+    } finally {
+        tracy zoneEnd
     }
 
     # Query draw commands once (shared across all displays).
-    set results [Query! /someone/ claims the GPU compiles pipeline /name/ to /pipeline/]
-    set pipelines [dict create]
-    foreach result $results { dict with result { dict set pipelines $name $pipeline } }
+    tracy zoneBegin
+    tracy zoneName "gpuFramePipelines"
+    try {
+        set results [Query! /someone/ claims the GPU compiles pipeline /name/ to /pipeline/]
+        set pipelines [dict create]
+        foreach result $results { dict with result { dict set pipelines $name $pipeline } }
+    } finally {
+        tracy zoneEnd
+    }
 
-    set displayList [dict create]
-    foreach result [Query! /wisher/ wishes the GPU draws pipeline /name/ with /...options/] {
-        try {
-            set name [dict get $result name]
-            if {![dict exists $pipelines $name]} {
-                if {![dict exists $missingPipelines $name]} {
-                    puts stderr "gpu: Missing pipeline $name"
-                    dict set missingPipelines $name true
+    tracy zoneBegin
+    tracy zoneName "gpuFrameDisplayList"
+    try {
+        set displayList [dict create]
+        foreach result [Query! /wisher/ wishes the GPU draws pipeline /name/ with /...options/] {
+            try {
+                set name [dict get $result name]
+                if {![dict exists $pipelines $name]} {
+                    if {![dict exists $missingPipelines $name]} {
+                        puts stderr "gpu: Missing pipeline $name"
+                        dict set missingPipelines $name true
+                    }
+                    continue
                 }
-                continue
-            }
-            dict unset missingPipelines $name
+                dict unset missingPipelines $name
 
-            set pipeline [dict get $pipelines [dict get $result name]]
+                set pipeline [dict get $pipelines [dict get $result name]]
 
-            set options [dict get $result options]
-            set layer [dict getdef $options layer 0]
-            if {[dict exists $options instances]} {
-                set instances [dict get $options instances]
-            } else {
-                set instances [list [dict get $options arguments]]
+                set options [dict get $result options]
+                set layer [dict getdef $options layer 0]
+                if {[dict exists $options instances]} {
+                    set instances [dict get $options instances]
+                } else {
+                    set instances [list [dict get $options arguments]]
+                }
+                foreach instance $instances {
+                    dict lappend displayList $layer \
+                        [list $gpu draw $pipeline $instance]
+                }
+            } on error e {
+                puts stderr "Error: GPU draws pipeline $name: [errorInfo $e]"
+                Assert! $this claims [dict get $result wisher] has error $e with info [errorInfo $e]
+                # TODO: does this ever get disposed?
             }
-            foreach instance $instances {
-                dict lappend displayList $layer \
-                    [list $gpu draw $pipeline $instance]
-            }
-        } on error e {
-            puts stderr "Error: GPU draws pipeline $name: [errorInfo $e]"
-            Assert! $this claims [dict get $result wisher] has error $e with info [errorInfo $e]
-            # TODO: does this ever get disposed?
         }
+    } finally {
+        tracy zoneEnd
     }
 
     # Query active displays; init new ones on first sight.
-    foreach result [Query! /someone/ wishes $::thisNode uses display /display/ with /...displayOpts/] {
-        set display [dict get $result display]
-        set displayOpts [dict get $result displayOpts]
+    tracy zoneBegin
+    tracy zoneName "gpuFrameDisplays"
+    try {
+        foreach result [Query! /someone/ wishes $::thisNode uses display /display/ with /...displayOpts/] {
+            set display [dict get $result display]
+            set displayOpts [dict get $result displayOpts]
 
-        if {![dict exists $displays $display]} {
-            if {[llength [Query! $::thisNode has display $display with /...any/]] == 0} {
-                puts stderr "gpu/draw: Display '$display' is wished but not enumerated; skipping"
-                dict set displays $display missing
+            if {![dict exists $displays $display]} {
+                if {[llength [Query! $::thisNode has display $display with /...any/]] == 0} {
+                    puts stderr "gpu/draw: Display '$display' is wished but not enumerated; skipping"
+                    dict set displays $display missing
+                    continue
+                }
+                set ds [$drawLib initDisplay $display \
+                            $displayOpts(width) $displayOpts(height) \
+                            $displayOpts(refreshRate)]
+                dict set displays $display $ds
+                Assert! display $display has width [$drawLib getDisplayWidth $ds] \
+                    height [$drawLib getDisplayHeight $ds]
+
+            } elseif {[dict get $displays $display] eq "missing"} {
+                # TODO: Allow for retry if display is plugged in later?
                 continue
             }
-            set ds [$drawLib initDisplay $display \
-                        $displayOpts(width) $displayOpts(height) \
-                        $displayOpts(refreshRate)]
-            dict set displays $display $ds
-            Assert! display $display has width [$drawLib getDisplayWidth $ds] \
-                height [$drawLib getDisplayHeight $ds]
-
-        } elseif {[dict get $displays $display] eq "missing"} {
-            # TODO: Allow for retry if display is plugged in later?
-            continue
         }
+    } finally {
+        tracy zoneEnd
     }
 
     # Make textures published while building the display list drawable
     # before we record display command buffers.
-    $gpuTextureLib drainDeferredTextureOps
+    tracy zoneBegin
+    tracy zoneName "gpuFrameDeferredTextures"
+    try {
+        $gpuTextureLib drainDeferredTextureOps
+    } finally {
+        tracy zoneEnd
+    }
 
     # Draw to each active display.
-    dict for {displayName ds} $displays {
-        if {$ds eq "missing"} { continue }
-        $gpu drawStart $ds
+    tracy zoneBegin
+    tracy zoneName "gpuFrameDrawDisplays"
+    try {
+        set totalDrawCount 0
+        set activeDisplayCount 0
+        dict for {displayName ds} $displays {
+            if {$ds eq "missing"} { continue }
+            incr activeDisplayCount
+            $gpu drawStart $ds
 
-        set drawCount 0
-        foreach layer [lsort -real [dict keys $displayList]] {
-            set layerDisplayList [dict get $displayList $layer]
-            foreach displayCommand $layerDisplayList {
-                incr drawCount
-                try { {*}$displayCommand } \
-                    on error e { puts stderr [errorInfo $e] }
+            set drawCount 0
+            foreach layer [lsort -real [dict keys $displayList]] {
+                set layerDisplayList [dict get $displayList $layer]
+                foreach displayCommand $layerDisplayList {
+                    incr drawCount
+                    try { {*}$displayCommand } \
+                        on error e { puts stderr [errorInfo $e] }
+                }
             }
-        }
+            incr totalDrawCount $drawCount
 
-        $gpu drawEnd
+            $gpu drawEnd
+        }
+    } finally {
+        tracy zoneEnd
     }
 
     tracy frameMarkNamed $kGpu
 
     if {$useGlfw} { $drawLib poll }
+
+    set frameNowMs [clock milliseconds]
+    set frameDeltaMs [expr {$frameNowMs - $prevFrameMs}]
+    set prevFrameMs $frameNowMs
+    if {$frameDeltaMs <= 0} {
+        set frameDeltaMs 1
+    }
+    if {$smoothedFrameMs <= 0.0} {
+        set smoothedFrameMs $frameDeltaMs
+    } else {
+        set smoothedFrameMs [expr {$smoothedFrameMs * 0.95 + $frameDeltaMs * 0.05}]
+    }
+    set fps [expr {1000.0 / $smoothedFrameMs}]
+    Hold! -keep 250ms -on builtin-programs/gpu/draw.folk -key gpu-frame-stats \
+        Claim the GPU renderer has frame stats with \
+            fps $fps frameTimeMs $smoothedFrameMs \
+            drawCount $totalDrawCount displayCount $activeDisplayCount
     # TODO: sleep for 5ms or something?
 }
 

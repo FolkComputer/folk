@@ -80,6 +80,7 @@ defineVulkanHandleType $gpuc VkDescriptorSet
 $gpuc code {
     VkDevice device;
     static void initPlaceholderTexture();
+    #define NUM_STAGING_BUFFERS 3
 }
 
 $gpuc typedef int GpuTextureHandle
@@ -87,6 +88,10 @@ defineVulkanHandleType $gpuc VkImage
 defineVulkanHandleType $gpuc VkDeviceMemory
 defineVulkanHandleType $gpuc VkImageView
 defineVulkanHandleType $gpuc VkSampler
+defineVulkanHandleType $gpuc VkBuffer
+defineVulkanHandleType $gpuc VkFence
+defineVulkanHandleType $gpuc VkCommandPool
+defineVulkanHandleType $gpuc VkCommandBuffer
 $gpuc struct GpuTextureBlock {
     bool _Atomic alive;
     bool _Atomic retiring;
@@ -101,6 +106,16 @@ $gpuc struct GpuTextureBlock {
     VmaAllocation textureImageAllocation;
     VkImageView textureImageView;
     VkSampler textureSampler;
+
+    // Keep this numeric array size in sync with NUM_STAGING_BUFFERS;
+    // the C binding's struct parser does not accept macro-sized fields.
+    bool hasStagingBuffers;
+    VkBuffer stagingBuffers[3];
+    VmaAllocation stagingBufferAllocations[3];
+    VkCommandPool stagingCommandPools[3];
+    VkCommandBuffer stagingCommandBuffers[3];
+    VkFence stagingFences[3];
+    int currentStagingIndex;
 
     // mostly for debugging:
     char* description;
@@ -125,6 +140,8 @@ $gpuc code {
 
     #define TEXTURE_RETIRE_GRACE_FRAMES 2
     int textureFrameEpoch = 0;
+    pthread_mutex_t textureUpdateMutex = PTHREAD_MUTEX_INITIALIZER;
+    VkCommandPool textureUpdateCommandPool = VK_NULL_HANDLE;
 }
 $gpuc proc textureManagerInit {} void {
     $[vktry volkInitialize()]
@@ -134,6 +151,14 @@ $gpuc proc textureManagerInit {} void {
     volkLoadDevice(device);
 
     gpuTextures = calloc(sizeof(GpuTextureBlock), getMaxTextures());
+
+    {
+        VkCommandPoolCreateInfo poolInfo = {0};
+        poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        poolInfo.queueFamilyIndex = *graphicsQueueFamilyIndex_ptr();
+        $[vktry {vkCreateCommandPool(device, &poolInfo, NULL, &textureUpdateCommandPool)}]
+    }
 
     // Set up textureDescriptorSetLayout:
     {
@@ -288,10 +313,9 @@ $gpuc code [csubst {
     }
 }]
 
-defineVulkanHandleType $gpuc VkCommandBuffer
-defineVulkanHandleType $gpuc VkFence
 $gpuc proc beginSingleTimeCommands {} VkCommandBuffer {
     VkCommandBuffer commandBuffer = getCommandBuffer();
+    vkResetCommandBuffer(commandBuffer, 0);
 
     VkCommandBufferBeginInfo beginInfo = {0};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -630,6 +654,7 @@ $gpuc code {
         } else {
             vkResetCommandBuffer(slot->cmdBuffer, 0);
         }
+        vkResetCommandBuffer(slot->cmdBuffer, 0);
         return slot;
     }
 }
@@ -738,6 +763,137 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
 
     return block->handle;
 }
+
+$gpuc proc updateGpuTexture {GpuTextureHandle handle Image im} void {
+    GpuTextureBlock* block = &gpuTextures[handle];
+
+    // Staging command buffers live on texture blocks and are allocated from a
+    // dedicated texture-update command pool. Serialize this path so worker
+    // threads never touch that pool or a texture block's staging ring together.
+    pthread_mutex_lock(&textureUpdateMutex);
+
+    if (!atomic_load(&block->alive) || block->width != im.width || block->height != im.height) {
+        pthread_mutex_unlock(&textureUpdateMutex);
+        return;
+    }
+
+    if (!block->hasStagingBuffers) {
+        size_t size = im.width * im.height * 4;
+        for (int i = 0; i < NUM_STAGING_BUFFERS; i++) {
+            createBuffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                         &block->stagingBuffers[i], &block->stagingBufferAllocations[i]);
+
+            block->stagingCommandPools[i] = textureUpdateCommandPool;
+            VkCommandBufferAllocateInfo allocInfo = {0};
+            allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            allocInfo.commandPool = textureUpdateCommandPool;
+            allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            allocInfo.commandBufferCount = 1;
+            $[vktry {vkAllocateCommandBuffers(device, &allocInfo, &block->stagingCommandBuffers[i])}]
+
+            VkFenceCreateInfo fenceInfo = {0};
+            fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+            // Initially signaled so the first wait passes
+            fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+            $[vktry {vkCreateFence(device, &fenceInfo, NULL, &block->stagingFences[i])}]
+        }
+        block->currentStagingIndex = 0;
+        block->hasStagingBuffers = true;
+    }
+
+    // Wait for the next staging buffer in the ring to be available
+    int idx = block->currentStagingIndex;
+#ifdef TRACY_ENABLE
+    TracyCZoneN(waitCtx, "updateGpuTexture wait staging fence", 1);
+#endif
+    $[vktry {vkWaitForFences(device, 1, &block->stagingFences[idx], VK_TRUE, UINT64_MAX)}]
+#ifdef TRACY_ENABLE
+    TracyCZoneEnd(waitCtx);
+#endif
+    $[vktry {vkResetFences(device, 1, &block->stagingFences[idx])}]
+
+    // Copy new CPU image to the staging buffer
+    {
+#ifdef TRACY_ENABLE
+        TracyCZoneN(copyCtx, "updateGpuTexture copyImageToRgba", 1);
+#endif
+        void* data;
+        vmaMapMemory(vmaGetAllocator(), block->stagingBufferAllocations[idx], &data);
+        Image stagingIm = (Image) {
+            .width = im.width, .height = im.height,
+            .components = 4, .bytesPerRow = im.width * 4, .data = data
+        };
+        copyImageToRgba(im, stagingIm);
+        vmaUnmapMemory(vmaGetAllocator(), block->stagingBufferAllocations[idx]);
+#ifdef TRACY_ENABLE
+        TracyCZoneEnd(copyCtx);
+#endif
+    }
+
+    // Execute the GPU copy
+    {
+#ifdef TRACY_ENABLE
+        TracyCZoneN(submitCtx, "updateGpuTexture submit", 1);
+#endif
+        VkCommandBuffer commandBuffer = block->stagingCommandBuffers[idx];
+        $[vktry {vkResetCommandBuffer(commandBuffer, 0)}]
+
+        VkCommandBufferBeginInfo beginInfo = {0};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        $[vktry {vkBeginCommandBuffer(commandBuffer, &beginInfo)}]
+
+        // 1. Transition from SHADER_READ_ONLY to TRANSFER_DST
+        VkImageMemoryBarrier barrier = {0};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = block->textureImage;
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.baseMipLevel = 0;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount = 1;
+        barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+        vkCmdPipelineBarrier(commandBuffer,
+                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             0, 0, NULL, 0, NULL, 1, &barrier);
+
+        // 2. Copy buffer to image
+        VkBufferImageCopy region = {0};
+        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.imageSubresource.layerCount = 1;
+        region.imageExtent = (VkExtent3D) {im.width, im.height, 1};
+        vkCmdCopyBufferToImage(commandBuffer, block->stagingBuffers[idx], block->textureImage,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+        // 3. Transition back to SHADER_READ_ONLY
+        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+        vkCmdPipelineBarrier(commandBuffer,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                             0, 0, NULL, 0, NULL, 1, &barrier);
+
+        endSingleTimeCommands(commandBuffer, block->stagingFences[idx]);
+#ifdef TRACY_ENABLE
+        TracyCZoneEnd(submitCtx);
+#endif
+    }
+
+    // Advance ring index
+    block->currentStagingIndex = (block->currentStagingIndex + 1) % NUM_STAGING_BUFFERS;
+
+    pthread_mutex_unlock(&textureUpdateMutex);
+}
+
 # Replace a descriptor slot with a different texture. Must only be
 # called on the GPU thread between frames (used by canvases).
 $gpuc proc replaceInTextureDescriptorSet {GpuTextureHandle oldHandle GpuTextureHandle newHandle} void {
@@ -777,6 +933,8 @@ $gpuc code {
         GpuTextureBlock* block = &gpuTextures[gim];
         if (gim == 0 || !block->alive) return;
 
+        pthread_mutex_lock(&textureUpdateMutex);
+
         // Point this descriptor slot at the placeholder texture (slot 0)
         // so later frames don't reference a destroyed image.
         {
@@ -797,6 +955,20 @@ $gpuc code {
             vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
         }
 
+    if (block->hasStagingBuffers) {
+        for (int i = 0; i < NUM_STAGING_BUFFERS; i++) {
+            vkWaitForFences(device, 1, &block->stagingFences[i], VK_TRUE, UINT64_MAX);
+#ifdef TRACY_ENABLE
+            TracyCFree(block->stagingBufferAllocations[i]);
+#endif
+            vkFreeCommandBuffers(device, block->stagingCommandPools[i], 1,
+                                 &block->stagingCommandBuffers[i]);
+            vmaDestroyBuffer(vmaGetAllocator(), block->stagingBuffers[i], block->stagingBufferAllocations[i]);
+            vkDestroyFence(device, block->stagingFences[i], NULL);
+        }
+        block->hasStagingBuffers = false;
+    }
+
 #ifdef TRACY_ENABLE
         TracyCFree(block->textureImageAllocation);
 #endif
@@ -813,6 +985,7 @@ $gpuc code {
         block->retiring = false;
         block->retireAfterFrame = 0;
         block->alive = false;
+        pthread_mutex_unlock(&textureUpdateMutex);
     }
 
     static void destroyRetiredGpuTextures() {
