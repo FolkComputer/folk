@@ -71,7 +71,7 @@ Wish to draw a circle onto $this with \
     center {0.135 0.095} radius 0.026 thickness 0.006 \
     color {1.0 0.78 0.28 1.0} filled false layer 4
 When the clock time is /t/ {
-    set radius [expr {0.020 + 0.006 * (0.5 + 0.5 * sin($t * 2.0))}]
+    set radius [expr {0.026 * (0.5 + 0.5 * sin($t * 2.0))}]
     Wish to draw a circle onto $this with \
         center {0.075 0.095} radius $radius thickness 0 \
         color {0.92 0.20 0.55 0.92} filled true layer 3
