@@ -264,6 +264,17 @@ Subscribe: print program /id/ with /...options/ {
     set gTop    [expr {($marginTop + $tagInset + $border) * $ptmm}]
     set gBottom [expr {($PageHeight - $tagOut - $marginTop - $tagInset + $border) * $ptmm}]
 
+    # If the first page is sparse enough, assume the user will fold the
+    # page in half vertically and shrink the reported bottom geometry.
+    set numLines [llength [split $code "\n"]]
+    set maxLines [expr {int(($PageHeight - $marginTop - $marginBottom) / $lh)}]
+    set firstPageLines [expr {$numLines < $maxLines ? $numLines : $maxLines}]
+    if {$firstPageLines < $maxLines / 2.0} {
+        set tagSize [expr {$tagInn * $ptmm}]
+        set pageHeightMm [expr {$tagSize + $gTop + $gBottom}]
+        set gBottom [expr {$gBottom - $pageHeightMm / 2.0}]
+    }
+
     set geomStr [format \
         {tagSize %.4gmm left %.4gmm right %.4gmm top %.4gmm bottom %.4gmm lineHeight %.4gmm advance %.4gmm codeLeft %.4gmm codeTop %.4gmm} \
         [expr {$tagInn * $ptmm}] $gLeft $gRight $gTop $gBottom \
