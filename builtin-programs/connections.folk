@@ -133,16 +133,7 @@ fn drawConnectionFrameIndex {t} {
     expr {int(floor($t * 30.0))}
 }
 
-When -serially connections have dynamic animation demand &\
-     the clock time is /t/ {
-    set frame [drawConnectionFrameIndex $t]
-    if {[info exists ::drawConnectionClockFrame] &&
-        $::drawConnectionClockFrame eq $frame} {
-        return
-    }
-    set ::drawConnectionClockFrame $frame
-    Claim -keep 50ms connections animation frame $frame time [expr {$frame / 30.0}]
-}
+
 
 fn drawConnectionDynamicArrows {from direction distance options t} {
     set speed [drawConnectionPixelOption $options speed 75 speed]
@@ -245,6 +236,7 @@ When -atomically /anyone/ wishes /source/ is connected to /sink/ with /...option
 }
 
 When -atomically /anyone/ wishes /source/ is dynamically connected to /sink/ with /...options/ &\
+     the clock time is /t/ &\
      the quad library is /quadLib/ &\
      the pose library is /poseLib/ &\
      the quad changer is /quadChange/ &\
@@ -267,14 +259,11 @@ When -atomically /anyone/ wishes /source/ is dynamically connected to /sink/ wit
     set color [dict getdef $options color white]
     set layer [dict getdef $options layer 0]
     set width [drawConnectionPixelOption $options width 1 width]
-    Claim -keep 100ms connections have dynamic animation demand
 
-    When -serially -atomicallyWithKey $key connections animation frame /frame/ time /frameT/ {
-        set arrows [drawConnectionDynamicArrows \
-            [dict get $segment from] [dict get $segment direction] \
-            [dict get $segment distance] $options $frameT]
-        drawConnectionWish $disp $key \
-            [dict get $segment from] [dict get $segment to] [dict get $segment direction] \
-            $color $layer $width $arrows
-    }
+    set arrows [drawConnectionDynamicArrows \
+        [dict get $segment from] [dict get $segment direction] \
+        [dict get $segment distance] $options $t]
+    drawConnectionWish $disp $key \
+        [dict get $segment from] [dict get $segment to] [dict get $segment direction] \
+        $color $layer $width $arrows
 }

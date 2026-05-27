@@ -1,10 +1,9 @@
 fn drawOutlinePoints {width height} {
-    set points [list [list 0 0] \
+    return [list [list 0 0] \
                     [list $width 0] \
                     [list $width $height] \
-                    [list 0 $height]]
-    lappend points [lindex $points 0]
-    return $points
+                    [list 0 $height] \
+                    [list 0 0]]
 }
 
 fn drawOutlineOptions {color options} {
