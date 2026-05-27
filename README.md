@@ -68,7 +68,9 @@ if flashing from a Mac] -- Ubuntu doesn't have a good kernel for Pi 5)
 
 1. Install dependencies:
 
-       sudo apt install rsync git cmake libturbojpeg0-dev libpng-dev libdrm-dev pkg-config v4l-utils vulkan-tools libvulkan-dev libvulkan1 meson libgbm-dev glslc vulkan-validationlayers ghostscript console-data kbd psmisc zlib1g-dev libssl-dev automake libtool autoconf-archive
+   ```sh
+   sudo apt install rsync git cmake libturbojpeg0-dev libpng-dev libdrm-dev pkg-config v4l-utils vulkan-tools libvulkan-dev libvulkan1 meson libgbm-dev glslc vulkan-validationlayers ghostscript console-data kbd psmisc zlib1g-dev libssl-dev automake libtool autoconf-archive libjack-jackd2-dev
+   ```
 
    (When prompted while installing `console-data` for `Policy for
    handling keymaps` type `3` (meaning `3. Keep kernel keymap`) and
@@ -285,8 +287,17 @@ Host folk-WHATEVER
 
 Potentially useful: `journalctl -f -u folk` to see log of folk service
 
-For audio:
-https://askubuntu.com/questions/1349221/which-packages-should-be-installed-to-have-sound-output-working-on-minimal-ubunt
+For audio, Folk Linux systems use JACK as the shared output server for
+`audio.folk`, unmuted video playback, and SuperCollider/Tidal music. On Ubuntu,
+the usual core audio runtime is:
+
+```sh
+sudo apt install alsa-utils jackd2 jack-tools libjack-jackd2-dev
+```
+
+If automatic HDMI/projector selection chooses the wrong device, set
+`FOLK_JACK_DEVICE` in the Folk service environment to an ALSA device such as
+`hw:CARD=PCH,DEV=3`.
 
 ## Troubleshooting
 

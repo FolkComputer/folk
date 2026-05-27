@@ -1,5 +1,27 @@
-if {[catch {exec which sclang}]} {
-    error "music: sclang doesn't exist; not running."
+source "lib/dependencies.tcl"
+
+Claim $this optionally uses Unix command sclang with package supercollider purpose "run SuperCollider music programs"
+Claim $this optionally uses Unix command scsynth with package supercollider-server purpose "render SuperCollider audio"
+Claim $this optionally uses Unix command ghci with package ghc purpose "run Tidal interactively"
+Claim $this optionally uses Unix command ghc with package ghc purpose "support the Tidal Haskell stack"
+Claim $this optionally uses Unix command cabal with package cabal-install purpose "install or maintain optional Tidal packages"
+
+fn musicHaveCommand {cmd} {
+  return [folkDependencyCommandAvailable $cmd]
+}
+
+fn musicAnyDirectoryExists {dirs} {
+  foreach dir $dirs {
+    if {[file isdirectory $dir]} {
+      return true
+    }
+  }
+  return false
+}
+
+if {![musicHaveCommand sclang]} {
+    puts stderr "music: sclang not found; music stack disabled."
+    return
 }
 
 set musicDir $::env(HOME)/music
@@ -148,21 +170,27 @@ fn musicExec {args} {
   }
 }
 fn musicFinishSetup {} {
-  if {$::thisNode eq "folk-hex"} {
-      exec jackd -d alsa -d hdmi:CARD=NVidia -r 48000 -p 1024 -n 2 &
-  } elseif {$::thisNode eq "folk-sva"} {
-      exec jackd -d alsa -d hdmi:CARD=Generic,DEV=1 -r 48000 -p 1024 -n 2 &
-  }
-
   catch {exec pkill ghci}
   catch {exec pkill ghc}
   catch {exec pkill sclang}
   catch {exec pkill scsynth}
 
+  if {![musicAnyDirectoryExists [list \
+    "$::env(HOME)/.local/share/SuperCollider/Extensions/SuperDirt" \
+    "$::env(HOME)/.local/share/SuperCollider/downloaded-quarks/SuperDirt" \
+    "/usr/share/SuperCollider/Extensions/SuperDirt"]]} {
+      puts stderr "music: SuperDirt not found in common locations; continuing without treating this as a core audio failure."
+  }
+
   sleep 0.4
 
   set ::env(QT_QPA_PLATFORM) offscreen
   musicExec sclang $musicDir/startup.sc &
+
+  if {![musicHaveCommand ghci]} {
+    puts stderr "music: ghci not found; Tidal disabled."
+    return
+  }
 
   set fifo $musicDir/tidal-input
   exec rm -f $fifo
@@ -176,12 +204,36 @@ fn musicFinishSetup {} {
   # We keep $fifoId open so that ghci doesn't get an EOF.
 }
 
-while true {
+set ::musicFolkStarted false
+
+fn musicWaitForDbusAndStart {} {
+  if {[info exists ::musicFolkStarted] && $::musicFolkStarted} {
+    return
+  }
+
+  set uid [exec id -u $::env(USER)]
+  set ::env(DBUS_SESSION_BUS_ADDRESS) "unix:path=/run/user/$uid/bus"
+
+  while true {
     puts "music: Waiting for D-Bus."
     sleep 0.2
     if {[file exists /run/user/$uid/bus]} {
         puts "music: Found D-Bus."
+        set ::musicFolkStarted true
         musicFinishSetup
         break
     }
+  }
+}
+
+When the audio system has JACK ready with /...jackOpts/ {
+    musicWaitForDbusAndStart
+}
+
+When the audio system does not need JACK {
+    musicWaitForDbusAndStart
+}
+
+When the audio system has error /err/ with /...opts/ {
+    puts stderr "music: disabled because audio-system failed: $err"
 }

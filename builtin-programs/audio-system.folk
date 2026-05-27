@@ -1,0 +1,323 @@
+# Starts and monitors the shared Linux audio server used by audio.folk,
+# video playback, and music.folk.
+
+source "lib/dependencies.tcl"
+source "lib/audio-system.tcl"
+
+if {$::tcl_platform(os) eq "Darwin"} {
+    Claim the audio system does not need JACK
+    return
+}
+
+set audioSystemRequiredCommands [list \
+    [dict create command aplay package alsa-utils purpose "discover ALSA playback devices"] \
+    [dict create command jackd package jackd2 purpose "start the shared JACK audio server"] \
+    [dict create command jack_wait package jack-tools purpose "wait for JACK readiness"]]
+
+set audioSystemOptionalCommands [list \
+    [dict create command jack_lsp package jack-tools purpose "list JACK ports for diagnostics and auto-connect"] \
+    [dict create command jack_connect package jack-tools purpose "connect Folk audio ports to system playback"] \
+    [dict create command jack_disconnect package jack-tools purpose "remove direct JACK connections that bypass global volume"] \
+    [dict create command jack_samplerate package jack-tools purpose "report the active JACK sample rate"] \
+    [dict create command jack_bufsize package jack-tools purpose "report the active JACK period size"]]
+
+foreach dep $audioSystemRequiredCommands {
+    set command [dict get $dep command]
+    set package [dict get $dep package]
+    set purpose [dict get $dep purpose]
+    Claim $this requires Unix command $command with package $package purpose $purpose
+}
+
+foreach dep $audioSystemOptionalCommands {
+    set command [dict get $dep command]
+    set package [dict get $dep package]
+    set purpose [dict get $dep purpose]
+    Claim $this optionally uses Unix command $command with package $package purpose $purpose
+}
+
+set audioSystemSampleRate [expr {[info exists ::env(FOLK_JACK_SAMPLE_RATE)] ? $::env(FOLK_JACK_SAMPLE_RATE) : 48000}]
+set audioSystemPeriodSize [expr {[info exists ::env(FOLK_JACK_PERIOD_SIZE)] ? $::env(FOLK_JACK_PERIOD_SIZE) : 1024}]
+set audioSystemPeriods [expr {[info exists ::env(FOLK_JACK_PERIODS)] ? $::env(FOLK_JACK_PERIODS) : 2}]
+set audioSystemStartedJack false
+set audioSystemJackLog "$::env(HOME)/folk-data/audio/jackd.log"
+
+fn audioSystemMissingRequiredCommands {deps} {
+    set missing [list]
+    foreach dep $deps {
+        if {![folkDependencyCommandAvailable [dict get $dep command]]} {
+            lappend missing $dep
+        }
+    }
+    return $missing
+}
+
+proc audioSystemJackReady {} {
+    if {![folkDependencyCommandAvailable jack_wait]} {
+        return false
+    }
+    return [expr {![catch {exec jack_wait -w -t 2}]}]
+}
+
+proc audioSystemReadAplayPlayback {} {
+    if {![folkDependencyCommandAvailable aplay]} {
+        return ""
+    }
+    if {[catch {exec aplay -l} output]} {
+        puts stderr "audio-system: aplay -l failed: $output"
+        return ""
+    }
+    return $output
+}
+
+proc audioSystemRunningJackdCommand {} {
+    foreach commPath [lsort [glob -nocomplain {/proc/[0-9]*/comm}]] {
+        set name [string trim [audioSystemReadTextFile $commPath]]
+        if {$name ne "jackd"} {
+            continue
+        }
+
+        set cmdlinePath "[file dirname $commPath]/cmdline"
+        set cmdline [audioSystemReadTextFile $cmdlinePath]
+        if {$cmdline eq ""} {
+            continue
+        }
+
+        set cmdline [string trimright $cmdline "\0"]
+        if {$cmdline eq ""} {
+            continue
+        }
+
+        return [join [split $cmdline "\0"] " "]
+    }
+    return ""
+}
+
+proc audioSystemReadCommand {argv} {
+    if {[catch {exec {*}$argv} output]} {
+        return ""
+    }
+    return [string trim $output]
+}
+
+proc audioSystemMaybeSetRuntimeValue {runtimeVar key value} {
+    upvar 1 $runtimeVar runtime
+    set value [string trim $value]
+    if {$value ne ""} {
+        dict set runtime $key $value
+    }
+}
+
+proc audioSystemCurrentJackRuntime {selectedDevice selectedReason desiredSampleRate desiredPeriodSize desiredPeriods startedByFolk existingServer logPath} {
+    set runtime [dict create \
+        selectedDevice $selectedDevice \
+        selectedReason $selectedReason \
+        desiredSampleRate $desiredSampleRate \
+        desiredPeriodSize $desiredPeriodSize \
+        desiredPeriods $desiredPeriods \
+        sampleRate $desiredSampleRate \
+        periodSize $desiredPeriodSize \
+        periods $desiredPeriods \
+        startedByFolk $startedByFolk \
+        existingServer $existingServer \
+        log $logPath]
+
+    set jackdCommand [audioSystemRunningJackdCommand]
+    if {$jackdCommand ne ""} {
+        dict set runtime jackdCommand $jackdCommand
+        set parsed [audioSystemParseJackdArgs $jackdCommand]
+        foreach {parsedKey runtimeKey} {
+            driver driver
+            device device
+            sampleRate sampleRate
+            periodSize periodSize
+            periods periods
+        } {
+            if {[dict exists $parsed $parsedKey]} {
+                audioSystemMaybeSetRuntimeValue runtime $runtimeKey [dict get $parsed $parsedKey]
+            }
+        }
+    }
+
+    if {[folkDependencyCommandAvailable jack_samplerate]} {
+        set sampleRate [audioSystemReadCommand [list jack_samplerate]]
+        if {[regexp {^[0-9]+$} $sampleRate]} {
+            dict set runtime sampleRate $sampleRate
+        }
+    }
+
+    if {[folkDependencyCommandAvailable jack_bufsize]} {
+        set periodSize [audioSystemReadCommand [list jack_bufsize]]
+        if {[regexp {^[0-9]+$} $periodSize]} {
+            dict set runtime periodSize $periodSize
+        }
+    }
+
+    if {![dict exists $runtime device]} {
+        if {$startedByFolk} {
+            dict set runtime device $selectedDevice
+        } else {
+            dict set runtime device unknown
+        }
+    }
+
+    return $runtime
+}
+
+proc audioSystemDiscoverJackDevice {} {
+    set override ""
+    if {[info exists ::env(FOLK_JACK_DEVICE)]} {
+        set override $::env(FOLK_JACK_DEVICE)
+    }
+    return [audioSystemSelectJackDevice \
+        [audioSystemReadAplayPlayback] \
+        $override \
+        [audioSystemReadEldEntries]]
+}
+
+proc audioSystemWaitForJack {{attempts 24}} {
+    for {set i 0} {$i < $attempts} {incr i} {
+        if {[audioSystemJackReady]} {
+            return true
+        }
+        sleep 0.25
+    }
+    return false
+}
+
+proc audioSystemStartJack {device sampleRate periodSize periods logPath} {
+    if {![folkDependencyCommandAvailable jackd]} {
+        puts stderr "audio-system: jackd is not installed"
+        return false
+    }
+
+    catch {exec mkdir -p [file dirname $logPath]}
+    puts stderr "audio-system: starting jackd on $device at ${sampleRate}Hz period=$periodSize periods=$periods"
+
+    if {[catch {
+        exec env JACK_NO_AUDIO_RESERVATION=1 jackd -d alsa -d $device -r $sampleRate -p $periodSize -n $periods >>$logPath 2>>$logPath &
+    } err]} {
+        puts stderr "audio-system: failed to start jackd: $err"
+        return false
+    }
+    return true
+}
+
+fn audioSystemTryConnect {source dest} {
+    catch {exec jack_connect $source $dest >/dev/null 2>/dev/null}
+}
+
+fn audioSystemTryDisconnect {source dest} {
+    catch {exec jack_disconnect $source $dest >/dev/null 2>/dev/null}
+}
+
+fn audioSystemApplyJackConnectionPlan {plan} {
+    fn audioSystemTryConnect
+    fn audioSystemTryDisconnect
+    foreach link [dict get $plan connect] {
+        lassign $link source dest
+        audioSystemTryConnect $source $dest
+    }
+    foreach link [dict get $plan disconnect] {
+        lassign $link source dest
+        audioSystemTryDisconnect $source $dest
+    }
+}
+
+fn audioSystemConnectJackPorts {} {
+    fn audioSystemApplyJackConnectionPlan
+    fn audioSystemHasVolumePorts
+    fn audioSystemJackConnectionPlan
+    fn folkDependencyCommandAvailable
+    if {![folkDependencyCommandAvailable jack_lsp] || ![folkDependencyCommandAvailable jack_connect]} {
+        return
+    }
+    if {[catch {exec jack_lsp} output]} {
+        return
+    }
+    set ports [split $output "\n"]
+    # Once folk-volume exists it owns the graph continuously so late JACK
+    # clients do not depend on Folk rule timing.
+    if {[audioSystemHasVolumePorts $ports]} {
+        return
+    }
+
+    audioSystemApplyJackConnectionPlan \
+        [audioSystemJackConnectionPlan $ports miniaudio:playback0 miniaudio:playback1]
+    audioSystemApplyJackConnectionPlan \
+        [audioSystemJackConnectionPlan $ports SuperCollider:out_1 SuperCollider:out_2]
+}
+
+When the audio library is ready with /...audioOpts/ {
+    fn audioSystemConnectJackPorts
+    audioSystemConnectJackPorts
+}
+
+set audioSystemMissing [audioSystemMissingRequiredCommands $audioSystemRequiredCommands]
+if {[llength $audioSystemMissing] > 0} {
+    set missingCommands [list]
+    set packageHints [list]
+    foreach dep $audioSystemMissing {
+        lappend missingCommands [dict get $dep command]
+        lappend packageHints [dict get $dep package]
+        puts stderr "audio-system: missing required command [dict get $dep command] (package hint: [dict get $dep package])"
+    }
+    set packageHints [lsort -unique $packageHints]
+    Claim the audio system has error "missing required audio commands" with \
+        missingCommands $missingCommands \
+        packageHints $packageHints
+    return
+}
+
+set audioSystemSelection [audioSystemDiscoverJackDevice]
+set audioSystemDevice [dict get $audioSystemSelection device]
+set audioSystemReason [dict get $audioSystemSelection reason]
+
+Claim the audio system selected JACK device $audioSystemDevice with reason $audioSystemReason
+
+set audioSystemJackWasReady [audioSystemJackReady]
+if {!$audioSystemJackWasReady} {
+    set audioSystemStartedJack [audioSystemStartJack \
+        $audioSystemDevice \
+        $audioSystemSampleRate \
+        $audioSystemPeriodSize \
+        $audioSystemPeriods \
+        $audioSystemJackLog]
+}
+
+if {[audioSystemWaitForJack]} {
+    set audioSystemRuntime [audioSystemCurrentJackRuntime \
+        $audioSystemDevice \
+        $audioSystemReason \
+        $audioSystemSampleRate \
+        $audioSystemPeriodSize \
+        $audioSystemPeriods \
+        $audioSystemStartedJack \
+        $audioSystemJackWasReady \
+        $audioSystemJackLog]
+
+    set audioSystemRunningDevice [dict get $audioSystemRuntime device]
+    puts stderr "audio-system: JACK ready; selected=$audioSystemDevice running=$audioSystemRunningDevice sampleRate=[dict get $audioSystemRuntime sampleRate] period=[dict get $audioSystemRuntime periodSize] periods=[dict get $audioSystemRuntime periods] startedByFolk=$audioSystemStartedJack existingServer=$audioSystemJackWasReady"
+
+    if {$audioSystemJackWasReady &&
+        $audioSystemRunningDevice ne "unknown" &&
+        $audioSystemRunningDevice ne $audioSystemDevice} {
+        set audioSystemJackdCommand ""
+        if {[dict exists $audioSystemRuntime jackdCommand]} {
+            set audioSystemJackdCommand [dict get $audioSystemRuntime jackdCommand]
+        }
+        puts stderr "audio-system: existing JACK server is using $audioSystemRunningDevice; selected device $audioSystemDevice will not be applied until JACK restarts"
+        Claim the audio system has warning "JACK was already running with a different device" with \
+            selectedDevice $audioSystemDevice \
+            runningDevice $audioSystemRunningDevice \
+            jackdCommand $audioSystemJackdCommand
+    }
+
+    Claim the audio system has JACK ready with {*}$audioSystemRuntime
+    audioSystemConnectJackPorts
+} else {
+    puts stderr "audio-system: JACK did not become ready; selected device was $audioSystemDevice ($audioSystemReason)"
+    Claim the audio system has error "JACK did not become ready" with \
+        device $audioSystemDevice \
+        reason $audioSystemReason \
+        log $audioSystemJackLog
+}

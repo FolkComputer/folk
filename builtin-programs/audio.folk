@@ -1,5 +1,5 @@
-# Provides WAV, FLAC, and MP3 file playback using the miniaudio library. Requires
-# ALSA, PulseAudio, or JACK drivers.
+# Provides WAV, FLAC, and MP3 file playback using the miniaudio library.
+# Linux uses JACK as the shared audio runtime.
 #
 # See https://miniaud.io/. We are using Miniaudio v0.11.23.
 #
@@ -13,34 +13,64 @@
 #
 #    Wish to play audio /home/folk/sounds/drums.wav
 
-set cc [C]
-$cc cflags -I./vendor/miniaudio
+set audioBackend jack
+if {[info exists ::env(FOLK_AUDIO_BACKEND)]} {
+    set audioBackend [string tolower $::env(FOLK_AUDIO_BACKEND)]
+}
+set audioNeedsJack [expr {$::tcl_platform(os) ne "Darwin" && $audioBackend ne "direct"}]
 
-if {![catch {exec which sclang}]} {
-    # HACK: We're running msuic.folk and therefore are running JACK,
-    # so we should force miniaudio to not use ALSA directly (because
-    # that won't work).
-    $cc code {
-        #define MA_NO_ALSA
-        #define MA_NO_PULSEAUDIO
+fn audioFolkReclaimExisting {audioLib} {
+    if {![info exists ::folkAudioReady] || !$::folkAudioReady} {
+        return
+    }
+
+    Claim the audio library is $audioLib
+    Claim the audio library has status ready $::folkAudioReady \
+        backend $::folkAudioBackend \
+        jackRequired $::folkAudioRequiresJack \
+        jackBackend $::folkAudioJackBackend
+
+    if {$::folkAudioRequiresJack} {
+        Claim the audio library is ready with backend $::folkAudioBackend jack $::folkAudioJackOpts
+    } else {
+        Claim the audio library is ready with backend $::folkAudioBackend
     }
 }
-$cc code {
-   #define MINIAUDIO_IMPLEMENTATION
+
+set audioFolkNeedsCompile true
+if {[info exists ::folkAudioLib] && [llength [info commands $::folkAudioLib]] > 0} {
+    set audioFolkNeedsCompile false
+    set audioLib $::folkAudioLib
+    audioFolkReclaimExisting $audioLib
 }
 
-$cc include <pthread.h>
-$cc include <stdio.h>
-$cc include <stdint.h>
-$cc include <stdlib.h>
-$cc include <unistd.h>
-$cc include <miniaudio.h>
+if {$audioFolkNeedsCompile} {
+    set cc [C]
+    $cc cflags -I./vendor/miniaudio
 
-if {$::tcl_platform(os) ne "Darwin"} {
-    $cc endcflags -lpthread -lm -ldl
-}
+    if {$audioNeedsJack} {
+        $cc code {
+            #define MA_NO_ALSA
+            #define MA_NO_PULSEAUDIO
+        }
+    }
+    $cc code {
+       #define MINIAUDIO_IMPLEMENTATION
+    }
 
-$cc code {
+    $cc include <pthread.h>
+    $cc include <stdio.h>
+    $cc include <stdint.h>
+    $cc include <stdlib.h>
+    $cc include <string.h>
+    $cc include <unistd.h>
+    $cc include <miniaudio.h>
+
+    if {$::tcl_platform(os) ne "Darwin"} {
+        $cc endcflags -lpthread -lm -ldl
+    }
+
+    $cc code {
     static ma_context     g_ctx;
     static ma_engine      g_engine;
     static ma_sound_group g_group;
@@ -62,6 +92,25 @@ $cc code {
     static bool            g_reaper_running  = false;
     static pthread_t       g_reaper_thr;
     static bool            g_shutdown_reaper = false;
+
+    static bool audio_debug_enabled(void) {
+        const char* debug = getenv("FOLK_AUDIO_DEBUG");
+        return debug && debug[0] && debug[0] != '0';
+    }
+
+    static const char* audio_backend_name(void) {
+        if (!g_ctx_initialized) return "uninitialized";
+        return ma_get_backend_name(g_ctx.backend);
+    }
+
+    static bool audio_backend_is_jack(void) {
+        const char* name = audio_backend_name();
+        return strcmp(name, "JACK") == 0 || strcmp(name, "jack") == 0;
+    }
+
+    static bool audio_ready(void) {
+        return g_engine_initialized && g_engine_started && g_group_initialized;
+    }
 
     /* Maintains linked list of active sounds */
     static bool registry_add(ma_sound* snd) {
@@ -239,9 +288,86 @@ $cc code {
 
         return true;
     }
-}
+    }
 
-$cc proc audioInit {} bool {
+    $cc proc getEngine {} ma_engine* {
+    return &g_engine;
+    }
+
+    $cc proc videoAudioInit {ma_engine* engine void* playerBase void* soundOut void* vtablePtr} bool {
+    if (!audio_ready()) {
+        FOLK_ERROR("miniaudio: videoAudioInit called before audio engine ready\n");
+        return false;
+    }
+
+    if (engine != &g_engine) {
+        FOLK_ERROR("miniaudio: videoAudioInit called with unexpected engine pointer\n");
+        return false;
+    }
+
+    ma_data_source_config dsConfig = ma_data_source_config_init();
+    dsConfig.vtable = (const ma_data_source_vtable*)vtablePtr;
+
+    ma_result r = ma_data_source_init(&dsConfig, (ma_data_source*)playerBase);
+    if (r != MA_SUCCESS) {
+        FOLK_ERROR("miniaudio: videoAudioInit data source init failed: %s (%d)\n",
+                   ma_result_description(r), (int)r);
+        return false;
+    }
+
+    r = ma_sound_init_from_data_source(engine,
+                                       (ma_data_source*)playerBase,
+                                       MA_SOUND_FLAG_NO_SPATIALIZATION,
+                                       &g_group,
+                                       (ma_sound*)soundOut);
+    if (r != MA_SUCCESS) {
+        FOLK_ERROR("miniaudio: videoAudioInit sound init failed: %s (%d)\n",
+                   ma_result_description(r), (int)r);
+        ma_data_source_uninit((ma_data_source*)playerBase);
+        return false;
+    }
+
+    r = ma_sound_start((ma_sound*)soundOut);
+    if (r != MA_SUCCESS) {
+        FOLK_ERROR("miniaudio: videoAudioInit sound start failed: %s (%d)\n",
+                   ma_result_description(r), (int)r);
+        ma_sound_uninit((ma_sound*)soundOut);
+        ma_data_source_uninit((ma_data_source*)playerBase);
+        return false;
+    }
+
+    return true;
+    }
+
+    $cc proc videoAudioUninit {void* soundPtr void* playerBasePtr} void {
+    if (soundPtr) {
+        ma_sound_set_volume((ma_sound*)soundPtr, 0.0f);
+        ma_sound_stop((ma_sound*)soundPtr);
+        ma_sound_uninit((ma_sound*)soundPtr);
+    }
+    if (playerBasePtr) {
+        ma_data_source_uninit((ma_data_source*)playerBasePtr);
+    }
+    }
+
+    $cc proc videoAudioSetVolume {void* soundPtr double volume} void {
+    if (!soundPtr) return;
+    ma_sound_set_volume((ma_sound*)soundPtr, (float)volume);
+    }
+
+    $cc proc getBackendName {} char* {
+    return (char*)audio_backend_name();
+    }
+
+    $cc proc isJackBackend {} bool {
+    return audio_backend_is_jack();
+    }
+
+    $cc proc isAudioReady {} bool {
+    return audio_ready();
+    }
+
+    $cc proc audioInit {} bool {
     pthread_mutex_lock(&g_state_mtx);
     bool success = audio_init_impl();
     pthread_mutex_unlock(&g_state_mtx);
@@ -252,9 +378,9 @@ $cc proc audioInit {} bool {
 
     FOLK_ERROR("miniaudio: audio init failed\n");
     return false;
-}
+    }
 
-$cc proc audioStop {ma_sound* target} void {
+    $cc proc audioStop {ma_sound* target} void {
     SoundNode* to_free = NULL;
     ma_sound* snd = NULL;
 
@@ -291,13 +417,14 @@ $cc proc audioStop {ma_sound* target} void {
     }
 
     free(to_free);
-}
+    }
 
-$cc proc playSound {char* path} ma_sound* {
+    $cc proc playSound {char* path} ma_sound* {
     ma_sound* snd = (ma_sound*)malloc(sizeof *snd);
 
     if (!snd) {
         FOLK_ERROR("miniaudio: playSound: alloc sound failed\n");
+        return NULL;
     }
 
     ma_result r = ma_sound_init_from_file(&g_engine,
@@ -314,6 +441,7 @@ $cc proc playSound {char* path} ma_sound* {
                    path,
                    ma_result_description(r),
                    (int)r);
+        return NULL;
     }
 
     r = ma_sound_start(snd);
@@ -326,6 +454,7 @@ $cc proc playSound {char* path} ma_sound* {
                    path,
                    ma_result_description(r),
                    (int)r);
+        return NULL;
     }
 
     if (!registry_add(snd)) {
@@ -334,24 +463,92 @@ $cc proc playSound {char* path} ma_sound* {
         free(snd);
 
         FOLK_ERROR("miniaudio: playSound: registry add failed for %s\n", path);
+        return NULL;
     }
 
-    fprintf(stderr, "miniaudio: playing %s\n", path);
+    if (audio_debug_enabled()) {
+        fprintf(stderr, "miniaudio: playing %s\n", path);
+    }
     return snd;
-}
+    }
 
-try {
-    set audioLib [$cc compile]
-    set success [$audioLib audioInit]
+    fn audioFolkClaimReady {audioLib requiresJack {jackOpts ""}} {
+    set backend [$audioLib getBackendName]
+    set ready [$audioLib isAudioReady]
+    set jackBackend [$audioLib isJackBackend]
 
-    if {!$success} {
-        puts stderr "audio: init failed"
-        return
+    set ::folkAudioLib $audioLib
+    set ::folkAudioReady $ready
+    set ::folkAudioBackend $backend
+    set ::folkAudioRequiresJack $requiresJack
+    set ::folkAudioJackBackend $jackBackend
+    set ::folkAudioJackOpts $jackOpts
+
+    Claim the audio library has status ready $ready backend $backend jackRequired $requiresJack jackBackend $jackBackend
+
+    if {!$ready} {
+        puts stderr "audio: init returned before miniaudio engine became ready (backend=$backend)"
+        Claim the audio library has error "miniaudio engine is not ready" with backend $backend jackRequired $requiresJack
+        return false
+    }
+
+    if {$requiresJack && !$jackBackend} {
+        puts stderr "audio: expected JACK backend but miniaudio initialized with $backend"
+        Claim the audio library has error "miniaudio backend is not JACK" with backend $backend requiredBackend JACK
+        return false
     }
 
     Claim the audio library is $audioLib
-} on error e {
-    puts stderr "audio: compile failed: $e"
+    if {$requiresJack} {
+        Claim the audio library is ready with backend $backend jack $jackOpts
+    } else {
+        Claim the audio library is ready with backend $backend
+    }
+    return true
+    }
+
+    try {
+        set audioLib [$cc compile]
+        set ::folkAudioLib $audioLib
+        set ::folkAudioReady false
+
+        if {!$audioNeedsJack} {
+            set success [$audioLib audioInit]
+
+            if {!$success} {
+                puts stderr "audio: init failed"
+                Claim the audio library has error "miniaudio init failed" with jackRequired $audioNeedsJack
+                return
+            }
+
+            audioFolkClaimReady $audioLib false
+        } else {
+            set ::audioFolkInitialized false
+
+            When the audio system has JACK ready with /...jackOpts/ {
+                if {[info exists ::audioFolkInitialized] && $::audioFolkInitialized} {
+                    return
+                }
+
+                set success [$audioLib audioInit]
+                if {!$success} {
+                    puts stderr "audio: init failed after JACK became ready"
+                    Claim the audio library has error "miniaudio init failed after JACK became ready" with jack $jackOpts
+                    return
+                }
+
+                if {[audioFolkClaimReady $audioLib true $jackOpts]} {
+                    set ::audioFolkInitialized true
+                }
+            }
+
+            When the audio system has error /err/ with /...opts/ {
+                puts stderr "audio: disabled because audio-system failed: $err"
+            }
+        }
+    } on error e {
+        puts stderr "audio: compile failed: $e"
+    }
 }
 
 When the audio library is /audioLib/ &\
