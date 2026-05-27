@@ -24,49 +24,54 @@ When $rect has quad /quad/ {
         ::math::linearalgebra::scale
 
     fn quadChange
-    set scale $l
 
     set quad [quadChange $quad "display $disp"]
     lassign [$quadLib vertices $quad] topLeft topRight bottomRight bottomLeft
     if {$direction eq "up"} {
         set topCenter [scale 0.5 [add $topLeft $topRight]]
         set bottomCenter [scale 0.5 [add $bottomLeft $bottomRight]]
-        set up [scale $scale [sub $topCenter $bottomCenter]]
+        set rawDir [sub $topCenter $bottomCenter]
 
         set from $topCenter
-        set to [add $topCenter $up]
         set color blue
 
     } elseif {$direction eq "left"} {
         set leftCenter [scale 0.5 [add $topLeft $bottomLeft]]
         set rightCenter [scale 0.5 [add $topRight $bottomRight]]
-        set left [scale $scale [sub $leftCenter $rightCenter]]
+        set rawDir [sub $leftCenter $rightCenter]
 
         set from $leftCenter
-        set to [add $leftCenter $left]
         set color gold
 
     } elseif {$direction eq "right"} {
         set leftCenter [scale 0.5 [add $topLeft $bottomLeft]]
         set rightCenter [scale 0.5 [add $topRight $bottomRight]]
-        set right [scale $scale [sub $rightCenter $leftCenter]]
+        set rawDir [sub $rightCenter $leftCenter]
 
         set from $rightCenter
-        set to [add $rightCenter $right]
         set color red
 
     } elseif {$direction eq "down"} {
         set topCenter [scale 0.5 [add $topLeft $topRight]]
         set bottomCenter [scale 0.5 [add $bottomLeft $bottomRight]]
-        set down [scale $scale [sub $bottomCenter $topCenter]]
+        set rawDir [sub $bottomCenter $topCenter]
 
         set from $bottomCenter
-        set to [add $bottomCenter $down]
-        set color white
-
+        set color magenta
     } else {
         error "points-at: Invalid direction $direction"
     }
+
+    set dirNorm [::math::linearalgebra::norm $rawDir]
+    if {[string is double -strict $l]} {
+        set scaleMultiplier $l
+    } else {
+        set absLength [drawPhysicalLength $l]
+        set scaleMultiplier [expr {$absLength / $dirNorm}]
+    }
+
+    set dirVector [scale $scaleMultiplier $rawDir]
+    set to [add $from $dirVector]
 
     # HACK: This implementation is sort of inelegant in that it
     # happens entirely in screen-space, because we need to draw right

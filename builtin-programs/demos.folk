@@ -44,3 +44,17 @@ Claim 45008 has demo code {
     Wish $this displays camera slice $slice
     }
 }
+
+When /someone/ wishes /program/ runs demo code from /filename/ {
+    Hold! -key "active-demo-$program" Claim $program running demo code from $filename
+    Destructor {
+        Hold! -key "active-demo-$program"
+    }
+}
+
+When /program/ running demo code from /filename/ {
+    When $filename has demo code /code/ {
+        set this $program
+        eval $code
+    }
+}
