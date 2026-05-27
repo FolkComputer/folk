@@ -1,0 +1,99 @@
+# test/video-audio-readiness.folk
+# Unmuted video wishes should play muted until audio hooks are ready.
+
+fn mockTextureLib {method args} {
+    return ""
+}
+
+Assert! the GPU texture library is [fn mockTextureLib]
+
+source "builtin-programs/image/image-lib.folk"
+source "builtin-programs/video/video-lib.folk"
+source "builtin-programs/video/video.folk"
+source "test/lib/video-fake-audio-hooks.folk"
+
+set ::videoAudioReadinessPage video-audio-readiness-page
+set ::videoAudioReadinessTarget video-audio-readiness-target
+set ::videoAudioReadinessVideoLib ""
+set ::videoAudioReadinessStarted false
+set ::videoAudioReadinessStage fallback
+set ::videoAudioReadinessAttempts 0
+
+proc videoAudioReadinessFail {message} {
+    puts $::realStderr "--- VIDEO AUDIO READINESS TEST FAILED: $message ---"
+    flush stderr
+    Exit! 1
+}
+
+proc videoAudioReadinessAttachHooks {} {
+    videoTestAttachFakeAudioHooks $::videoAudioReadinessVideoLib fake-audio-readiness
+}
+
+proc videoAudioReadinessMuteState {rows} {
+    set sawMuted false
+    set sawUnmuted false
+    foreach row $rows {
+        if {[dict getdef [dict get $row options] mute false]} {
+            set sawMuted true
+        } else {
+            set sawUnmuted true
+        }
+    }
+    return [list $sawMuted $sawUnmuted]
+}
+
+proc videoAudioReadinessPoll {} {
+    if {$::videoAudioReadinessAttempts > 800} {
+        videoAudioReadinessFail "Timeout in $::videoAudioReadinessStage stage"
+    }
+    incr ::videoAudioReadinessAttempts
+
+    lassign [videoAudioReadinessMuteState \
+        [Query! /any/ wishes video playback $::videoAudioReadinessPage /path/ with /...options/]] \
+        pageMuted pageUnmuted
+    lassign [videoAudioReadinessMuteState \
+        [Query! /any/ wishes video display playback /path/ beside $::videoAudioReadinessTarget right with /...options/]] \
+        offsideMuted offsideUnmuted
+
+    if {$::videoAudioReadinessStage eq "fallback"} {
+        if {$pageMuted && !$pageUnmuted && $offsideMuted && !$offsideUnmuted} {
+            set ::videoAudioReadinessStage hooks
+            set ::videoAudioReadinessAttempts 0
+            videoAudioReadinessAttachHooks
+        }
+    } elseif {$::videoAudioReadinessStage eq "hooks"} {
+        if {$pageUnmuted && !$pageMuted && $offsideUnmuted && !$offsideMuted} {
+            puts $::realStderr "--- VIDEO AUDIO READINESS TEST SUCCESS: fallback wishes switched to audio-ready playback ---"
+            flush stderr
+            Exit! 0
+        }
+    }
+
+    after 5 videoAudioReadinessPoll
+}
+
+proc startVideoAudioReadinessTest {} {
+    if {$::videoAudioReadinessStarted} { return }
+
+    set videoRows [Query! the video library is /videoLib/]
+    if {[llength $videoRows] == 0} {
+        after 5 startVideoAudioReadinessTest
+        return
+    }
+
+    set ::videoAudioReadinessStarted true
+    set ::videoAudioReadinessVideoLib [dict get [lindex $videoRows 0] videoLib]
+    Hold! -on video-audio-readiness-test -key page-video-wish \
+        Wish $::videoAudioReadinessPage plays video "test/test.mp4" with width 10cm mute false loop true
+    Hold! -on video-audio-readiness-test -key offside-video-wish \
+        Wish to display a video right of $::videoAudioReadinessTarget "test/test.mp4" with width 10cm mute false loop true
+    after 0 videoAudioReadinessPoll
+}
+
+after 0 startVideoAudioReadinessTest
+
+after 60000 {
+    videoAudioReadinessFail "Timeout"
+}
+
+vwait forever

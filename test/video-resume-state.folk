@@ -1,0 +1,135 @@
+# test/video-resume-state.folk
+# Video playback resumes by default after its wish unmatches and rematches.
+
+fn mockTextureLib {method args} {
+    return ""
+}
+
+fn mockImageLib {method args} {
+    if {$method eq "Image_width"} {
+        return 0
+    }
+    return ""
+}
+
+set videoResumeC [C]
+$videoResumeC include <stdint.h>
+$videoResumeC code {
+    static int g_open_count = 0;
+    static int g_close_count = 0;
+    static int g_seek_count = 0;
+    static double g_last_seek = -1.0;
+}
+$videoResumeC proc openVideo {char* filename bool loop bool mute} void* {
+    g_open_count++;
+    return (void*)(intptr_t)(g_open_count + 1);
+}
+$videoResumeC proc getVideoWidth {void* player} int {
+    return 1920;
+}
+$videoResumeC proc getVideoHeight {void* player} int {
+    return 1080;
+}
+$videoResumeC proc getNextFrame {void* player} void* {
+    return NULL;
+}
+$videoResumeC proc getPlaybackPosition {void* player} double {
+    return 12.5;
+}
+$videoResumeC proc seekVideo {void* player double seconds} void {
+    g_seek_count++;
+    g_last_seek = seconds;
+}
+$videoResumeC proc setAudioMuted {void* player bool muted} void {
+}
+$videoResumeC proc closeVideo {void* player} void {
+    g_close_count++;
+}
+$videoResumeC proc getOpenCount {} int {
+    return g_open_count;
+}
+$videoResumeC proc getCloseCount {} int {
+    return g_close_count;
+}
+$videoResumeC proc getSeekCount {} int {
+    return g_seek_count;
+}
+$videoResumeC proc getLastSeek {} double {
+    return g_last_seek;
+}
+set ::videoResumeLib [$videoResumeC compile]
+
+Assert! the video library is $::videoResumeLib
+Assert! the GPU texture library is [fn mockTextureLib]
+Assert! the image library is [fn mockImageLib]
+
+source "builtin-programs/video/video.folk"
+
+set ::videoResumePage video-resume-state-page
+set ::videoResumeCanvas video-resume-state-canvas
+set ::videoResumeAttempts 0
+set ::videoResumeStage first-open
+
+Assert! $::videoResumePage has resolved geometry [list width 1.0 height 1.0]
+Assert! $::videoResumePage has canvas projection [list [list 2.0 0.0 -1.0] [list 0.0 2.0 -1.0] [list 0.0 0.0 1.0]]
+Assert! $::videoResumePage has canvas $::videoResumeCanvas with width 1920 height 1080
+
+proc videoResumeFail {message} {
+    puts $::realStderr "stage=$::videoResumeStage opens=[$::videoResumeLib getOpenCount] closes=[$::videoResumeLib getCloseCount] seeks=[$::videoResumeLib getSeekCount]"
+    puts $::realStderr "page wishes: [Query! /any/ wishes $::videoResumePage plays video /path/ with /...options/]"
+    puts $::realStderr "playback wishes: [Query! /any/ wishes video playback $::videoResumePage /path/ with /...options/]"
+    puts $::realStderr "resume rows: [Query! video playback resume key /key/ has position /position/]"
+    puts $::realStderr "--- VIDEO RESUME STATE TEST FAILED: $message ---"
+    flush stderr
+    Exit! 1
+}
+
+proc videoResumeHoldWish {} {
+    Hold! -on video-resume-state-test -key video-wish \
+        Wish $::videoResumePage plays video "test/test.mp4" with width 10cm mute true loop true
+}
+
+proc videoResumePoll {} {
+    if {$::videoResumeAttempts > 800} {
+        videoResumeFail "Timeout in $::videoResumeStage"
+    }
+    incr ::videoResumeAttempts
+
+    set opens [$::videoResumeLib getOpenCount]
+    set closes [$::videoResumeLib getCloseCount]
+    set seeks [$::videoResumeLib getSeekCount]
+
+    if {$::videoResumeStage eq "first-open"} {
+        if {$opens >= 1} {
+            set ::videoResumeStage first-close
+            set ::videoResumeAttempts 0
+            Hold! -on video-resume-state-test -key video-wish {}
+        }
+    } elseif {$::videoResumeStage eq "first-close"} {
+        if {$closes >= 1} {
+            set ::videoResumeStage second-open
+            set ::videoResumeAttempts 0
+            after 20 videoResumeHoldWish
+        }
+    } elseif {$::videoResumeStage eq "second-open"} {
+        if {$opens >= 2 && $seeks >= 1} {
+            set seek [$::videoResumeLib getLastSeek]
+            if {abs($seek - 12.5) > 0.000001} {
+                videoResumeFail "expected seek to 12.5, got $seek"
+            }
+            puts $::realStderr "--- VIDEO RESUME STATE TEST SUCCESS: rematched video resumed at $seek seconds ---"
+            flush stderr
+            Exit! 0
+        }
+    }
+
+    after 5 videoResumePoll
+}
+
+videoResumeHoldWish
+after 0 videoResumePoll
+after 10000 {
+    videoResumeFail "Timeout"
+}
+
+vwait forever

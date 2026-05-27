@@ -1,0 +1,95 @@
+# test/video-texture.folk
+# Headless smoke test for updating a persistent texture and emitting a draw wish.
+
+source "builtin-programs/image/image-lib.folk"
+
+set ::videoTextureCopies 0
+set ::videoTextureUpdates 0
+set ::videoTextureStarted false
+set ::videoTextureAttempts 0
+
+fn mockTextureLib {method args} {
+    switch -- $method {
+        copyImageToGpuTexture {
+            incr ::videoTextureCopies
+            return "mock-video-texture"
+        }
+        updateGpuTexture {
+            incr ::videoTextureUpdates
+            return ""
+        }
+        freeGpuTexture {
+            return ""
+        }
+    }
+    return ""
+}
+
+set ::videoTextureLib [fn mockTextureLib]
+
+Assert! the GPU texture library is $::videoTextureLib
+Assert! test-video-texture has canvas projection \
+    [list [list 1.0 0.0 0.0] [list 0.0 1.0 0.0] [list 0.0 0.0 1.0]]
+Assert! test-video-texture has canvas "virtual-video-canvas" with width 1920 height 1080
+
+proc videoTextureFail {message} {
+    puts $::realStderr "--- VIDEO TEXTURE TEST FAILED: $message ---"
+    flush stderr
+    Exit! 1
+}
+
+proc runVideoTextureTest {} {
+    if {$::videoTextureStarted} { return }
+
+    set imageRows [Query! the image library is /imageLib/]
+    set textureRows [Query! the GPU texture library is /gpuTexLib/]
+    set projectionRows [Query! test-video-texture has canvas projection /surfaceToClip/]
+    set canvasRows [Query! test-video-texture has canvas /id/ with /...wiOptions/]
+    if {[llength $imageRows] == 0 || [llength $textureRows] == 0 ||
+        [llength $projectionRows] == 0 || [llength $canvasRows] == 0} {
+        if {$::videoTextureAttempts > 400} {
+            videoTextureFail "test fixtures did not load"
+        }
+        incr ::videoTextureAttempts
+        after 5 runVideoTextureTest
+        return
+    }
+
+    set ::videoTextureStarted true
+
+    set imageLib [dict get [lindex $imageRows 0] imageLib]
+    set gpuTexLib [dict get [lindex $textureRows 0] gpuTexLib]
+    set surfaceToClip [dict get [lindex $projectionRows 0] surfaceToClip]
+    set canvasRow [lindex $canvasRows 0]
+    set id [dict get $canvasRow id]
+    set wiOptions [dict get $canvasRow wiOptions]
+    set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
+
+    set cpuBuffer [$imageLib imageNew 64 64 4 0]
+    set gpuHandle [{*}$gpuTexLib copyImageToGpuTexture $cpuBuffer]
+    {*}$gpuTexLib updateGpuTexture $gpuHandle $cpuBuffer
+    $imageLib imageFree $cpuBuffer
+
+    Wish the GPU draws pipeline "image" onto canvas $id with arguments \
+        [list $wiResolution $surfaceToClip $gpuHandle \
+             [list 300 300] [list 700 300] [list 700 700] [list 300 700]]
+
+    if {$::videoTextureCopies != 1} {
+        videoTextureFail "expected one texture copy, saw $::videoTextureCopies"
+    }
+    if {$::videoTextureUpdates != 1} {
+        videoTextureFail "expected one texture update, saw $::videoTextureUpdates"
+    }
+
+    puts $::realStderr "--- VIDEO TEXTURE TEST SUCCESS: persistent texture updated and draw wish emitted ---"
+    flush stderr
+    Exit! 0
+}
+
+after 0 runVideoTextureTest
+
+after 10000 {
+    videoTextureFail "Timeout waiting for image draw"
+}
+
+vwait forever

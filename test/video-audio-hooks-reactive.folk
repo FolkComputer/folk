@@ -1,0 +1,118 @@
+# test/video-audio-hooks-reactive.folk
+# Unmuted high-level video should restart with audio when hooks appear later.
+
+fn mockTextureLib {method args} {
+    switch -- $method {
+        copyImageToGpuTexture {
+            return "mock-gtex-audio-hooks"
+        }
+        updateGpuTexture -
+        freeGpuTexture {
+            return ""
+        }
+    }
+    return ""
+}
+
+Assert! the GPU texture library is [fn mockTextureLib]
+
+source "builtin-programs/image/image-lib.folk"
+source "builtin-programs/video/video-lib.folk"
+source "builtin-programs/video/video.folk"
+source "test/lib/video-clock.folk"
+source "test/lib/video-fake-audio-hooks.folk"
+
+set ::videoAudioHooksPage video-audio-hooks-reactive-test
+set ::videoAudioHooksCanvas video-audio-hooks-reactive-canvas
+set ::videoAudioHooksVideoLib ""
+set ::videoAudioHooksStarted false
+set ::videoAudioHooksAttached false
+set ::videoAudioHooksFallbackPlayer ""
+set ::videoAudioHooksAttempts 0
+
+Assert! $::videoAudioHooksPage has resolved geometry [list width 1.0 height 1.0]
+Assert! $::videoAudioHooksPage has canvas projection [list [list 2.0 0.0 -1.0] [list 0.0 2.0 -1.0] [list 0.0 0.0 1.0]]
+Assert! $::videoAudioHooksPage has canvas $::videoAudioHooksCanvas with width 1920 height 1080
+
+proc videoAudioHooksFail {message} {
+    puts $::realStderr "--- VIDEO AUDIO HOOKS REACTIVE TEST FAILED: $message ---"
+    flush stderr
+    Exit! 1
+}
+
+proc attachFakeVideoAudioHooks {} {
+    videoTestAttachFakeAudioHooks $::videoAudioHooksVideoLib fake-audio
+}
+
+proc pollVideoAudioHooks {} {
+    if {$::videoAudioHooksAttempts > 800} {
+        videoAudioHooksFail "Timeout waiting for audio hook restart"
+    }
+    incr ::videoAudioHooksAttempts
+
+    set rows [Query! video player /player/ has texture /gtex/]
+    foreach row $rows {
+        set player [dict get $row player]
+        set audioEnabled [$::videoAudioHooksVideoLib getAudioEnabled $player]
+
+        if {!$::videoAudioHooksAttached} {
+            if {!$audioEnabled} {
+                set ::videoAudioHooksFallbackPlayer $player
+                set ::videoAudioHooksAttached true
+                attachFakeVideoAudioHooks
+            }
+        }
+    }
+
+    if {$::videoAudioHooksAttached} {
+        set fallbackStillPresent false
+        foreach row $rows {
+            if {[dict get $row player] eq $::videoAudioHooksFallbackPlayer} {
+                set fallbackStillPresent true
+            }
+        }
+
+        set sawUnmutedPlayback false
+        set sawMutedFallback false
+        foreach row [Query! /any/ wishes video playback $::videoAudioHooksPage /path/ with /...options/] {
+            if {[dict getdef [dict get $row options] mute false]} {
+                set sawMutedFallback true
+            } else {
+                set sawUnmutedPlayback true
+            }
+        }
+
+        if {$sawUnmutedPlayback && !$sawMutedFallback && !$fallbackStillPresent} {
+            puts $::realStderr "--- VIDEO AUDIO HOOKS REACTIVE TEST SUCCESS: unmuted playback replaced fallback ---"
+            flush stderr
+            Exit! 0
+        }
+    }
+
+    after 5 pollVideoAudioHooks
+}
+
+proc startVideoAudioHooksReactiveTest {} {
+    if {$::videoAudioHooksStarted} { return }
+
+    set videoRows [Query! the video library is /videoLib/]
+    if {[llength $videoRows] == 0} {
+        after 5 startVideoAudioHooksReactiveTest
+        return
+    }
+
+    set ::videoAudioHooksStarted true
+    set ::videoAudioHooksVideoLib [dict get [lindex $videoRows 0] videoLib]
+    Hold! -on video-audio-hooks-reactive-test -key video-wish \
+        Wish $::videoAudioHooksPage plays video "test/test.mp4" with width 10cm mute false loop true
+    videoTestStartClock video-audio-hooks-reactive-test
+    after 0 pollVideoAudioHooks
+}
+
+after 0 startVideoAudioHooksReactiveTest
+
+after 60000 {
+    videoAudioHooksFail "Timeout"
+}
+
+vwait forever

@@ -1,0 +1,62 @@
+# test/video-audio-hook-wait.folk
+# Unmuted video opens should wait briefly for audio hooks during startup.
+
+source "builtin-programs/image/image-lib.folk"
+source "builtin-programs/video/video-lib.folk"
+source "test/lib/video-fake-audio-hooks.folk"
+
+set ::videoAudioHookWaitStarted false
+set ::videoAudioHookWaitAttempts 0
+
+proc videoAudioHookWaitFail {message} {
+    puts $::realStderr "--- VIDEO AUDIO HOOK WAIT TEST FAILED: $message ---"
+    flush stderr
+    Exit! 1
+}
+
+proc runVideoAudioHookWaitTest {} {
+    if {$::videoAudioHookWaitStarted} { return }
+
+    set videoRows [Query! the video library is /videoLib/]
+    if {[llength $videoRows] == 0} {
+        if {$::videoAudioHookWaitAttempts > 2000} {
+            videoAudioHookWaitFail "video library did not load"
+        }
+        incr ::videoAudioHookWaitAttempts
+        after 5 runVideoAudioHookWaitTest
+        return
+    }
+
+    set ::videoAudioHookWaitStarted true
+    set videoLib [dict get [lindex $videoRows 0] videoLib]
+
+    videoTestAttachFakeAudioHooksAfterDelay $videoLib 100000
+
+    set started [clock milliseconds]
+    set player [$videoLib openVideo "test/test.mp4" true false]
+    set elapsed [expr {[clock milliseconds] - $started}]
+    if {$player == 0} {
+        videoAudioHookWaitFail "openVideo returned null"
+    }
+
+    set audioEnabled [$videoLib getAudioEnabled $player]
+    $videoLib closeVideo $player
+    if {!$audioEnabled} {
+        videoAudioHookWaitFail "audio was not enabled after delayed hooks attached"
+    }
+    if {$elapsed < 80} {
+        videoAudioHookWaitFail "openVideo did not wait for delayed hooks (elapsed=${elapsed}ms)"
+    }
+
+    puts $::realStderr "--- VIDEO AUDIO HOOK WAIT TEST SUCCESS: delayed hooks attached in ${elapsed}ms ---"
+    flush stderr
+    Exit! 0
+}
+
+after 0 runVideoAudioHookWaitTest
+
+after 60000 {
+    videoAudioHookWaitFail "Timeout"
+}
+
+vwait forever

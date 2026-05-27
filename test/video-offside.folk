@@ -1,0 +1,73 @@
+# test/video-offside.folk
+# Headless smoke test for display-relative video placement.
+
+fn mockTextureLib {method args} {
+    if {$method eq "copyImageToGpuTexture"} {
+        return "mock-gtex-offside"
+    }
+    return ""
+}
+
+fn mockQuadLib {method args} {
+    if {$method eq "vertices"} {
+        return [lindex [lindex $args 0] 1]
+    }
+    return ""
+}
+
+fn mockQuadChange {q targetSpace} {
+    return $q
+}
+
+fn mockPoseLib {method args} {
+    if {$method eq "project"} {
+        set v [lindex $args 3]
+        return [list \
+            [expr {960.0 + [lindex $v 0] * 1000.0}] \
+            [expr {540.0 + [lindex $v 1] * 1000.0}]]
+    }
+    return ""
+}
+
+Assert! the GPU library is "mock"
+Assert! the GPU draw library is "mock"
+Assert! the GPU texture library is [fn mockTextureLib]
+Assert! the quad library is [fn mockQuadLib]
+Assert! the quad changer is [fn mockQuadChange]
+Assert! the pose library is [fn mockPoseLib]
+
+source "builtin-programs/image/image-lib.folk"
+set ::env(FOLK_AUDIO_BACKEND) direct
+source "builtin-programs/audio.folk"
+source "builtin-programs/video/video-lib.folk"
+source "builtin-programs/video/video.folk"
+source "test/lib/video-clock.folk"
+
+Assert! display "video-test-display" has width 1920 height 1080
+Assert! display "video-test-display" has intrinsics {}
+Assert! video-offside-target has quad \
+    [list "display video-test-display" \
+         [list [list 0.0 0.0 0.0] \
+               [list 0.2 0.0 0.0] \
+               [list 0.2 0.1 0.0] \
+               [list 0.0 0.1 0.0]]]
+Assert! video-offside-test wishes to display a video right of video-offside-target "test/test.mp4" with mute true
+
+set startTime [clock milliseconds]
+
+When /any/ wishes the GPU draws pipeline "image" with arguments /args/ {
+    set duration [expr {[clock milliseconds] - $startTime}]
+    puts $::realStderr "--- VIDEO OFFSIDE TEST SUCCESS: GPU draw pipeline triggered in ${duration}ms ---"
+    flush stderr
+    Exit! 0
+}
+
+videoTestStartClock video-offside-test
+
+after 60000 {
+    puts $::realStderr "--- VIDEO OFFSIDE TEST FAILED: Timeout waiting for GPU draw pipeline ---"
+    flush stderr
+    Exit! 1
+}
+
+vwait forever

@@ -1,0 +1,193 @@
+source "lib/audio-system.tcl"
+
+proc audioSystemDeviceSelectionFail {message} {
+    puts $::realStderr "--- AUDIO SYSTEM DEVICE SELECTION TEST FAILED: $message ---"
+    flush stderr
+    Exit! 1
+}
+
+set aplayOutput {**** List of PLAYBACK Hardware Devices ****
+card 0: C920 [HD Pro Webcam C920], device 0: USB Audio [USB Audio]
+  Subdevices: 1/1
+card 1: PCH [HDA Intel PCH], device 0: ALC897 Analog [ALC897 Analog]
+  Subdevices: 1/1
+card 1: PCH [HDA Intel PCH], device 3: HDMI 0 [PROJECTOR]
+  Subdevices: 1/1
+card 1: PCH [HDA Intel PCH], device 7: HDMI 1 [HDMI 1]
+  Subdevices: 1/1}
+
+set selected [audioSystemSelectJackDevice $aplayOutput ""]
+if {[dict get $selected device] ne "hw:CARD=PCH,DEV=3"} {
+    audioSystemDeviceSelectionFail "expected first HDMI device, got $selected"
+}
+if {[dict get $selected reason] ne "hdmi"} {
+    audioSystemDeviceSelectionFail "expected hdmi reason, got $selected"
+}
+
+set selected [audioSystemSelectJackDevice $aplayOutput "hw:CARD=Manual,DEV=2"]
+if {[dict get $selected device] ne "hw:CARD=Manual,DEV=2"} {
+    audioSystemDeviceSelectionFail "expected manual override, got $selected"
+}
+if {[dict get $selected reason] ne "override"} {
+    audioSystemDeviceSelectionFail "expected override reason, got $selected"
+}
+
+set selected [audioSystemSelectJackDevice {card 2: Generic [HD-Audio Generic], device 1: HDMI 0 [HDMI 0]} ""]
+if {[dict get $selected device] ne "hw:CARD=Generic,DEV=1"} {
+    audioSystemDeviceSelectionFail "expected first HDMI fallback, got $selected"
+}
+if {[dict get $selected reason] ne "hdmi"} {
+    audioSystemDeviceSelectionFail "expected hdmi reason, got $selected"
+}
+
+set multiHdmiAplayOutput {**** List of PLAYBACK Hardware Devices ****
+card 0: Generic [HD-Audio Generic], device 3: HDMI 0 [HDMI 0]
+  Subdevices: 0/1
+card 0: Generic [HD-Audio Generic], device 7: HDMI 1 [HDMI 1]
+  Subdevices: 1/1
+card 0: Generic [HD-Audio Generic], device 8: HDMI 2 [HDMI 2]
+  Subdevices: 1/1
+card 0: Generic [HD-Audio Generic], device 9: HDMI 3 [HDMI 3]
+  Subdevices: 1/1}
+
+set multiHdmiElds [dict create 0 [list \
+    [dict create eldMonitorPresent 0 eldValid 0 eldMonitorName ""] \
+    [dict create eldMonitorPresent 1 eldValid 1 eldMonitorName "Living Room Display"] \
+    [dict create eldMonitorPresent 0 eldValid 0 eldMonitorName ""] \
+    [dict create eldMonitorPresent 0 eldValid 0 eldMonitorName ""]]]
+
+set selected [audioSystemSelectJackDevice $multiHdmiAplayOutput "" $multiHdmiElds]
+if {[dict get $selected device] ne "hw:CARD=Generic,DEV=7"} {
+    audioSystemDeviceSelectionFail "expected connected HDMI device, got $selected"
+}
+if {[dict get $selected reason] ne "connected-hdmi"} {
+    audioSystemDeviceSelectionFail "expected connected-hdmi reason, got $selected"
+}
+if {![dict get $selected eldMonitorPresent] || ![dict get $selected eldValid] || [dict get $selected eldMonitorName] ne "Living Room Display"} {
+    audioSystemDeviceSelectionFail "expected connected display ELD metadata, got $selected"
+}
+
+set brandNameAplayOutput {**** List of PLAYBACK Hardware Devices ****
+card 0: Generic [HD-Audio Generic], device 3: HDMI 0 [HDMI 0]
+  Subdevices: 0/1
+card 0: Generic [HD-Audio Generic], device 7: HDMI 1 [JMGO]
+  Subdevices: 1/1}
+
+set brandNameElds [dict create 0 [list \
+    [dict create eldMonitorPresent 1 eldValid 1 eldMonitorName ""] \
+    [dict create eldMonitorPresent 0 eldValid 0 eldMonitorName JMGO]]]
+
+set selected [audioSystemSelectJackDevice $brandNameAplayOutput "" $brandNameElds]
+if {[dict get $selected device] ne "hw:CARD=Generic,DEV=3"} {
+    audioSystemDeviceSelectionFail "expected connected HDMI to beat brand-named disconnected HDMI, got $selected"
+}
+if {[dict get $selected reason] ne "connected-hdmi"} {
+    audioSystemDeviceSelectionFail "expected connected-hdmi reason for brand-name test, got $selected"
+}
+
+set noEldAplayOutput {**** List of PLAYBACK Hardware Devices ****
+card 0: Generic [HD-Audio Generic], device 3: HDMI 0 [HDMI 0]
+  Subdevices: 0/1
+card 0: Generic [HD-Audio Generic], device 7: HDMI 1 [HDMI 1]
+  Subdevices: 1/1}
+
+set selected [audioSystemSelectJackDevice $noEldAplayOutput ""]
+if {[dict get $selected device] ne "hw:CARD=Generic,DEV=3"} {
+    audioSystemDeviceSelectionFail "expected first HDMI when no ELD is available, got $selected"
+}
+if {[dict get $selected reason] ne "hdmi"} {
+    audioSystemDeviceSelectionFail "expected hdmi reason when no ELD is available, got $selected"
+}
+
+set analogAplayOutput {**** List of PLAYBACK Hardware Devices ****
+card 1: PCH [HDA Intel PCH], device 0: ALC897 Analog [ALC897 Analog]
+  Subdevices: 1/1
+card 2: USB [USB Audio], device 0: USB Audio [USB Audio]
+  Subdevices: 1/1}
+
+set selected [audioSystemSelectJackDevice $analogAplayOutput ""]
+if {[dict get $selected device] ne "hw:CARD=PCH,DEV=0"} {
+    audioSystemDeviceSelectionFail "expected analog device to beat first playback fallback, got $selected"
+}
+if {[dict get $selected reason] ne "analog"} {
+    audioSystemDeviceSelectionFail "expected analog reason, got $selected"
+}
+
+set selected [audioSystemSelectJackDevice "" ""]
+if {[dict get $selected device] ne "default"} {
+    audioSystemDeviceSelectionFail "expected default fallback, got $selected"
+}
+if {[dict get $selected reason] ne "fallback-default"} {
+    audioSystemDeviceSelectionFail "expected fallback-default reason, got $selected"
+}
+
+set parsed [audioSystemParseJackdArgs {jackd -d alsa -d hdmi:CARD=NVidia -r 48000 -p 1024 -n 2}]
+foreach {key expected} {
+    driver alsa
+    device hdmi:CARD=NVidia
+    sampleRate 48000
+    periodSize 1024
+    periods 2
+} {
+    if {![dict exists $parsed $key] || [dict get $parsed $key] ne $expected} {
+        audioSystemDeviceSelectionFail "expected jackd $key=$expected, got $parsed"
+    }
+}
+
+set parsed [audioSystemParseJackdArgs {jackd -P70 -dalsa -dhw:CARD=PCH,DEV=3 -r48000 -p512 -n3}]
+foreach {key expected} {
+    driver alsa
+    device hw:CARD=PCH,DEV=3
+    sampleRate 48000
+    periodSize 512
+    periods 3
+} {
+    if {![dict exists $parsed $key] || [dict get $parsed $key] ne $expected} {
+        audioSystemDeviceSelectionFail "expected attached jackd $key=$expected, got $parsed"
+    }
+}
+
+proc audioSystemAssertJackPlan {plan expectedConnect expectedDisconnect message} {
+    if {[dict get $plan connect] ne $expectedConnect} {
+        audioSystemDeviceSelectionFail "$message: expected connect $expectedConnect, got [dict get $plan connect]"
+    }
+    if {[dict get $plan disconnect] ne $expectedDisconnect} {
+        audioSystemDeviceSelectionFail "$message: expected disconnect $expectedDisconnect, got [dict get $plan disconnect]"
+    }
+}
+
+set directPorts {
+    miniaudio:playback0 miniaudio:playback1
+    system:playback_1 system:playback_2
+}
+audioSystemAssertJackPlan \
+    [audioSystemJackConnectionPlan $directPorts miniaudio:playback0 miniaudio:playback1] \
+    {{miniaudio:playback0 system:playback_1} {miniaudio:playback1 system:playback_2}} \
+    {} \
+    "direct miniaudio routing"
+
+set volumePorts {
+    miniaudio:playback0 miniaudio:playback1 miniaudio:playback2
+    folk-volume:in_1 folk-volume:in_2 folk-volume:out_1 folk-volume:out_2
+    system:playback_1 system:playback_2 system:playback_3
+}
+audioSystemAssertJackPlan \
+    [audioSystemJackConnectionPlan $volumePorts miniaudio:playback0 miniaudio:playback1 miniaudio:playback*] \
+    {{miniaudio:playback0 folk-volume:in_1} {miniaudio:playback1 folk-volume:in_2} {folk-volume:out_1 system:playback_1} {folk-volume:out_2 system:playback_2}} \
+    {{miniaudio:playback0 system:playback_1} {miniaudio:playback0 system:playback_2} {miniaudio:playback0 system:playback_3} {miniaudio:playback1 system:playback_1} {miniaudio:playback1 system:playback_2} {miniaudio:playback1 system:playback_3} {miniaudio:playback2 system:playback_1} {miniaudio:playback2 system:playback_2} {miniaudio:playback2 system:playback_3}} \
+    "volume miniaudio routing"
+
+set partialVolumePorts {
+    SuperCollider:out_1 SuperCollider:out_2
+    folk-volume:in_1 folk-volume:in_2 folk-volume:out_1
+    system:playback_1 system:playback_2
+}
+audioSystemAssertJackPlan \
+    [audioSystemJackConnectionPlan $partialVolumePorts SuperCollider:out_1 SuperCollider:out_2] \
+    {{SuperCollider:out_1 system:playback_1} {SuperCollider:out_2 system:playback_2}} \
+    {} \
+    "partial volume ports fallback"
+
+puts $::realStderr "--- AUDIO SYSTEM DEVICE SELECTION TEST SUCCESS ---"
+flush stderr
+Exit! 0

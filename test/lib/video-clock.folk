@@ -1,0 +1,15 @@
+# Shared clock driver for headless video tests.
+
+set ::videoTestClockStartMs 0
+
+proc videoTestClockTick {owner periodMs} {
+    set t [expr {([clock milliseconds] - $::videoTestClockStartMs) / 1000.0}]
+    Hold! -on $owner -key clock_time_test \
+        $owner claims the clock time is $t
+    after $periodMs [list videoTestClockTick $owner $periodMs]
+}
+
+proc videoTestStartClock {owner {periodMs 10}} {
+    set ::videoTestClockStartMs [clock milliseconds]
+    videoTestClockTick $owner $periodMs
+}

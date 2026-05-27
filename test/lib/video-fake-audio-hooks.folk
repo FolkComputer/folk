@@ -1,0 +1,62 @@
+# Shared fake miniaudio hook helpers for video tests.
+
+proc videoTestCompileFakeAudioHooks {videoLib {delayed false}} {
+    set hookc [C]
+    $hookc cflags -I./vendor/miniaudio
+    $hookc include <miniaudio.h>
+    if {$delayed} {
+        $hookc include <pthread.h>
+        $hookc include <stdint.h>
+        $hookc include <unistd.h>
+    }
+    $hookc import $videoLib setAudioHookPointers
+    $hookc code {
+        static ma_engine* fakeVideoAudioGetEngine(void) {
+            return (ma_engine*)1;
+        }
+
+        static bool fakeVideoAudioInit(ma_engine* engine, void* playerBase, void* soundOut, void* vtablePtr) {
+            return true;
+        }
+
+        static void fakeVideoAudioUninit(void* soundPtr, void* playerBasePtr) {
+        }
+    }
+
+    if {$delayed} {
+        $hookc code {
+            static void* attachFakeVideoAudioHooksDelayed(void* arg) {
+                int delayUsec = (int)(intptr_t)arg;
+                usleep(delayUsec);
+                setAudioHookPointers((void*)fakeVideoAudioGetEngine,
+                                     (void*)fakeVideoAudioInit,
+                                     (void*)fakeVideoAudioUninit);
+                return NULL;
+            }
+        }
+        $hookc proc attachFakeVideoAudioHooksAfterDelay {int delayUsec} void {
+            pthread_t thread;
+            pthread_create(&thread, NULL, attachFakeVideoAudioHooksDelayed, (void*)(intptr_t)delayUsec);
+            pthread_detach(thread);
+        }
+    } else {
+        $hookc proc attachFakeVideoAudioHooksNow {} void {
+            setAudioHookPointers((void*)fakeVideoAudioGetEngine,
+                                 (void*)fakeVideoAudioInit,
+                                 (void*)fakeVideoAudioUninit);
+        }
+    }
+
+    return [$hookc compile]
+}
+
+proc videoTestAttachFakeAudioHooks {videoLib claimName} {
+    set hookLib [videoTestCompileFakeAudioHooks $videoLib]
+    $hookLib attachFakeVideoAudioHooksNow
+    Assert! the video library has audio hooks from $claimName
+}
+
+proc videoTestAttachFakeAudioHooksAfterDelay {videoLib delayUsec} {
+    set hookLib [videoTestCompileFakeAudioHooks $videoLib true]
+    $hookLib attachFakeVideoAudioHooksAfterDelay $delayUsec
+}

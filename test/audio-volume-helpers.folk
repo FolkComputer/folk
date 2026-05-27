@@ -1,0 +1,49 @@
+# test/audio-volume-helpers.folk
+# Pure helper coverage for the JACK volume dial.
+
+source "lib/audio-volume.tcl"
+
+proc audioVolumeHelperFail {message} {
+    puts $::realStderr "--- AUDIO VOLUME HELPERS TEST FAILED: $message ---"
+    flush stderr
+    Exit! 1
+}
+
+proc audioVolumeAssertNear {actual expected {epsilon 0.000001}} {
+    if {abs($actual - $expected) > $epsilon} {
+        audioVolumeHelperFail "expected $expected, got $actual"
+    }
+}
+
+audioVolumeAssertNear [audioVolumeDefault] 0.5
+audioVolumeAssertNear [audioVolumeNormalizeValue "75%"] 0.75
+audioVolumeAssertNear [audioVolumeNormalizeValue 75] 0.75
+audioVolumeAssertNear [audioVolumeNormalizeValue 0.25] 0.25
+audioVolumeAssertNear [audioVolumeNormalizeValue -1] 0.0
+audioVolumeAssertNear [audioVolumeNormalizeValue 250] 1.0
+audioVolumeAssertNear [audioVolumeNormalizeValue nope] 0.5
+
+if {[audioVolumePercent 0.734] != 73} {
+    audioVolumeHelperFail "expected rounded percent 73"
+}
+if {[audioVolumePercent 0.735] != 74} {
+    audioVolumeHelperFail "expected rounded percent 74"
+}
+
+audioVolumeAssertNear [audioVolumeDialVolumeFromVector 0 -1] 0.5
+if {[audioVolumeDialVolumeFromVector 1 0] <= 0.5} {
+    audioVolumeHelperFail "rightward dial vector should increase volume"
+}
+if {[audioVolumeDialVolumeFromVector -1 0] >= 0.5} {
+    audioVolumeHelperFail "leftward dial vector should decrease volume"
+}
+audioVolumeAssertNear [audioVolumeDialVolumeFromVector -1 1] 0.0
+audioVolumeAssertNear [audioVolumeDialVolumeFromVector 1 1] 1.0
+
+lassign [audioVolumeDialPointerFromVolume 0.5 10] dx dy
+audioVolumeAssertNear $dx 0.0
+audioVolumeAssertNear $dy -10.0
+
+puts $::realStderr "--- AUDIO VOLUME HELPERS TEST SUCCESS ---"
+flush stderr
+Exit! 0

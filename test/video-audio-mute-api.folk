@@ -1,0 +1,108 @@
+# test/video-audio-mute-api.folk
+# Page-level video audio mute is the runtime volume API.
+
+set ::videoMuteApiPage video-audio-mute-api-page
+set ::videoMuteApiCanvas video-audio-mute-api-canvas
+set ::videoMuteApiOpens 0
+set ::videoMuteApiMutes [list]
+set ::videoMuteApiAttempts 0
+set ::videoMuteApiClaimed false
+
+set videoMuteApiC [C]
+$videoMuteApiC include <stdbool.h>
+$videoMuteApiC code {
+    static int g_open_count = 0;
+    static int g_mute_call_count = 0;
+    static bool g_last_muted = false;
+}
+$videoMuteApiC proc openVideo {char* filename bool loop bool mute} void* {
+    g_open_count++;
+    return (void*)1;
+}
+$videoMuteApiC proc getVideoWidth {void* player} int {
+    return 1920;
+}
+$videoMuteApiC proc getVideoHeight {void* player} int {
+    return 1080;
+}
+$videoMuteApiC proc setAudioMuted {void* player bool muted} void {
+    g_mute_call_count++;
+    g_last_muted = muted;
+}
+$videoMuteApiC proc closeVideo {void* player} void {
+}
+$videoMuteApiC proc getOpenCount {} int {
+    return g_open_count;
+}
+$videoMuteApiC proc getMuteCallCount {} int {
+    return g_mute_call_count;
+}
+$videoMuteApiC proc getLastMuted {} bool {
+    return g_last_muted;
+}
+set ::videoMuteApiLib [$videoMuteApiC compile]
+
+proc videoMuteApiFail {message} {
+    puts $::realStderr "--- VIDEO AUDIO MUTE API TEST FAILED: $message ---"
+    flush stderr
+    Exit! 1
+}
+
+source "builtin-programs/video/video.folk"
+
+Assert! the video library is $::videoMuteApiLib
+Assert! the GPU texture library is mock-texture-lib
+Assert! the image library is mock-image
+Assert! $::videoMuteApiPage has canvas $::videoMuteApiCanvas with width 1920 height 1080
+Assert! $::videoMuteApiPage has canvas projection [list [list 2.0 0.0 -1.0] [list 0.0 2.0 -1.0] [list 0.0 0.0 1.0]]
+
+Hold! -on video-audio-mute-api-test -key video-wish \
+    Wish $::videoMuteApiPage plays video "test/test.mp4" with width 10cm loop true
+
+proc pollVideoMuteApi {} {
+    if {$::videoMuteApiAttempts > 400} {
+        set playbackRows [Query! /any/ wishes video playback $::videoMuteApiPage /path/ with /...options/]
+        set canvasRows [Query! $::videoMuteApiPage has canvas /id/ with /...options/]
+        set projectionRows [Query! $::videoMuteApiPage has canvas projection /surfaceToClip/]
+        videoMuteApiFail "Timeout waiting for page-level mute (opens=$::videoMuteApiOpens playbackRows=[llength $playbackRows] canvasRows=[llength $canvasRows] projectionRows=[llength $projectionRows])"
+    }
+    incr ::videoMuteApiAttempts
+
+    set ::videoMuteApiOpens [$::videoMuteApiLib getOpenCount]
+    if {$::videoMuteApiOpens == 0} {
+        after 5 pollVideoMuteApi
+        return
+    }
+
+    if {!$::videoMuteApiClaimed} {
+        set ::videoMuteApiClaimed true
+        Assert! $::videoMuteApiPage has video audio mute true
+        after 5 pollVideoMuteApi
+        return
+    }
+
+    set muteCalls [$::videoMuteApiLib getMuteCallCount]
+    if {$muteCalls == 0} {
+        after 5 pollVideoMuteApi
+        return
+    }
+
+    set mute [$::videoMuteApiLib getLastMuted]
+    if {![expr {$mute}]} {
+        videoMuteApiFail "expected latest mute state to be true, got $mute"
+    }
+    if {$::videoMuteApiOpens != 1} {
+        videoMuteApiFail "expected one video open, got $::videoMuteApiOpens"
+    }
+
+    puts $::realStderr "--- VIDEO AUDIO MUTE API TEST SUCCESS ---"
+    flush stderr
+    Exit! 0
+}
+
+after 0 pollVideoMuteApi
+after 10000 {
+    videoMuteApiFail "Timeout"
+}
+
+vwait forever

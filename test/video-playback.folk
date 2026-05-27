@@ -1,0 +1,73 @@
+# test/video-playback.folk
+# Headless playback smoke tests for the current video API.
+
+fn mockTextureLib {method args} {
+    if {$method eq "copyImageToGpuTexture"} {
+        return "mock-gtex-playback"
+    }
+    return ""
+}
+
+Assert! the GPU library is "mock"
+Assert! the GPU draw library is "mock"
+Assert! the GPU texture library is [fn mockTextureLib]
+
+source "builtin-programs/image/image-lib.folk"
+set ::env(FOLK_AUDIO_BACKEND) direct
+source "builtin-programs/audio.folk"
+source "builtin-programs/video/video-lib.folk"
+source "builtin-programs/video/video.folk"
+source "test/lib/video-clock.folk"
+
+Assert! video-playback-default wishes video-playback-default plays video "test/test.mp4"
+Assert! video-playback-default has resolved geometry [list width 1.0 height 1.0]
+Assert! video-playback-default has canvas projection [list [list 2.0 0.0 -1.0] [list 0.0 2.0 -1.0] [list 0.0 0.0 1.0]]
+Assert! video-playback-default has canvas "video-playback-default-canvas" with width 1920 height 1080
+
+Assert! video-playback-options wishes video-playback-options plays video "test/test.mp4" with width 10cm mute true loop true
+Assert! video-playback-options has resolved geometry [list width 1.0 height 1.0]
+Assert! video-playback-options has canvas projection [list [list 2.0 0.0 -1.0] [list 0.0 2.0 -1.0] [list 0.0 0.0 1.0]]
+Assert! video-playback-options has canvas "video-playback-options-canvas" with width 1920 height 1080
+
+set startTime [clock milliseconds]
+
+When /any/ wishes the GPU draws pipeline "image" onto canvas /canvas/ with /...options/ {
+    if {$canvas ne "video-playback-default-canvas" &&
+        $canvas ne "video-playback-options-canvas"} {
+        return
+    }
+    if {[dict getdef $options redraw false]} {
+        puts $::realStderr "--- VIDEO PLAYBACK TEST FAILED: stable video draw wish should not carry redraw=true ---"
+        flush stderr
+        Exit! 1
+    }
+    Assert! video-playback-test saw draw on canvas $canvas
+}
+
+When /any/ wishes the GPU redraws canvas /canvas/ {
+    if {$canvas ne "video-playback-default-canvas" &&
+        $canvas ne "video-playback-options-canvas"} {
+        return
+    }
+    Assert! video-playback-test saw redraw request for canvas $canvas
+}
+
+When video-playback-test saw draw on canvas video-playback-default-canvas & \
+     video-playback-test saw draw on canvas video-playback-options-canvas & \
+     video-playback-test saw redraw request for canvas video-playback-default-canvas & \
+     video-playback-test saw redraw request for canvas video-playback-options-canvas {
+    set duration [expr {[clock milliseconds] - $startTime}]
+    puts $::realStderr "--- VIDEO PLAYBACK TEST SUCCESS: default and option playback drew and requested redraw in ${duration}ms ---"
+    flush stderr
+    Exit! 0
+}
+
+videoTestStartClock video-playback-test
+
+after 60000 {
+    puts $::realStderr "--- VIDEO PLAYBACK TEST FAILED: Timeout waiting for GPU draw pipeline ---"
+    flush stderr
+    Exit! 1
+}
+
+vwait forever

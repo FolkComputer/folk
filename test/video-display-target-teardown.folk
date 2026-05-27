@@ -1,0 +1,161 @@
+# test/video-display-target-teardown.folk
+# Removing the target quad for an off-page video should close the player.
+
+fn mockTextureLib {method args} {
+    return ""
+}
+
+fn mockImageLib {method args} {
+    if {$method eq "Image_width"} {
+        return 0
+    }
+    return ""
+}
+
+fn mockQuadLib {method args} {
+    if {$method eq "vertices"} {
+        return [lindex [lindex $args 0] 1]
+    }
+    return ""
+}
+
+fn mockQuadChange {q targetSpace} {
+    return $q
+}
+
+fn mockPoseLib {method args} {
+    if {$method eq "project"} {
+        set v [lindex $args 3]
+        return [list \
+            [expr {960.0 + [lindex $v 0] * 1000.0}] \
+            [expr {540.0 + [lindex $v 1] * 1000.0}]]
+    }
+    return ""
+}
+
+set videoDisplayTeardownC [C]
+$videoDisplayTeardownC include <stdint.h>
+$videoDisplayTeardownC code {
+    static int g_open_count = 0;
+    static int g_close_count = 0;
+}
+$videoDisplayTeardownC proc openVideo {char* filename bool loop bool mute} void* {
+    g_open_count++;
+    return (void*)(intptr_t)(g_open_count + 1);
+}
+$videoDisplayTeardownC proc getVideoWidth {void* player} int {
+    return 1920;
+}
+$videoDisplayTeardownC proc getVideoHeight {void* player} int {
+    return 1080;
+}
+$videoDisplayTeardownC proc getNextFrame {void* player} void* {
+    return NULL;
+}
+$videoDisplayTeardownC proc setAudioMuted {void* player bool muted} void {
+}
+$videoDisplayTeardownC proc closeVideo {void* player} void {
+    g_close_count++;
+}
+$videoDisplayTeardownC proc getOpenCount {} int {
+    return g_open_count;
+}
+$videoDisplayTeardownC proc getCloseCount {} int {
+    return g_close_count;
+}
+set ::videoDisplayTeardownLib [$videoDisplayTeardownC compile]
+
+Assert! the video library is $::videoDisplayTeardownLib
+Assert! the GPU texture library is [fn mockTextureLib]
+Assert! the image library is [fn mockImageLib]
+Assert! the quad library is [fn mockQuadLib]
+Assert! the quad changer is [fn mockQuadChange]
+Assert! the pose library is [fn mockPoseLib]
+
+source "builtin-programs/video/video.folk"
+
+set ::videoDisplayTeardownTarget video-display-target-teardown-target
+set ::videoDisplayTeardownAttempts 0
+set ::videoDisplayTeardownClock 0
+
+Assert! display "video-display-target-teardown-display" has width 1920 height 1080
+Assert! display "video-display-target-teardown-display" has intrinsics {}
+
+set ::videoDisplayTeardownQuad \
+    [list "display video-display-target-teardown-display" \
+         [list [list 0.0 0.0 0.0] \
+               [list 0.2 0.0 0.0] \
+               [list 0.2 0.1 0.0] \
+               [list 0.0 0.1 0.0]]]
+
+proc videoDisplayTeardownFail {message} {
+    puts $::realStderr "playback wishes: [Query! /any/ wishes video display playback /path/ beside $::videoDisplayTeardownTarget /direction/ with /...options/]"
+    puts $::realStderr "active playback wishes: [Query! /any/ wishes video active display playback /path/ beside $::videoDisplayTeardownTarget /direction/ with /...options/]"
+    puts $::realStderr "target quads: [Query! $::videoDisplayTeardownTarget has quad /quad/]"
+    puts $::realStderr "--- VIDEO DISPLAY TARGET TEARDOWN TEST FAILED: $message ---"
+    flush stderr
+    Exit! 1
+}
+
+proc videoDisplayTeardownCheckClosed {} {
+    set closes [$::videoDisplayTeardownLib getCloseCount]
+    if {$closes < 1} {
+        videoDisplayTeardownFail "video player remained open after target quad disappeared"
+    }
+
+    puts $::realStderr "--- VIDEO DISPLAY TARGET TEARDOWN TEST SUCCESS: closeVideo called after target removal ---"
+    flush stderr
+    Exit! 0
+}
+
+proc videoDisplayTeardownCheckStableAfterQuadRefresh {} {
+    set opens [$::videoDisplayTeardownLib getOpenCount]
+    set closes [$::videoDisplayTeardownLib getCloseCount]
+    if {$opens != 1 || $closes != 0} {
+        videoDisplayTeardownFail "display video should stay open across target quad refresh; opens=$opens closes=$closes"
+    }
+
+    Hold! -on video-display-target-teardown-test -key target-quad {}
+    videoDisplayTeardownTick
+    after 750 videoDisplayTeardownCheckClosed
+}
+
+proc videoDisplayTeardownTick {} {
+    incr ::videoDisplayTeardownClock
+    Hold! -on video-display-target-teardown-test -key clock \
+        Claim video-display-target-teardown-test claims the clock time is $::videoDisplayTeardownClock
+}
+
+proc videoDisplayTeardownPollOpen {} {
+    if {$::videoDisplayTeardownAttempts > 400} {
+        videoDisplayTeardownFail "Timeout waiting for display video to open"
+    }
+    incr ::videoDisplayTeardownAttempts
+
+    if {[$::videoDisplayTeardownLib getOpenCount] == 0} {
+        after 5 videoDisplayTeardownPollOpen
+        return
+    }
+
+    set refreshedQuad \
+        [list "display video-display-target-teardown-display" \
+             [list [list 0.01 0.0 0.0] \
+                   [list 0.21 0.0 0.0] \
+                   [list 0.21 0.1 0.0] \
+                   [list 0.01 0.1 0.0]]]
+    Hold! -on video-display-target-teardown-test -key target-quad \
+        Claim $::videoDisplayTeardownTarget has quad $refreshedQuad
+    after 250 videoDisplayTeardownCheckStableAfterQuadRefresh
+}
+
+Hold! -on video-display-target-teardown-test -key target-quad \
+    Claim $::videoDisplayTeardownTarget has quad $::videoDisplayTeardownQuad
+Hold! -on video-display-target-teardown-test -key video-wish \
+    Wish to display a video above $::videoDisplayTeardownTarget "test/test.mp4" with mute true loop true
+
+after 0 videoDisplayTeardownPollOpen
+after 60000 {
+    videoDisplayTeardownFail "Timeout"
+}
+
+vwait forever

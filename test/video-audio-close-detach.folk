@@ -1,0 +1,103 @@
+# test/video-audio-close-detach.folk
+# closeVideo should detach video audio output as part of player teardown.
+
+source "builtin-programs/image/image-lib.folk"
+source "builtin-programs/video/video-lib.folk"
+
+set ::videoAudioCloseStarted false
+set ::videoAudioCloseAttempts 0
+set ::videoAudioClosePlayer ""
+set ::videoAudioCloseVideoLib ""
+
+proc videoAudioCloseFail {message} {
+    puts $::realStderr "--- VIDEO AUDIO CLOSE DETACH TEST FAILED: $message ---"
+    flush stderr
+    if {$::videoAudioClosePlayer ne "" && $::videoAudioClosePlayer != 0} {
+        $::videoAudioCloseVideoLib closeVideo $::videoAudioClosePlayer
+    }
+    Exit! 1
+}
+
+proc videoAudioCloseAttachHooks {videoLib} {
+    set hookc [C]
+    $hookc cflags -I./vendor/miniaudio
+    $hookc include <miniaudio.h>
+    $hookc import $videoLib setAudioHookPointers
+    $hookc code {
+        static int g_init_count = 0;
+        static int g_uninit_count = 0;
+
+        static ma_engine* fakeVideoAudioGetEngine(void) {
+            return (ma_engine*)1;
+        }
+
+        static bool fakeVideoAudioInit(ma_engine* engine, void* playerBase, void* soundOut, void* vtablePtr) {
+            g_init_count++;
+            return true;
+        }
+
+        static void fakeVideoAudioUninit(void* soundPtr, void* playerBasePtr) {
+            g_uninit_count++;
+        }
+    }
+    $hookc proc attachFakeVideoAudioHooksNow {} void {
+        setAudioHookPointers((void*)fakeVideoAudioGetEngine,
+                             (void*)fakeVideoAudioInit,
+                             (void*)fakeVideoAudioUninit);
+    }
+    $hookc proc getFakeVideoAudioInitCount {} int {
+        return g_init_count;
+    }
+    $hookc proc getFakeVideoAudioUninitCount {} int {
+        return g_uninit_count;
+    }
+    set hookLib [$hookc compile]
+    $hookLib attachFakeVideoAudioHooksNow
+    return $hookLib
+}
+
+proc startVideoAudioCloseTest {} {
+    if {$::videoAudioCloseStarted} { return }
+
+    set videoRows [Query! the video library is /videoLib/]
+    if {[llength $videoRows] == 0} {
+        if {$::videoAudioCloseAttempts > 1000} {
+            videoAudioCloseFail "video library did not load"
+        }
+        incr ::videoAudioCloseAttempts
+        after 5 startVideoAudioCloseTest
+        return
+    }
+
+    set ::videoAudioCloseStarted true
+    set videoLib [dict get [lindex $videoRows 0] videoLib]
+    set hookLib [videoAudioCloseAttachHooks $videoLib]
+    set player [$videoLib openVideo "test/test.mp4" false false]
+    if {$player == 0} {
+        videoAudioCloseFail "openVideo returned null"
+    }
+    if {[$hookLib getFakeVideoAudioInitCount] == 0 || ![$videoLib getAudioEnabled $player]} {
+        $videoLib closeVideo $player
+        videoAudioCloseFail "audio hooks did not initialize"
+    }
+
+    set ::videoAudioCloseVideoLib $videoLib
+    set ::videoAudioClosePlayer $player
+    $videoLib closeVideo $player
+    set ::videoAudioClosePlayer ""
+
+    if {[$hookLib getFakeVideoAudioUninitCount] != 1} {
+        videoAudioCloseFail "expected one video audio uninit, got [$hookLib getFakeVideoAudioUninitCount]"
+    }
+
+    puts $::realStderr "--- VIDEO AUDIO CLOSE DETACH TEST SUCCESS ---"
+    flush stderr
+    Exit! 0
+}
+
+after 0 startVideoAudioCloseTest
+after 60000 {
+    videoAudioCloseFail "Timeout"
+}
+
+vwait forever

@@ -1,0 +1,80 @@
+# test/video-audio-clock.folk
+# Unmuted video should attach audio hooks and prime an audio media clock.
+
+source "builtin-programs/image/image-lib.folk"
+set ::env(FOLK_AUDIO_BACKEND) direct
+source "builtin-programs/audio.folk"
+source "builtin-programs/video/video-lib.folk"
+
+set ::videoAudioClockStarted false
+set ::videoAudioClockVideoLib ""
+set ::videoAudioClockPlayer ""
+set ::videoAudioClockAttempts 0
+
+proc videoAudioClockFail {message} {
+    puts $::realStderr "--- VIDEO AUDIO CLOCK TEST FAILED: $message ---"
+    flush stderr
+    if {$::videoAudioClockPlayer ne "" && $::videoAudioClockPlayer != 0} {
+        $::videoAudioClockVideoLib closeVideo $::videoAudioClockPlayer
+        set ::videoAudioClockPlayer ""
+    }
+    Exit! 1
+}
+
+proc pollAudioClock {} {
+    if {$::videoAudioClockAttempts > 2000} {
+        videoAudioClockFail "audio clock did not advance"
+    }
+
+    set clock [$::videoAudioClockVideoLib getAudioClock $::videoAudioClockPlayer]
+    if {$clock <= 0.0} {
+        incr ::videoAudioClockAttempts
+        after 5 pollAudioClock
+        return
+    }
+
+    $::videoAudioClockVideoLib closeVideo $::videoAudioClockPlayer
+    set ::videoAudioClockPlayer ""
+    puts $::realStderr "--- VIDEO AUDIO CLOCK TEST SUCCESS: audio media clock advanced to $clock ---"
+    flush stderr
+    Exit! 0
+}
+
+proc startVideoAudioClockTest {} {
+    if {$::videoAudioClockStarted} { return }
+
+    set videoRows [Query! the video library is /videoLib/]
+    set hookRows [Query! the video library has audio hooks from /audioLib/]
+    if {[llength $videoRows] == 0 || [llength $hookRows] == 0} {
+        if {$::videoAudioClockAttempts > 2000} {
+            videoAudioClockFail "audio hooks did not attach"
+        }
+        incr ::videoAudioClockAttempts
+        after 5 startVideoAudioClockTest
+        return
+    }
+
+    set ::videoAudioClockStarted true
+    set ::videoAudioClockAttempts 0
+    set videoLib [dict get [lindex $videoRows 0] videoLib]
+    set player [$videoLib openVideo "test/test.mp4" false false]
+    if {$player == 0} {
+        videoAudioClockFail "openVideo returned null"
+    }
+    if {![$videoLib getAudioEnabled $player]} {
+        $videoLib closeVideo $player
+        videoAudioClockFail "audio was not enabled for unmuted video"
+    }
+
+    set ::videoAudioClockVideoLib $videoLib
+    set ::videoAudioClockPlayer $player
+    pollAudioClock
+}
+
+after 0 startVideoAudioClockTest
+
+after 60000 {
+    videoAudioClockFail "Timeout"
+}
+
+vwait forever

@@ -1,0 +1,122 @@
+# test/video-eof-freeze.folk
+# Non-looping video should keep drawing with the retained texture after EOF.
+
+set ::videoEofFreezeTextureCount 0
+set ::videoEofFreezeUpdateCount 0
+set ::videoEofFreezeVideoLib ""
+set ::videoEofFreezePlayer ""
+set ::videoEofFreezeAttempts 0
+
+fn mockTextureLib {method args} {
+    if {$method eq "copyImageToGpuTexture"} {
+        incr ::videoEofFreezeTextureCount
+        return "mock-gtex-eof-freeze"
+    }
+    if {$method eq "updateGpuTexture"} {
+        incr ::videoEofFreezeUpdateCount
+    }
+    return ""
+}
+
+set ::videoEofFreezeTextureLib [fn mockTextureLib]
+
+Assert! the GPU library is "mock"
+Assert! the GPU draw library is "mock"
+Assert! the GPU texture library is $::videoEofFreezeTextureLib
+
+source "builtin-programs/image/image-lib.folk"
+source "builtin-programs/video/video-lib.folk"
+source "builtin-programs/video/video.folk"
+
+proc videoEofFreezeFail {message} {
+    puts $::realStderr "--- VIDEO EOF FREEZE TEST FAILED: $message ---"
+    flush stderr
+    if {$::videoEofFreezePlayer ne "" && $::videoEofFreezePlayer != 0} {
+        $::videoEofFreezeVideoLib closeVideo $::videoEofFreezePlayer
+        set ::videoEofFreezePlayer ""
+    }
+    Exit! 1
+}
+
+proc runVideoEofFreezeTest {} {
+    set deadline [expr {[clock milliseconds] + 12000}]
+    set videoRows [Query! the video library is /videoLib/]
+    set imageRows [Query! the image library is /imageLib/]
+    if {[llength $videoRows] == 0 || [llength $imageRows] == 0} {
+        if {$::videoEofFreezeAttempts > 400} {
+            videoEofFreezeFail "video library did not load"
+        }
+        incr ::videoEofFreezeAttempts
+        after 5 runVideoEofFreezeTest
+        return
+    }
+
+    set videoLib [dict get [lindex $videoRows 0] videoLib]
+    set imageLib [dict get [lindex $imageRows 0] imageLib]
+    set textureLib $::videoEofFreezeTextureLib
+    set player [$videoLib openVideo "test/test.mp4" false true]
+    if {$player == 0} {
+        videoEofFreezeFail "openVideo returned null"
+    }
+
+    set ::videoEofFreezeVideoLib $videoLib
+    set ::videoEofFreezePlayer $player
+
+    set sawInitialDraw false
+    set afterEof false
+    set eofAt 0
+    set updatesAtAfterEof -1
+    set ticks 0
+
+    while {[clock milliseconds] <= $deadline} {
+        incr ticks
+
+        if {!$afterEof && $sawInitialDraw && [$videoLib getEofReached $player]} {
+            set afterEof true
+            set eofAt [clock milliseconds]
+        }
+
+        set canvas "video-eof-before"
+        if {$afterEof && [clock milliseconds] - $eofAt > 1000} {
+            if {$updatesAtAfterEof < 0} {
+                set updatesAtAfterEof $::videoEofFreezeUpdateCount
+            }
+            set canvas "video-eof-after"
+        }
+
+        set updatesBefore $::videoEofFreezeUpdateCount
+        set drew [videoAdvanceFrame $videoLib $imageLib $textureLib \
+            $player video-eof-freeze-test $canvas [list video-eof-redraw $canvas]]
+
+        if {$drew && $canvas eq "video-eof-before"} {
+            set sawInitialDraw true
+        }
+
+        if {$drew && $canvas eq "video-eof-after" &&
+            $updatesBefore == $::videoEofFreezeUpdateCount} {
+            if {$::videoEofFreezeTextureCount != 1} {
+                videoEofFreezeFail "expected one retained texture, saw $::videoEofFreezeTextureCount"
+            }
+            if {[llength [Query! video player $player has texture /gtex/]] == 0} {
+                videoEofFreezeFail "expected retained texture claim after EOF"
+            }
+            $videoLib closeVideo $player
+            set ::videoEofFreezePlayer ""
+            puts $::realStderr "--- VIDEO EOF FREEZE TEST SUCCESS: retained texture stayed available after EOF ---"
+            flush stderr
+            Exit! 0
+        }
+
+        sleep 0.01
+    }
+
+    videoEofFreezeFail "retained texture draw was not observed (initial=$sawInitialDraw eof=$afterEof textures=$::videoEofFreezeTextureCount updates=$::videoEofFreezeUpdateCount ticks=$ticks)"
+}
+
+after 0 runVideoEofFreezeTest
+
+after 60000 {
+    videoEofFreezeFail "Timeout"
+}
+
+vwait forever

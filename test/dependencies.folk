@@ -1,0 +1,46 @@
+source "lib/dependencies.tcl"
+
+fn dependenciesFail {message} {
+    puts $::realStderr "--- DEPENDENCIES TEST FAILED: $message ---"
+    flush stderr
+    Exit! 1
+}
+
+set tmpDir "/tmp/folk-dependencies-test-[pid]"
+file delete -force $tmpDir
+file mkdir $tmpDir
+
+set cmdPath [file join $tmpDir folk-test-command]
+set fp [open $cmdPath w]
+puts $fp "#!/bin/sh\nexit 0"
+close $fp
+exec chmod 0755 $cmdPath
+
+if {[folkDependencyFindCommand folk-test-command $tmpDir] ne $cmdPath} {
+    dependenciesFail "expected to find command in explicit PATH"
+}
+
+if {![folkDependencyCommandAvailable folk-test-command $tmpDir]} {
+    dependenciesFail "expected available status for fake command"
+}
+
+if {[folkDependencyCommandPath folk-test-command $tmpDir] ne $cmdPath} {
+    dependenciesFail "expected command path for fake command"
+}
+
+if {[folkDependencyFindCommand missing-command $tmpDir] ne ""} {
+    dependenciesFail "unexpectedly found missing command"
+}
+
+if {[folkDependencyCommandAvailable missing-command $tmpDir]} {
+    dependenciesFail "unexpected available status for missing command"
+}
+
+if {[folkDependencyFindCommand $cmdPath ""] ne $cmdPath} {
+    dependenciesFail "expected absolute executable path to be accepted"
+}
+
+file delete -force $tmpDir
+puts $::realStderr "--- DEPENDENCIES TEST SUCCESS ---"
+flush stderr
+Exit! 0
