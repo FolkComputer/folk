@@ -1,0 +1,746 @@
+# video.folk
+#
+#     High-level reactive API for video playback.
+
+fn videoBoolOption {options key default} {
+    set value [string tolower [dict getdef $options $key $default]]
+    switch -- $value {
+        1 -
+        true -
+        yes -
+        on {
+            return true
+        }
+    }
+    return false
+}
+
+fn videoPlaybackStableOptions {options} {
+    set stableOptions $options
+    # Legacy audioMute was mutable state embedded in playback options.
+    # Runtime volume control now uses: Claim $page has video audio mute $bool
+    if {[dict exists $stableOptions audioMute]} {
+        dict unset stableOptions audioMute
+    }
+    return $stableOptions
+}
+
+fn videoResumeKeyOptions {options} {
+    set keyOptions [videoPlaybackStableOptions $options]
+    foreach key {audio mute resume silent} {
+        if {[dict exists $keyOptions $key]} {
+            dict unset keyOptions $key
+        }
+    }
+    return $keyOptions
+}
+
+fn videoHasAudioHooks {} {
+    return [expr {[llength [Query! the video library has audio hooks from /audioLib/]] > 0}]
+}
+
+fn videoAudioDisabledOption {options} {
+    if {[videoBoolOption $options silent false]} {
+        return true
+    }
+    if {[dict exists $options audio] && ![videoBoolOption $options audio true]} {
+        return true
+    }
+    return false
+}
+
+fn videoResumeEnabled {options} {
+    return [videoBoolOption $options resume true]
+}
+
+fn videoUsesRequestedPlayback {options} {
+    return [expr {[videoBoolOption $options mute false] || [videoAudioDisabledOption $options] || [videoHasAudioHooks]}]
+}
+
+fn videoResumeStateKey {kind args} {
+    return [list video_resume $kind {*}$args]
+}
+
+fn videoClearResumeState {resumeKey} {
+    Hold! -on builtin-programs/video/video.folk -key $resumeKey {}
+}
+
+fn videoRestoreResumeState {videoLib player resumeKey options} {
+    if {![videoResumeEnabled $options]} {
+        videoClearResumeState $resumeKey
+        return
+    }
+
+    set rows [Query! video playback resume key $resumeKey has position /position/]
+    if {[llength $rows] == 0} {
+        return
+    }
+
+    set position [dict get [lindex $rows end] position]
+    if {[string is double -strict $position] && $position > 0.0} {
+        catch {$videoLib seekVideo $player $position}
+    }
+}
+
+fn videoSaveResumeState {videoLib player resumeKey options} {
+    if {![videoResumeEnabled $options]} {
+        videoClearResumeState $resumeKey
+        return
+    }
+
+    if {[catch {$videoLib getPlaybackPosition $player} position]} {
+        return
+    }
+    if {![string is double -strict $position] || $position <= 0.0} {
+        return
+    }
+
+    Hold! -on builtin-programs/video/video.folk -key $resumeKey -keep 3600000ms \
+        Claim video playback resume key $resumeKey has position $position
+}
+
+fn videoPagePlaybackControllerState {owner page path stableOptions} {
+    set wishNode [list video_playback_controller $owner $page $path $stableOptions]
+    set playbackKey [list video_playback $page $path $stableOptions]
+    set fallbackKey [list video_playback_fallback $page $path $stableOptions]
+    return [dict create \
+        wishNode $wishNode \
+        playbackKey $playbackKey \
+        fallbackKey $fallbackKey \
+        heldKeys [list $playbackKey $fallbackKey]]
+}
+
+fn videoDisplayPlaybackControllerState {owner path target direction options} {
+    set wishNode [list video_display_controller $owner $path $target $direction $options]
+    set playbackKey [list video_display_playback $path $target $direction $options]
+    set fallbackKey [list video_display_playback_fallback $path $target $direction $options]
+    return [dict create \
+        wishNode $wishNode \
+        playbackKey $playbackKey \
+        fallbackKey $fallbackKey \
+        heldKeys [list $playbackKey $fallbackKey]]
+}
+
+fn videoClearPlaybackControllerState {state} {
+    set wishNode [dict get $state wishNode]
+    foreach key [dict get $state heldKeys] {
+        Hold! -on $wishNode -key $key {}
+    }
+}
+
+fn videoHoldActiveDisplayPlaybackIfTargetPresent {wishNode activeKey path target direction options} {
+    if {[llength [Query! $target has quad /quad/]] > 0} {
+        Hold! -on $wishNode -key $activeKey \
+            Wish video active display playback $path beside $target $direction with {*}$options
+    } else {
+        Hold! -on $wishNode -key $activeKey {}
+    }
+}
+
+fn videoHoldPagePlayback {state page path stableOptions {forceRequested false}} {
+    set wishNode [dict get $state wishNode]
+    set playbackKey [dict get $state playbackKey]
+    set fallbackKey [dict get $state fallbackKey]
+    set useRequested [expr {$forceRequested || [videoUsesRequestedPlayback $stableOptions]}]
+
+    if {$useRequested} {
+        Hold! -on $wishNode -key $fallbackKey {}
+        Hold! -on $wishNode -key $playbackKey \
+            Wish video playback $page $path with {*}$stableOptions
+    } else {
+        Hold! -on $wishNode -key $playbackKey {}
+        Hold! -on $wishNode -key $fallbackKey \
+            Wish video playback $page $path with {*}[dict replace $stableOptions mute true]
+    }
+}
+
+fn videoHoldDisplayPlayback {state path target direction options {forceRequested false}} {
+    set wishNode [dict get $state wishNode]
+    set playbackKey [dict get $state playbackKey]
+    set fallbackKey [dict get $state fallbackKey]
+    set useRequested [expr {$forceRequested || [videoUsesRequestedPlayback $options]}]
+
+    if {$useRequested} {
+        Hold! -on $wishNode -key $fallbackKey {}
+        Hold! -on $wishNode -key $playbackKey \
+            Wish video display playback $path beside $target $direction with {*}$options
+    } else {
+        Hold! -on $wishNode -key $playbackKey {}
+        Hold! -on $wishNode -key $fallbackKey \
+            Wish video display playback $path beside $target $direction with {*}[dict replace $options mute true]
+    }
+}
+
+fn videoResolvePath {path} {
+    if {[string match "~/*" $path]} {
+        return [file join $::env(HOME) [string range $path 2 end]]
+    }
+    if {$path eq "~"} {
+        return $::env(HOME)
+    }
+    if {[string match "/*" $path]} {
+        return $path
+    }
+    return [file join [pwd] $path]
+}
+
+fn videoParseLength {value reference} {
+    if {[string is double -strict $value]} {
+        return [expr {double($value) * 0.01}]
+    }
+
+    if {![regexp {^([+-]?[0-9]*\.?[0-9]+)(cm|mm|m|%)$} $value -> number unit]} {
+        error "video: Invalid length '$value'"
+    }
+
+    if {$unit eq "mm"} {
+        return [expr {double($number) * 0.001}]
+    } elseif {$unit eq "cm"} {
+        return [expr {double($number) * 0.01}]
+    } elseif {$unit eq "m"} {
+        return [expr {double($number)}]
+    } elseif {$unit eq "%"} {
+        return [expr {$reference * double($number) * 0.01}]
+    }
+}
+
+fn videoFitInBox {boxWidth boxHeight aspect} {
+    if {$boxWidth <= 0 || $boxHeight <= 0 || $aspect <= 0} {
+        return [list 0 0]
+    }
+
+    set width $boxWidth
+    set height [expr {$width / $aspect}]
+    if {$height > $boxHeight} {
+        set height $boxHeight
+        set width [expr {$height * $aspect}]
+    }
+
+    return [list $width $height]
+}
+
+fn videoSizeFromOptions {options boundsWidth boundsHeight videoWidth videoHeight defaultScale} {
+    if {$videoWidth <= 0 || $videoHeight <= 0} {
+        return [list 0 0]
+    }
+
+    set aspect [expr {double($videoWidth) / double($videoHeight)}]
+    set preserveAspectRatio [videoBoolOption $options preserveAspectRatio true]
+    set hasWidth [dict exists $options width]
+    set hasHeight [dict exists $options height]
+
+    if {$hasWidth} {
+        set width [videoParseLength [dict get $options width] $boundsWidth]
+    }
+    if {$hasHeight} {
+        set height [videoParseLength [dict get $options height] $boundsHeight]
+    }
+
+    if {$hasWidth && $hasHeight} {
+        if {$preserveAspectRatio} {
+            return [videoFitInBox $width $height $aspect]
+        }
+        return [list $width $height]
+    } elseif {$hasWidth} {
+        return [list $width [expr {$width / $aspect}]]
+    } elseif {$hasHeight} {
+        return [list [expr {$height * $aspect}] $height]
+    }
+
+    set boxWidth [expr {$boundsWidth * $defaultScale}]
+    set boxHeight [expr {$boundsHeight * $defaultScale}]
+    if {$preserveAspectRatio} {
+        return [videoFitInBox $boxWidth $boxHeight $aspect]
+    }
+    return [list $boxWidth $boxHeight]
+}
+
+fn videoVecAdd {a b} {
+    lmap x $a y $b { expr {$x + $y} }
+}
+
+fn videoVecSub {a b} {
+    lmap x $a y $b { expr {$x - $y} }
+}
+
+fn videoVecScale {s v} {
+    lmap x $v { expr {$s * $x} }
+}
+
+fn videoVecLength {v} {
+    set sum 0.0
+    foreach x $v {
+        set sum [expr {$sum + $x * $x}]
+    }
+    return [expr {sqrt($sum)}]
+}
+
+fn videoVecUnit {v} {
+    set length [videoVecLength $v]
+    if {$length == 0} { return $v }
+    return [videoVecScale [expr {1.0 / $length}] $v]
+}
+
+fn videoHoldTextureDraw {wishNode drawKey wiResolution surfaceToClip gtex textureCoords layer {canvas ""}} {
+    set arguments [list $wiResolution $surfaceToClip $gtex {*}$textureCoords]
+
+    if {$canvas eq ""} {
+        if {$layer == 0} {
+            Hold! -on $wishNode -key $drawKey \
+                Wish the GPU draws pipeline "image" with arguments $arguments
+        } else {
+            Hold! -on $wishNode -key $drawKey \
+                Wish the GPU draws pipeline "image" with arguments $arguments layer $layer
+        }
+        return
+    }
+
+    if {$layer == 0} {
+        Hold! -on $wishNode -key $drawKey \
+            Wish the GPU draws pipeline "image" onto canvas $canvas with arguments $arguments
+    } else {
+        Hold! -on $wishNode -key $drawKey \
+            Wish the GPU draws pipeline "image" onto canvas $canvas with arguments $arguments layer $layer
+    }
+}
+
+fn videoRequestCanvasRedraw {wishNode redrawKey canvas} {
+    Hold! -on $wishNode -key $redrawKey -keep 100ms \
+        Wish the GPU redraws canvas $canvas
+}
+
+fn videoAdvanceFrame {videoLib imageLib gpuTexLib player wishNode {canvas ""} {redrawKey ""}} {
+    tracy zoneBegin
+    tracy zoneName "video frame advance"
+    try {
+        set textureState [Query! video player $player has texture /gtex/]
+        set hasTexture [expr {[llength $textureState] > 0}]
+
+        set frame [$videoLib getNextFrame $player]
+        set frameWidth [{*}$imageLib Image_width $frame]
+        set hasFrame [expr {$frameWidth != 0}]
+
+        if {!$hasTexture && !$hasFrame} {
+            return false
+        }
+
+        set textureJustCreated false
+        if {$hasTexture} {
+            set gtex [dict get [lindex $textureState 0] gtex]
+        } else {
+            set gtex [{*}$gpuTexLib copyImageToGpuTexture $frame]
+            Hold! -on $wishNode -key [list video_texture $player] \
+                -destructor [list {*}$gpuTexLib freeGpuTexture $gtex] \
+                video player $player has texture $gtex
+            set textureJustCreated true
+        }
+
+        if {$hasFrame && !$textureJustCreated} {
+            {*}$gpuTexLib updateGpuTexture $gtex $frame
+        }
+
+        if {$hasFrame && $canvas ne ""} {
+            if {$redrawKey eq ""} {
+                set redrawKey [list video_redraw $player $canvas]
+            }
+            videoRequestCanvasRedraw $wishNode $redrawKey $canvas
+        }
+
+        return true
+    } finally {
+        tracy zoneEnd
+    }
+}
+
+When the video library is /videoLib/ & \
+     the GPU texture library is /gpuTexLib/ & \
+     the image library is /imageLib/ {
+
+    fn videoBoolOption
+    fn videoResolvePath
+    fn videoParseLength
+    fn videoFitInBox
+    fn videoSizeFromOptions
+    fn videoVecAdd
+    fn videoVecSub
+    fn videoVecScale
+    fn videoVecLength
+    fn videoVecUnit
+    fn videoHoldTextureDraw
+    fn videoRequestCanvasRedraw
+    fn videoAdvanceFrame
+    fn videoHasAudioHooks
+    fn videoAudioDisabledOption
+    fn videoResumeEnabled
+    fn videoUsesRequestedPlayback
+    fn videoPlaybackStableOptions
+    fn videoResumeKeyOptions
+    fn videoResumeStateKey
+    fn videoClearResumeState
+    fn videoRestoreResumeState
+    fn videoSaveResumeState
+    fn videoPagePlaybackControllerState
+    fn videoDisplayPlaybackControllerState
+    fn videoClearPlaybackControllerState
+    fn videoHoldActiveDisplayPlaybackIfTargetPresent
+    fn videoHoldPagePlayback
+    fn videoHoldDisplayPlayback
+
+    When /someone/ wishes /page/ plays video /path/ with /...options/ {
+        if {![info exists options]} { return }
+        set stableOptions [videoPlaybackStableOptions $options]
+        set controllerState [videoPagePlaybackControllerState $this $page $path $stableOptions]
+        On unmatch {
+            videoClearPlaybackControllerState $controllerState
+        }
+
+        videoHoldPagePlayback $controllerState $page $path $stableOptions
+    }
+
+    When /someone/ wishes /page/ plays video /path/ with /...options/ & \
+         the video library has audio hooks from /audioLib/ {
+        if {![info exists options]} { return }
+        if {![videoBoolOption $options mute false] && ![videoAudioDisabledOption $options]} {
+            set stableOptions [videoPlaybackStableOptions $options]
+            set controllerState [videoPagePlaybackControllerState $this $page $path $stableOptions]
+            videoHoldPagePlayback $controllerState $page $path $stableOptions true
+        }
+    }
+
+    When /someone/ wishes video playback /page/ /path/ with /...options/ & \
+         /page/ has canvas /id/ with /...wiOptions/ {
+
+        if {![info exists options]} {
+            set options {}
+        }
+
+        set resolvedPath [videoResolvePath $path]
+        if {![file exists $resolvedPath]} {
+            puts $::realStderr "video: File not found '$resolvedPath'"
+            return
+        }
+
+        set loop [videoBoolOption $options loop false]
+        set mute [expr {[videoBoolOption $options mute false] || [videoAudioDisabledOption $options]}]
+        set player [$videoLib openVideo $resolvedPath $loop $mute]
+        if {$player == 0} {
+            return
+        }
+
+        set videoWidth [$videoLib getVideoWidth $player]
+        set videoHeight [$videoLib getVideoHeight $player]
+        if {$videoWidth <= 0 || $videoHeight <= 0} {
+            $videoLib closeVideo $player
+            return
+        }
+
+        set wishNode $this
+        set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
+        set layer [dict getdef $options layer 0]
+        set drawKey [list video_draw $player $id]
+        set redrawKey [list video_redraw $player $id]
+        set resumeKey [videoResumeStateKey page $page $resolvedPath [videoResumeKeyOptions $options]]
+        videoRestoreResumeState $videoLib $player $resumeKey $options
+
+        On unmatch {
+            if {[catch {videoSaveResumeState $videoLib $player $resumeKey $options} e opts]} {
+                puts $::realStderr "video: failed to save resume state: $e"
+            }
+            Hold! -on $wishNode -key [list video_texture $player] {}
+            Hold! -on $wishNode -key $drawKey {}
+            Hold! -on $wishNode -key $redrawKey {}
+            $videoLib closeVideo $player
+        }
+
+        When $page has video audio mute /audioMute/ {
+            $videoLib setAudioMuted $player [videoBoolOption [dict create mute $audioMute] mute false]
+        }
+
+        When $page has canvas projection /surfaceToClip/ & \
+             $page has resolved geometry /geom/ {
+            fn videoSizeFromOptions
+            fn videoHoldTextureDraw
+            fn videoAdvanceFrame
+            set pageWidth [dict get $geom width]
+            set pageHeight [dict get $geom height]
+            lassign [videoSizeFromOptions $options $pageWidth $pageHeight $videoWidth $videoHeight 0.6] width height
+
+            set centerX [expr {$pageWidth / 2.0}]
+            set centerY [expr {$pageHeight / 2.0}]
+            set left [expr {$centerX - $width / 2.0}]
+            set top [expr {$centerY - $height / 2.0}]
+
+            set a [list $left $top]
+            set b [list [expr {$left + $width}] $top]
+            set c [list [expr {$left + $width}] [expr {$top + $height}]]
+            set d [list $left [expr {$top + $height}]]
+            set textureCoords [list $a $b $c $d]
+
+            When video player $player has texture /gtex/ {
+                fn videoHoldTextureDraw
+                videoHoldTextureDraw \
+                    $wishNode $drawKey $wiResolution $surfaceToClip \
+                    $gtex $textureCoords $layer $id
+            }
+
+            When -serially -atomicallyWithKey [list video-frame $player] the clock time is /t/ {
+                fn videoAdvanceFrame
+                try {
+                    videoAdvanceFrame $videoLib $imageLib $gpuTexLib \
+                        $player $wishNode $id $redrawKey
+                } on error {e opts} {
+                    puts $::realStderr "VIDEO TICK ERROR: $e\n[dict get $opts -errorinfo]"
+                }
+            }
+        }
+    }
+
+    When /someone/ wishes /page/ plays video /path/ {
+        Wish $page plays video $path with preserveAspectRatio true
+    }
+
+    When /someone/ wishes to display a video above /target/ /path/ with /...options/ {
+        if {![info exists options]} { set options {} }
+        Wish video display $path beside $target above with {*}$options
+    }
+
+    When /someone/ wishes to display a video below /target/ /path/ with /...options/ {
+        if {![info exists options]} { set options {} }
+        Wish video display $path beside $target below with {*}$options
+    }
+
+    When /someone/ wishes to display a video left of /target/ /path/ with /...options/ {
+        if {![info exists options]} { set options {} }
+        Wish video display $path beside $target left with {*}$options
+    }
+
+    When /someone/ wishes to display a video right of /target/ /path/ with /...options/ {
+        if {![info exists options]} { set options {} }
+        Wish video display $path beside $target right with {*}$options
+    }
+
+    When /someone/ wishes to display a video above /target/ /path/ {
+        Wish to display a video above $target $path with preserveAspectRatio true
+    }
+
+    When /someone/ wishes to display a video below /target/ /path/ {
+        Wish to display a video below $target $path with preserveAspectRatio true
+    }
+
+    When /someone/ wishes to display a video left of /target/ /path/ {
+        Wish to display a video left of $target $path with preserveAspectRatio true
+    }
+
+    When /someone/ wishes to display a video right of /target/ /path/ {
+        Wish to display a video right of $target $path with preserveAspectRatio true
+    }
+
+    When /someone/ wishes video display /path/ beside /target/ /direction/ with /...options/ {
+        if {![info exists options]} { return }
+        set stableOptions [videoPlaybackStableOptions $options]
+        set controllerState [videoDisplayPlaybackControllerState $this $path $target $direction $stableOptions]
+        On unmatch {
+            videoClearPlaybackControllerState $controllerState
+        }
+
+        videoHoldDisplayPlayback $controllerState $path $target $direction $stableOptions
+    }
+
+    When /someone/ wishes video display /path/ beside /target/ /direction/ with /...options/ & \
+         the video library has audio hooks from /audioLib/ {
+        if {![info exists options]} { return }
+        if {![videoBoolOption $options mute false] && ![videoAudioDisabledOption $options]} {
+            set stableOptions [videoPlaybackStableOptions $options]
+            set controllerState [videoDisplayPlaybackControllerState $this $path $target $direction $stableOptions]
+            videoHoldDisplayPlayback $controllerState $path $target $direction $stableOptions true
+        }
+    }
+
+    When /someone/ wishes video display playback /path/ beside /target/ /direction/ with /...options/ {
+        if {![info exists options]} {
+            set options {}
+        }
+        set activeWishNode [list video_display_active_controller $this $path $target $direction $options]
+        set activeKey [list video_display_active_playback $path $target $direction $options]
+
+        videoHoldActiveDisplayPlaybackIfTargetPresent \
+            $activeWishNode $activeKey $path $target $direction $options
+
+        When the clock time is /t/ {
+            fn videoHoldActiveDisplayPlaybackIfTargetPresent
+            videoHoldActiveDisplayPlaybackIfTargetPresent \
+                $activeWishNode $activeKey $path $target $direction $options
+        }
+
+        On unmatch {
+            Hold! -on $activeWishNode -key $activeKey {}
+        }
+    }
+
+    When /someone/ wishes video active display playback /path/ beside /target/ /direction/ with /...options/ & \
+         the quad library is /quadLib/ & \
+         the pose library is /poseLib/ {
+
+        if {![info exists options]} {
+            set options {}
+        }
+        set wishNode $this
+
+        When the quad changer is /quadChange/ & \
+             display /disp/ has width /displayWidth/ height /displayHeight/ & \
+             display /disp/ has intrinsics /displayIntrinsics/ {
+            set resolvedPath [videoResolvePath $path]
+            if {![file exists $resolvedPath]} {
+                puts $::realStderr "video: File not found '$resolvedPath'"
+                return
+            }
+
+            set player [$videoLib openVideo \
+                            $resolvedPath \
+                            [videoBoolOption $options loop false] \
+                            [expr {[videoBoolOption $options mute false] || [videoAudioDisabledOption $options]}]]
+            if {$player == 0} {
+                return
+            }
+
+            set videoWidth [$videoLib getVideoWidth $player]
+            set videoHeight [$videoLib getVideoHeight $player]
+            if {$videoWidth <= 0 || $videoHeight <= 0} {
+                $videoLib closeVideo $player
+                return
+            }
+
+            set displayToClip \
+                [list \
+                     [list [expr {2.0 / $displayWidth}] 0 -1.0] \
+                     [list 0 [expr {2.0 / $displayHeight}] -1.0] \
+                     [list 0 0 1]]
+            set wiResolution [list $displayWidth $displayHeight]
+            set layer [dict getdef $options layer 0]
+            set gap [videoParseLength [dict getdef $options gap 1cm] 0]
+            set drawKey [list video_draw $player display $disp $target $direction]
+            set resumeKey [videoResumeStateKey display $target $direction $resolvedPath [videoResumeKeyOptions $options]]
+            videoRestoreResumeState $videoLib $player $resumeKey $options
+            On unmatch {
+                if {[catch {videoSaveResumeState $videoLib $player $resumeKey $options} e opts]} {
+                    puts $::realStderr "video: failed to save resume state: $e"
+                }
+                Hold! -on $wishNode -key [list video_texture $player] {}
+                Hold! -on $wishNode -key $drawKey {}
+                $videoLib closeVideo $player
+            }
+
+            fn quadChange
+            When $target has quad /quad/ {
+                fn quadChange
+                fn videoSizeFromOptions
+                fn videoVecAdd
+                fn videoVecSub
+                fn videoVecScale
+                fn videoVecLength
+                fn videoVecUnit
+                fn videoHoldTextureDraw
+                fn videoAdvanceFrame
+                set displayQuad [quadChange $quad "display $disp"]
+                lassign [{*}$quadLib vertices $displayQuad] topLeft topRight bottomRight bottomLeft
+
+                set widthVector [videoVecScale 0.5 \
+                                     [videoVecAdd \
+                                          [videoVecSub $topRight $topLeft] \
+                                          [videoVecSub $bottomRight $bottomLeft]]]
+                set heightVector [videoVecScale 0.5 \
+                                      [videoVecAdd \
+                                           [videoVecSub $bottomLeft $topLeft] \
+                                           [videoVecSub $bottomRight $topRight]]]
+                set targetWidth [videoVecLength $widthVector]
+                set targetHeight [videoVecLength $heightVector]
+                lassign [videoSizeFromOptions $options $targetWidth $targetHeight $videoWidth $videoHeight 1.0] width height
+
+                set widthUnit [videoVecUnit $widthVector]
+                set heightUnit [videoVecUnit $heightVector]
+                set topCenter [videoVecScale 0.5 [videoVecAdd $topLeft $topRight]]
+                set bottomCenter [videoVecScale 0.5 [videoVecAdd $bottomLeft $bottomRight]]
+                set leftCenter [videoVecScale 0.5 [videoVecAdd $topLeft $bottomLeft]]
+                set rightCenter [videoVecScale 0.5 [videoVecAdd $topRight $bottomRight]]
+
+                if {$direction eq "above"} {
+                    set edgeCenter $topCenter
+                    set offset [videoVecScale [expr {-1.0 * ($gap + $height / 2.0)}] $heightUnit]
+                } elseif {$direction eq "below"} {
+                    set edgeCenter $bottomCenter
+                    set offset [videoVecScale [expr {$gap + $height / 2.0}] $heightUnit]
+                } elseif {$direction eq "left"} {
+                    set edgeCenter $leftCenter
+                    set offset [videoVecScale [expr {-1.0 * ($gap + $width / 2.0)}] $widthUnit]
+                } elseif {$direction eq "right"} {
+                    set edgeCenter $rightCenter
+                    set offset [videoVecScale [expr {$gap + $width / 2.0}] $widthUnit]
+                } else {
+                    error "video: Invalid display direction $direction"
+                }
+
+                set center [videoVecAdd $edgeCenter $offset]
+                set halfWidth [videoVecScale [expr {$width / 2.0}] $widthUnit]
+                set halfHeight [videoVecScale [expr {$height / 2.0}] $heightUnit]
+
+                set displayCoords [list \
+                    [videoVecSub [videoVecSub $center $halfWidth] $halfHeight] \
+                    [videoVecSub [videoVecAdd $center $halfWidth] $halfHeight] \
+                    [videoVecAdd [videoVecAdd $center $halfWidth] $halfHeight] \
+                    [videoVecAdd [videoVecSub $center $halfWidth] $halfHeight]]
+
+                lassign [lmap v $displayCoords {
+                    {*}$poseLib project $displayIntrinsics $displayWidth $displayHeight $v
+                }] a b c d
+
+                set textureCoords [list $a $b $c $d]
+                When video player $player has texture /gtex/ {
+                    fn videoHoldTextureDraw
+                    videoHoldTextureDraw \
+                        $wishNode $drawKey $wiResolution $displayToClip \
+                        $gtex $textureCoords $layer
+                }
+                When -serially -atomicallyWithKey [list video-frame $player] the clock time is /t/ {
+                    fn videoAdvanceFrame
+                    try {
+                        videoAdvanceFrame $videoLib $imageLib $gpuTexLib \
+                            $player $wishNode
+                    } on error {e opts} {
+                        puts $::realStderr "VIDEO DISPLAY TICK ERROR: $e\n[dict get $opts -errorinfo]"
+                    }
+                }
+            }
+        }
+    }
+}
+
+Hold! -on builtin-programs/video/video.folk -key video_demo_code \
+    Claim builtin-programs/video/video.folk has demo code {
+    # Swap this for an absolute path or ~/ path when using live table media.
+    set videoPath "test/test.mp4"
+
+    # Centered on this page. Defaults: 60% of the page quad, audio on,
+    # no loop, preserve source aspect ratio, resume playback on rematch.
+    Wish $this plays video $videoPath
+
+    # Centered option examples:
+    # Wish $this plays video $videoPath with width 10cm mute true loop true
+    # Wish $this plays video $videoPath with height 5cm mute true
+    # Wish $this plays video $videoPath with width 8cm height 4cm preserveAspectRatio false mute true
+    # Wish $this plays video "~/fish.mp4" with width 10cm loop true mute true
+    # Wish $this plays video "/tmp/fish/vid.mp4" with height 5cm mute true
+    # Wish $this plays video $videoPath with width 10cm audio false loop true
+    # Wish $this plays video $videoPath with width 10cm resume false
+    # Claim $this has video audio mute true
+
+    # Offside placement. Defaults to the target quad size with a 1cm gap.
+    Wish to display a video above $this $videoPath with mute true
+    Wish to display a video below $this $videoPath with mute true loop true
+    Wish to display a video left of $this $videoPath with width 6cm mute true
+    Wish to display a video right of $this $videoPath with height 4cm mute true
+
+    # Offside options are the same options accepted by centered playback:
+    # Wish to display a video right of $this $videoPath with width 10cm loop true mute true
+    # Wish to display a video below $this $videoPath with width 8cm height 4cm preserveAspectRatio false mute true
+    # Wish to display a video above $this $videoPath with resume false
+}
