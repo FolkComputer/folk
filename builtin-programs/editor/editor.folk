@@ -93,11 +93,6 @@ When /editor/ is an editor with /...options/ {
                 Claim editor buffer for $program is $programCode
         }
     }
-
-    # Feedback: show that the editor is not active
-    When /nobody/ wishes $editor is outlined green {
-        Wish $editor is outlined blue
-    }
 }
 
 Subscribe: keyboard /keyboard/ claims key Control_b is down with /...options/ {
@@ -109,7 +104,17 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
      /editor/ is an editor with /...anything/ &\
      editor /editor/ has selected program /program/ {
 
-    Wish $editor is outlined green
+    When $editor has resolved geometry /geom/ &\
+         the clock time is /t/ {
+        Wish to draw a dashed line onto $editor with points \
+            [list [list 0 0] \
+                 [list $geom(width) 0] \
+                 [list $geom(width) $geom(height)] \
+                 [list 0 $geom(height)] \
+                 [list 0 0]] \
+            color gold width 0.005 dashlength 0.008 \
+            dashoffset [expr {fmod($t, 10)/100.0}]
+    }
 
     When $editor has canvas /editorCanvas/ with /...wiOpts/ {
         set bgColor [list 0 0 0 0.8]
