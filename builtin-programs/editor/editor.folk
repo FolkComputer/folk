@@ -46,6 +46,16 @@ When /editor/ is an editor with /...options/ {
         # Wait until all the saved holds are loaded, so we don't accidentally
         # overwrite a saved setting.
         set textScale [dict get $options textScale]
+        # If the program's geometry carries a lineHeight (printed-page
+        # metadata), prefer that over the global default so the editor
+        # opens at the same scale the program was printed at.
+        set geomResults [Query! $editor has resolved geometry /geom/]
+        if {[llength $geomResults] > 0} {
+            set geom [dict get [lindex $geomResults 0] geom]
+            if {[dict exists $geom lineHeight]} {
+                set textScale [dict get $geom lineHeight]
+            }
+        }
         Hold! -save -key font-options-of:$editor \
             Claim editor $editor has font options with scale $textScale
     }
