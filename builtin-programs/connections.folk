@@ -264,10 +264,9 @@ When connection /key/ has segment /segment/ options /options/ disp /disp/ &\
     set layer [dict getdef $options layer 0]
     set width [drawConnectionPixelOption $options width 1 width]
 
-    set arrows [drawConnectionDynamicArrows \
-        [dict get $segment from] [dict get $segment direction] \
-        [dict get $segment distance] $options $t]
     drawConnectionWish $disp $key \
         [dict get $segment from] [dict get $segment to] [dict get $segment direction] \
-        $color $layer $width $arrows
+        $color $layer $width [drawConnectionDynamicArrows \
+            [dict get $segment from] [dict get $segment direction] \
+            [dict get $segment distance] $options $t]
 }
