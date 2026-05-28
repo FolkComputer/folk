@@ -228,6 +228,10 @@ When the collected results for [list connection /key/ has segment /segment/ opti
     When -atomically the clock time is /t/ {
         set frameT [drawConnectionFrameTime $t]
 
+        set f [open "/tmp/folk_connections_log.txt" a]
+        puts $f "Tcl Tick: $frameT, Groups: [dict size $groups]"
+        close $f
+
         dict for {group conns} $groups {
             lassign $group disp layer
             Hold! -key [list connection-shader $disp $layer] -- \
