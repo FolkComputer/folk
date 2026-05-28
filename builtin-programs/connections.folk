@@ -114,6 +114,10 @@ fn drawConnectionSegment {
         distance $distance
 }
 
+fn drawConnectionFrameTime {t} {
+    expr {floor($t * 30.0) / 30.0}
+}
+
 fn drawConnectionKey {kind disp source sink options} {
     list connections $kind $disp $source $sink $options
 }
@@ -197,9 +201,11 @@ When connection /key/ has segment /segment/ options /options/ disp /disp/ &\
     set spacing [drawConnectionPixelOption $options spacing 50 spacing]
     set maxSize [drawConnectionPixelOption $options maxsize \
         [dict getdef $options maxSize 25] maxsize]
+    
+    set frameT [drawConnectionFrameTime $t]
 
     Wish to draw a connection onto $disp with \
         points [list [dict get $segment from] [dict get $segment to]] \
         thickness $width color $color layer $layer \
-        time $t speed $speed spacing $spacing maxSize $maxSize
+        time $frameT speed $speed spacing $spacing maxSize $maxSize
 }
