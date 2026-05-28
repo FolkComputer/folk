@@ -174,15 +174,17 @@ fn drawConnectionKey {kind disp source sink options} {
 }
 
 fn drawConnectionWish {disp key from to direction color layer width arrowSpecs} {
-    Wish to draw a line onto $disp with \
-        points [list $from $to] width $width color $color layer $layer
-    foreach arrowSpec $arrowSpecs {
-        set arrowPoints [drawConnectionArrowPoints \
-            [dict get $arrowSpec center] $direction [dict get $arrowSpec radius]]
-        if {$arrowPoints eq ""} { continue }
-        lassign $arrowPoints tip rearLeft rearRight
-        Wish to draw a triangle onto $disp with \
-            p0 $tip p1 $rearLeft p2 $rearRight color $color layer $layer
+    Hold! -keep 50ms -key $key {
+        Wish to draw a line onto $disp with \
+            points [list $from $to] width $width color $color layer $layer
+        foreach arrowSpec $arrowSpecs {
+            set arrowPoints [drawConnectionArrowPoints \
+                [dict get $arrowSpec center] $direction [dict get $arrowSpec radius]]
+            if {$arrowPoints eq ""} { continue }
+            lassign $arrowPoints tip rearLeft rearRight
+            Wish to draw a triangle onto $disp with \
+                p0 $tip p1 $rearLeft p2 $rearRight color $color layer $layer
+        }
     }
 }
 
@@ -236,7 +238,6 @@ When -atomically /anyone/ wishes /source/ is connected to /sink/ with /...option
 }
 
 When -atomically /anyone/ wishes /source/ is dynamically connected to /sink/ with /...options/ &\
-     the clock time is /t/ &\
      the quad library is /quadLib/ &\
      the pose library is /poseLib/ &\
      the quad changer is /quadChange/ &\
@@ -256,6 +257,11 @@ When -atomically /anyone/ wishes /source/ is dynamically connected to /sink/ wit
         return
     }
 
+    Claim connection $key has segment $segment options $options disp $disp
+}
+
+When connection /key/ has segment /segment/ options /options/ disp /disp/ &\
+     the clock time is /t/ {
     set color [dict getdef $options color white]
     set layer [dict getdef $options layer 0]
     set width [drawConnectionPixelOption $options width 1 width]
