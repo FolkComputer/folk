@@ -225,16 +225,14 @@ When the collected results for [list connection /key/ has segment /segment/ opti
         dict lappend groups [list $disp $layer] $conn
     }
 
-    When -atomically the clock time is /t/ {
+    When the clock time is /t/ {
         set frameT [drawConnectionFrameTime $t]
-
-        set f [open "/tmp/folk_connections_log.txt" a]
-        puts $f "Tcl Tick: $frameT, Groups: [dict size $groups]"
-        close $f
 
         dict for {group conns} $groups {
             lassign $group disp layer
-            Hold! -key [list connection-shader $disp $layer] -- \
+            # Use -keep 50ms to prevent the statement from being deleted when the environment unwinds due to camera noise.
+            # When the new frame matches, dbHoldStatement will atomically replace it (1 -> 2 -> 1) without a gap.
+            Hold! -keep 50ms -key [list connection-shader $disp $layer] -- \
                 Wish to draw connections onto $disp with \
                 connections $conns layer $layer time $frameT
         }
