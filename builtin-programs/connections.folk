@@ -198,8 +198,7 @@ When -atomically /anyone/ wishes /source/ is dynamically connected to /sink/ wit
     Claim connection $key has segment $segment options $options disp $disp
 }
 
-When the clock time is /t/ &\
-     the collected results for [list connection /key/ has segment /segment/ options /options/ disp /disp/] are /connections/ {
+When the collected results for [list connection /key/ has segment /segment/ options /options/ disp /disp/] are /connections/ {
 
     set groups [dict create]
     foreach match $connections {
@@ -226,12 +225,14 @@ When the clock time is /t/ &\
         dict lappend groups [list $disp $layer] $conn
     }
 
-    set frameT [drawConnectionFrameTime $t]
+    When the clock time is /t/ {
+        set frameT [drawConnectionFrameTime $t]
 
-    dict for {group conns} $groups {
-        lassign $group disp layer
-        Hold! -key [list connection-shader $disp $layer] -- \
-            Wish to draw connections onto $disp with \
-            connections $conns layer $layer time $frameT
+        dict for {group conns} $groups {
+            lassign $group disp layer
+            Hold! -key [list connection-shader $disp $layer] -- \
+                Wish to draw connections onto $disp with \
+                connections $conns layer $layer time $frameT
+        }
     }
 }
