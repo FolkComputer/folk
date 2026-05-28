@@ -379,7 +379,7 @@ When the GPU library is /gpuLib/ &\
                 StatementAcquire! $ref
                 lappend acquiredRefs $ref
             } on error e {
-                puts stderr "canvases: StatementAcquire! failed on $id ($ref): $e. Using query results directly."
+                # Silently fallback to using query results directly
             }
 
             foreach result $results { dict with result {

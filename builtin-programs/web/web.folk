@@ -207,8 +207,8 @@ proc handleRead {chan addr} {
                     set queryString [lindex $vars end]
                     set QUERY [parseQueryString $queryString]
 
-                    set ^html [proc html {body} {dict create statusAndHeaders "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: text/html; charset=utf-8\r\n\r\n" body $body}]
-                    set ^json [proc json {body} {dict create statusAndHeaders "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: application/json; charset=utf-8\r\n\r\n" body $body}]
+                    set ^html [proc html {body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: text/html; charset=utf-8\n\n" body $body}]
+                    set ^json [proc json {body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: application/json; charset=utf-8\n\n" body $body}]
 
                     if {[lindex $handler 0] eq "applyBlock"} {
                         set env [dict create QUERY $QUERY]
@@ -230,7 +230,7 @@ proc handleRead {chan addr} {
                 set httpStatus "HTTP/1.1 200 OK"
                 set contentType "text/html; charset=utf-8"
                 set body [handlePage $path httpStatus contentType]
-                set response [dict create statusAndHeaders "$httpStatus\r\nConnection: close\r\nContent-Type: $contentType\r\n\r\n" body $body]
+                set response [dict create statusAndHeaders "$httpStatus\nConnection: close\nContent-Type: $contentType\n\n" body $body]
             }
             if {![dict exists $response statusAndHeaders]} {
                 error "Response not generated"
@@ -252,7 +252,7 @@ proc handleRead {chan addr} {
                 </body>
                 </html>
             }]
-            set response [dict create statusAndHeaders "HTTP/1.1 500 Internal Server Error\r\nConnection: close\r\nContent-Type: $contentType\r\n\r\n" body $body]
+            set response [dict create statusAndHeaders "HTTP/1.1 500 Internal Server Error\nConnection: close\nContent-Type: $contentType\n\n" body $body]
         }
         puts -nonewline $chan [dict get $response statusAndHeaders]
         if {[dict exists $response body]} {
