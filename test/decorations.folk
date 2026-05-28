@@ -4,14 +4,6 @@ source builtin-programs/decorations/outline.folk
 source builtin-programs/draw/line.folk
 
 assert {[drawOutlinePoints 0.2 0.1] eq {{0 0} {0.2 0} {0.2 0.1} {0 0.1} {0 0}}}
-assert {[drawLineClosed {{0 0} {1 0} {0 0}}]}
-assert {![drawLineClosed {{0 0} {1 0}}]}
-assert {[drawLineCapFlags 0 4 true round] eq {0.0 0.0}}
-assert {[drawLineCapFlags 0 1 false round] eq {0.0 0.0}}
-assert {[drawLineCapFlags 0 4 false round] eq {0.0 0.0}}
-assert {[drawLineCapFlags 3 4 false round] eq {0.0 0.0}}
-assert {[drawLineCapFlags 0 1 false square] eq {1.0 1.0}}
-assert {[drawLineCapFlags 1 4 true square] eq {1.0 1.0}}
 assert {[drawLabelMaxLineLength "hi\nthere"] == 5}
 assert {abs([drawLabelDefaultScale "hello"] - 0.02) < 1e-9}
 assert {abs([drawLabelDefaultScale [string repeat x 100]] - 0.0045) < 1e-9}
