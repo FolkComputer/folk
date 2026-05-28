@@ -32,7 +32,7 @@ When /editor/ is an editor with /...anything/ &\
                  [list 0 $geom(height)] \
                  [list 0 0]] \
             color gold width 0.005 dashlength 0.008 \
-            dashoffset [expr {fmod($t, 0.8)/100.0}]
+            dashoffset [expr {fmod($t, 1.6) * 0.01}]
     }
 
     set textScale [dict get $fontOptions scale]
