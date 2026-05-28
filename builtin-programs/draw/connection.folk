@@ -68,6 +68,7 @@ Wish the GPU compiles pipeline "connection" {
 When the color map is /colorMap/ &\
      /p/ has canvas /id/ with /...wiOptions/ &\
      /p/ has canvas projection /surfaceToClip/ &\
+<<<<<<< Updated upstream
      /someone/ wishes to draw connections onto /p/ with /...options/ {
 
     set layer [dict getdef $options layer 0]
@@ -89,14 +90,50 @@ When the color map is /colorMap/ &\
         # Compute the offset in Tcl (64-bit double precision). 
         # Passing a raw UNIX timestamp to GLSL (32-bit float) loses all fractional precision!
         set offset [expr {fmod($time * $speed, $spacing)}]
+=======
+     the collected results for [list /wisher/ wishes to draw a connection with /...options/] are /connections/ &\
+     the clock time is /t/ {
+
+    set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
+    set drawListsByLayer [dict create]
+
+    foreach match $connections {
+        set options [dict get $match options]
+        set points [dict get $options points]
+        set thickness [dict getdef $options thickness 1.0]
+        set c [dict getdef $options color white]
+        set c [dict getdef $colorMap $c $c]
+        set speed [dict getdef $options speed 75.0]
+        set spacing [dict getdef $options spacing 50.0]
+        set maxSize [dict getdef $options maxSize 25.0]
+        set layer [dict getdef $options layer 0]
+
+        # Compute the offset in Tcl (64-bit double precision). 
+        # Passing a raw UNIX timestamp to GLSL (32-bit float) loses all fractional precision!
+        # The frame offset is evaluated here locally so the caller doesn't have to manage it.
+        set offset [expr {fmod($t * $speed, $spacing)}]
+>>>>>>> Stashed changes
 
         for {set i 0} {$i < [llength $points] - 1} {incr i} {
             set from [lindex $points $i]
             set to [lindex $points [expr {$i + 1}]]
+<<<<<<< Updated upstream
             lappend instances [list $wiResolution $surfaceToClip $from $to $thickness $c $offset $spacing $maxSize]
         }
     }
 
     Wish the GPU draws pipeline "connection" onto canvas $id \
         with instances $instances layer $layer
+=======
+            dict lappend drawListsByLayer $layer [list $wiResolution $surfaceToClip $from $to $thickness $c $offset $spacing $maxSize]
+        }
+    }
+
+    dict for {layer instances} $drawListsByLayer {
+        # Use -keep 50ms to prevent the pipeline from blinking when camera noise updates the underlying connection statement
+        Hold! -keep 50ms -key [list connection-shader $id $layer] -- \
+            Wish the GPU draws pipeline "connection" onto canvas $id \
+            with instances $instances layer $layer
+    }
+>>>>>>> Stashed changes
 }
