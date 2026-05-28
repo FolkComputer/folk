@@ -103,9 +103,10 @@ fn codeToPostScript {id code opts {mixins {}}} {
     set outPages [list]
     set lineIdx 0
     while {[llength $lines] > 0} {
-        set pageLines [lrange $lines 0 $maxLines]
-        set lines [lreplace $lines 0 $maxLines]
+        set pageLines [lrange $lines 0 $maxLines-1]
+        set lines [lreplace $lines 0 $maxLines-1]
 
+        set pageLineIdx 0
         # The typesetting here is meant to exactly duplicate the
         # layout in the editor.
         lappend outPages [subst {
@@ -124,13 +125,14 @@ fn codeToPostScript {id code opts {mixins {}}} {
             [join [lmap line $pageLines {
                 set line [string map {"\\" "\\\\" ")" "\\)" "(" "\\("} $line]
                 incr lineIdx
+                incr pageLineIdx
                 subst {
-                    $lineNumbersRight [expr {$PageHeight-$marginTop-$lineIdx*$lineHeight}] moveto
-                    0.4 setgray ([format "% 3s" $lineIdx])
+                    $lineNumbersRight [expr {$PageHeight-$marginTop-$pageLineIdx*$lineHeight}] moveto
+                    0.6 setgray ([format "% 3s" $lineIdx])
                     dup stringwidth pop neg 0 rmoveto
                     show
 
-                    [+ $lineNumbersRight $opts(advance)] [expr {$PageHeight-$marginTop-$lineIdx*$lineHeight}] moveto
+                    [+ $lineNumbersRight $opts(advance)] [expr {$PageHeight-$marginTop-$pageLineIdx*$lineHeight}] moveto
                     settextcolor ($line) show
                 }
             }] "\n"]
@@ -143,7 +145,7 @@ fn codeToPostScript {id code opts {mixins {}}} {
                 grestore
 
                 /Helvetica-Narrow findfont
-                8 scalefont
+                7 scalefont
                 setfont
                 newpath
                 [expr {$PageWidth-$tagWidth-$marginRight-$tagInset}] [expr {$PageHeight-$tagHeight-14-$marginTop-$tagInset}] moveto
