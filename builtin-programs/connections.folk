@@ -192,8 +192,7 @@ When -atomically /anyone/ wishes /source/ is dynamically connected to /sink/ wit
     Claim connection $key has segment $segment options $options disp $disp
 }
 
-When connection /key/ has segment /segment/ options /options/ disp /disp/ &\
-     the clock time is /t/ {
+When connection /key/ has segment /segment/ options /options/ disp /disp/ {
     set color [dict getdef $options color white]
     set layer [dict getdef $options layer 0]
     set width [drawConnectionPixelOption $options width 1 width]
@@ -202,13 +201,15 @@ When connection /key/ has segment /segment/ options /options/ disp /disp/ &\
     set maxSize [drawConnectionPixelOption $options maxsize \
         [dict getdef $options maxSize 25] maxsize]
     
-    set frameT [drawConnectionFrameTime $t]
+    When the clock time is /t/ {
+        set frameT [drawConnectionFrameTime $t]
 
-    Hold! -key [list connection-shader $key] -- \
-        Wish to draw a connection onto $disp with \
-        points [list [dict get $segment from] [dict get $segment to]] \
-        thickness $width color $color layer $layer \
-        time $frameT speed $speed spacing $spacing maxSize $maxSize
+        Hold! -key [list connection-shader $key] -- \
+            Wish to draw a connection onto $disp with \
+            points [list [dict get $segment from] [dict get $segment to]] \
+            thickness $width color $color layer $layer \
+            time $frameT speed $speed spacing $spacing maxSize $maxSize
+    }
 
     On unmatch {
         Hold! -key [list connection-shader $key]
