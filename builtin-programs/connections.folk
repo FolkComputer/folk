@@ -174,17 +174,15 @@ fn drawConnectionKey {kind disp source sink options} {
 }
 
 fn drawConnectionWish {disp key from to direction color layer width arrowSpecs} {
-    Hold! -keep 50ms -key $key {
-        Wish to draw a line onto $disp with \
-            points [list $from $to] width $width color $color layer $layer
-        foreach arrowSpec $arrowSpecs {
-            set arrowPoints [drawConnectionArrowPoints \
-                [dict get $arrowSpec center] $direction [dict get $arrowSpec radius]]
-            if {$arrowPoints eq ""} { continue }
-            lassign $arrowPoints tip rearLeft rearRight
-            Wish to draw a triangle onto $disp with \
-                p0 $tip p1 $rearLeft p2 $rearRight color $color layer $layer
-        }
+    Wish -keep 50ms to draw a line onto $disp with \
+        points [list $from $to] width $width color $color layer $layer
+    foreach arrowSpec $arrowSpecs {
+        set arrowPoints [drawConnectionArrowPoints \
+            [dict get $arrowSpec center] $direction [dict get $arrowSpec radius]]
+        if {$arrowPoints eq ""} { continue }
+        lassign $arrowPoints tip rearLeft rearRight
+        Wish -keep 50ms to draw a triangle onto $disp with \
+            p0 $tip p1 $rearLeft p2 $rearRight color $color layer $layer
     }
 }
 
