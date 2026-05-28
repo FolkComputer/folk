@@ -24,7 +24,7 @@ When /editor/ is an editor with /...anything/ &\
         set lineNumbersRight $($marginLeft + $advance*1.5)
         Wish to draw text onto $editor with \
             position [list $lineNumbersRight [lindex $margin 0]] \
-            text $lineNumbers \
+            text $lineNumbers color gray \
             scale $textScale anchor topright font NeomatrixCode
 
         set text [$utils applyTextViewport $code $vpX $vpY $vpWidth $vpHeight]
