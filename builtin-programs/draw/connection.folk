@@ -1,6 +1,6 @@
 Wish the GPU compiles pipeline "connection" {
     {vec2 viewport mat3 surfaceToClip
-     vec2 from vec2 to float thickness vec4 color float time float speed float spacing float maxSize} {
+     vec2 from vec2 to float thickness vec4 color float offset float spacing float maxSize} {
         vec2 dir = normalize(to - from);
         vec2 perp = vec2(-dir.y, dir.x);
         
@@ -39,7 +39,6 @@ Wish the GPU compiles pipeline "connection" {
         bool inLine = abs(v) <= thickness / 2.0 && u >= 0.0 && u <= l;
 
         // Arrow logic
-        float offset = mod(time * speed, spacing);
         float local_u = u - offset;
         // Find nearest arrow center index
         float index = round(local_u / spacing);
@@ -87,10 +86,14 @@ When the color map is /colorMap/ &\
         set spacing [dict getdef $conn spacing 50.0]
         set maxSize [dict getdef $conn maxSize 25.0]
 
+        # Compute the offset in Tcl (64-bit double precision). 
+        # Passing a raw UNIX timestamp to GLSL (32-bit float) loses all fractional precision!
+        set offset [expr {fmod($time * $speed, $spacing)}]
+
         for {set i 0} {$i < [llength $points] - 1} {incr i} {
             set from [lindex $points $i]
             set to [lindex $points [expr {$i + 1}]]
-            lappend instances [list $wiResolution $surfaceToClip $from $to $thickness $c $time $speed $spacing $maxSize]
+            lappend instances [list $wiResolution $surfaceToClip $from $to $thickness $c $offset $spacing $maxSize]
         }
     }
 
