@@ -114,82 +114,8 @@ fn drawConnectionSegment {
         distance $distance
 }
 
-fn drawConnectionArrowPoints {center direction radius} {
-    if {$radius <= 0.0} { return "" }
-    set perp [list [expr {-[lindex $direction 1]}] [lindex $direction 0]]
-    set tip [drawConnectionVecAdd $center [drawConnectionVecScale $direction $radius]]
-    set rear [drawConnectionVecAdd $center [drawConnectionVecScale $direction [expr {-$radius}]]]
-    set spread [expr {$radius * 0.8}]
-    list $tip \
-         [drawConnectionVecAdd $rear [drawConnectionVecScale $perp $spread]] \
-         [drawConnectionVecAdd $rear [drawConnectionVecScale $perp [expr {-$spread}]]]
-}
-
-fn drawConnectionFrameTime {t} {
-    expr {floor($t * 30.0) / 30.0}
-}
-
-fn drawConnectionFrameIndex {t} {
-    expr {int(floor($t * 30.0))}
-}
-
-
-
-fn drawConnectionDynamicArrows {from direction distance options t} {
-    set speed [drawConnectionPixelOption $options speed 75 speed]
-    set spacing [drawConnectionPixelOption $options spacing 50 spacing]
-    set maxSize [drawConnectionPixelOption $options maxsize \
-        [dict getdef $options maxSize 25] maxsize]
-    set maxArrows [expr {int([drawConnectionPixelOption $options maxArrows 48 maxArrows])}]
-
-    if {$spacing <= 0.0} { error "connections: spacing must be positive" }
-    if {$maxArrows < 1} { error "connections: maxArrows must be at least 1" }
-
-    set effectiveSpacing $spacing
-    if {ceil($distance / $effectiveSpacing) > $maxArrows} {
-        set effectiveSpacing [expr {$distance / double($maxArrows)}]
-    }
-
-    set frameT [drawConnectionFrameTime $t]
-    set offset [expr {fmod($frameT * $speed, $effectiveSpacing)}]
-    if {$offset < 0.0} { set offset [expr {$offset + $effectiveSpacing}] }
-
-    set arrows [list]
-    for {set p $offset} {$p < $distance && [llength $arrows] < $maxArrows} \
-        {set p [expr {$p + $effectiveSpacing}]} {
-        set farEdgeDistance [expr {$distance - $p}]
-        set edgeDistance [expr {$p < $farEdgeDistance ? $p : $farEdgeDistance}]
-        set radius [expr {$maxSize < 0.20 * $edgeDistance ? $maxSize : 0.20 * $edgeDistance}]
-        if {$radius <= 0.25} { continue }
-
-        lappend arrows [dict create \
-            center [drawConnectionVecAdd $from [drawConnectionVecScale $direction $p]] \
-            radius $radius]
-    }
-    return $arrows
-}
-
 fn drawConnectionKey {kind disp source sink options} {
     list connections $kind $disp $source $sink $options
-}
-
-fn drawConnectionWish {disp key from to direction color layer width arrowSpecs} {
-    Hold! -keep 50ms -key [list connection $key] {
-        Wish to draw a line onto $disp with \
-            points [list $from $to] width $width color $color layer $layer
-    }
-    set i 0
-    foreach arrowSpec $arrowSpecs {
-        set arrowPoints [drawConnectionArrowPoints \
-            [dict get $arrowSpec center] $direction [dict get $arrowSpec radius]]
-        if {$arrowPoints eq ""} { continue }
-        lassign $arrowPoints tip rearLeft rearRight
-        Hold! -keep 50ms -key [list connection $key arrow $i] {
-            Wish to draw a triangle onto $disp with \
-                p0 $tip p1 $rearLeft p2 $rearRight color $color layer $layer
-        }
-        incr i
-    }
 }
 
 When /anyone/ wishes /source/ is connected to /sink/ {
@@ -232,13 +158,11 @@ When -atomically /anyone/ wishes /source/ is connected to /sink/ with /...option
     set layer [dict getdef $options layer 0]
     set width [drawConnectionPixelOption $options width 2 width]
     set arrowRadius [drawConnectionPixelOption $options arrowRadius 30 arrowRadius]
-    set mid [drawConnectionVecAdd [dict get $segment from] \
-        [drawConnectionVecScale \
-            [drawConnectionVecSub [dict get $segment to] [dict get $segment from]] 0.5]]
 
-    drawConnectionWish $disp $key \
-        [dict get $segment from] [dict get $segment to] [dict get $segment direction] \
-        $color $layer $width [list [dict create center $mid radius $arrowRadius]]
+    Wish to draw a connection onto $disp with \
+        points [list [dict get $segment from] [dict get $segment to]] \
+        thickness $width color $color layer $layer \
+        time 0.0 speed 0.0 spacing [dict get $segment distance] maxSize $arrowRadius
 }
 
 When -atomically /anyone/ wishes /source/ is dynamically connected to /sink/ with /...options/ &\
@@ -269,10 +193,13 @@ When connection /key/ has segment /segment/ options /options/ disp /disp/ &\
     set color [dict getdef $options color white]
     set layer [dict getdef $options layer 0]
     set width [drawConnectionPixelOption $options width 1 width]
+    set speed [drawConnectionPixelOption $options speed 75 speed]
+    set spacing [drawConnectionPixelOption $options spacing 50 spacing]
+    set maxSize [drawConnectionPixelOption $options maxsize \
+        [dict getdef $options maxSize 25] maxsize]
 
-    drawConnectionWish $disp $key \
-        [dict get $segment from] [dict get $segment to] [dict get $segment direction] \
-        $color $layer $width [drawConnectionDynamicArrows \
-            [dict get $segment from] [dict get $segment direction] \
-            [dict get $segment distance] $options $t]
+    Wish to draw a connection onto $disp with \
+        points [list [dict get $segment from] [dict get $segment to]] \
+        thickness $width color $color layer $layer \
+        time $t speed $speed spacing $spacing maxSize $maxSize
 }
