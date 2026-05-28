@@ -7,7 +7,7 @@ When the quad library is /quadLib/ &\
     fn quadChange
 
     When -atomically tag /id/ has quad /q/ {
-        set scaledQuad [$quadLib scale $q 2.25]
+        set scaledQuad [$quadLib scale $q 2.1]
 
         lassign [lmap v [$quadLib vertices [quadChange $scaledQuad "display $proj"]] {
             $poseLib project $projectorIntrinsics $projWidth $projHeight $v
