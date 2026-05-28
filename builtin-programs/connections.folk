@@ -192,7 +192,7 @@ When -atomically /anyone/ wishes /source/ is dynamically connected to /sink/ wit
     Claim connection $key has segment $segment options $options disp $disp
 }
 
-When -atomically connection /key/ has segment /segment/ options /options/ disp /disp/ &\
+When connection /key/ has segment /segment/ options /options/ disp /disp/ &\
      the clock time is /t/ {
     set color [dict getdef $options color white]
     set layer [dict getdef $options layer 0]
