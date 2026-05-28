@@ -6,7 +6,8 @@ When the quad library is /quadLib/ &\
         
     fn quadChange
 
-    When -atomically tag /id/ has quad /q/ {
+    When tag /id/ has quad /q/ {
+    When -atomicallyWithKey [list $id quad] {
         set scaledQuad [$quadLib scale $q 2.1]
 
         lassign [lmap v [$quadLib vertices [quadChange $scaledQuad "display $proj"]] {
@@ -16,5 +17,6 @@ When the quad library is /quadLib/ &\
         Wish to draw a quad onto $proj with \
             p0 $p0 p1 $p1 p2 $p2 p3 $p3 \
             color black layer 100
+    }
     }
 }
