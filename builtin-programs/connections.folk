@@ -163,10 +163,16 @@ When -atomically /anyone/ wishes /source/ is connected to /sink/ with /...option
     set width [drawConnectionPixelOption $options width 2 width]
     set arrowRadius [drawConnectionPixelOption $options arrowRadius 30 arrowRadius]
 
-    Wish to draw a connection onto $disp with \
+    set conn [dict create \
         points [list [dict get $segment from] [dict get $segment to]] \
-        thickness $width color $color layer $layer \
-        time 0.0 speed 0.0 spacing [dict get $segment distance] maxSize $arrowRadius
+        thickness $width \
+        color $color \
+        speed 0.0 \
+        spacing [dict get $segment distance] \
+        maxSize $arrowRadius]
+
+    Wish to draw connections onto $disp with \
+        connections [list $conn] layer $layer time 0.0
 }
 
 When -atomically /anyone/ wishes /source/ is dynamically connected to /sink/ with /...options/ &\
@@ -192,26 +198,40 @@ When -atomically /anyone/ wishes /source/ is dynamically connected to /sink/ wit
     Claim connection $key has segment $segment options $options disp $disp
 }
 
-When connection /key/ has segment /segment/ options /options/ disp /disp/ {
-    set color [dict getdef $options color white]
-    set layer [dict getdef $options layer 0]
-    set width [drawConnectionPixelOption $options width 1 width]
-    set speed [drawConnectionPixelOption $options speed 75 speed]
-    set spacing [drawConnectionPixelOption $options spacing 50 spacing]
-    set maxSize [drawConnectionPixelOption $options maxsize \
-        [dict getdef $options maxSize 25] maxsize]
-    
-    When the clock time is /t/ {
-        set frameT [drawConnectionFrameTime $t]
+When the clock time is /t/ &\
+     the collected results for [list connection /key/ has segment /segment/ options /options/ disp /disp/] are /connections/ {
 
-        Hold! -key [list connection-shader $key] -- \
-            Wish to draw a connection onto $disp with \
+    set groups [dict create]
+    foreach match $connections {
+        set segment [dict get $match segment]
+        set options [dict get $match options]
+        set disp [dict get $match disp]
+
+        set color [dict getdef $options color white]
+        set layer [dict getdef $options layer 0]
+        set width [drawConnectionPixelOption $options width 1 width]
+        set speed [drawConnectionPixelOption $options speed 75 speed]
+        set spacing [drawConnectionPixelOption $options spacing 50 spacing]
+        set maxSize [drawConnectionPixelOption $options maxsize \
+            [dict getdef $options maxSize 25] maxsize]
+
+        set conn [dict create \
             points [list [dict get $segment from] [dict get $segment to]] \
-            thickness $width color $color layer $layer \
-            time $frameT speed $speed spacing $spacing maxSize $maxSize
+            thickness $width \
+            color $color \
+            speed $speed \
+            spacing $spacing \
+            maxSize $maxSize]
+        
+        dict lappend groups [list $disp $layer] $conn
     }
 
-    On unmatch {
-        Hold! -key [list connection-shader $key]
+    set frameT [drawConnectionFrameTime $t]
+
+    dict for {group conns} $groups {
+        lassign $group disp layer
+        Hold! -key [list connection-shader $disp $layer] -- \
+            Wish to draw connections onto $disp with \
+            connections $conns layer $layer time $frameT
     }
 }
