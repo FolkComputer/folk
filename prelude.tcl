@@ -510,8 +510,10 @@ proc When {args} {
         } elseif {$term eq "-serially"} {
             set isSerially true
         } elseif {$term eq "-atomically"} {
-            set key [list [uplevel set this] $sourceInfo $pattern]
-            set atomicallyVersion [list "fresh" $key]
+            # Defer key construction until after the loop so the key
+            # uses the full pattern, not just the terms parsed before
+            # `-atomically` appeared.
+            set atomicallyVersion "fresh-from-full-pattern"
         } elseif {$term eq "-atomicallyInherit"} {
             set atomicallyVersion [__currentAtomicallyVersion]
         } elseif {$term eq "-atomicallyWithKey"} {
@@ -523,6 +525,11 @@ proc When {args} {
         } else {
             lappend pattern $term
         }
+    }
+
+    if {$atomicallyVersion eq "fresh-from-full-pattern"} {
+        set key [list [uplevel set this] $sourceInfo $pattern]
+        set atomicallyVersion [list "fresh" $key]
     }
 
     if {$atomicallyVersion eq "default"} {

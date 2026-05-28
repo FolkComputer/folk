@@ -766,7 +766,7 @@ When the quad changer is /quadChange/ &\
         [list 0 [expr {2.0/$displayHeight}] -1] \
         [list 0 0 1]]
 
-    When $tag has quad /quad/ {
+    When -atomically $tag has quad /quad/ {
         lassign [lmap v [$quadLib vertices [quadChange $quad "display $disp"]] {
             $poseLib project $displayIntrinsics \
                 $displayWidth $displayHeight $v
