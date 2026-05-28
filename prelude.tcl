@@ -164,13 +164,16 @@ proc applyBlock {body envStack} {pid} {
     dict set env __envStack $envStack
     dict set env __env $env
 
-    set ::this [dict getdef $env this <unknown>]
-    # Flush before installing so any buffered data from the previous
-    # program drains to the correct fd before we switch.
-    stdout flush
-    # Install thread-local stdout/stderr so all subsequent write()/puts/
-    # fprintf/printf calls go to the local files for this $this.
-    __installLocalStdoutAndStderr $::this
+    set newThis [dict getdef $env this <unknown>]
+    if {![info exists ::this] || $newThis ne $::this} {
+        # Flush before switching so any buffered data from the previous
+        # program drains to the correct fd before we switch.
+        if {[info exists ::this]} { stdout flush }
+        set ::this $newThis
+        # Install thread-local stdout/stderr so all subsequent write()/puts/
+        # fprintf/printf calls go to the local files for this $this.
+        __installLocalStdoutAndStderr $::this
+    }
 
     set names [dict keys $env]
     set values [dict values $env]
