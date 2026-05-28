@@ -738,7 +738,7 @@ static int runBlock(Clause* bodyPattern, Clause* toUnifyWith, const Term* body,
         // reparsed (why??).
         Jim_SetSourceInfo(interp, bodyObj,
                           Jim_NewStringObj(interp, sourceFileName, -1),
-                          sourceLineNumber);
+                          sourceLineNumber, 0);
     }
 
     {
