@@ -204,8 +204,7 @@ When connection /key/ has segment /segment/ options /options/ disp /disp/ &\
     
     set frameT [drawConnectionFrameTime $t]
 
-    Hold! -keep 50ms -key [list connection-shader $key] -- \
-        Wish to draw a connection onto $disp with \
+    Wish to draw a connection onto $disp with \
         points [list [dict get $segment from] [dict get $segment to]] \
         thickness $width color $color layer $layer \
         time $frameT speed $speed spacing $spacing maxSize $maxSize
