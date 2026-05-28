@@ -225,38 +225,14 @@ When the collected results for [list connection /key/ has segment /segment/ opti
         dict lappend groups [list $disp $layer] $conn
     }
 
-    # We decouple the high-frequency animation from the reactive graph
-    # to prevent environment unwinding from creating microsecond gaps
-    # where the statements are retracted, causing strobe blinking.
-    set afterId ""
-    set updateCmd ""
-    set updateCmd [list apply {{groups afterIdVar updateCmdVar} {
-        upvar 1 $afterIdVar afterId
-        upvar 1 $updateCmdVar updateCmd
-        
-        set t [expr {[clock milliseconds] / 1000.0}]
+    When -atomically the clock time is /t/ {
         set frameT [drawConnectionFrameTime $t]
-        
+
         dict for {group conns} $groups {
             lassign $group disp layer
-            # Since this runs in an after callback, it executes in the global env.
-            # This means it replaces the statement atomically without implicit retraction!
             Hold! -key [list connection-shader $disp $layer] -- \
                 Wish to draw connections onto $disp with \
                 connections $conns layer $layer time $frameT
-        }
-        
-        set afterId [after 33 [list {*}$updateCmd $groups $afterIdVar $updateCmdVar]]
-    }} $groups afterId updateCmd]
-    
-    # Start the animation loop
-    {*}$updateCmd $groups afterId updateCmd
-
-    On unmatch {
-        after cancel $afterId
-        dict for {group conns} $groups {
-            lassign $group disp layer
-            Hold! -key [list connection-shader $disp $layer]
         }
     }
 }
