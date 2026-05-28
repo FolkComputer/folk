@@ -22,9 +22,9 @@ set measureTop [/ $marginTop 2]; set measureLeft [/ $marginLeft 2]
 set tagInnerSideLength 70
 
 When the calibration measurements are /measurements/ {
-    set m_tag [expr {double([string trimright [dict get $measurements tagSideLength] mm])}]
-    set m_left [expr {double([string trimright [dict get $measurements left] mm])}]
-    set m_bottom [expr {double([string trimright [dict get $measurements bottom] mm])}]
+    set m_tag [string trimright [dict get $measurements tagSideLength] mm]
+    set m_left [string trimright [dict get $measurements left] mm]
+    set m_bottom [string trimright [dict get $measurements bottom] mm]
 
     # Derive a PostScript CTM that maps calibrated space (origin at
     # paper bottom-left, 1 unit = 1 physical point = 25.4/72 mm) to
