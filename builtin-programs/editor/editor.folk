@@ -104,30 +104,6 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
      /editor/ is an editor with /...anything/ &\
      editor /editor/ has selected program /program/ {
 
-    When $editor has resolved geometry /geom/ &\
-         the clock time is /t/ {
-        Wish to draw a dashed line onto $editor with points \
-            [list [list 0 0] \
-                 [list $geom(width) 0] \
-                 [list $geom(width) $geom(height)] \
-                 [list 0 $geom(height)] \
-                 [list 0 0]] \
-            color gold width 0.005 dashlength 0.008 \
-            dashoffset [expr {fmod($t, 10)/100.0}]
-    }
-
-    When $editor has canvas /editorCanvas/ with /...wiOpts/ {
-        set bgColor [list 0 0 0 0.8]
-        Wish the GPU draws pipeline "fillTriangle" onto canvas $editorCanvas \
-            with arguments [list {{1 0 0} {0 1 0} {0 0 1}} \
-                                [list -1 -1] [list 1 -1] [list 1 1] $bgColor] \
-                 layer -2
-        Wish the GPU draws pipeline "fillTriangle" onto canvas $editorCanvas \
-            with arguments [list {{1 0 0} {0 1 0} {0 0 1}} \
-                                [list -1 -1] [list 1 1] [list -1 1] $bgColor] \
-                 layer -2
-    }
-
     Subscribe: keyboard $kbPath claims key /key/ is /keyState/ with /...options/ {
         ForEach! editor $editor has viewport position /vpPos/ &\
                  editor $editor has viewport size /vpSize/ &\
