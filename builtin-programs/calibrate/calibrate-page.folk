@@ -115,7 +115,7 @@ Wish the web server handles route "/calibrate" with hidden true handler {
             something solid and flat (hardcover book, solid cardboard,
             etc):</p>
             <img width="200" src="/calibrate/board.png" style="border: 1px solid gray">
-            <p>Make sure your printer is set up for Folk to print.</p>
+            <p>Make sure <a href="https://github.com/FolkComputer/folk#printer-support">your printer is set up</a> for Folk to print.</p>
             <p>Print the calibration board through Folk: <button id="boardPrintThroughFolk">Print Calibration Board through Folk</button> (print through Folk so that we can calibrate the way you will actually print)</p>
             <script>
               boardPrintThroughFolk.addEventListener('click', (e) => {
