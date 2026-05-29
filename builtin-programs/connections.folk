@@ -1,7 +1,7 @@
 # Connection wish fulfillment
 # for wishes of the form:
 # "Wish $tag is connected to $tag2" or "Wish $tag is dynamically connected to $tag2"
-
+return; # TODO: FIXME
 When /anyone/ wishes /source/ is connected to /sink/ {
     Wish $source is connected to $sink from centroid to centroid
 }

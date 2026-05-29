@@ -1,4 +1,5 @@
 # Manage terminal UI for Folk.
+return; # TODO: FIXME
 
 $::realStdout puts "Folk Computer (pid [pid])."
 set host $([string match "*.local" $::thisNode] ? $::thisNode : "$::thisNode.local")
