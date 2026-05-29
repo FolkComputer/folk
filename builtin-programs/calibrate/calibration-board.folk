@@ -39,8 +39,8 @@ When the calibration measurements are /measurements/ {
     set tx [expr {$measureLeft - $m_left * $tagInnerSideLength / $m_tag}]
     set ty [expr {$measureTop - $m_bottom * $tagInnerSideLength / $m_tag}]
 
-    Claim the calibrated print preamble is "\[$scale 0 0 $scale $tx $ty\] concat"
     Claim the calibrated print scale is $scale
+    Claim the calibrated print translation is [list $tx $ty]
 }
 
 When the print library is /printLib/ &\
