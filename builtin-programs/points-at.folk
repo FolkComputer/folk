@@ -21,17 +21,35 @@ When $rect has quad /quad/ {
     namespace import \
         ::math::linearalgebra::add \
         ::math::linearalgebra::sub \
-        ::math::linearalgebra::scale
+        ::math::linearalgebra::scale \
+        ::math::linearalgebra::unitLengthVector
 
     fn quadChange
     set scale $l
+    set hasUnit false
+    if {[regexp {^([\-0-9\.]+)\s*(cm|mm|m)?$} $scale -> val unit]} {
+        if {$unit ne ""} {
+            set hasUnit true
+            if {$unit eq "mm"} {
+                set scale [expr {$val * 0.001}]
+            } elseif {$unit eq "cm"} {
+                set scale [expr {$val * 0.01}]
+            } else {
+                set scale $val
+            }
+        } else {
+            set scale $val
+        }
+    }
 
     set quad [quadChange $quad "display $disp"]
     lassign [$quadLib vertices $quad] topLeft topRight bottomRight bottomLeft
     if {$direction eq "up"} {
         set topCenter [scale 0.5 [add $topLeft $topRight]]
         set bottomCenter [scale 0.5 [add $bottomLeft $bottomRight]]
-        set up [scale $scale [sub $topCenter $bottomCenter]]
+        set dir [sub $topCenter $bottomCenter]
+        if {$hasUnit} { set dir [unitLengthVector $dir] }
+        set up [scale $scale $dir]
 
         set from $topCenter
         set to [add $topCenter $up]
@@ -40,7 +58,9 @@ When $rect has quad /quad/ {
     } elseif {$direction eq "left"} {
         set leftCenter [scale 0.5 [add $topLeft $bottomLeft]]
         set rightCenter [scale 0.5 [add $topRight $bottomRight]]
-        set left [scale $scale [sub $leftCenter $rightCenter]]
+        set dir [sub $leftCenter $rightCenter]
+        if {$hasUnit} { set dir [unitLengthVector $dir] }
+        set left [scale $scale $dir]
 
         set from $leftCenter
         set to [add $leftCenter $left]
@@ -49,7 +69,9 @@ When $rect has quad /quad/ {
     } elseif {$direction eq "right"} {
         set leftCenter [scale 0.5 [add $topLeft $bottomLeft]]
         set rightCenter [scale 0.5 [add $topRight $bottomRight]]
-        set right [scale $scale [sub $rightCenter $leftCenter]]
+        set dir [sub $rightCenter $leftCenter]
+        if {$hasUnit} { set dir [unitLengthVector $dir] }
+        set right [scale $scale $dir]
 
         set from $rightCenter
         set to [add $rightCenter $right]
@@ -58,7 +80,9 @@ When $rect has quad /quad/ {
     } elseif {$direction eq "down"} {
         set topCenter [scale 0.5 [add $topLeft $topRight]]
         set bottomCenter [scale 0.5 [add $bottomLeft $bottomRight]]
-        set down [scale $scale [sub $bottomCenter $topCenter]]
+        set dir [sub $bottomCenter $topCenter]
+        if {$hasUnit} { set dir [unitLengthVector $dir] }
+        set down [scale $scale $dir]
 
         set from $bottomCenter
         set to [add $bottomCenter $down]
