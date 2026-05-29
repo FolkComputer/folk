@@ -10,6 +10,12 @@
 #     Claim printer my-printer is the default printer
 #     Claim paper format a4 is the default paper format
 
+Claim the paper formats are {
+    letter    {tagInnerSideLength 70 pageSize {612 792}}
+    a4        {tagInnerSideLength 70 pageSize {595 842}}
+    indexcard {tagInnerSideLength 70 pageSize {612 792}}
+}
+
 When libapriltag has been built with config /configCcWithLibapriltag/ &\
      the image library is /imageLib/ &\
      the program save directory is /saveDir/ {
@@ -195,6 +201,26 @@ When $::thisNode claims printer /name/ is a cups printer with /...options/ {
     exec {*}$command
 }
 
+Subscribe: print code /code/ {
+    set formats [dict get [QueryOne! the paper formats are /formats/] formats]
+    set formatName letter
+    set defaultFormatMatches [Query! paper format /format/ is the default paper format]
+    if {[llength $defaultFormatMatches] > 0} {
+        set candidate [dict get [lindex $defaultFormatMatches 0] format]
+        if {[dict exists $formats $candidate]} { set formatName $candidate }
+    }
+    set fmt $formats($formatName)
+
+    set mToPt 2834.646
+    set textScale 0.003
+    set margin {0.01 0.005 0.005 0.01}
+    set options [dict merge $fmt [dict create \
+        code $code \
+        lineHeight [* $textScale $mToPt] \
+        advance [* 0.5859375 $textScale $mToPt] \
+        margin [lmap x $margin {* $x $mToPt}]]]
+    Notify: print a new program with {*}$options
+}
 Subscribe: print a new program with /...options/ {
     if {$::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial"} {
         # HACK: Forward the print request to folk-hex.

@@ -1,20 +1,3 @@
-set formats [subst {
-    letter {
-        tagInnerSideLength 70
-        pageSize {612 792}
-    }
-    a4 {
-        tagInnerSideLength 70
-        pageSize {595 842}
-    }
-    indexcard {
-        tagInnerSideLength 70
-        pageSize {612 792}
-    }
-}]
-# indexcard (really receipt) assumes fake letter/A4 size:
-# https://github.com/NaitLee/Cat-Printer/discussions/8#discussioncomment-2557843
-
 fn editorToPrintOptions {editor} {
     set program [dict get [QueryOne! editor $editor has selected program /program/] program]
     set code [dict get [QueryOne! editor buffer for $program is /code/] code]
@@ -23,6 +6,7 @@ fn editorToPrintOptions {editor} {
     set textScale $fontOptions(scale)
     set margin [dict get [QueryOne! editor $editor has margin /margin/] margin]
 
+    set formats [dict get [QueryOne! the paper formats are /formats/] formats]
     set formatName letter
     set defaultFormatMatches [Query! paper format /format/ is the default paper format]
     if {[llength $defaultFormatMatches] > 0} {
@@ -51,6 +35,7 @@ When the codeToPostScript is /codeToPostScript/ &\
 
     set preview [list $editor preview]
     Wish $preview has a canvas
+    set formats [dict get [QueryOne! the paper formats are /formats/] formats]
     set formatName letter
     set defaultFormatMatches [Query! paper format /format/ is the default paper format]
     if {[llength $defaultFormatMatches] > 0} {
