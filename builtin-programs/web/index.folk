@@ -102,7 +102,7 @@ Wish the web server handles route "/" with handler {
             </script>
         </head>
         <body>
-        [dict get [QueryOne! the web navigation HTML is /nav/] nav]
+        [QueryOne! the web navigation HTML is /./]
         [HtmlWhen the collected results for [list /programName/ has program code /programCode/] are /programs/ {
             emitHtmlForPrograms $programs
 

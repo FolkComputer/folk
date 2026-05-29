@@ -9,11 +9,7 @@ When the print library is /printLib/ &\
         writeFolkFile $id $code
         writeMetaFile $printer $id
 
-        set matches [Query! /someone/ claims $printer is at /address/]
-        set matchDict [lindex $matches 0]
-        if {![dict exists $matchDict address]} { return }
-        set address [dict get $matchDict address]
-
+        set address [QueryOne! $printer is at /./]
         set printerSocket [socket stream ${address}:9100]
 
         fconfigure $printerSocket -translation binary -buffering none
@@ -44,10 +40,7 @@ When the print library is /printLib/ &\
     }
 
     fn writeMetaFile {printer id} {
-        set matches [Query! /someone/ claims $printer has tag geometry /geometry/]
-        set matchDict [lindex $matches 0]
-        if {![dict exists $matchDict geometry]} { return }
-        set geometry [dict get $matchDict geometry]
+        set geometry [QueryOne! $printer has tag geometry /./]
         set metaFile [open "$saveDir/$id.meta.folk" w]
         puts $metaFile [subst {Claim tag \$this has geometry {$geometry}}]
         close $metaFile

@@ -53,13 +53,9 @@ fn makeCalibrationBoardPs {} {
     package require linalg
     namespace import ::math::linearalgebra::add
 
-    set formats [dict get [QueryOne! the paper formats are /formats/] formats]
-    set formatName letter
-    set defaultFormatMatches [Query! paper format /format/ is the default paper format]
-    if {[llength $defaultFormatMatches] > 0} {
-        set candidate [dict get [lindex $defaultFormatMatches 0] format]
-        if {[dict exists $formats $candidate]} { set formatName $candidate }
-    }
+    set formats [QueryOne! the paper formats are /./]
+    set formatName [QueryOne! paper format /./ is the default paper format \
+                       -default letter]
     lassign [dict get $formats($formatName) pageSize] PageWidth PageHeight
 
     set innerToOuter 0.333333
