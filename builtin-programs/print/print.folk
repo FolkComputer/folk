@@ -4,13 +4,6 @@
 #
 #     Assert $::thisNode claims printer "printer-name" is a cups printer with url "http://url/ipp/print" driver "everywhere"
 #
-# Whether the printer was added via Folk or not, you need to let Folk know which formats your printer supports:
-#
-#     Claim printer my-printer can print double-sided a4 paper
-#     Claim printer alt-printer can print single-sided indexcard paper
-#
-# Use "double-sided" if the printer supports printing on both sides of the paper in a single printing operation.
-#
 # Lastly, you need to declare a default printer and default paper format:
 # (make sure that the default printer supports the default paper format)
 #
@@ -297,11 +290,16 @@ Subscribe: print program /id/ with /...options/ {
 Subscribe: print pdf /pdfPath/ with /...options/ {
     if {![info exists options]} { set options {} }
 
+    set args [list]
+
     if {![dict exists $options printer]} {
         set defaultPrinterMatches [Query! printer /printer/ is the default printer]
         if {[llength $defaultPrinterMatches] > 0} {
             dict set options printer [dict get [lindex $defaultPrinterMatches 0] printer]
         }
+    }
+    if {[dict exists $options printer]} {
+        lappend args -P $options(printer)
     }
 
     if {![dict exists $options format]} {
@@ -310,25 +308,8 @@ Subscribe: print pdf /pdfPath/ with /...options/ {
             dict set options format [dict get [lindex $defaultFormatMatches 0] format]
         }
     }
-
-    set printer [dict getdef $options printer /printer/]
-    set format [dict getdef $options format /format/]
-    # TODO: we don't use /sided/ for anything right now.
-    set results [Query! printer $printer can print /sided/ $format paper]
-    if {[llength $results] > 0} {
-        set result [lindex $results 0]
-        dict with result {
-            set args [list -P $printer -o media=$format]
-        }
-    } else {
-        puts stderr "print.folk: Couldn't find a matching configured printer; using bare lpr command"
-        set args [list]
-        set format letter
-    }
-
-    # HACK: added for folk2 launch party printing
-    if {[dict exists $options printer]} {
-        set args [list -P [dict get $options printer]]
+    if {[dict exists $options format]} {
+        lappend args -o media=$options(format)
     }
 
     exec lpr -o print-scaling=none {*}$args $pdfPath

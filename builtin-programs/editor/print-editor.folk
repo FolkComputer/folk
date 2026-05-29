@@ -23,15 +23,13 @@ fn editorToPrintOptions {editor} {
     set textScale $fontOptions(scale)
     set margin [dict get [QueryOne! editor $editor has margin /margin/] margin]
 
-    # TODO: support other formats (it should be set in the editor so
-    # the user gets an accurate preview.)
-    #     if {![dict exists $options format]} {
-    #     set defaultFormatMatches [Query! paper format /format/ is the default paper format]
-    #     if {[llength $defaultFormatMatches] > 0} {
-    #         dict set options format [dict get [lindex $defaultFormatMatches 0] format]
-    #     }
-    # }
-    set fmt $formats(letter)
+    set formatName letter
+    set defaultFormatMatches [Query! paper format /format/ is the default paper format]
+    if {[llength $defaultFormatMatches] > 0} {
+        set candidate [dict get [lindex $defaultFormatMatches 0] format]
+        if {[dict exists $formats $candidate]} { set formatName $candidate }
+    }
+    set fmt $formats($formatName)
     set mToPt 2834.646
     return [dict merge $fmt \
                 [dict create \
@@ -53,7 +51,13 @@ When the codeToPostScript is /codeToPostScript/ &\
 
     set preview [list $editor preview]
     Wish $preview has a canvas
-    set fmt $formats(letter)
+    set formatName letter
+    set defaultFormatMatches [Query! paper format /format/ is the default paper format]
+    if {[llength $defaultFormatMatches] > 0} {
+        set candidate [dict get [lindex $defaultFormatMatches 0] format]
+        if {[dict exists $formats $candidate]} { set formatName $candidate }
+    }
+    set fmt $formats($formatName)
     set mToPt 2834.646
     set previewGeom [list width [/ [lindex $fmt(pageSize) 0] $mToPt] \
                          height [/ [lindex $fmt(pageSize) 1] $mToPt]]

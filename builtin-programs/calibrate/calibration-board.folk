@@ -53,7 +53,14 @@ fn makeCalibrationBoardPs {} {
     package require linalg
     namespace import ::math::linearalgebra::add
 
-    set PageWidth 612; set PageHeight 792
+    set pageSizes {letter {612 792} a4 {595 842}}
+    set formatName letter
+    set defaultFormatMatches [Query! paper format /format/ is the default paper format]
+    if {[llength $defaultFormatMatches] > 0} {
+        set candidate [dict get [lindex $defaultFormatMatches 0] format]
+        if {[dict exists $pageSizes $candidate]} { set formatName $candidate }
+    }
+    lassign [dict get $pageSizes $formatName] PageWidth PageHeight
 
     set innerToOuter 0.333333
 
