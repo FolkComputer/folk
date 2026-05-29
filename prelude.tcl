@@ -701,7 +701,21 @@ proc Query! {args} {
     return $results
 }
 proc QueryOne! {args} {
+    set pattern [list]
+    for {set i 0} {$i < [llength $args]} {incr i} {
+        set arg [lindex $args $i]
+        if {$arg eq "-default"} {
+            incr i
+            set default [lindex $args $i]
+        } else {
+            lappend pattern $arg
+        }
+    }
+
     set results [Query! {*}$args]
+    if {[llength $results] == 0 && [info exists default]} {
+        return $default
+    }
     if {[llength $results] != 1} {
         error "QueryOne! of ($args) had [llength $results] results. Should be one result!"
     }

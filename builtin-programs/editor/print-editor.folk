@@ -1,18 +1,14 @@
 fn editorToPrintOptions {editor} {
-    set program [dict get [QueryOne! editor $editor has selected program /program/] program]
-    set code [dict get [QueryOne! editor buffer for $program is /code/] code]
+    set program [QueryOne! editor $editor has selected program /./]
+    set code [QueryOne! editor buffer for $program is /./]
 
-    set fontOptions [dict get [QueryOne! editor $editor on program $program has font options with /...opts/] opts]
+    set fontOptions [QueryOne! editor $editor on program $program has font options with /...opts/] opts]
     set textScale $fontOptions(scale)
-    set margin [dict get [QueryOne! editor $editor has margin /margin/] margin]
+    set margin [QueryOne! editor $editor has margin /./]
 
-    set formats [dict get [QueryOne! the paper formats are /formats/] formats]
-    set formatName letter
-    set defaultFormatMatches [Query! paper format /format/ is the default paper format]
-    if {[llength $defaultFormatMatches] > 0} {
-        set candidate [dict get [lindex $defaultFormatMatches 0] format]
-        if {[dict exists $formats $candidate]} { set formatName $candidate }
-    }
+    set formats [QueryOne! the paper formats are /./]
+    set formatName [QueryOne! paper format /./ is the default paper format \
+                       -default letter]
     set fmt $formats($formatName)
     set mToPt 2834.646
     return [dict merge $fmt \
@@ -35,14 +31,12 @@ When the codeToPostScript is /codeToPostScript/ &\
 
     set preview [list $editor preview]
     Wish $preview has a canvas
-    set formats [dict get [QueryOne! the paper formats are /formats/] formats]
-    set formatName letter
-    set defaultFormatMatches [Query! paper format /format/ is the default paper format]
-    if {[llength $defaultFormatMatches] > 0} {
-        set candidate [dict get [lindex $defaultFormatMatches 0] format]
-        if {[dict exists $formats $candidate]} { set formatName $candidate }
-    }
+
+    set formats [QueryOne! the paper formats are /./]
+    set formatName [QueryOne! paper format /./ is the default paper format \
+                       -default letter]
     set fmt $formats($formatName)
+
     set mToPt 2834.646
     set previewGeom [list width [/ [lindex $fmt(pageSize) 0] $mToPt] \
                          height [/ [lindex $fmt(pageSize) 1] $mToPt]]
