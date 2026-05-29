@@ -170,9 +170,9 @@ Wish the web server handles route "/new" with nav "<button>New program</button>"
       namespace import ::math::linearalgebra::matmul
       namespace import ::math::linearalgebra::scale
 
-      set quadLib [dict get [lindex [Query! the quad library is /quadLib/] 0] quadLib]
+      set quadLib [QueryOne! the quad library is /./]
 
-      set dims [lindex [Query! display /disp/ has width /displayWidth/ height /displayHeight/] 0]
+      set dims [QueryOne! display /disp/ has width /displayWidth/ height /displayHeight/]
       set disp [dict get $dims disp]
       set displayWidth [dict get $dims displayWidth]; set displayHeight [dict get $dims displayHeight]
 
@@ -183,7 +183,7 @@ Wish the web server handles route "/new" with nav "<button>New program</button>"
       # Create 3D vertices in meters that will project to the desired pixel coordinates
       # Using a depth of 1.5 meters from the projector center
       set depth 1.5
-      set displayIntrinsics [dict get [lindex [Query! display $disp has intrinsics /displayIntrinsics/] 0] displayIntrinsics]
+      set displayIntrinsics [QueryOne! display $disp has intrinsics /./]
       
       # Convert pixel coordinates to 3D coordinates in projector space
       set fx [dict get $displayIntrinsics fx]

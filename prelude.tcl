@@ -702,11 +702,13 @@ proc Query! {args} {
 }
 proc QueryOne! {args} {
     set results [Query! {*}$args]
-
     if {[llength $results] != 1} {
         error "QueryOne! of ($args) had [llength $results] results. Should be one result!"
     }
 
+    if {{/./} in $args} {
+        return [dict get [lindex $results 0] .]
+    }
     return [lindex $results 0]
 }
 proc ForEach! {args} {
