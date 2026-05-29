@@ -1,0 +1,60 @@
+source builtin-programs/collect.folk
+source builtin-programs/draw/color-map.folk
+source builtin-programs/draw/image.folk
+source builtin-programs/image/image-lib.folk
+
+fn testImageLoader {path} {
+    if {[string match "*.png" $path]} {
+        return [$imageLib imageNew 2 1 3 123]
+    }
+    return ""
+}
+Claim [fn testImageLoader] is an image loader
+
+When /someone/ wishes the GPU loads image /im/ as texture {
+    Claim the GPU has loaded image $im as texture 99
+}
+
+proc testImageUrlCachePath {url} {
+    set cleanUrl [regsub {[?#].*$} $url ""]
+    set ext [file extension $cleanUrl]
+    set cachePath /tmp/[regsub -all {\W+} $url "_"]
+    if {$ext ne "" && ![string match "*$ext" $cachePath]} {
+        append cachePath $ext
+    }
+    return $cachePath
+}
+
+Assert! image-page has resolved geometry {width 0.2 height 0.1 left 0.2}
+Assert! image-page has canvas canvas-id with width 400 height 300
+Assert! image-page has canvas projection {1 0 0 0 1 0 0 0 1}
+assert {[catch {drawImagePoint {0 0} {width 0.2 height 0.1}} unitlessError]}
+assert {[string match {*must include a unit*} $unitlessError]}
+assert {[drawImagePoint {1cm 2cm} {width 0.2 height 0.1}] eq {0.01 0.02}}
+
+sleep 0.2
+set url "https://example.invalid/folk-test-image.png"
+set cachedPath [testImageUrlCachePath $url]
+set cachedFile [open $cachedPath w]
+puts -nonewline $cachedFile "x"
+close $cachedFile
+
+Wish image-page displays image $url
+
+sleep 1
+
+set errors [Query! /program/ has error /err/ with info /info/]
+assert {[llength $errors] == 0}
+
+set loads [Query! /someone/ wishes the GPU loads image /im/ as texture]
+assert {[llength $loads] == 1}
+
+set draws [Query! /someone/ wishes the GPU draws pipeline "image" onto canvas canvas-id with arguments /arguments/]
+assert {[llength $draws] == 1}
+
+set arguments [dict get [lindex $draws 0] arguments]
+assert {[lindex $arguments 2] == 99}
+assert {abs([lindex $arguments 3 0]) < 1e-9}
+assert {abs([lindex $arguments 3 1]) < 1e-9}
+
+Exit! 0

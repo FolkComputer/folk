@@ -3,6 +3,71 @@
 #     This file provides global math datatypes and utilities.
 #
 
+set ::PI 3.142
+set ::TAU 6.283
+
+proc drawTruthy {value} {
+    expr {$value in {1 true yes on}}
+}
+
+proc drawPhysicalLength {value} {
+    if {[llength $value] != 1} {
+        error "draw: expected a scalar physical length, got $value"
+    }
+
+    set unit ""
+    set amount $value
+    foreach suffix {mm cm m} {
+        if {[string match *$suffix $value]} {
+            set unit $suffix
+            set amount [string range $value 0 end-[string length $suffix]]
+            break
+        }
+    }
+
+    if {$unit eq ""} {
+        error "draw: physical length $value must include a unit: mm, cm, or m"
+    }
+    if {![string is double -strict $amount]} {
+        error "draw: invalid physical length $value"
+    }
+
+    switch -- $unit {
+        cm { return [expr {double($amount) * 0.01}] }
+        mm { return [expr {double($amount) * 0.001}] }
+        m { return [expr {double($amount)}] }
+        default { error "draw: invalid physical unit $unit" }
+    }
+}
+
+proc drawPhysicalAxisExtent {width height axis} {
+    switch -- $axis {
+        x - width - horizontal { return $width }
+        y - height - vertical { return $height }
+        max { return [expr {$width > $height ? $width : $height}] }
+        min - radius - scale - thickness - default {
+            return [expr {$width < $height ? $width : $height}]
+        }
+    }
+}
+
+proc drawRelativePhysicalLength {value width height axis {context draw}} {
+    if {[llength $value] != 1} {
+        error "$context: expected a scalar length, got $value"
+    }
+
+    set override ""
+    if {[regexp {^([-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+))%(min|max|x|y|width|height)?$} \
+             $value -> pct override]} {
+        if {$override ne ""} {
+            set axis $override
+        }
+        return [expr {double($pct) / 100.0 * [drawPhysicalAxisExtent $width $height $axis]}]
+    }
+
+    drawPhysicalLength $value
+}
+
 namespace eval ::vec2 {
     proc add {a b} {
         list [+ [lindex $a 0] [lindex $b 0]] [+ [lindex $a 1] [lindex $b 1]]
@@ -56,31 +121,6 @@ namespace eval ::vec2 {
     }
     namespace export *
     namespace ensemble create
-}
-
-# From tcllib ::math::geometry
-# Original code found at: https://www.ecse.rpi.edu/~wrf/Research/Short_Notes/pnpoly.html
-# Thanks to Christian Gollwitzer, Peter Lewerin and Eduard Zozuly
-proc ::math::geometry::pointInsidePolygon {point polygon} {
-    lassign $point testx testy
-    foreach p $polygon {
-        lassign $p x y
-        lappend vertx $x
-        lappend verty $y
-    }
-    set c 0
-    set nvert [llength $vertx]
-    for {set i 0 ; set j [expr {$nvert-1}]} {$i < $nvert} {set j $i ; incr i} {
-        if {
-            (([lindex $verty $i]>$testy) != ([lindex $verty $j]>$testy)) &&
-            ($testx < ([lindex $vertx $j] - [lindex $vertx $i]) *
-            ($testy - [lindex $verty $i]) /
-            ([lindex $verty $j] - [lindex $verty $i]) + [lindex $vertx $i])
-        } {
-            set c [expr {!$c}]
-        }
-    }
-    return $c
 }
 
 proc lsort-indices {itemL} {

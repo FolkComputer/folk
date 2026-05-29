@@ -61,3 +61,16 @@ When the color map is /colorMap/ &\
     Wish the GPU draws pipeline "dashed-line" onto canvas $id \
         with instances $instances layer $layer
 }
+
+Hold! -on builtin-programs/draw/dashed-line.folk -key draw-dashed-line-demo-code \
+    Claim builtin-programs/draw/dashed-line.folk has demo code {
+Wish $this is filled with color {0.035 0.04 0.05 1.0}
+Wish $this draws text "dashed" with position {50% 18%} scale 3cm color white anchor center layer 8
+When the clock time is /t/ {
+    set dashoffset [expr {fmod(-$t * 0.035, 0.030)}]
+    Wish to draw a dashed line onto $this with \
+        points {{0.035 0.115} {0.080 0.060} {0.130 0.125} {0.175 0.070}} \
+        width 0.006 color {1.0 0.82 0.22 1.0} \
+        dashlength 0.012 dashoffset $dashoffset layer 4
+}
+}

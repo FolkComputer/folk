@@ -1,0 +1,364 @@
+set drawShapeSides [dict create \
+    triangle 3 square 4 pentagon 5 hexagon 6 septagon 7 octagon 8 nonagon 9]
+
+fn drawShapeCanonical {shape options} {
+    if {[dict exists $options type]} {
+        set shape [dict get $options type]
+    }
+    if {[dict exists $options shape]} {
+        set shape [dict get $options shape]
+    }
+    switch -- $shape {
+        rectangle - box { return rect }
+        default { return $shape }
+    }
+}
+
+fn drawShapeScalar {value width height axis} {
+    drawRelativePhysicalLength $value $width $height $axis draw/shapes
+}
+
+fn drawShapePageCenter {geom} {
+    list [expr {[dict get $geom width] / 2.0}] \
+         [expr {[dict get $geom height] / 2.0}]
+}
+
+fn drawShapePoint {point geom} {
+    if {$point eq "" || $point eq "center"} {
+        return [drawShapePageCenter $geom]
+    }
+    if {[llength $point] != 2} {
+        error "draw/shapes: expected a 2D point, got $point"
+    }
+    set width [dict get $geom width]
+    set height [dict get $geom height]
+    list [drawShapeScalar [lindex $point 0] $width $height x] \
+         [drawShapeScalar [lindex $point 1] $width $height y]
+}
+
+fn drawShapeOffset {offset geom} {
+    if {$offset eq "" || $offset eq "center"} {
+        return {0 0}
+    }
+
+    set width [dict get $geom width]
+    set height [dict get $geom height]
+
+    if {[llength $offset] == 1} {
+        set token [lindex $offset 0]
+        switch -- $token {
+            right { return [list [expr {$width / 2.0}] 0] }
+            left { return [list [expr {-$width / 2.0}] 0] }
+            down { return [list 0 [expr {$height / 2.0}]] }
+            up { return [list 0 [expr {-$height / 2.0}]] }
+            default {
+                return [list [drawShapeScalar $token $width $height x] 0]
+            }
+        }
+    }
+
+    if {[llength $offset] == 2} {
+        set dir [lindex $offset 0]
+        set amount [lindex $offset 1]
+        switch -- $dir {
+            right { return [list [drawShapeScalar $amount $width $height x] 0] }
+            left {
+                set value [drawShapeScalar $amount $width $height x]
+                return [list [expr {-$value}] 0]
+            }
+            down { return [list 0 [drawShapeScalar $amount $width $height y]] }
+            up {
+                set value [drawShapeScalar $amount $width $height y]
+                return [list 0 [expr {-$value}]]
+            }
+            default {
+                return [list [drawShapeScalar $dir $width $height x] \
+                             [drawShapeScalar $amount $width $height y]]
+            }
+        }
+    }
+
+    error "draw/shapes: expected offset like {x y} or {right 50%}, got $offset"
+}
+
+fn drawShapePosition {options geom} {
+    if {[dict exists $options position]} {
+        return [drawShapePoint [dict get $options position] $geom]
+    }
+    if {[dict exists $options center]} {
+        return [drawShapePoint [dict get $options center] $geom]
+    }
+    if {[dict exists $options x] || [dict exists $options y]} {
+        set width [dict get $geom width]
+        set height [dict get $geom height]
+        set x [drawShapeScalar [dict getdef $options x 50%] $width $height x]
+        set y [drawShapeScalar [dict getdef $options y 50%] $width $height y]
+        return [list $x $y]
+    }
+
+    set pos [drawShapePageCenter $geom]
+    if {[dict exists $options offset]} {
+        set pos [vec2 add $pos [drawShapeOffset [dict get $options offset] $geom]]
+    }
+    return $pos
+}
+
+fn drawShapeRadians {options} {
+    dict getdef $options radians [dict getdef $options angle 0]
+}
+
+fn drawShapeLengthOption {options key default width height axis} {
+    if {[dict exists $options $key]} {
+        return [drawShapeScalar [dict get $options $key] $width $height $axis]
+    }
+    return $default
+}
+
+fn drawShapeRadius {options default width height} {
+    if {[dict exists $options diameter]} {
+        return [expr {[drawShapeScalar [dict get $options diameter] $width $height min] / 2.0}]
+    }
+    drawShapeLengthOption $options radius $default $width $height min
+}
+
+fn drawShapeRegularPolygon {center radius sides radians} {
+    lassign $center cx cy
+    set points [list]
+    for {set i 0} {$i < $sides} {incr i} {
+        set theta [expr {$radians + $i * $::TAU / $sides - $::PI / 2.0}]
+        lappend points [list [expr {$cx + $radius * cos($theta)}] \
+                             [expr {$cy + $radius * sin($theta)}]]
+    }
+    return $points
+}
+
+fn drawShapeRectPoints {center width height radians} {
+    set hw [expr {$width / 2.0}]
+    set hh [expr {$height / 2.0}]
+    set points [list \
+        [list [expr {-$hw}] [expr {-$hh}]] \
+        [list $hw [expr {-$hh}]] \
+        [list $hw $hh] \
+        [list [expr {-$hw}] $hh]]
+    lmap point $points {
+        vec2 add $center [vec2 rotate $point $radians]
+    }
+}
+
+fn drawShapePathPoints {points geom options} {
+    set radians [drawShapeRadians $options]
+    set origin [dict getdef $options origin center]
+    set absolute [expr {$origin in {absolute local topleft top-left}}]
+    if {$absolute} {
+        set base {0 0}
+    } else {
+        set base [drawShapePosition $options $geom]
+    }
+
+    set transformed [list]
+    foreach point $points {
+        if {$absolute} {
+            set point [drawShapePoint $point $geom]
+        } else {
+            set point [drawShapeOffset $point $geom]
+        }
+        lappend transformed [vec2 add $base [vec2 rotate $point $radians]]
+    }
+    return $transformed
+}
+
+When /someone/ wishes /p/ draws a /shape/ with /...options/ &\
+     /p/ has resolved geometry /geom/ {
+    if {![info exists options]} { return }
+    set shape [drawShapeCanonical $shape $options]
+    set center [drawShapePosition $options $geom]
+    set color [dict getdef $options color white]
+    set filled [drawTruthy [dict getdef $options filled false]]
+    set geomWidth [dict get $geom width]
+    set geomHeight [dict get $geom height]
+    set thickness [drawShapeLengthOption $options thickness 0.002 \
+        $geomWidth $geomHeight min]
+    set layer [dict getdef $options layer 1]
+    set radians [drawShapeRadians $options]
+
+    if {$shape eq "circle"} {
+        set radius [drawShapeRadius $options 0.025 $geomWidth $geomHeight]
+        Wish to draw a circle onto $p with \
+            center $center radius $radius thickness $thickness \
+            color $color filled $filled layer $layer
+        return
+    }
+
+    if {$shape eq "rect"} {
+        set radius [drawShapeRadius $options 0.025 $geomWidth $geomHeight]
+        set size [drawShapeLengthOption $options size [expr {$radius * 2.0}] \
+            $geomWidth $geomHeight min]
+        set rectWidth [drawShapeLengthOption $options width $size \
+            $geomWidth $geomHeight width]
+        set rectHeight [drawShapeLengthOption $options height $rectWidth \
+            $geomWidth $geomHeight height]
+        set points [drawShapeRectPoints $center $rectWidth $rectHeight $radians]
+    } else {
+        if {$shape eq "polygon" || $shape eq "polyline"} { return }
+        
+        if {[dict exists $options sides]} {
+            set sides [dict get $options sides]
+        } elseif {[dict exists $drawShapeSides $shape]} {
+            set sides [dict get $drawShapeSides $shape]
+        } else {
+            error "draw/shapes: unknown shape $shape"
+        }
+        set radius [drawShapeRadius $options 0.025 $geomWidth $geomHeight]
+        set points [drawShapeRegularPolygon $center $radius $sides $radians]
+    }
+
+    if {$filled} {
+        Wish to draw a polygon onto $p with points $points color $color layer $layer
+    } else {
+        lappend points [lindex $points 0]
+        Wish to draw a line onto $p with \
+            points $points width $thickness color $color layer $layer
+    }
+}
+
+When /someone/ wishes /p/ draws a /shape/ {
+    Wish $p draws a $shape with color white filled true
+}
+
+When /someone/ wishes /p/ draws an /shape/ {
+    Wish $p draws a $shape
+}
+
+When /someone/ wishes /p/ draws an /shape/ with /...options/ {
+    if {![info exists options]} { return }
+    Wish $p draws a $shape with {*}$options
+}
+
+When /someone/ wishes /p/ draws a rect with width /width/ height /height/ {
+    Wish $p draws a rect with width $width height $height
+}
+
+When /someone/ wishes /p/ draws a /shape/ with radius /radius/ {
+    Wish $p draws a $shape with radius $radius
+}
+
+When /someone/ wishes /p/ draws text /text/ with /...options/ &\
+     /p/ has resolved geometry /geom/ {
+    if {![info exists options]} { return }
+    set position [drawShapePosition $options $geom]
+    set color [dict getdef $options color white]
+    set scale [drawShapeLengthOption $options scale 0.01 \
+        [dict get $geom width] [dict get $geom height] min]
+    set layer [dict getdef $options layer 0]
+    set anchor [dict getdef $options anchor center]
+    set font [dict getdef $options font "PTSans-Regular"]
+    set radians [drawShapeRadians $options]
+
+    Wish to draw text onto $p with \
+        position $position scale $scale text $text \
+        color $color radians $radians anchor $anchor font $font layer $layer
+}
+
+When /someone/ wishes /p/ draws text /text/ {
+    Wish $p draws text $text with color white
+}
+
+When /someone/ wishes /p/ draws a polyline /points/ with /...options/ &\
+     /p/ has resolved geometry /geom/ {
+    if {![info exists options]} { return }
+    set points [drawShapePathPoints $points $geom $options]
+    set color [dict getdef $options color white]
+    set geomWidth [dict get $geom width]
+    set geomHeight [dict get $geom height]
+    set width [drawShapeLengthOption $options thickness 0.002 \
+        $geomWidth $geomHeight min]
+    set width [drawShapeLengthOption $options width $width \
+        $geomWidth $geomHeight min]
+    set layer [dict getdef $options layer 1]
+    set dashed [drawTruthy [dict getdef $options dashed false]]
+
+    if {$dashed} {
+        set dashlength [drawShapeLengthOption $options dashlength 0.01 \
+            $geomWidth $geomHeight min]
+        set dashoffset [drawShapeLengthOption $options dashoffset 0 \
+            $geomWidth $geomHeight min]
+        Wish to draw a dashed line onto $p with \
+            points $points width $width color $color \
+            dashlength $dashlength dashoffset $dashoffset layer $layer
+    } else {
+        Wish to draw a line onto $p with \
+            points $points width $width color $color layer $layer
+    }
+}
+
+When /someone/ wishes /p/ draws a polyline /points/ {
+    Wish $p draws a polyline $points with color white
+}
+
+When /someone/ wishes /p/ draws a polygon /points/ with /...options/ &\
+     /p/ has resolved geometry /geom/ {
+    if {![info exists options]} { return }
+    set parsedPoints [drawShapePathPoints $points $geom $options]
+    set color [dict getdef $options color white]
+    set layer [dict getdef $options layer 1]
+    Wish to draw a polygon onto $p with points $parsedPoints color $color layer $layer
+}
+
+When /someone/ wishes /p/ draws a polygon with points /points/ /...options/ {
+    # Forgiving syntax for users who write 'draws a polygon with points $points color white'
+    # and use ( ) instead of { } for points.
+    set cleanPoints [string map {"(" "{" ")" "}"} $points]
+    Wish $p draws a polygon $cleanPoints with {*}$options
+}
+
+When /someone/ wishes /p/ draws a polygon /points/ {
+    Wish $p draws a polygon $points with color white
+}
+
+When /someone/ wishes /p/ draws points /points/ with /...options/ &\
+     /p/ has resolved geometry /geom/ {
+    if {![info exists options]} { return }
+    set points [drawShapePathPoints $points $geom $options]
+    set geomWidth [dict get $geom width]
+    set geomHeight [dict get $geom height]
+    set radius [drawShapeRadius $options 0.003 $geomWidth $geomHeight]
+    set thickness [drawShapeLengthOption $options thickness 0.001 \
+        $geomWidth $geomHeight min]
+    set color [dict getdef $options color white]
+    set filled [drawTruthy [dict getdef $options filled true]]
+    set layer [dict getdef $options layer 1]
+
+    foreach point $points {
+        Wish to draw a circle onto $p with \
+            center $point radius $radius thickness $thickness \
+            color $color filled $filled layer $layer
+    }
+}
+
+When /someone/ wishes /p/ draws points /points/ {
+    Wish $p draws points $points with color white
+}
+
+When /someone/ wishes /p/ draws a set of points /points/ with /...options/ {
+    if {![info exists options]} { return }
+    Wish $p draws points $points with {*}$options
+}
+
+When /someone/ wishes /p/ draws a set of points /points/ {
+    Wish $p draws points $points
+}
+
+Hold! -on builtin-programs/draw/shapes.folk -key draw-shapes-demo-code \
+    Claim builtin-programs/draw/shapes.folk has demo code {
+Wish $this draws a rect with width 7cm height 4.5cm color {0.10 0.16 0.22 0.92} filled true layer 1
+Wish $this draws a circle with position {50% 50%} radius 1.2cm color {0.92 0.74 0.28 1.0} filled false thickness 0.25cm layer 3
+Wish $this draws an octagon with position {75% 38%} radius 1.0cm color {0.76 0.50 1.0 1.0} filled true layer 2
+Wish $this draws a polyline {{20% 75%} {50% 25%} {80% 75%}} with color {0.52 0.85 1.0 1.0} width 0.18cm layer 4
+Wish $this draws points {{20% 75%} {50% 25%} {80% 75%}} with color white radius 0.22cm thickness 0cm filled true layer 5
+Wish $this draws text "shapes" with position {50% 88%} anchor center color white scale 3cm layer 8
+When the clock time is /t/ {
+    set x [format "%.2fcm" [expr {sin($t * 1.5) * 2.0}]]
+    Wish $this draws a circle with offset [list $x 0cm] radius 0.65cm \
+        color {0.95 0.35 0.62 0.90} filled true layer 6
+}
+}

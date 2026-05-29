@@ -8,7 +8,7 @@ $::realStdout flush
 
 # Don't run the watcher process if we're not literally at a terminal
 # (if we're running on systemd, for instance.)
-if {$::env(TERM) eq "dumb"} {
+if {[info exists ::env(TERM)] && $::env(TERM) eq "dumb"} {
     return
 }
 

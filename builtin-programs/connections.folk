@@ -1,69 +1,353 @@
-# Connection wish fulfillment
-# for wishes of the form:
-# "Wish $tag is connected to $tag2" or "Wish $tag is dynamically connected to $tag2"
+# Connection wish fulfillment for wishes of the form:
+#   Wish $source is connected to $sink
+#   Wish $source is dynamically connected to $sink
 
-When /anyone/ wishes /source/ is connected to /sink/ {
-    Wish $source is connected to $sink from centroid to centroid
-}
-When /anyone/ wishes /source/ is dynamically connected to /sink/ {
-    Wish $source is dynamically connected to $sink from centroid to centroid
-}
+set ::drawConnectionClockFrame ""
 
-When /anyone/ wishes /source/ is connected to /sink/ /...options/ & \
-  /source/ has region /source_region/ & \
-  /sink/ has region /sink_region/ {
-   if {$source == $sink} {return}
-
-   set p1 [dict_getdef $options from centroid]
-   set p2 [dict_getdef $options to centroid]
-   set source [region $p1 $source_region]
-   set sink [region $p2 $sink_region]
-
-   set direction [vec2 sub $sink $source]
-   set color [dict_getdef $options color grey]
-   set layer [dict_getdef $options layer 0]
-
-   set c [vec2 scale [vec2 add $source $sink] 0.5]
-   set angle [expr {atan2(-[lindex $direction 1], [lindex $direction 0]) - 3.14159/2}]
-
-   Wish to draw a stroke with points [list $source $sink] width 2 color $color layer $layer
-   Wish to draw a shape with sides 3 center $c radius 30 radians $angle color $color filled true layer $layer
+fn drawConnectionVecAdd {a b} {
+    list [expr {[lindex $a 0] + [lindex $b 0]}] \
+         [expr {[lindex $a 1] + [lindex $b 1]}]
 }
 
-set speed 75
-set spacing 50
-set maxsize 25
+fn drawConnectionVecSub {a b} {
+    list [expr {[lindex $a 0] - [lindex $b 0]}] \
+         [expr {[lindex $a 1] - [lindex $b 1]}]
+}
 
-When /anyone/ wishes /source/ is dynamically connected to /sink/ /...options/ & \
-  /source/ has region /source_region/ & \
-  /sink/ has region /sink_region/ {
+fn drawConnectionVecScale {v s} {
+    list [expr {[lindex $v 0] * $s}] \
+         [expr {[lindex $v 1] * $s}]
+}
 
-   if {$source == $sink} {return}
+fn drawConnectionVecLength {v} {
+    expr {sqrt(pow([lindex $v 0], 2) + pow([lindex $v 1], 2))}
+}
 
-   set p1 [dict_getdef $options from centroid]
-   set p2 [dict_getdef $options to centroid]
-   set source [region $p1 $source_region]
-   set sink [region $p2 $sink_region]
+fn drawConnectionVecNormalize {v} {
+    set length [drawConnectionVecLength $v]
+    if {$length == 0.0} { return "" }
+    drawConnectionVecScale $v [expr {1.0 / $length}]
+}
 
-   set direction [vec2 normalize [vec2 sub $sink $source]]
-   set distance [vec2 distance $sink $source]
-   set angle [expr {atan2(-[lindex $direction 1], [lindex $direction 0]) - 3.14159/2}] 
+fn drawConnectionVecMix3 {a b t} {
+    list [expr {[lindex $a 0] + ([lindex $b 0] - [lindex $a 0]) * $t}] \
+         [expr {[lindex $a 1] + ([lindex $b 1] - [lindex $a 1]) * $t}] \
+         [expr {[lindex $a 2] + ([lindex $b 2] - [lindex $a 2]) * $t}]
+}
 
-   set color [dict_getdef $options color white]
-   set layer [dict_getdef $options layer 0]
+fn drawConnectionLocalLength {value width height axis} {
+    drawRelativePhysicalLength $value $width $height $axis connections
+}
 
-   lassign [vec2 scale [vec2 add $source $sink] 0.5] cx cy
+fn drawConnectionLocalPoint {geom selector} {
+    set width [dict get $geom width]
+    set height [dict get $geom height]
 
-   Wish to draw a stroke with points [list $source $sink] width 1 color $color layer $layer
-   
-   When the clock time is /t/ {
-     set offset [expr {round($t*$speed) % $spacing}]
-     set count [expr {round($distance / $spacing)}]
-
-     for {set p $offset} {$p < $distance} {incr p $spacing} {
-        set c [vec2 add $source [vec2 scale $direction $p]]
-        set s [expr {min($maxsize, 0.20*min($p, $distance - $p))}]
-        Wish to draw a shape with sides 3 center $c radius $s radians $angle color $color filled true layer $layer
-      }
+    switch -- $selector {
+        centroid - center { return [list [expr {$width / 2.0}] [expr {$height / 2.0}]] }
+        top { return [list [expr {$width / 2.0}] 0] }
+        bottom { return [list [expr {$width / 2.0}] $height] }
+        left { return [list 0 [expr {$height / 2.0}]] }
+        right { return [list $width [expr {$height / 2.0}]] }
+        top-left - topleft { return {0 0} }
+        top-right - topright { return [list $width 0] }
+        bottom-right - bottomright { return [list $width $height] }
+        bottom-left - bottomleft { return [list 0 $height] }
     }
+
+    if {[llength $selector] != 2} {
+        error "connections: expected endpoint selector or 2D point, got $selector"
+    }
+    list [drawConnectionLocalLength [lindex $selector 0] $width $height width] \
+         [drawConnectionLocalLength [lindex $selector 1] $width $height height]
+}
+
+fn drawConnectionQuadPoint {vertices geom point} {
+    lassign $vertices topLeft topRight bottomRight bottomLeft
+    set u [expr {[lindex $point 0] / [dict get $geom width]}]
+    set v [expr {[lindex $point 1] / [dict get $geom height]}]
+
+    set top [drawConnectionVecMix3 $topLeft $topRight $u]
+    set bottom [drawConnectionVecMix3 $bottomLeft $bottomRight $u]
+    drawConnectionVecMix3 $top $bottom $v
+}
+
+fn drawConnectionProject {poseLib displayIntrinsics displayWidth displayHeight point} {
+    $poseLib project $displayIntrinsics $displayWidth $displayHeight $point
+}
+
+fn drawConnectionPixelOption {options key default context} {
+    set value [dict getdef $options $key $default]
+    if {![string is double -strict $value]} {
+        error "connections: $context must be a numeric display-pixel value, got $value"
+    }
+    expr {double($value)}
+}
+
+fn drawConnectionSegment {
+    quadLib poseLib quadChange displayIntrinsics displayWidth displayHeight disp
+    sourceGeom sourceQuad sinkGeom sinkQuad options
+} {
+    set fromSelector [dict getdef $options from centroid]
+    set toSelector [dict getdef $options to centroid]
+
+    set sourceVertices [$quadLib vertices [{*}$quadChange $sourceQuad "display $disp"]]
+    set sinkVertices [$quadLib vertices [{*}$quadChange $sinkQuad "display $disp"]]
+
+    set sourcePoint [drawConnectionQuadPoint $sourceVertices $sourceGeom \
+        [drawConnectionLocalPoint $sourceGeom $fromSelector]]
+    set sinkPoint [drawConnectionQuadPoint $sinkVertices $sinkGeom \
+        [drawConnectionLocalPoint $sinkGeom $toSelector]]
+
+    set from [drawConnectionProject $poseLib $displayIntrinsics \
+        $displayWidth $displayHeight $sourcePoint]
+    set to [drawConnectionProject $poseLib $displayIntrinsics \
+        $displayWidth $displayHeight $sinkPoint]
+    set delta [drawConnectionVecSub $to $from]
+    set distance [drawConnectionVecLength $delta]
+    if {$distance == 0.0} { return "" }
+
+    dict create \
+        from $from \
+        to $to \
+        direction [drawConnectionVecScale $delta [expr {1.0 / $distance}]] \
+        distance $distance
+}
+
+fn drawConnectionSegmentRegion {sourceGeom sinkGeom width height options} {
+    set sourceCenter [dict getdef $sourceGeom center {0 0}]
+    set sinkCenter [dict getdef $sinkGeom center {0 0}]
+
+    set p1x [drawConnectionLocalLength [lindex $sourceCenter 0] $width $height x]
+    set p1y [drawConnectionLocalLength [lindex $sourceCenter 1] $width $height y]
+    set from [list $p1x $p1y 0.0]
+
+    set p2x [drawConnectionLocalLength [lindex $sinkCenter 0] $width $height x]
+    set p2y [drawConnectionLocalLength [lindex $sinkCenter 1] $width $height y]
+    set to [list $p2x $p2y 0.0]
+    
+    set delta [drawConnectionVecSub $to $from]
+    set distance [drawConnectionVecLength $delta]
+    if {$distance == 0.0} { return "" }
+
+    dict create \
+        from $from \
+        to $to \
+        direction [drawConnectionVecScale $delta [expr {1.0 / $distance}]] \
+        distance $distance
+}
+
+fn drawConnectionEmitStatic {segment options disp canvasId wiOptions surfaceToClip colorMap} {
+    set color [dict getdef $options color grey]
+    set colorVec [dict getdef $colorMap $color $color]
+    set layer [dict getdef $options layer 0]
+    set width [drawConnectionPixelOption $options width 2 width]
+    set arrowRadius [drawConnectionPixelOption $options arrowRadius 30 arrowRadius]
+
+    Wish to draw a line onto $disp with \
+        points [list [dict get $segment from] [dict get $segment to]] width $width color $color layer $layer
+
+    set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
+    set dist [dict get $segment distance]
+    set instance [list $surfaceToClip $colorVec \
+                      $wiResolution \
+                      [dict get $segment from] [dict get $segment to] \
+                      $width \
+                      0.0 [expr {$dist + 1.0}] $arrowRadius 1.0 0.0 [expr {$dist / 2.0}]]
+
+    Wish the GPU draws pipeline "connection-arrows" onto canvas $canvasId with \
+        arguments $instance layer $layer vertices 6
+}
+
+fn drawConnectionEmitDynamic {segment options t disp canvasId wiOptions surfaceToClip colorMap} {
+    set color [dict getdef $options color white]
+    set colorVec [dict getdef $colorMap $color $color]
+    set layer [dict getdef $options layer 0]
+    set width [drawConnectionPixelOption $options width 1 width]
+
+    set speed [drawConnectionPixelOption $options speed 75 speed]
+    set spacing [drawConnectionPixelOption $options spacing 50 spacing]
+    set maxSize [drawConnectionPixelOption $options maxsize \
+        [dict getdef $options maxSize 25] maxsize]
+    set maxArrows [drawConnectionPixelOption $options maxArrows 48 maxArrows]
+
+    Wish to draw a line onto $disp with \
+        points [list [dict get $segment from] [dict get $segment to]] width $width color $color layer $layer
+
+    set timeSecs [expr {fmod($t, 100000.0)}]
+    set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
+    set instance [list $surfaceToClip $colorVec \
+                      $wiResolution \
+                      [dict get $segment from] [dict get $segment to] \
+                      $width \
+                      $speed $spacing $maxSize $maxArrows $timeSecs 0.0]
+
+    Wish the GPU draws pipeline "connection-arrows" onto canvas $canvasId with \
+        arguments $instance layer $layer vertices 6
+}
+
+Wish the GPU compiles pipeline "connection-arrows" {
+    {mat3 surfaceToClip vec4 color vec2 viewport vec2 from vec2 to float thickness float speed float spacing float maxSize float maxArrows float time float startOffset} {
+        vec2 dir = normalize(to - from);
+        // thickness here is just the bounding box width. We make it 2x maxSize to ensure arrows fit.
+        vec2 perp = vec2(-dir.y, dir.x) * (maxSize * 1.5); 
+
+        vec2 vertices[6] = vec2[6](
+            from + perp,
+            from - perp,
+            to - perp,
+
+            from + perp,
+            to - perp,
+            to + perp
+        );
+        vec3 v = surfaceToClip * vec3(vertices[gl_VertexIndex], 1.0);
+        return vec4(v.xy/v.z, 0.0, 1.0);
+    } {
+        vec2 clipXy = (gl_FragCoord.xy / viewport) * 2.0 - 1.0;
+        vec3 surfaceXy = inverse(surfaceToClip) * vec3(clipXy, 1.0);
+        surfaceXy /= surfaceXy.z;
+
+        float l = length(to - from);
+        vec2 d = (to - from) / l;
+        vec2 q = (surfaceXy.xy - (from + to)*0.5);
+        q = mat2(d.x, -d.y, d.y, d.x) * q;
+        
+        float p = q.x + l * 0.5; 
+        
+        float effectiveSpacing = spacing;
+        if (speed > 0.0 && ceil(l / effectiveSpacing) > maxArrows) {
+            effectiveSpacing = l / maxArrows;
+        }
+
+        float offset = startOffset;
+        if (speed > 0.0) {
+            offset = mod(startOffset + time * speed, effectiveSpacing);
+            if (offset < 0.0) offset += effectiveSpacing;
+        }
+
+        float i = floor((p - offset + effectiveSpacing * 0.5) / effectiveSpacing);
+        
+        if (i < 0.0 || i >= maxArrows) {
+            return vec4(0.0);
+        }
+
+        float c = offset + i * effectiveSpacing;
+        if (c >= l || c <= 0.0) {
+            return vec4(0.0);
+        }
+
+        float farEdgeDistance = l - c;
+        float edgeDistance = c < farEdgeDistance ? c : farEdgeDistance;
+        float radius = maxSize < 0.20 * edgeDistance ? maxSize : 0.20 * edgeDistance;
+        
+        if (radius <= 0.25) {
+            return vec4(0.0);
+        }
+
+        float local_p = p - c; 
+        
+        // Anti-aliasing parameters
+        float aa_width = 1.5; // pixels
+        float local_w = (radius - local_p) / (2.0 * radius) * (radius * 0.8);
+        
+        if (local_p >= -radius && local_p <= radius) {
+            float dist = abs(q.y) - local_w;
+            if (dist <= 0.0) {
+                return color;
+            } else if (dist < aa_width) {
+                return vec4(color.rgb, color.a * (1.0 - dist / aa_width));
+            }
+        }
+        
+        return vec4(0.0);
+    }
+}
+
+When /anyone/ wishes /source/ is connected to /sink/ with /...options/ &\
+     the quad library is /quadLib/ &\
+     the pose library is /poseLib/ &\
+     the quad changer is /quadChange/ &\
+     display /disp/ has width /displayWidth/ height /displayHeight/ &\
+     display /disp/ has intrinsics /displayIntrinsics/ &\
+     /source/ has resolved geometry /sourceGeom/ &\
+     /source/ has quad /sourceQuad/ &\
+     /sink/ has resolved geometry /sinkGeom/ &\
+     /sink/ has quad /sinkQuad/ &\
+     the color map is /colorMap/ &\
+     /disp/ has canvas /canvasId/ with /...wiOptions/ &\
+     /disp/ has canvas projection /surfaceToClip/ {
+
+    if {$source eq $sink} { return }
+    if {![info exists options]} { set options [dict create] }
+    set segment [drawConnectionSegment \
+        $quadLib $poseLib $quadChange $displayIntrinsics $displayWidth $displayHeight $disp \
+        $sourceGeom $sourceQuad $sinkGeom $sinkQuad $options]
+    if {$segment eq ""} { return }
+
+    drawConnectionEmitStatic $segment $options $disp $canvasId $wiOptions $surfaceToClip $colorMap
+}
+
+When /anyone/ wishes /source/ is dynamically connected to /sink/ with /...options/ &\
+     the clock time is /t/ &\
+     the quad library is /quadLib/ &\
+     the pose library is /poseLib/ &\
+     the quad changer is /quadChange/ &\
+     display /disp/ has width /displayWidth/ height /displayHeight/ &\
+     display /disp/ has intrinsics /displayIntrinsics/ &\
+     /source/ has resolved geometry /sourceGeom/ &\
+     /source/ has quad /sourceQuad/ &\
+     /sink/ has resolved geometry /sinkGeom/ &\
+     /sink/ has quad /sinkQuad/ &\
+     the color map is /colorMap/ &\
+     /disp/ has canvas /canvasId/ with /...wiOptions/ &\
+     /disp/ has canvas projection /surfaceToClip/ {
+
+    if {$source eq $sink} { return }
+    if {![info exists options]} { set options [dict create] }
+    set segment [drawConnectionSegment \
+        $quadLib $poseLib $quadChange $displayIntrinsics $displayWidth $displayHeight $disp \
+        $sourceGeom $sourceQuad $sinkGeom $sinkQuad $options]
+    if {$segment eq ""} { return }
+
+    drawConnectionEmitDynamic $segment $options $t $disp $canvasId $wiOptions $surfaceToClip $colorMap
+}
+
+When /anyone/ wishes /source/ is connected to /sink/ with /...options/ &\
+     /source/ has region /sourceGeom/ &\
+     /sink/ has region /sinkGeom/ &\
+     the color map is /colorMap/ &\
+     /disp/ has canvas /canvasId/ with /...wiOptions/ &\
+     /disp/ has canvas projection /surfaceToClip/ &\
+     /disp/ has page geometry /geom/ {
+
+    if {$source eq $sink} { return }
+    if {![info exists options]} { set options [dict create] }
+    
+    set canvasWidth [dict get $geom width]
+    set canvasHeight [dict get $geom height]
+    set segment [drawConnectionSegmentRegion $sourceGeom $sinkGeom $canvasWidth $canvasHeight $options]
+    if {$segment eq ""} { return }
+
+    drawConnectionEmitStatic $segment $options $disp $canvasId $wiOptions $surfaceToClip $colorMap
+}
+
+When /anyone/ wishes /source/ is dynamically connected to /sink/ with /...options/ &\
+     the clock time is /t/ &\
+     /source/ has region /sourceGeom/ &\
+     /sink/ has region /sinkGeom/ &\
+     the color map is /colorMap/ &\
+     /disp/ has canvas /canvasId/ with /...wiOptions/ &\
+     /disp/ has canvas projection /surfaceToClip/ &\
+     /disp/ has page geometry /geom/ {
+
+    if {$source eq $sink} { return }
+    if {![info exists options]} { set options [dict create] }
+    
+    set canvasWidth [dict get $geom width]
+    set canvasHeight [dict get $geom height]
+    set segment [drawConnectionSegmentRegion $sourceGeom $sinkGeom $canvasWidth $canvasHeight $options]
+    if {$segment eq ""} { return }
+
+    drawConnectionEmitDynamic $segment $options $t $disp $canvasId $wiOptions $surfaceToClip $colorMap
 }

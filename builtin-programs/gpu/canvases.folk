@@ -183,7 +183,7 @@ When the GPU library is /gpuLib/ &\
         boundPipeline = VK_NULL_HANDLE;
         boundDescriptorSet = VK_NULL_HANDLE;
     }
-    $gpuc proc draw {Pipeline pipeline Jim_Obj* argsObj} void {
+    $gpuc proc draw {Pipeline pipeline int vertices Jim_Obj* argsObj} void {
         VkCommandBuffer commandBuffer = getCommandBuffer();
 
         if (boundPipeline != pipeline.pipeline) {
@@ -228,7 +228,7 @@ When the GPU library is /gpuLib/ &\
         }
 
         // 1 quad -> 2 triangles -> 6 vertices
-        vkCmdDraw(commandBuffer, 6, 1, 0, 0);
+        vkCmdDraw(commandBuffer, vertices, 1, 0, 0);
     }
     $gpuc proc drawEnd {} void {
         VkCommandBuffer commandBuffer = getCommandBuffer();
@@ -348,9 +348,10 @@ When the GPU library is /gpuLib/ &\
             } else {
                 set instances [list [dict get $options arguments]]
             }
+            set vertices [dict getdef $options vertices 6]
             foreach instance $instances {
                 dict lappend drawLists $layer \
-                    [list $gpuCanvasLib draw $pipeline $instance]
+                    [list $gpuCanvasLib draw $pipeline $vertices $instance]
             }
         }
 
@@ -374,18 +375,12 @@ When the GPU library is /gpuLib/ &\
 
             set resultsStmt [lindex $resultsList 0]
             set ref [dict get $resultsStmt __ref]
+            set results [dict get $resultsStmt results]
             try {
                 StatementAcquire! $ref
                 lappend acquiredRefs $ref
-                set results [dict get $resultsStmt results]
-
             } on error e {
-                # Couldn't acquire the collect statement (it
-                # must have just been invalidated). Just reuse
-                # the last one.
-                dict set drawListsByTexture $id \
-                    [dict getdef $mostRecentDrawListsByTexture $id [list]]
-                continue
+                # Silently fallback to using query results directly
             }
 
             foreach result $results { dict with result {

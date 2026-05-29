@@ -1,0 +1,16 @@
+Wish the display is ":0"
+
+set id1 test-box
+set id2 test-circle
+set id3 test-triangle
+
+Claim $id1 has region [list {40% 40%} {100 100}]
+Claim $id2 has region [list {60% 60%} {100 100}]
+Claim $id3 has region [list {40% 80%} {100 100}]
+
+Wish to draw a shape with sides 4 center {40% 40%} radius 50 radians 0 color red layer 2
+Wish to draw a shape with sides 30 center {60% 60%} radius 50 radians 0 color blue layer 2
+Wish to draw a shape with sides 3 center {40% 80%} radius 50 radians 0 color green layer 2
+
+Wish $id1 is connected to $id2
+Wish $id2 is dynamically connected to $id3

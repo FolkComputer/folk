@@ -1,13 +1,65 @@
-When /someone/ wishes /thing/ is outlined /color/ &\
-     /thing/ has resolved geometry /geom/ {
-    dict with geom {
-        set points [list [list 0 0] \
-                        [list $width 0] \
-                        [list $width $height] \
-                        [list 0 $height] \
-                        [list 0 0]]
-    }
+fn drawOutlinePoints {width height} {
+    return [list [list 0 0] \
+                    [list $width 0] \
+                    [list $width $height] \
+                    [list 0 $height] \
+                    [list 0 0]]
+}
+
+fn drawOutlineOptions {color options} {
+    if {![info exists options]} { set options [dict create] }
+    dict set options color $color
+    return $options
+}
+
+fn drawOutlineOptionTail {key value rest} {
+    if {![info exists rest]} { set rest [list] }
+    return [list $key $value {*}$rest]
+}
+
+fn drawOutlineOnto {thing geom options} {
+    if {![info exists options]} { set options [dict create] }
+    set color [dict getdef $options color white]
+    set outlineWidth [drawPhysicalLength \
+        [dict getdef $options width [dict getdef $options thickness 1cm]]]
+    set layer [dict getdef $options layer 2]
 
     Wish to draw a line onto $thing with \
-        points $points width 0.01 color $color
+        points [drawOutlinePoints [dict get $geom width] [dict get $geom height]] \
+        width $outlineWidth color $color layer $layer
+}
+
+When /thing/ has resolved geometry /geom/ &\
+     /someone/ wishes /thing/ is outlined /color/ {
+    drawOutlineOnto $thing $geom [drawOutlineOptions $color [dict create]]
+}
+
+When /thing/ has resolved geometry /geom/ &\
+     /someone/ wishes /thing/ is outlined /color/ with /optionKey/ /optionValue/ /...optionRest/ {
+    if {![info exists optionKey] || ![info exists optionValue]} { return }
+    if {![info exists optionRest]} { set optionRest [list] }
+    set options [drawOutlineOptionTail $optionKey $optionValue $optionRest]
+    drawOutlineOnto $thing $geom [drawOutlineOptions $color $options]
+}
+
+When /thing/ has resolved geometry /geom/ &\
+     /someone/ wishes /thing/ is outlined /color/ with /optionKey/ /optionValue/ {
+    if {![info exists optionKey] || ![info exists optionValue]} { return }
+    set options [list $optionKey $optionValue]
+    drawOutlineOnto $thing $geom [drawOutlineOptions $color $options]
+}
+
+When /thing/ has resolved geometry /geom/ &\
+     /someone/ wishes /thing/ is outlined with /optionKey/ /optionValue/ /...optionRest/ {
+    if {![info exists optionKey] || ![info exists optionValue]} { return }
+    if {![info exists optionRest]} { set optionRest [list] }
+    set options [drawOutlineOptionTail $optionKey $optionValue $optionRest]
+    drawOutlineOnto $thing $geom $options
+}
+
+When /thing/ has resolved geometry /geom/ &\
+     /someone/ wishes /thing/ is outlined with /optionKey/ /optionValue/ {
+    if {![info exists optionKey] || ![info exists optionValue]} { return }
+    set options [list $optionKey $optionValue]
+    drawOutlineOnto $thing $geom $options
 }

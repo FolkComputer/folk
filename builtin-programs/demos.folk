@@ -24,7 +24,7 @@ Claim 45004 has demo code {
 }
 Claim 45005 has demo code {
     When the clock time is /t/ {
-        Wish $this draws a circle offset [list expr {sin($t) * 50} 0]
+        Wish $this draws a circle with offset [list [expr {sin($t) * 5.0}cm] 0cm] radius 1.2cm
     }
 }
 Claim 45006 has demo code {
@@ -41,5 +41,21 @@ Claim 45007 has demo code {
 Claim 45008 has demo code {
     When $this has camera slice /slice/ {
     Wish $this displays camera slice $slice
+    }
+}
+
+When /someone/ wishes /program/ runs demo code from /filename/ {
+    Hold! -key "active-demo-$program" Claim $program running demo code from $filename
+    On unmatch {
+        if {[llength [Query! /someone/ wishes $program runs demo code from /any/]] == 0} {
+            Hold! -key "active-demo-$program"
+        }
+    }
+}
+
+When /program/ running demo code from /filename/ {
+    When $filename has demo code /code/ {
+        set this $program
+        eval $code
     }
 }

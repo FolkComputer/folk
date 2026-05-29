@@ -86,7 +86,7 @@ debug: folk
 	if [ "$$(uname)" = "Darwin" ]; then \
 		lldb -o "process handle -p true -s false SIGUSR1" -- ./folk; \
 	else \
-		DEBUGINFOD_URLS="" gdb -ex "handle SIGUSR1 nostop" -ex "handle SIGPIPE nostop" ./folk; \
+		gdb -ex "handle SIGUSR1 nostop" -ex "handle SIGPIPE nostop" ./folk; \
 	fi
 
 clean:
@@ -115,19 +115,20 @@ kill-folk:
 	fi
 
 FOLK_REMOTE_NODE ?= folk-live
+FOLK_SYNC_IGNORES ?= $(shell git rev-parse --git-path ignores.tmp 2>/dev/null || printf '%s\n' .git/ignores.tmp)
 
 sync:
 	ssh $(FOLK_REMOTE_NODE) -t \
 		'cd ~/folk && git init > /dev/null && git ls-files --exclude-standard -oi --directory' \
-		> .git/ignores.tmp || true
-	git ls-files --exclude-standard -oi --directory >> .git/ignores.tmp
+		> '$(FOLK_SYNC_IGNORES)' || true
+	git ls-files --exclude-standard -oi --directory >> '$(FOLK_SYNC_IGNORES)'
 	rsync --timeout=15 -e "ssh -o StrictHostKeyChecking=no" \
 		--archive --delete --itemize-changes \
 		--exclude='/.git' \
+		--exclude-from='$(FOLK_SYNC_IGNORES)' \
 		--exclude='vendor/tracy/public/TracyClient.o' \
 		--include='vendor/tracy/public/***' \
 		--exclude='vendor/tracy/*' \
-		--exclude-from='.git/ignores.tmp' \
 		./ $(FOLK_REMOTE_NODE):~/folk/
 
 remote-setup:

@@ -20,6 +20,7 @@ When the gif library is /gifLib/ {
           return
       }
 
+      set frameHoldKey [list draw-gif-frame $p $gif $options]
       When the clock time is /t/ {
           set ms [expr {int($t * 1000) % $totalDuration}]
           set frameIdx 0
@@ -30,7 +31,20 @@ When the gif library is /gifLib/ {
           if {$frameIdx >= [llength $frames]} { set frameIdx 0 }
           set im [lindex $frames $frameIdx]
           
-          Wish $p displays image $im with {*}$options
+          Hold! -on builtin-programs/draw/gif.folk -key $frameHoldKey \
+              Wish $p displays image $im with {*}$options
+      }
+
+      On unmatch {
+          Hold! -on builtin-programs/draw/gif.folk -key $frameHoldKey {}
       }
   }
+}
+
+Hold! -on builtin-programs/draw/gif.folk -key draw-gif-demo-code \
+    Claim builtin-programs/draw/gif.folk has demo code {
+Wish $this is filled with color {0.035 0.035 0.045 1.0}
+Wish $this draws text "gif" with position {50% 16%} scale 3cm color white anchor center layer 8
+Wish $this displays image "https://blob.gifcities.org/gifcities/EAAJDOTZGLUOERVAUXNUITVS64CZ57MG.gif" with \
+    position {50% 56%} anchor center width 8cm
 }

@@ -29,19 +29,51 @@ Wish the GPU compiles pipeline "circle" {
 
 When the color map is /colorMap/ &\
      /p/ has canvas /id/ with /...wiOptions/ &\
-     /p/ has canvas projection /surfaceToClip/ &\
-     /someone/ wishes to draw a circle onto /p/ with /...options/ {
+     /p/ has canvas projection /surfaceToClip/ {
 
-    set center [dict getdef $options center ""]
-    if {$center eq ""} { set center [list [dict get $options x] [dict get $options y]] }
-    set radius [dict get $options radius]
-    set thickness [dict get $options thickness]
-    set color [dict get $options color]
-    set color [dict getdef $colorMap $color $color]
-    set filled [dict getdef $options filled false]
+    set query [list /someone/ wishes to draw a circle onto $p with /...options/]
+    When the collected results for $query are /results/ {
+        set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
+        set instancesByLayer [dict create]
 
-    set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
-    Wish the GPU draws pipeline "circle" onto canvas $id with arguments \
-        [list $wiResolution $surfaceToClip \
-             $center $radius $thickness $color [expr {$filled eq false ? 0 : 1}]]
+        foreach result $results {
+            set options [dict get $result options]
+            set center [dict getdef $options center ""]
+            if {$center eq ""} {
+                set center [list [dict get $options x] [dict get $options y]]
+            }
+
+            set radius [dict get $options radius]
+            set thickness [dict getdef $options thickness 0]
+            set color [dict get $options color]
+            set color [dict getdef $colorMap $color $color]
+            set filled [dict getdef $options filled false]
+            set layer [dict getdef $options layer 0]
+
+            dict lappend instancesByLayer $layer \
+                [list $wiResolution $surfaceToClip \
+                     $center $radius $thickness $color \
+                     [expr {$filled eq false ? 0 : 1}]]
+        }
+
+        dict for {layer instances} $instancesByLayer {
+            Wish the GPU draws pipeline "circle" onto canvas $id \
+                with instances $instances layer $layer
+        }
+    }
+}
+
+Hold! -on builtin-programs/draw/circle.folk -key draw-circle-demo-code \
+    Claim builtin-programs/draw/circle.folk has demo code {
+Wish $this is filled with color {0.03 0.04 0.055 1.0}
+Wish $this draws text "circle" with position {50% 18%} scale 3cm color white anchor center layer 8
+Wish to draw a circle onto $this with \
+    center {0.135 0.095} radius 0.026 thickness 0.006 \
+    color {1.0 0.78 0.28 1.0} filled false layer 4
+When the clock time is /t/ {
+    set radius [expr {0.026 * (0.5 + 0.5 * sin($t * 2.0))}]
+    Wish to draw a circle onto $this with \
+        center {0.075 0.095} radius $radius thickness 0 \
+        color {0.92 0.20 0.55 0.92} filled true layer 3
+}
 }

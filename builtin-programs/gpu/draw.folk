@@ -400,7 +400,7 @@ $cc proc drawStart {DisplayState* ds} void {
 # Draw to the screen using pipeline `pipeline`. Each arg in `args`
 # should be a push-constant parameter of the pipeline. Can only be
 # called between `drawStart` and `drawEnd`.
-$cc proc draw {Pipeline pipeline Jim_Obj* argsObj} void {
+$cc proc draw {Pipeline pipeline int vertices Jim_Obj* argsObj} void {
     VkCommandBuffer commandBuffer = getCommandBuffer();
 
     if (boundPipeline != pipeline.pipeline) {
@@ -445,7 +445,7 @@ $cc proc draw {Pipeline pipeline Jim_Obj* argsObj} void {
     }
 
     // 1 quad -> 2 triangles -> 6 vertices
-    vkCmdDraw(commandBuffer, 6, 1, 0, 0);
+    vkCmdDraw(commandBuffer, vertices, 1, 0, 0);
 }
 
 $cc proc drawEnd {} void {
@@ -636,12 +636,14 @@ proc makeGpu {gpuLib pipelineLib drawLib} { return [library create gpu {gpuLib p
             vec4 $argname;
             {
                 int $[set argname]_objc = Jim_ListLength(interp, $obj);
-                __ENSURE($[set argname]_objc == 4);
-                double x; double y; double z; double w;
+                __ENSURE($[set argname]_objc == 3 || $[set argname]_objc == 4);
+                double x; double y; double z; double w = 1.0;
                 __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 0), &x));
                 __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 1), &y));
                 __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 2), &z));
-                __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 3), &w));
+                if ($[set argname]_objc == 4) {
+                    __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 3), &w));
+                }
                 $argname = (vec4) { (float)x, (float)y, (float)z, (float)w };
             }
         }
@@ -986,8 +988,9 @@ while true {
                 set instances [list [dict get $options arguments]]
             }
             foreach instance $instances {
+                set vertices [dict getdef $options vertices 6]
                 dict lappend displayList $layer \
-                    [list $gpu draw $pipeline $instance]
+                    [list $gpu draw $pipeline $vertices $instance]
             }
         } on error e {
             puts stderr "Error: GPU draws pipeline $name: [errorInfo $e]"

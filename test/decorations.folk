@@ -1,0 +1,111 @@
+source builtin-programs/collect.folk
+source builtin-programs/decorations/label.folk
+source builtin-programs/decorations/outline.folk
+source builtin-programs/draw/line.folk
+
+assert {[drawOutlinePoints 0.2 0.1] eq {{0 0} {0.2 0} {0.2 0.1} {0 0.1} {0 0}}}
+assert {[drawLabelMaxLineLength "hi\nthere"] == 5}
+assert {abs([drawLabelDefaultScale "hello"] - 0.02) < 1e-9}
+assert {abs([drawLabelDefaultScale [string repeat x 100]] - 0.0045) < 1e-9}
+
+set options [drawLabelDefaultOptions "hello" 0.2 0.1]
+assert {[dict get $options position] eq {0.1 0.05}}
+assert {abs([dict get $options scale] - 0.02) < 1e-9}
+assert {[dict get $options anchor] eq "center"}
+assert {[dict get $options font] eq "PTSans-Regular"}
+
+set thing test-thing
+set plainThing test-plain-outline
+set explicitThing test-explicit-outline
+set singleOptionThing test-single-option-outline
+set singleColorOptionThing test-single-color-option-outline
+set programThing test-program-outline
+
+Assert! $thing has resolved geometry {width 0.2 height 0.1}
+Assert! $plainThing has resolved geometry {width 0.3 height 0.2}
+Assert! $explicitThing has resolved geometry {width 0.4 height 0.25}
+Assert! $singleOptionThing has resolved geometry {width 0.2 height 0.12}
+Assert! $singleColorOptionThing has resolved geometry {width 0.22 height 0.14}
+Assert! $programThing has resolved geometry {width 0.25 height 0.15}
+
+Assert! when /program/ has program code /programCode/ {
+    SayWithSource $program 1 0 {} {} \
+        when $programCode with environment [list [list this $program]]
+} with environment {}
+
+Wish $thing is labelled "hello" with color cyan
+Wish $thing is outlined red with thickness 0.5cm layer 7
+Wish $plainThing is outlined blue
+Wish $explicitThing is outlined with color purple width 2cm layer 9
+Wish $singleOptionThing is outlined orange with thickness 0.25cm
+Wish $singleColorOptionThing is outlined with color teal
+Assert! $programThing has program code {Wish $this is outlined gold}
+
+sleep 1
+
+set errors [Query! /program/ has error /err/ with info /info/]
+assert {[llength $errors] == 0}
+
+set textDraws [Query! /someone/ wishes to draw text onto $thing with /...drawOptions/]
+assert {[llength $textDraws] == 1}
+set drawOptions [dict get [lindex $textDraws 0] drawOptions]
+assert {[dict get $drawOptions text] eq "hello"}
+assert {[dict get $drawOptions color] eq "cyan"}
+assert {[dict get $drawOptions anchor] eq "center"}
+assert {abs([dict get $drawOptions scale] - 0.02) < 1e-9}
+assert {[dict get $drawOptions position] eq {0.1 0.05}}
+
+set lineDraws [Query! /someone/ wishes to draw a line onto $thing with /...drawOptions/]
+assert {[llength $lineDraws] == 1}
+set drawOptions [dict get [lindex $lineDraws 0] drawOptions]
+assert {[dict get $drawOptions color] eq "red"}
+assert {[dict get $drawOptions layer] == 7}
+assert {abs([dict get $drawOptions width] - 0.005) < 1e-9}
+assert {![dict exists $drawOptions caps]}
+assert {[dict get $drawOptions points] eq {{0 0} {0.2 0} {0.2 0.1} {0 0.1} {0 0}}}
+
+set lineDraws [Query! /someone/ wishes to draw a line onto $plainThing with /...drawOptions/]
+assert {[llength $lineDraws] == 1}
+set drawOptions [dict get [lindex $lineDraws 0] drawOptions]
+assert {[dict get $drawOptions color] eq "blue"}
+assert {[dict get $drawOptions layer] == 2}
+assert {abs([dict get $drawOptions width] - 0.01) < 1e-9}
+assert {![dict exists $drawOptions caps]}
+assert {[dict get $drawOptions points] eq {{0 0} {0.3 0} {0.3 0.2} {0 0.2} {0 0}}}
+
+set generatedOutlineWishes [Query! /someone/ wishes $plainThing is outlined with /...options/]
+assert {[llength $generatedOutlineWishes] == 0}
+
+set lineDraws [Query! /someone/ wishes to draw a line onto $explicitThing with /...drawOptions/]
+assert {[llength $lineDraws] == 1}
+set drawOptions [dict get [lindex $lineDraws 0] drawOptions]
+assert {[dict get $drawOptions color] eq "purple"}
+assert {[dict get $drawOptions layer] == 9}
+assert {abs([dict get $drawOptions width] - 0.02) < 1e-9}
+assert {[dict get $drawOptions points] eq {{0 0} {0.4 0} {0.4 0.25} {0 0.25} {0 0}}}
+
+set lineDraws [Query! /someone/ wishes to draw a line onto $singleOptionThing with /...drawOptions/]
+assert {[llength $lineDraws] == 1}
+set drawOptions [dict get [lindex $lineDraws 0] drawOptions]
+assert {[dict get $drawOptions color] eq "orange"}
+assert {[dict get $drawOptions layer] == 2}
+assert {abs([dict get $drawOptions width] - 0.0025) < 1e-9}
+assert {[dict get $drawOptions points] eq {{0 0} {0.2 0} {0.2 0.12} {0 0.12} {0 0}}}
+
+set lineDraws [Query! /someone/ wishes to draw a line onto $singleColorOptionThing with /...drawOptions/]
+assert {[llength $lineDraws] == 1}
+set drawOptions [dict get [lindex $lineDraws 0] drawOptions]
+assert {[dict get $drawOptions color] eq "teal"}
+assert {[dict get $drawOptions layer] == 2}
+assert {abs([dict get $drawOptions width] - 0.01) < 1e-9}
+assert {[dict get $drawOptions points] eq {{0 0} {0.22 0} {0.22 0.14} {0 0.14} {0 0}}}
+
+set lineDraws [Query! /someone/ wishes to draw a line onto $programThing with /...drawOptions/]
+assert {[llength $lineDraws] == 1}
+set drawOptions [dict get [lindex $lineDraws 0] drawOptions]
+assert {[dict get $drawOptions color] eq "gold"}
+assert {[dict get $drawOptions layer] == 2}
+assert {abs([dict get $drawOptions width] - 0.01) < 1e-9}
+assert {[dict get $drawOptions points] eq {{0 0} {0.25 0} {0.25 0.15} {0 0.15} {0 0}}}
+
+Exit! 0
