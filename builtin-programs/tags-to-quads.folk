@@ -615,6 +615,19 @@ set quadLib [library create quadLib {} {
         }
         return [create [space $q] [list $topLeft $topRight $bottomRight $bottomLeft]]
     }
+
+    # Move an existing geometry geom (object with width and height
+    # keys) to align onto the plane & the top edge & left edge of the
+    # existing quad q.
+    proc alignGeometry {q geom} {
+        lassign [vertices $q] topLeft topRight bottomRight bottomLeft
+        set topDisp [scaleVector $geom(width) [unitLengthVector [sub $topRight $topLeft]]]
+        set leftDisp [scaleVector $geom(height) [unitLengthVector [sub $bottomLeft $topLeft]]]
+        set topRight [add $topLeft $topDisp]
+        set bottomRight [add $topRight $leftDisp]
+        set bottomLeft [add $topLeft $leftDisp]
+        return [create [space $q] [list $topLeft $topRight $bottomRight $bottomLeft]]
+    }
 }]
 Claim the quad library is $quadLib
 
@@ -753,23 +766,18 @@ When the quad changer is /quadChange/ &\
         [list 0 [expr {2.0/$displayHeight}] -1] \
         [list 0 0 1]]
 
-    When $tag has quad /quad/ {
+    When -atomically $tag has quad /quad/ {
         lassign [lmap v [$quadLib vertices [quadChange $quad "display $disp"]] {
             $poseLib project $displayIntrinsics \
                 $displayWidth $displayHeight $v
         }] a b c d
 
-        Hold! -keep 2ms -key [list $tag image] \
-            Wish the GPU draws pipeline "image" with arguments \
+        Wish the GPU draws pipeline "image" with arguments \
             [list [list $displayWidth $displayHeight] \
                  $displayToClip \
-                 [dict get $wiOptions texture] $a $b $c $d]
+                 [dict get $wiOptions texture] $a $b $c $d] \
+            layer [dict getdef $wiOptions layer 0]
     }
-
-    On unmatch {
-        Hold! -key [list $tag image] {}
-    }
-    # TODO: How to prevent a race if the tag returns?
 }
 
 }

@@ -240,7 +240,7 @@ json_decode_dump_value(Jim_Interp *interp, struct json_state *state, Jim_Obj *li
 		}
 		if (set_source) {
 			/* Note we need to subtract 1 because both are 1-based values */
-			Jim_SetSourceInfo(interp, elem, state->fileNameObj, state->line + t->line - 1);
+			Jim_SetSourceInfo(interp, elem, state->fileNameObj, state->line + t->line - 1, 0);
 		}
 
 		Jim_ListAppendElement(interp, list, elem);
@@ -378,7 +378,7 @@ json_decode(Jim_Interp *interp, int argc, Jim_Obj *const argv[])
 	}
 
 	/* Save any source information from the original string */
-	state.fileNameObj = Jim_GetSourceInfo(interp, argv[argc - 1], &state.line);
+	state.fileNameObj = Jim_GetSourceInfo(interp, argv[argc - 1], &state.line, NULL);
 
 	if ((tokens = json_decode_tokenize(interp, state.json, len)) == NULL) {
 		goto done;

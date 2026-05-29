@@ -1,76 +1,33 @@
-# This makes all keyboards into editors automatically, so a keyboard
-# doesn't need to point at a real editor. May choose to change later, or
-# exclude keyboards that opt out.
-When /k/ is a keyboard with /...opts/ &\
-     /nobody/ wishes /k/ does not create an editor {
-
+# This makes all keyboards create editors automatically. May choose to
+# change later, or exclude keyboards that opt out.
+When /k/ is a keyboard with /...opts/ {
     Wish tag $k is stabilized
 
-    # Create a synthetic editor above the keyboard page.
-    set editor [list $k editor]
-    Claim $editor is an editor
-    Wish $editor has a canvas
-    When $k has resolved geometry /geom/ {
-        Claim $editor has resolved geometry $geom
-    }
-    When the quad library is /quadLib/ & $k has quad /q/ {
-        Claim $editor has quad [$quadLib move $q up 105%]
-    }
-    Claim $k has created editor $editor
-    Claim $k is typing into $editor
-}
-When /k/ is a keyboard with /...opts/ &\
-     /nobody/ claims /k/ has created editor /any/ &\
-     /k/ points up at /editor/ & /editor/ is an editor with /...opts/ {
+    When $k points up with length 0.3 at /program/ &\
+         /nobody/ claims /program/ is an editor {
 
-    Claim $k is typing into $editor
+        Wish tag $program is stabilized
+
+        # Create a synthetic editor on top of the program being edited,.
+        set editor [list $k editor]
+        Claim $editor is an editor
+        Claim editor $editor has selected program $program
+        Wish $editor has a canvas with layer 98
+
+        When $program has resolved geometry /geom/ {
+            Claim $editor has resolved geometry $geom
+        }
+        When $program has quad /q/ { Claim $editor has quad $q }
+        Claim $k has created editor $editor
+        Claim $k is typing into $editor
+    }
 }
 
 When the program save directory is /programDir/ &\
      the editor utils library is /utils/ {
 
 # TODO: also don't hardcode this?
-set margin [list 0.01 0.005 0.005 0.01] ;# CSS order (top, right, bottom, left)
 set defaults { textScale 0.01 }
-
-set editorLib [library create editorLib {margin defaults} {
-    proc getAdvance {em} {
-        # From NeomatrixCode.csv
-        return $(0.5859375 * $em)
-    }
-
-    proc widthAndHeight {resolvedGeom} {
-        set tagSize [dict get $resolvedGeom tagSize]
-        set left [dict get $resolvedGeom left]
-        set right [dict get $resolvedGeom right]
-        set top [dict get $resolvedGeom top]
-        set bottom [dict get $resolvedGeom bottom]
-
-        set width $($left + $tagSize + $right)
-        set height $($top + $tagSize + $bottom)
-
-        return [list $width $height]
-    }
-
-    # given program and the editor options, figure out how many characters can
-    # fit in this editor
-    proc editorSizeInCharacters {resolvedGeom options} {
-        variable margin
-
-        set textScale [dict get $options scale]
-        set advance [getAdvance $textScale]
-
-        lassign [widthAndHeight $resolvedGeom] width height
-        set width $($width - [lindex $margin 3] - $advance*2.5 - [lindex $margin 1])
-        set height $($height - [lindex $margin 0] - [lindex $margin 2])
-
-        set widthInCharacters $(int($width / $advance))
-        set heightInCharacters $(int($height / $textScale))
-
-        return [list $widthInCharacters $heightInCharacters]
-    }
-}]
-
 When /someone/ claims /editor/ is an editor {
     Claim $editor is an editor with {*}$defaults
 }
@@ -80,31 +37,52 @@ When /editor/ is an editor with /...options/ {
     if {![info exists options]} { return }
 
     set options [dict merge $defaults $options]
-
-    Wish tag $editor is stabilized
-
-    # Select which program the editor is viewing
-    When $editor points up with length 0.3 at /program/ {
-        Claim editor $editor has selected program $program
+    # CSS order: top, right, bottom, left. If the program's geometry
+    # carries printed-page margins, prefer those so the editor draws
+    # text at the same offsets it was printed at; otherwise fall back
+    # to the default.
+    When $editor has resolved geometry /geom/ {
+        if {[dict exists $geom marginTop]} {
+            Claim editor $editor has margin [list \
+                [dict get $geom marginTop] \
+                [dict get $geom marginRight] \
+                [dict get $geom marginBottom] \
+                [dict get $geom marginLeft]]
+        } else {
+            Claim editor $editor has margin [list 0.01 0.005 0.005 0.01]
+        }
     }
 
     # Initial setup
     # Load initial text settings if not set
-    When /nobody/ claims editor $editor has font options /...anything/ &\
+    When editor $editor has selected program /program/ &\
+         /nobody/ claims editor $editor on program /program/ has font options /...anything/ &\
          the saved holds are loaded {
         # Wait until all the saved holds are loaded, so we don't accidentally
         # overwrite a saved setting.
         set textScale [dict get $options textScale]
-        Hold! -save -key font-options-of:$editor \
-            Claim editor $editor has font options with scale $textScale
+        # If the program's geometry carries a lineHeight (printed-page
+        # metadata), prefer that over the global default so the editor
+        # opens at the same scale the program was printed at.
+        set geomResults [Query! $editor has resolved geometry /geom/]
+        if {[llength $geomResults] > 0} {
+            set geom [dict get [lindex $geomResults 0] geom]
+            if {[dict exists $geom lineHeight]} {
+                set textScale [dict get $geom lineHeight]
+            }
+        }
+        Hold! -save -key font-options-of:$editor:$program \
+            Claim editor $editor on program $program has font options with scale $textScale
     }
 
     # We need the editor's resolved geometry to get its size.
     # We then use its size to figure out how many characters we can fit in it,
     # width-wise and height-wise.
     When $editor has resolved geometry /geom/ &\
-         editor $editor has font options with /...options/ {
-        Claim editor $editor has viewport size [$editorLib editorSizeInCharacters $geom $options]
+         editor $editor has margin /margin/ &\
+         editor $editor has selected program /program/ &\
+         editor $editor on program /program/ has font options with /...options/ {
+        Claim editor $editor has viewport size [$utils editorSizeInCharacters $margin $geom $options]
     }
 
     # Load in defaults for the editor if it hasn't been initialized
@@ -138,11 +116,6 @@ When /editor/ is an editor with /...options/ {
                 Claim editor buffer for $program is $programCode
         }
     }
-
-    # Feedback: show that the editor is not active
-    When /nobody/ wishes $editor is outlined green {
-        Wish $editor is outlined blue
-    }
 }
 
 Subscribe: keyboard /keyboard/ claims key Control_b is down with /...options/ {
@@ -153,7 +126,6 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
      /keyboard/ is typing into /editor/ &\
      /editor/ is an editor with /...anything/ &\
      editor /editor/ has selected program /program/ {
-    Wish $editor is outlined green
 
     Subscribe: keyboard $kbPath claims key /key/ is /keyState/ with /...options/ {
         ForEach! editor $editor has viewport position /vpPos/ &\
@@ -166,7 +138,7 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                  editor $editor has undo stack /undoStack/ &\
                  editor $editor has redo stack /redoStack/ &\
                  editor $editor has last edit type /lastEditType/ &\
-                 editor $editor has font options with /...textOptions/ {
+                 editor $editor on program $program has font options with /...textOptions/ {
             lassign $vpPos vpX vpY
             lassign $vpSize vpWidth vpHeight
 
@@ -277,7 +249,7 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                             Notify: save code on editor $editor
                         }
                         Control_p {
-                            Notify: print code $code
+                            Notify: print program from editor $editor
 
                             # Give the user some feedback
                             Hold! -key printing-alert:$editor \
@@ -290,8 +262,8 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                             set textScale [dict get $textOptions scale]
                             set textScale [/ $textScale 1.1]
 
-                            Hold! -save -key font-options-of:$editor \
-                                Claim editor $editor has font options with scale $textScale
+                            Hold! -save -key font-options-of:$editor:$program \
+                                Claim editor $editor on program $program has font options with scale $textScale
                         }
                         equal {
                             # Dunno why it registers as equal instead of Control_equal? It works regardless, lol
@@ -299,8 +271,8 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                             set textScale [dict get $textOptions scale]
                             set textScale [* $textScale 1.1]
 
-                            Hold! -save -key font-options-of:$editor \
-                                Claim editor $editor has font options with scale $textScale
+                            Hold! -save -key font-options-of:$editor:$program \
+                                Claim editor $editor on program $program has font options with scale $textScale
                         }
                     }
                 }
@@ -410,13 +382,13 @@ When /editor/ is an editor with /...anything/ &\
      editor /editor/ has selected program /program/ &\
      editor buffer for /program/ is /code/ &\
      editor /editor/ has viewport position /vpPos/ &\
-     editor /editor/ has font options with /...textOptions/ {
+     editor /editor/ on program /program/ has font options with /...textOptions/ {
     lassign $vpPos vpX vpY
 
     lassign [$utils cursorToXy $code $cursor] cursorX cursorY
 
     set textScale [dict get $textOptions scale]
-    set advance [$editorLib getAdvance $textScale]
+    set advance [$utils getAdvance $textScale]
 
     set offsetX $(($cursorX - $vpX) * $advance)
     set offsetY $(($cursorY - $vpY) * $textScale)
@@ -424,94 +396,4 @@ When /editor/ is an editor with /...anything/ &\
     Claim editor $editor has cursor position [list $offsetX $offsetY]
 }
 
-# Draw text and cursor
-When /editor/ is an editor with /...anything/ &\
-     editor /editor/ has viewport position /vpPos/ &\
-     editor /editor/ has viewport size /vpSize/ &\
-     editor /editor/ has font options with /...fontOptions/ {
-    lassign $vpPos vpX vpY
-    lassign $vpSize vpWidth vpHeight
-
-    set textScale [dict get $fontOptions scale]
-    set advance [$editorLib getAdvance $textScale]
-
-    When editor $editor has selected program /program/ &\
-         editor buffer for /program/ is /code/ &\
-         editor $editor has cursor /cursor/ &\
-         editor $editor has cursor position /cursorPos/ &\
-         editor $editor has selection anchor /selAnchor/ {
-        set lineCount [min [- [llength [split $code "\n"]] $vpY] $vpHeight]
-        set lineNumbers [$utils lineNumberView $vpY $lineCount]
-
-        set marginLeft [lindex $margin 3]
-        set lineNumbersRight $($marginLeft + $advance*1.5)
-        Wish to draw text onto $editor with \
-            position [list $lineNumbersRight [lindex $margin 0]] \
-            text $lineNumbers \
-            scale $textScale anchor topright font NeomatrixCode
-
-        set text [$utils applyTextViewport $code $vpX $vpY $vpWidth $vpHeight]
-        set pos [list [+ $lineNumbersRight $advance] [lindex $margin 0]]
-        Wish to draw text onto $editor with \
-            position $pos text $text \
-            scale $textScale anchor topleft font NeomatrixCode
-
-        # Draw selection highlight
-        if {$selAnchor ne ""} {
-            set rawStart [min $selAnchor $cursor]
-            set rawEnd [max $selAnchor $cursor]
-            lassign [$utils cursorToXy $code $rawStart] selStartX selStartY
-            lassign [$utils cursorToXy $code $rawEnd] selEndX selEndY
-
-            set lines [split $code "\n"]
-            for {set ly $selStartY} {$ly <= $selEndY} {incr ly} {
-                if {$ly < $vpY || $ly >= $vpY + $vpHeight} continue
-
-                set lineLen [string length [lindex $lines $ly]]
-
-                # Absolute column range for selection on this line
-                if {$ly == $selStartY} {
-                    set absStart $selStartX
-                } else {
-                    set absStart 0
-                }
-                if {$ly == $selEndY} {
-                    set absEnd $selEndX
-                } else {
-                    set absEnd $lineLen
-                }
-
-                # Clip to viewport
-                set absStart [max $absStart $vpX]
-                set absEnd [min $absEnd [+ $vpX $vpWidth]]
-
-                if {$absStart >= $absEnd} continue
-
-                # Convert to display coordinates
-                set dispStart [- $absStart $vpX]
-                set dispEnd [- $absEnd $vpX]
-                set dispRow [- $ly $vpY]
-
-                set x0 $([lindex $pos 0] + $dispStart * $advance)
-                set x1 $([lindex $pos 0] + $dispEnd * $advance)
-                set y0 $([lindex $pos 1] + $dispRow * $textScale)
-                set y1 $($y0 + $textScale)
-
-                Wish to draw a quad onto $editor with \
-                    p0 [list $x0 $y0] p1 [list $x1 $y0] \
-                    p2 [list $x1 $y1] p3 [list $x0 $y1] \
-                    color {0.2 0.4 0.8 0.7} layer -1
-            }
-        }
-
-        set p1 [vec2 add $cursorPos $pos]
-        set p2 [vec2 add $p1 [list 0 [* $textScale 1.2]]]
-        set s [/ $textScale 6]
-        Wish to draw a circle onto $editor with center $p1 radius $s thickness 0 color green filled true
-        Wish to draw a line onto $editor with points [list $p1 $p2] width $s color green
-    }
-}
-
-
-# end of library code
 }

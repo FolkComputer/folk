@@ -1,4 +1,4 @@
-set editorUtilsLib [library create editorUtilsLib {
+Claim the editor utils library is [library create editorUtilsLib {
     proc applyTextViewport {originalText x y width height} {
         set lines [split $originalText \n]
         set lines [lrange $lines $y [expr {($height - 1) + $y}]]
@@ -191,6 +191,40 @@ set editorUtilsLib [library create editorUtilsLib {
         }
         join $numbers "\n"
     }
-}]
 
-Claim the editor utils library is $editorUtilsLib
+    # For rendering:
+
+    proc getAdvance {em} {
+        # From NeomatrixCode.csv
+        return $(0.5859375 * $em)
+    }
+
+    proc widthAndHeight {resolvedGeom} {
+        set tagSize [dict get $resolvedGeom tagSize]
+        set left [dict get $resolvedGeom left]
+        set right [dict get $resolvedGeom right]
+        set top [dict get $resolvedGeom top]
+        set bottom [dict get $resolvedGeom bottom]
+
+        set width $($left + $tagSize + $right)
+        set height $($top + $tagSize + $bottom)
+
+        return [list $width $height]
+    }
+
+    # given program and the editor options, figure out how many characters can
+    # fit in this editor
+    proc editorSizeInCharacters {margin resolvedGeom options} {
+        set textScale [dict get $options scale]
+        set advance [getAdvance $textScale]
+
+        lassign [widthAndHeight $resolvedGeom] width height
+        set width $($width - [lindex $margin 3] - $advance*2.5 - [lindex $margin 1])
+        set height $($height - [lindex $margin 0] - [lindex $margin 2])
+
+        set widthInCharacters $(int($width / $advance))
+        set heightInCharacters $(int($height / $textScale))
+
+        return [list $widthInCharacters $heightInCharacters]
+    }
+}]

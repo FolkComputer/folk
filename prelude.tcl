@@ -46,7 +46,9 @@ proc unknown {cmdName args} {
                 # environment (probably passed through a statement)
                 # and can just be applied to args.
                 set fnObj [lindex $fn 0]
-                proc $cmdName args {fnObj} { tailcall {*}$fnObj {*}$args }
+                uplevel [list local proc $cmdName \
+                             args [list [list fnObj $fnObj]] \
+                             { tailcall {*}$fnObj {*}$args }]
                 tailcall $cmdName {*}$args
             }
 
@@ -75,9 +77,11 @@ proc unknown {cmdName args} {
             set env [dict merge {*}[lrange $envStack 0 $i]]
             dict set env __envStack $envStack
             dict set env __env $env
-            dict with env {
-                proc $cmdName $argNames [dict keys $env] $body
-            }
+
+            set envPairs [list]
+            dict for {k v} $env { lappend envPairs [list $k $v] }
+            uplevel [list local proc $cmdName \
+                         $argNames $envPairs $body]
 
             tailcall $cmdName {*}$args
         }
@@ -160,13 +164,16 @@ proc applyBlock {body envStack} {pid} {
     dict set env __envStack $envStack
     dict set env __env $env
 
-    set ::this [dict getdef $env this <unknown>]
-    # Flush before installing so any buffered data from the previous
-    # program drains to the correct fd before we switch.
-    stdout flush
-    # Install thread-local stdout/stderr so all subsequent write()/puts/
-    # fprintf/printf calls go to the local files for this $this.
-    __installLocalStdoutAndStderr $::this
+    set newThis [dict getdef $env this <unknown>]
+    if {![info exists ::this] || $newThis ne $::this} {
+        # Flush before switching so any buffered data from the previous
+        # program drains to the correct fd before we switch.
+        if {[info exists ::this]} { stdout flush }
+        set ::this $newThis
+        # Install thread-local stdout/stderr so all subsequent write()/puts/
+        # fprintf/printf calls go to the local files for this $this.
+        __installLocalStdoutAndStderr $::this
+    }
 
     set names [dict keys $env]
     set values [dict values $env]
@@ -506,8 +513,10 @@ proc When {args} {
         } elseif {$term eq "-serially"} {
             set isSerially true
         } elseif {$term eq "-atomically"} {
-            set key [list [uplevel set this] $sourceInfo $pattern]
-            set atomicallyVersion [list "fresh" $key]
+            # Defer key construction until after the loop so the key
+            # uses the full pattern, not just the terms parsed before
+            # `-atomically` appeared.
+            set atomicallyVersion "fresh-from-full-pattern"
         } elseif {$term eq "-atomicallyInherit"} {
             set atomicallyVersion [__currentAtomicallyVersion]
         } elseif {$term eq "-atomicallyWithKey"} {
@@ -519,6 +528,11 @@ proc When {args} {
         } else {
             lappend pattern $term
         }
+    }
+
+    if {$atomicallyVersion eq "fresh-from-full-pattern"} {
+        set key [list [uplevel set this] $sourceInfo $pattern]
+        set atomicallyVersion [list "fresh" $key]
     }
 
     if {$atomicallyVersion eq "default"} {
@@ -779,7 +793,9 @@ if {[__isTracyEnabled]} {
             TracyCSetThreadName(strdup(name));
         }
         $tracyCpp code {
-            __thread TracyCZoneCtx __zoneCtx;
+            #define __ZONE_CTX_MAX 16
+            __thread TracyCZoneCtx __zoneCtxs[__ZONE_CTX_MAX];
+            __thread int __zoneCtxIdx;
         }
         $tracyCpp proc zoneBegin {} void {
             Jim_Obj* scriptObj = interp->evalFrame->scriptObj;
@@ -801,13 +817,23 @@ if {[__isTracyEnabled]} {
                                                  fnName != NULL ? fnName : "<unknown>",
                                                  fnName != NULL ? strlen(fnName) : strlen("<unknown>"),
                                                  0);
-            __zoneCtx = ___tracy_emit_zone_begin_alloc(loc, 1);
+            if (__zoneCtxIdx >= __ZONE_CTX_MAX) {
+                fprintf(stderr, "tracy: zone stack overflow (max %d)\n", __ZONE_CTX_MAX);
+                exit(1);
+            }
+            __zoneCtxs[__zoneCtxIdx++] = ___tracy_emit_zone_begin_alloc(loc, 1);
         }
         $tracyCpp proc zoneName {char* name} void {
-            ___tracy_emit_zone_name(__zoneCtx, name, strlen(name));
+            if (__zoneCtxIdx > 0) {
+                ___tracy_emit_zone_name(__zoneCtxs[__zoneCtxIdx - 1], name, strlen(name));
+            }
         }
         $tracyCpp proc zoneEnd {} void {
-            ___tracy_emit_zone_end(__zoneCtx);
+            if (__zoneCtxIdx <= 0) {
+                fprintf(stderr, "tracy: zone stack underflow\n");
+                exit(1);
+            }
+            ___tracy_emit_zone_end(__zoneCtxs[--__zoneCtxIdx]);
         }
         return [$tracyCpp compile $tracyCid]
     }

@@ -248,9 +248,17 @@ typedef struct Match {
     pthread_mutex_t destructorSetMutex;
 
     // ListOfEdgeTo StatementRef. Used for removal.
-    ListOfEdgeTo* childStatements;
+    // NULL means the slot is fully destroyed and ready for reuse (matchNew
+    // checks this). CHILD_STATEMENTS_REMOVING means matchRemoveSelf has
+    // claimed removal but matchDestroy hasn't finished yet.
+    ListOfEdgeTo* _Atomic childStatements;
     pthread_mutex_t childStatementsMutex;
 } Match;
+
+// Sentinel: matchRemoveSelf sets childStatements to this to prevent new
+// children from being added. matchDestroy then sets it to NULL (release)
+// as its final step, which is what matchNew waits for.
+#define CHILD_STATEMENTS_REMOVING ((ListOfEdgeTo*)1)
 
 // Database datatypes:
 
@@ -750,7 +758,8 @@ static MatchRef matchNew(Db* db,
         match = &db->matchPool[idx];
 
         GenRc oldGenRc = match->genRc;
-        if (oldGenRc.rc == 0 && !oldGenRc.alive && match->childStatements == NULL) {
+        if (oldGenRc.rc == 0 && !oldGenRc.alive &&
+            atomic_load_explicit(&match->childStatements, memory_order_acquire) == NULL) {
             GenRc newGenRc = oldGenRc;
             newGenRc.alive = true;
 
@@ -763,7 +772,7 @@ static MatchRef matchNew(Db* db,
 
     // We should have exclusive access to match right now.
 
-    match->childStatements = listOfEdgeToNew(8);
+    atomic_store_explicit(&match->childStatements, listOfEdgeToNew(8), memory_order_relaxed);
     match->parentWasRemoved = false;
 
     pthread_mutexattr_t mta;
@@ -783,12 +792,17 @@ static MatchRef matchNew(Db* db,
 }
 
 static void matchDestroy(Match* match) {
-    assert(match->childStatements == NULL);
+    assert(atomic_load_explicit(&match->childStatements, memory_order_relaxed)
+           == CHILD_STATEMENTS_REMOVING);
 
     // Fire any destructors.
     pthread_mutex_lock(&match->destructorSetMutex);
     destructorSetReleaseAll(&match->destructorSet);
     pthread_mutex_unlock(&match->destructorSetMutex);
+
+    // Release store: synchronizes with matchNew's acquire load so that
+    // all writes above are visible before the slot is reused.
+    atomic_store_explicit(&match->childStatements, NULL, memory_order_release);
 }
 
 AtomicallyVersion* matchAtomicallyVersion(Match* m) {
@@ -803,8 +817,9 @@ static bool statementChecker(void* db, uint64_t ref) {
 }
 // You must call this with the childStatementsMutex held.
 static void matchAddChildStatement(Db* db, Match* match, StatementRef child) {
-    listOfEdgeToAdd(statementChecker, db,
-                    &match->childStatements, child.val);
+    ListOfEdgeTo* list = atomic_load_explicit(&match->childStatements, memory_order_relaxed);
+    listOfEdgeToAdd(statementChecker, db, &list, child.val);
+    atomic_store_explicit(&match->childStatements, list, memory_order_relaxed);
 }
 void matchAddDestructor(Match* m, Destructor* d) {
     pthread_mutex_lock(&m->destructorSetMutex);
@@ -838,8 +853,8 @@ void matchRemoveSelf(Db* db, Match* match) {
     // Walk through each child statement and remove this match as a
     // parent of that statement.
     pthread_mutex_lock(&match->childStatementsMutex);
-    ListOfEdgeTo* childStatements = match->childStatements;
-    if (childStatements == NULL) {
+    ListOfEdgeTo* childStatements = atomic_load_explicit(&match->childStatements, memory_order_relaxed);
+    if (childStatements == NULL || childStatements == CHILD_STATEMENTS_REMOVING) {
         // Someone else has done / is doing removal. Abort.
         pthread_mutex_unlock(&match->childStatementsMutex);
         return;
@@ -847,7 +862,7 @@ void matchRemoveSelf(Db* db, Match* match) {
     // This blocks further child statements from being added to this
     // match (if they were added, then we wouldn't be able to remove
     // them).
-    match->childStatements = NULL;
+    atomic_store_explicit(&match->childStatements, CHILD_STATEMENTS_REMOVING, memory_order_relaxed);
     genRcMarkAsDead(&match->genRc);
     pthread_mutex_unlock(&match->childStatementsMutex);
 
@@ -866,7 +881,11 @@ void matchRemoveSelf(Db* db, Match* match) {
         // execution.
         ThreadControlBlock *workerThread = &threads[match->workerThreadIndex];
         if (timestamp_get(workerThread->clockid) - workerThread->currentItemStartTimestamp > 100000000) {
-            char buf[10000]; traceItem(buf, sizeof(buf), workerThread->currentItem);
+            mutexLock(&workerThread->currentItemMutex);
+            WorkQueueItem item = workerThread->currentItem;
+            mutexUnlock(&workerThread->currentItemMutex);
+
+            char buf[10000]; traceItem(buf, sizeof(buf), item);
             fprintf(stderr, "KILL (%.150s)\n", buf);
             kill(workerThread->tid, SIGUSR1);
         }
@@ -1187,7 +1206,8 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
         }
 
         pthread_mutex_lock(&parentMatch->childStatementsMutex);
-        if (parentMatch->childStatements == NULL) {
+        ListOfEdgeTo* cs = atomic_load_explicit(&parentMatch->childStatements, memory_order_relaxed);
+        if (cs == NULL || cs == CHILD_STATEMENTS_REMOVING) {
             pthread_mutex_unlock(&parentMatch->childStatementsMutex);
             matchRelease(db, parentMatch);
 

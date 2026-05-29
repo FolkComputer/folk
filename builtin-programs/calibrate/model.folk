@@ -7,8 +7,8 @@ Claim the calibration model library is [library create modelLib {
     namespace import ::math::linearalgebra::scale \
         ::math::linearalgebra::add
 
-    variable ROWS 3
-    variable COLS 5
+    variable ROWS 5
+    variable COLS 4
     proc rows {} { variable ROWS; return $ROWS }
     proc cols {} { variable COLS; return $COLS }
     # A model is a dictionary whose keys are tag IDs and where each
@@ -20,7 +20,7 @@ Claim the calibration model library is [library create modelLib {
 
         set tagSideLength 1.0
         set tagOuterLength [expr {$tagSideLength * 10/6}]
-        set pad [expr {$tagSideLength / 2}]
+        set pad [expr {$tagSideLength / 3}]
         for {set row 0} {$row < $ROWS} {incr row} {
             for {set col 0} {$col < $COLS} {incr col} {
                 set id [expr {48600 + $row*$COLS + $col}]
@@ -57,9 +57,14 @@ Claim the calibration model library is [library create modelLib {
         return $($id >= 48600 && $id < 48600 + $ROWS*$COLS)
     }
     proc isPrintedTag {id} {
+        variable COLS
         if {![isCalibrationTag $id]} { return false }
         set idx [- $id 48600]
-        return [expr {$idx % 2 == 0}] ;# for checkerboard
+        set row [expr {int($idx / $COLS)}]
+        set col [expr {$idx % $COLS}]
+        return [expr {$row % 2 == 0 ?
+                      ($col % 2 == 1) :
+                      ($col % 2 == 0)}] ;# for checkerboard
     }
     proc isProjectedTag {id} {
         if {![isCalibrationTag $id]} { return false }

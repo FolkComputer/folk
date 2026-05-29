@@ -1,6 +1,13 @@
 When the hold save directory is /holdDirectory/ &\
      the program save directory is /programDirectory/ &\
      saving is ready {
+
+    # HACK: A new migration we put here so it precedes Hold load:
+    # remove incompatible old editor data (new editor data will be
+    # stored with respect to editor/editor.folk, not editor.folk).
+    # Old editor data is incompatible.
+    file delete $::env(HOME)/folk-data/hold/editor.folk
+
     # are we already on the new format?
     if {[llength [glob -nocomplain $::env(HOME)/folk-data/hold/*]] > 0} {
         Claim the migration is complete

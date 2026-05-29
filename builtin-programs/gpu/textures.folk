@@ -439,18 +439,21 @@ $gpuc proc copyImageToRgba {Image im Image ret} void {
 
 $gpuc code [csubst {
     GpuTextureHandle allocateGpuTextureHandle() {
-        for (int i = 0; i < getMaxTextures(); i++) {
-            bool notAlive = false;
-            if (atomic_compare_exchange_weak(&gpuTextures[i].alive, &notAlive, true)) {
-                gpuTextures[i].handle = i;
-                return i;
+        for (;;) {
+            for (int i = 0; i < getMaxTextures(); i++) {
+                bool notAlive = false;
+                if (atomic_compare_exchange_weak(&gpuTextures[i].alive, &notAlive, true)) {
+                    gpuTextures[i].handle = i;
+                    return i;
+                }
             }
+            fprintf(stderr, "gpu/textures: Exceeded GPU max textures (%d):\n", getMaxTextures());
+            for (int i = 0; i < getMaxTextures(); i++) {
+                fprintf(stderr, "  %d: %s\n", i, gpuTextures[i].alive ? gpuTextures[i].description : "<not alive>");
+            }
+            struct timespec ts = {0, 5000000};
+            nanosleep(&ts, NULL);
         }
-        fprintf(stderr, "gpu/textures: Exceeded GPU max textures (%d):\n", getMaxTextures());
-        for (int i = 0; i < getMaxTextures(); i++) {
-            fprintf(stderr, "  %d: %s\n", i, gpuTextures[i].alive ? gpuTextures[i].description : "<not alive>");
-        }
-        exit(1);
     }
 }]
 

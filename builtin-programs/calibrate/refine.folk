@@ -561,8 +561,9 @@ fn refineMonoCalibration {calibration} {
     return $calibration
 }
 
-fn refineCalibration {modelLib matLib 
+fn refineCalibration {modelLib matLib setCameraToProjectorExtrinsics
                       calibrationPoses calibration} {
+    fn setCameraToProjectorExtrinsics
     # We start by individually refining the mono calibration of
     # the camera and the mono calibration of the projector.
 
@@ -641,8 +642,7 @@ fn refineCalibration {modelLib matLib
         }]
 
     # Reconstruct camera->projector extrinsics after refinement.
-    setCameraToProjectorExtrinsics $modelLib \
-                          calibration $calibrationPoses
+    setCameraToProjectorExtrinsics $modelLib calibration $calibrationPoses
 
     # Now we do stereo refinement of the reprojection error
     # of the entire system, including all intrinsics and
