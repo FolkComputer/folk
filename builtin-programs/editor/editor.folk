@@ -37,7 +37,21 @@ When /editor/ is an editor with /...options/ {
     if {![info exists options]} { return }
 
     set options [dict merge $defaults $options]
-    Claim editor $editor has margin [list 0.01 0.005 0.005 0.01] ;# CSS order (top, right, bottom, left)
+    # CSS order: top, right, bottom, left. If the program's geometry
+    # carries printed-page margins, prefer those so the editor draws
+    # text at the same offsets it was printed at; otherwise fall back
+    # to the default.
+    When $editor has resolved geometry /geom/ {
+        if {[dict exists $geom marginTop]} {
+            Claim editor $editor has margin [list \
+                [dict get $geom marginTop] \
+                [dict get $geom marginRight] \
+                [dict get $geom marginBottom] \
+                [dict get $geom marginLeft]]
+        } else {
+            Claim editor $editor has margin [list 0.01 0.005 0.005 0.01]
+        }
+    }
 
     # Initial setup
     # Load initial text settings if not set
