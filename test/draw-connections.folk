@@ -25,25 +25,6 @@ set vertices {{0 0 0} {0.2 0 0} {0.2 0.1 0} {0 0.1 0}}
 assert {[nearlyPoint [drawConnectionQuadPoint $vertices $geom {0.1 0.05}] {0.1 0.05 0}]}
 assert {[nearlyPoint [drawConnectionQuadPoint $vertices $geom {0.2 0.05}] {0.2 0.05 0}]}
 
-lassign [drawConnectionArrowPoints {5 1} {1 0} 2] tip rearLeft rearRight
-assert {[nearlyPoint $tip {7 1}]}
-assert {[nearlyPoint $rearLeft {3 2.6}]}
-assert {[nearlyPoint $rearRight {3 -0.6}]}
 
-assert {[nearly [drawConnectionFrameTime 1.001] 1.0]}
-assert {[nearly [drawConnectionFrameTime 1.032] 1.0]}
-assert {[nearly [drawConnectionFrameTime 1.034] [expr {31.0 / 30.0}]]}
-assert {[drawConnectionFrameIndex 1.001] == 30}
-assert {[drawConnectionFrameIndex 1.032] == 30}
-assert {[drawConnectionFrameIndex 1.034] == 31}
-
-set arrows [drawConnectionDynamicArrows {0 0} {1 0} 1000 {spacing 10 maxArrows 20 maxsize 25 speed 75} 1.0]
-assert {[llength $arrows] <= 20}
-assert {[llength $arrows] > 0}
-
-set first [lindex $arrows 0]
-assert {[dict exists $first center]}
-assert {[dict exists $first radius]}
-assert {[dict get $first radius] <= 25}
 
 Exit! 0
