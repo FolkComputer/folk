@@ -35,5 +35,5 @@ When the image library is /imageLib/ &\
 }
 
 Claim $this has demo {
-  Wish $this draws sprite $path with 8 frames and 4 columns
+  Wish $this draws sprite "https://folk.computer/_media/logo.png" with 8 frames and 4 columns
 }
