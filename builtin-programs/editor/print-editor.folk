@@ -2,7 +2,7 @@ fn editorToPrintOptions {editor} {
     set program [dict get [QueryOne! editor $editor has selected program /program/] program]
     set code [dict get [QueryOne! editor buffer for $program is /code/] code]
 
-    set fontOptions [dict get [QueryOne! editor $editor has font options with /...opts/] opts]
+    set fontOptions [dict get [QueryOne! editor $editor on program $program has font options with /...opts/] opts]
     set textScale $fontOptions(scale)
     set margin [dict get [QueryOne! editor $editor has margin /margin/] margin]
 

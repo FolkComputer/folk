@@ -41,7 +41,8 @@ When /editor/ is an editor with /...options/ {
 
     # Initial setup
     # Load initial text settings if not set
-    When /nobody/ claims editor $editor has font options /...anything/ &\
+    When editor $editor has selected program /program/ &\
+         /nobody/ claims editor $editor on program /program/ has font options /...anything/ &\
          the saved holds are loaded {
         # Wait until all the saved holds are loaded, so we don't accidentally
         # overwrite a saved setting.
@@ -56,8 +57,8 @@ When /editor/ is an editor with /...options/ {
                 set textScale [dict get $geom lineHeight]
             }
         }
-        Hold! -save -key font-options-of:$editor \
-            Claim editor $editor has font options with scale $textScale
+        Hold! -save -key font-options-of:$editor:$program \
+            Claim editor $editor on program $program has font options with scale $textScale
     }
 
     # We need the editor's resolved geometry to get its size.
@@ -65,7 +66,8 @@ When /editor/ is an editor with /...options/ {
     # width-wise and height-wise.
     When $editor has resolved geometry /geom/ &\
          editor $editor has margin /margin/ &\
-         editor $editor has font options with /...options/ {
+         editor $editor has selected program /program/ &\
+         editor $editor on program /program/ has font options with /...options/ {
         Claim editor $editor has viewport size [$utils editorSizeInCharacters $margin $geom $options]
     }
 
@@ -122,7 +124,7 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                  editor $editor has undo stack /undoStack/ &\
                  editor $editor has redo stack /redoStack/ &\
                  editor $editor has last edit type /lastEditType/ &\
-                 editor $editor has font options with /...textOptions/ {
+                 editor $editor on program $program has font options with /...textOptions/ {
             lassign $vpPos vpX vpY
             lassign $vpSize vpWidth vpHeight
 
@@ -246,8 +248,8 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                             set textScale [dict get $textOptions scale]
                             set textScale [/ $textScale 1.1]
 
-                            Hold! -save -key font-options-of:$editor \
-                                Claim editor $editor has font options with scale $textScale
+                            Hold! -save -key font-options-of:$editor:$program \
+                                Claim editor $editor on program $program has font options with scale $textScale
                         }
                         equal {
                             # Dunno why it registers as equal instead of Control_equal? It works regardless, lol
@@ -255,8 +257,8 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                             set textScale [dict get $textOptions scale]
                             set textScale [* $textScale 1.1]
 
-                            Hold! -save -key font-options-of:$editor \
-                                Claim editor $editor has font options with scale $textScale
+                            Hold! -save -key font-options-of:$editor:$program \
+                                Claim editor $editor on program $program has font options with scale $textScale
                         }
                     }
                 }
@@ -366,7 +368,7 @@ When /editor/ is an editor with /...anything/ &\
      editor /editor/ has selected program /program/ &\
      editor buffer for /program/ is /code/ &\
      editor /editor/ has viewport position /vpPos/ &\
-     editor /editor/ has font options with /...textOptions/ {
+     editor /editor/ on program /program/ has font options with /...textOptions/ {
     lassign $vpPos vpX vpY
 
     lassign [$utils cursorToXy $code $cursor] cursorX cursorY

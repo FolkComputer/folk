@@ -5,7 +5,8 @@ When /editor/ is an editor with /...anything/ &\
      editor /editor/ has margin /margin/ &\
      editor /editor/ has viewport position /vpPos/ &\
      editor /editor/ has viewport size /vpSize/ &\
-     editor /editor/ has font options with /...fontOptions/ {
+     editor /editor/ has selected program /program/ &\
+     editor /editor/ on program /program/ has font options with /...fontOptions/ {
     lassign $vpPos vpX vpY
     lassign $vpSize vpWidth vpHeight
 
