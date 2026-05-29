@@ -1,3 +1,0 @@
-When /p1/ is a program & /p2/ is a program {
-    Wish $p1 is dynamically connected to $p2
-}
