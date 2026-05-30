@@ -5,16 +5,11 @@ fn codeToPostScript
 Wish the web server handles route "/calibrate" with hidden true handler {
     package require base64
 
-    set defaultGeom [dict get [lindex [Query! /someone/ claims the default program geometry is /defaultGeom/] 0] defaultGeom]
-    fn defaultGeomGet {key} { return [string map {mm ""} [dict get $defaultGeom $key]] }
-
     set camera $QUERY(camera)
     set display $QUERY(display)
 
     # Query the camera resolution for proper aspect ratio in preview (defaults to 1920x1080)
-    set cameraOpts [QueryOne! camera $camera has width /width/ height /height/]
-    set cameraWidth [dict get $cameraOpts width]
-    set cameraHeight [dict get $cameraOpts height]
+    Expect! camera $camera has width /cameraWidth/ height /cameraHeight/
 
     upvar ^html ^html
     html [csubst {
@@ -120,7 +115,7 @@ Wish the web server handles route "/calibrate" with hidden true handler {
             <script>
               boardPrintThroughFolk.addEventListener('click', (e) => {
                 folk.run(`
-                  set maker [dict get [lindex [Query! /someone/ claims the makeCalibrationBoardPdf is /maker/] 0] maker]
+                  Expect! the makeCalibrationBoardPdf is /maker/
                   set boardPdf [{*}\$maker]
                   set boardPdfFile [file tempfile /tmp/folk-calibration-board-XXXXXX].pdf
                   set fd [open \$boardPdfFile wb]; puts \$fd \$boardPdf; close \$fd
@@ -180,7 +175,7 @@ Wish the web server handles route "/calibrate" with hidden true handler {
               document.getElementById('projected-tag-slider').addEventListener('input', (e) => {
                 const scale = e.target.value / 100.0;
                 folk.run(tcl`
-                  set HoldDefaultModel! [dict get [lindex [Query! /someone/ claims the calibration HoldDefaultModel! is /hdm/] 0] hdm]
+                  Expect! the calibration HoldDefaultModel! is /HoldDefaultModel!/
                   {*}[set HoldDefaultModel!] \${scale}
                 `);
               });

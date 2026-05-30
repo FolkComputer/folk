@@ -612,6 +612,9 @@ proc On {event args} {
     }
 }
 
+# Synchronous, sampling query of the db. Returns a list of dicts where
+# each dict is a statement matching the pattern.
+#
 # Query! is like QuerySimple! but with added support for & joins, and
 # it'll automatically also query the claimized pattern (the pattern
 # with `/someone/ claims` prepended).
@@ -700,14 +703,54 @@ proc Query! {args} {
     }
     return $results
 }
-proc QueryOne! {args} {
-    set results [Query! {*}$args]
 
+# Synchronous, sampling query of the db. Throws unless there is
+# exactly 1 statement result. Returns a dict whose keys are bound keys
+# from the pattern and whose values are corresponding terms from the
+# statement.
+#
+# Use like this:
+#
+#    Claim the dog is cool
+#    sleep 0.5
+#    puts [dict get [QueryOne! the dog is /val/] val] ;# -> cool
+#
+proc QueryOne! {args} {
+    set pattern [list]
+    for {set i 0} {$i < [llength $args]} {incr i} {
+        set arg [lindex $args $i]
+        if {$arg eq "-default"} {
+            incr i
+            set default [lindex $args $i]
+        } else {
+            lappend pattern $arg
+        }
+    }
+
+    set results [Query! {*}$args]
+    if {[llength $results] == 0 && [info exists default]} {
+        return $default
+    }
     if {[llength $results] != 1} {
         error "QueryOne! of ($args) had [llength $results] results. Should be one result!"
     }
 
+    if {{/./} in $args} {
+        return [dict get [lindex $results 0] .]
+    }
     return [lindex $results 0]
+}
+
+# Like QueryOne!, but introduces the bindings directly into caller
+# scope.
+#
+#     Expect! the dog is /val/
+#     puts $val ;# -> cool
+#
+proc Expect! {args} {
+    dict for {k v} [QueryOne! {*}$args] {
+        uplevel [list set $k $v]
+    }
 }
 proc ForEach! {args} {
     set body [lindex $args end]
