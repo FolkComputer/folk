@@ -1,6 +1,6 @@
 Wish the web server handles route {/program/(.*)$} with handler {
     set programName $1
-    set match [QueryOne! $programName has program code /programCode/]
+    Expect! $programName has program code /programCode/]
     if {$match eq ""} {
         html "<html><body>Program not found: [htmlEscape $programName]</body></html>"
         return
