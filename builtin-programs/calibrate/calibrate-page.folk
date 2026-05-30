@@ -158,11 +158,8 @@ Wish the web server handles route "/calibrate" with hidden true handler {
                   bottom: boardBottomMm.value + 'mm'
                 };
 
-                folk.run(tcl`
-                  Hold! -save -on calibration -key calibration-measurements Claim the calibration measurements are \${measurements}
-                `);
                 folk.hold('start calibration', tcl`
-                  Wish to calibrate camera "$camera" to display "$display" using tag size \${boardTagSideLengthMm.value} mm
+                  Wish to calibrate camera "$camera" to display "$display" using measurements \${measurements}
                 `, 'builtin-programs/calibrate/calibrate.folk');
               });
             </script>
