@@ -9,9 +9,7 @@ Wish the web server handles route "/calibrate" with hidden true handler {
     set display $QUERY(display)
 
     # Query the camera resolution for proper aspect ratio in preview (defaults to 1920x1080)
-    set cameraOpts [QueryOne! camera $camera has width /width/ height /height/]
-    set cameraWidth [dict get $cameraOpts width]
-    set cameraHeight [dict get $cameraOpts height]
+    Expect! camera $camera has width /cameraWidth/ height /cameraHeight/
 
     upvar ^html ^html
     html [csubst {
@@ -117,7 +115,7 @@ Wish the web server handles route "/calibrate" with hidden true handler {
             <script>
               boardPrintThroughFolk.addEventListener('click', (e) => {
                 folk.run(`
-                  set maker [QueryOne! the makeCalibrationBoardPdf is /./]
+                  Expect! the makeCalibrationBoardPdf is /maker/
                   set boardPdf [{*}\$maker]
                   set boardPdfFile [file tempfile /tmp/folk-calibration-board-XXXXXX].pdf
                   set fd [open \$boardPdfFile wb]; puts \$fd \$boardPdf; close \$fd
@@ -177,7 +175,7 @@ Wish the web server handles route "/calibrate" with hidden true handler {
               document.getElementById('projected-tag-slider').addEventListener('input', (e) => {
                 const scale = e.target.value / 100.0;
                 folk.run(tcl`
-                  set HoldDefaultModel! [QueryOne! the calibration HoldDefaultModel! is /./]
+                  Expect! the calibration HoldDefaultModel! is /HoldDefaultModel!/
                   {*}[set HoldDefaultModel!] \${scale}
                 `);
               });

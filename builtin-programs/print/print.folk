@@ -221,7 +221,7 @@ When $::thisNode claims printer /name/ is a cups printer with /...options/ {
 }
 
 Subscribe: print code /code/ {
-    set formats [QueryOne! the paper formats are /./]
+    Expect! the paper formats are /formats/
     set formatName [QueryOne! paper format /./ is the default paper format \
                        -default letter]
     set fmt $formats($formatName)

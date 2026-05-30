@@ -1,5 +1,5 @@
 Wish the web server handles route {/page/(.*)$} with handler {
-    set programDir [QueryOne! the program save directory is /./]
+    Expect! the program save directory is /programDir/
     set program_id $1
     set filenames [list \
         "$programDir/$program_id.folk" \

@@ -1,12 +1,12 @@
 fn editorToPrintOptions {editor} {
-    set program [QueryOne! editor $editor has selected program /./]
-    set code [QueryOne! editor buffer for $program is /./]
+    Expect! editor $editor has selected program /program/
+    Expect! editor buffer for $program is /code/
 
-    set fontOptions [QueryOne! editor $editor on program $program has font options with /...opts/] opts]
+    Expect! editor $editor on program $program has font options with /...fontOptions/
     set textScale $fontOptions(scale)
-    set margin [QueryOne! editor $editor has margin /./]
+    Expect! editor $editor has margin /margin/
 
-    set formats [QueryOne! the paper formats are /./]
+    Expect! the paper formats are /formats/
     set formatName [QueryOne! paper format /./ is the default paper format \
                        -default letter]
     set fmt $formats($formatName)
@@ -32,7 +32,7 @@ When the codeToPostScript is /codeToPostScript/ &\
     set preview [list $editor preview]
     Wish $preview has a canvas
 
-    set formats [QueryOne! the paper formats are /./]
+    Expect! the paper formats are /formats/
     set formatName [QueryOne! paper format /./ is the default paper format \
                        -default letter]
     set fmt $formats($formatName)
