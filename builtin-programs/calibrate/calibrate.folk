@@ -30,7 +30,9 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      the calibration model library is /modelLib/ &\
      the calibration matrix library is /matLib/ &\
      /someone/ wishes to calibrate camera /camera/ to display /display/ \
-         using tag size /printedSideLengthMm/ mm {
+         using measurements /measurements/ {
+
+    set printedSideLengthMm [string trimright $measurements(tagSideLength) mm]
 
     fn makeAprilTagDetector
     set calibrationTagDetector [makeAprilTagDetector "tagStandard52h13" 2.0 3]
@@ -391,6 +393,12 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # (retract the printed side length?) and do a calibration. :-)
         if {[llength $calibrationPoses] >= $calibrationPosesMax} {
             puts "calibrate: GOT ALL CALIBRATION POSES!"
+
+            # Don't save the measurements until now, so the user can
+            # always safely abort calibration before this without
+            # having lasting effects.
+            Hold! -save -on calibration -key calibration-measurements \
+                Claim the calibration measurements are $measurements
 
             Hold! -save -on calibration -key poses \
                 Claim the calibration poses from camera $camera to display $display are $calibrationPoses
