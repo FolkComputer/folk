@@ -695,6 +695,25 @@ static void interpBoot() {
     Zicl_CreateCommand(interp, "setpgrp", setpgrpFunc);
     Zicl_CreateCommand(interp, "Exit!", exitFunc);
 
+    {
+        extern char **environ;
+        int n_env = 0;
+        while (environ[n_env] != NULL) n_env++;
+
+        Zicl_Handle env_dict = Zicl_NewDict(NULL, 0);
+        for (int i = 0; i < n_env; i++) {
+            char *eq = strchr(environ[i], '=');
+            if (eq == NULL) continue;
+
+            Zicl_Handle key = Zicl_NewString(environ[i], eq - environ[i]);
+            Zicl_Handle val = Zicl_NewString(eq + 1, -1);
+            Zicl_DictPut(interp, &env_dict, key, val);
+        }
+
+        Zicl_Handle env_name = Zicl_NewString("env", -1);
+        Zicl_SetVariable(interp, &env_name, env_dict);
+    }
+
     if (Zicl_EvalFile(interp, "prelude.tcl") != ZICL_OK) {
         Zicl_MakeErrorMessage(interp);
         FATAL("prelude: %s\n", Zicl_String(Zicl_GetResult(interp)));
@@ -1632,7 +1651,7 @@ int main(int argc, char** argv) {
     sched_getaffinity(0, sizeof(cs), &cs);
     int cpuCount = CPU_COUNT(&cs);
     // printf("main: CPU_COUNT = %d\n", cpuCount);
-    assert(cpuCount >= 2);
+    // assert(cpuCount >= 2);
 
     int cpuUsableCount = cpuCount - 1; // will exclude CPU 0 later.
 #else
@@ -1689,4 +1708,6 @@ int main(int argc, char** argv) {
     eval(code);
 
     workerLoop();
+
+    Zicl_DeinitAll();
 }

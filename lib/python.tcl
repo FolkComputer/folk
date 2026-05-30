@@ -1,15 +1,15 @@
-set UVX "$::env(HOME)/.local/bin/uvx"
+set UVX "$env::HOME/.local/bin/uvx"
 if {![file exists $UVX]} { set UVX "uvx" }
 
-set cc [C]
-$cc include <sys/socket.h>
-$cc include <sys/un.h>
-$cc include <unistd.h>
-$cc include <pthread.h>
-$cc include <string.h>
-$cc include <stdlib.h>
+set cc [dict link $C {}]
+cc::include <sys/socket.h>
+cc::include <sys/un.h>
+cc::include <unistd.h>
+cc::include <pthread.h>
+cc::include <string.h>
+cc::include <stdlib.h>
 
-$cc proc sockConnect {char* path} int {
+cc::proc sockConnect {char* path} int {
     for (int i = 0; i < 200; i++) {
         int fd = socket(AF_UNIX, SOCK_STREAM, 0);
         if (fd < 0) { usleep(1000000); continue; }
@@ -27,7 +27,7 @@ $cc proc sockConnect {char* path} int {
     return -1;
 }
 
-$cc proc sockSendStr {int fd char* data} void {
+cc::proc sockSendStr {int fd char* data} void {
     uint32_t len = (uint32_t)strlen(data);
     // HACK: should check these.
 #pragma GCC diagnostic push
@@ -37,7 +37,7 @@ $cc proc sockSendStr {int fd char* data} void {
 #pragma GCC diagnostic pop
 }
 
-$cc proc sockRecvMulti {int fd} Jim_Obj* {
+cc::proc sockRecvMulti {int fd} Jim_Obj* {
     Jim_Obj *result = Jim_NewListObj(interp, NULL, 0);
     while (1) {
         uint32_t len = 0;
@@ -65,7 +65,7 @@ $cc proc sockRecvMulti {int fd} Jim_Obj* {
 # These need to be maintained in C so that they can be written and
 # read from multiple threads (any thread may call into the Python
 # module at any time).
-$cc code {
+cc::code {
     // This C module is global, so we need to maintain a separate
     // functions/registeredArgtypes per uvx (per endpoint).
 
@@ -82,7 +82,7 @@ $cc code {
     EndpointStringKV functions[64];
     pthread_mutex_t functionsMutex = PTHREAD_MUTEX_INITIALIZER;
 }
-$cc proc getFunctions {char* endpoint} char* {
+cc::proc getFunctions {char* endpoint} char* {
     pthread_mutex_lock(&functionsMutex);
     for (int i = 0; i < 64; i++) {
         if (strcmp(functions[i].key, endpoint) == 0) {
@@ -94,7 +94,7 @@ $cc proc getFunctions {char* endpoint} char* {
     pthread_mutex_unlock(&functionsMutex);
     return "";
 }
-$cc proc getRegisteredArgtypes {char* endpoint} char* {
+cc::proc getRegisteredArgtypes {char* endpoint} char* {
     pthread_mutex_lock(&registeredArgtypesMutex);
     for (int i = 0; i < 64; i++) {
         if (strcmp(registeredArgtypes[i].key, endpoint) == 0) {
@@ -106,7 +106,7 @@ $cc proc getRegisteredArgtypes {char* endpoint} char* {
     pthread_mutex_unlock(&registeredArgtypesMutex);
     return "";
 }
-$cc proc setFunctions {char* endpoint char* value} void {
+cc::proc setFunctions {char* endpoint char* value} void {
     pthread_mutex_lock(&functionsMutex);
 
     int slot = -1;
@@ -134,7 +134,7 @@ $cc proc setFunctions {char* endpoint char* value} void {
 
     pthread_mutex_unlock(&functionsMutex);
 }
-$cc proc setRegisteredArgtypes {char* endpoint char* value} void {
+cc::proc setRegisteredArgtypes {char* endpoint char* value} void {
     pthread_mutex_lock(&registeredArgtypesMutex);
 
     int slot = -1;
@@ -163,7 +163,7 @@ $cc proc setRegisteredArgtypes {char* endpoint char* value} void {
     pthread_mutex_unlock(&registeredArgtypesMutex);
 }
 
-set impl [$cc compile]
+set impl [cc::compile]
 
 proc Uvx args {impl UVX} {
     set endpoint "/tmp/uvx-[clock milliseconds]-[expr {int(rand() * 100000)}].sock"

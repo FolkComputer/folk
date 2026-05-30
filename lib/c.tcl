@@ -24,7 +24,7 @@ fn csubst {s} {
                 lappend result $next
             }
             {$} {
-                set tail [string range $s $i+1 end]
+                set tail [string range $s [+ $i 1] end]
                 if {[regexp {^((?:[A-Za-z0-9_]|::)+)} $tail match-> varname] ||
                     [regexp {^\{([^\}]*)\}} $tail match-> varname]} {
 
@@ -38,7 +38,8 @@ fn csubst {s} {
                         elseif {$ch eq "]"} { incr bracketcount -1 }
                         if {$bracketcount == 0} { break }
                     }
-                    set script [string range $tail 1 $j-1]
+                    set script [string range $tail 1 [- $j 1]]
+                    puts "Script about to run: $script"
                     lappend result [uplevel $script]
                     incr i [expr {$j+1}]
                 }
@@ -48,7 +49,6 @@ fn csubst {s} {
     }
     join $result ""
 }
-puts 10
 fn cstyle {type name} {
     if {[regexp {([^\[]+)(\[\d*\](\[\d*\])?)$} $type -> basetype arraysuffix]} {
         list $basetype $name$arraysuffix
@@ -254,37 +254,38 @@ set C {
 }
 
 # Registers a new argtype.
-method C::argtype {t h} {
+method C::argtype {self t h} {
     dict set argtypes $t [csubst {expr {{$h}}}]
 }
 # Looks up the argtype and returns C code to convert it.
-method C::arg {argtype argname obj} {
+method C::arg {self argtype argname obj} {
     csubst [eval [dict getdef $argtypes $argtype \
                       [dict get $argtypes default]]]
 }
 
 # Registers a new rtype.
-method C::rtype {t h} {
+method C::rtype {self t h} {
     dict set rtypes $t [csubst {expr {{$h}}}]
 }
-method C::ret {rtype robj rvalue} {
+method C::ret {self rtype robj rvalue} {
     csubst [eval [dict getdef $rtypes $rtype \
                       [dict get $rtypes default]]]
 }
 
-method C::include {h} {
+method C::include {self h} {
     if {[llength $h] > 1} {
-        lappend code $h :extend
+        lappend self::code $h :extend
         return
     }
+
     if {[string index $h 0] eq "<"} {
-        lappend code "#include $h" :extend
+        lappend self::code "#include $h" :extend
     } else {
-        lappend code "#include \"$h\"" :extend
+        lappend self::code "#include \"$h\"" :extend
     }
 }
 
-method C::code {newcode} {
+method C::code {self newcode} {
     lassign [info source $newcode] filename line
     if {$filename ne ""} { 
         set newcode [subst {
@@ -296,7 +297,7 @@ method C::code {newcode} {
     list
 }
 
-method C::define {newvars} {
+method C::define {self newvars} {
     lappend code $newvars :noextend
 
     regsub -all -line {/\*.*?\*/} $newvars "" newvars
@@ -318,7 +319,7 @@ method C::define {newvars} {
     }
 }
 
-method C::enum {type values} {
+method C::enum {self type values} {
     lappend code [subst {
         typedef enum $type $type;
         enum $type {$values};
@@ -329,7 +330,7 @@ method C::enum {type values} {
     rtype $type [dict get $rtypes int]
 }
 
-method C::typedef {t newt {emitC true}} {
+method C::typedef {self t newt {emitC true}} {
     if {$emitC} {
         lappend code "typedef $t $newt;" :extend
     }
@@ -352,7 +353,7 @@ method C::typedef {t newt {emitC true}} {
     }
 }
 
-method C::struct {type fields} {
+method C::struct {self type fields} {
     lappend code [subst {
         typedef struct $type $type;
         struct $type {$fields};
@@ -522,10 +523,10 @@ method C::struct {type fields} {
     }
 }
 
-method C::proc {name arguments rtype body} {
+method C::proc {self name arguments rtype body} {
     set cname [string map {":" "_" "!" "_"} $name]
     lassign [info source $body] filename line
-    set body [uplevel 2 [list csubst $body]]
+    set body [uplevel 1 [list csubst $body]]
 
     set arglist [list]
     set argnames [list]
@@ -535,29 +536,29 @@ method C::proc {name arguments rtype body} {
         lappend arglist [join [cstyle $argtype $argname] " "]
         lappend argnames $argname
 
-        if {$argtype == "Jim_Interp*" && $argname == "interp"} { continue }
+        if {$argtype eq "Zicl_Interp*" && $argname eq "interp"} { continue }
 
         set obj [subst {objv\[1 + [llength $loadargs]\]}]
         lappend loadargs [$self arg {*}[typestyle $argtype $argname] $obj]
     }
     regsub {\[\d*\]} $rtype * decayedRtype
-    if {$rtype == "void"} {
+    if {$rtype eq "void"} {
         set saverv [subst {
             $cname ([join $argnames ", "]);
         }]
     } else {
         set saverv [subst {
             $decayedRtype rvalue = $cname ([join $argnames ", "]);
-            Jim_Obj* robj;
+            Zicl_Obj* robj;
             [$self ret $rtype robj rvalue]
-            Jim_SetResult(interp, robj);
+            Zicl_SetResultOwning(interp, robj);
         }]
     }
 
-    if {[dict exists $procs $name]} { error "C proc: Name collision: $name" }
-    dict set procs $name rtype $rtype
-    dict set procs $name arglist $arglist
-    dict set procs $name code [subst {
+    if {[dict exists $self::procs $name]} { error "C proc: Name collision: $name" }
+    dict set self::procs $name rtype $rtype
+    dict set self::procs $name arglist $arglist
+    dict set self::procs $name code [subst {
         static $decayedRtype $cname ([join $arglist ", "]) {
             [if {$filename ne ""} {
                 subst {#line $line "$filename"}
@@ -565,9 +566,9 @@ method C::proc {name arguments rtype body} {
             $body
         }
 
-        static int [set cname]_Cmd(Jim_Interp* interp, int objc, Jim_Obj* const objv\[\]) {
+        static int [set cname]_Cmd(Zicl_Interp* interp, int objc, Zicl_Obj* objv\[\]) {
             if (objc != 1 + [llength $loadargs]) {
-                Jim_SetResultFormatted(interp, "Wrong number of arguments to $name");
+                Zicl_SetResultString(interp, "Wrong number of arguments to $name");
                 return JIM_ERR;
             }
             bool didSetOnError = false;
@@ -593,10 +594,10 @@ method C::proc {name arguments rtype body} {
     }]
 }
 
-method C::cflags {args} { lappend cflags {*}$args }
-method C::endcflags {args} { lappend endcflags {*}$args }
+method C::cflags {self args} { lappend cflags {*}$args }
+method C::endcflags {self args} { lappend endcflags {*}$args }
 
-method C::compile {args} {
+method C::compile {self args} {
     set noload false
     set cid {}
     foreach arg $args {
@@ -647,14 +648,14 @@ method C::compile {args} {
         int Jim_${cid}Init(Jim_Interp* intp) {
             interp = intp;
 
-            [join [lmap srcid $extends {
+            [join [lmap srcid $self::extends {
                 subst {Jim_${srcid}Init(interp);}
             }] "\n"]
 
             Jim_CreateCommand(interp, "<C:$cid> __setCInfo", __setCInfo_Cmd, NULL, NULL);
             Jim_CreateCommand(interp, "<C:$cid> __getCInfo", __getCInfo_Cmd, NULL, NULL);
 
-            [join [lmap varname [dict keys $vars] {
+            [join [lmap varname [dict keys $self::vars] {
                 csubst {{
                     char script[1000];
                     snprintf(script, 1000, "dict set {::<C:$cid> __addrs} ${varname}_ptr %p", &${varname}_ptr);
@@ -662,7 +663,7 @@ method C::compile {args} {
                 }}
             }] "\n"]
 
-            [join [lmap name [dict keys $procs] {
+            [join [lmap name [dict keys $self::procs] {
                 set cname [string map {":" "_" "!" "_"} $name]
                 set tclname $name
                 # puts "Creating C command: $tclname"
@@ -772,7 +773,7 @@ extern "C" \{
     return <C:$cid>
 }
 
-method C::import {srclib srcname {_as {}} {destname {}}} {
+method C::import {self srclib srcname {_as {}} {destname {}}} {
     if {$destname eq ""} { set destname $srcname }
 
     set procinfo [dict get [$srclib __getCInfo] procs $srcname]
@@ -783,10 +784,10 @@ method C::import {srclib srcname {_as {}} {destname {}}} {
     $self code "$rtype (*$destname) ([join $arglist {, }]) = ($rtype (*) ([join $arglist {, }])) $addr;"
 }
 
-method C::string_toupper_first {s} {
+method C::string_toupper_first {self s} {
     return [string toupper [string index $s 0]][string range $s 1 end]
 }
-method C::extend {args} {
+method C::extend {self args} {
     set noprocs false
     foreach arg $args {
         if {$arg eq "-noprocs"} {
