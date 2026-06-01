@@ -1,15 +1,15 @@
 Wish the GPU compiles pipeline "circle" {
     {vec2 viewport mat3 surfaceToClip
-        vec2 center float radius float thickness vec4 color int filled} {
-            float r = radius + thickness;
+        vec2 center float innerRadius float outerRadius vec4 color} {
+            float r = outerRadius;
             vec2 vertices[6] = vec2[6](
-            center - r,
-            vec2(center.x + r, center.y - r),
-            vec2(center.x - r, center.y + r),
+                vec2(center.x - r, center.y - r),
+                vec2(center.x + r, center.y - r),
+                vec2(center.x - r, center.y + r),
 
-            vec2(center.x + r, center.y - r),
-            center + r,
-            vec2(center.x - r, center.y + r)
+                vec2(center.x + r, center.y - r),
+                vec2(center.x + r, center.y + r),
+                vec2(center.x - r, center.y + r)
             );
             vec3 v = surfaceToClip * vec3(vertices[gl_VertexIndex], 1.0);
             return vec4(v.xy/v.z, 0.0, 1.0);
@@ -18,23 +18,20 @@ Wish the GPU compiles pipeline "circle" {
             vec3 surfaceXy = inverse(surfaceToClip) * vec3(clipXy, 1.0);
             surfaceXy /= surfaceXy.z;
 
-            float dist = length(surfaceXy.xy - center) - radius;
-            if (filled == 1) {
-                return (dist < thickness) ? color : vec4(0.0);
-            } else {
-                return (dist < thickness && dist > 0.0) ? color : vec4(0.0);
-            }
+            float dist = length(surfaceXy.xy - center);
+            return (dist > innerRadius && dist < outerRadius) ? color : vec4(0.0);
         }
     }
 
     When the color map is /colorMap/ &\
         /p/ has canvas /id/ with /...wiOptions/ &\
         /p/ has canvas projection /surfaceToClip/ &\
-        /someone/ wishes to draw a circle onto $p with /...options/ {
+        the collected results for [list /someone/ wishes to draw a circle onto /canvas/ with /...options/] are /results/ {
             set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
             set instancesByLayer [dict create]
 
             foreach result $results {
+                if {[dict get $result canvas] ne $p} { continue }
                 set options [dict get $result options]
                 set center [dict getdef $options center ""]
                 if {$center eq ""} {
@@ -45,13 +42,20 @@ Wish the GPU compiles pipeline "circle" {
                 set thickness [dict getdef $options thickness 0]
                 set color [dict get $options color]
                 set color [dict getdef $colorMap $color $color]
-                set filled [dict getdef $options filled false]
+                set filled [drawTruthy [dict getdef $options filled false]]
                 set layer [dict getdef $options layer 0]
+
+                if {$filled} {
+                    set innerRadius 0.0
+                } else {
+                    set innerRadius $radius
+                }
+                set outerRadius [expr {$radius + $thickness}]
+
 
                 dict lappend instancesByLayer $layer \
                     [list $wiResolution $surfaceToClip \
-                    $center $radius $thickness $color \
-                    [expr {$filled eq false ? 0 : 1}]]
+                    $center $innerRadius $outerRadius $color]
             }
 
             dict for {layer instances} $instancesByLayer {
