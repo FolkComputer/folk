@@ -1,38 +1,55 @@
+# TODO: inline these functions, only used once rn anyway tbh
+fn drawLabelMaxLineLength {text} {
+    set maxLength 0
+    foreach line [split $text "\n"] {
+        set lineLength [string length $line]
+        if {$lineLength > $maxLength} {
+            set maxLength $lineLength
+        }
+    }
+    return $maxLength
+}
+
+fn drawLabelDefaultScale {text} {
+    set maxLength [drawLabelMaxLineLength $text]
+    if {$maxLength == 0} { return 0.02 }
+    ::math::min 0.02 [/ 0.45 $maxLength] 
+}
+
+fn drawLabelDefaultOptions {text width height} { 
+    set scale [drawLabelDefaultScale $text]
+    set position [list [expr {$width / 2.0}] [expr {$height / 2.0}]]
+    dict create \
+        position $position \
+        scale $scale \
+        anchor center \
+        font "PTSans-Regular"
+}
+
 When /thing/ has resolved geometry /geom/ {
     When the collected results for [list /someone/ wishes $thing is labelled /text/ with /...options/] are /results/ {
         set text [join [lmap result $results {dict get $result text}] "\n"]
         if {$text eq ""} { return }
 
-        # Split text into lines and find the longest line.
-        set lines [split $text "\n"]
-        set maxLength 0
-        foreach line $lines {
-            set lineLength [string length $line]
-            if {$lineLength > $maxLength} {
-                set maxLength $lineLength
+        set width [dict get $geom width]
+        set height [dict get $geom height]
+        set options [drawLabelDefaultOptions $text $width $height]
+        if {[dict exists $geom top] &&
+            [dict exists $geom tagSize] &&
+            [dict exists $geom bottom]} {
+                dict set options position \
+                    [list [expr {$width / 2.0}] \
+                    [expr {[dict get $geom top] + [dict get $geom tagSize] + [dict get $geom bottom] / 2.0}]]
             }
-        }
 
-        # Set default scale based on longest line length.
-        # Scale inversely with length to keep text readable.
-        set defaultScale [::math::min 0.02 [/ 0.45 $maxLength]]
-
-        set x [/ $geom(width) 2.0]
-        try {
-            set y $($geom(top) + $geom(tagSize) + $geom(bottom)/2.0)
-        } on error e {
-            set y [/ $geom(height) 2.0]
+            foreach result $results {
+                set options [dict merge $options [dict get $result options]]
+            }
+            dict set options text $text
+            Wish to draw text onto $thing with {*}$options
         }
-        set options [dict create x $x y $y scale $defaultScale]
-        # FIXME: support per-label options; right now, this just
-        # applies an arbitrary label's options to all of them
-        # together.
-        set options [dict merge $options [dict get $result options]]
-        dict set options text $text
-        Wish to draw text onto $thing with {*}$options
     }
-}
 
-When /someone/ wishes /thing/ is labelled /text/ {
-    Wish $thing is labelled $text with font "PTSans-Regular"
-}
+    When /someone/ wishes /thing/ is labelled /text/ {
+        Wish $thing is labelled $text with font "PTSans-Regular"
+    }
