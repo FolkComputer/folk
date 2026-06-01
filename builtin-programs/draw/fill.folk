@@ -48,10 +48,12 @@ When the color map is /colorMap/ {
                         Wish to draw a triangle onto $p with \
                             p0 [lindex $points 0] p1 [lindex $points 1] p2 [lindex $points 2] \
                             color $color layer $layer
+                        return
                     } elseif {$num_points == 4} {
                         Wish to draw a quad onto $p with \
                             p0 [lindex $points 0] p1 [lindex $points 1] p2 [lindex $points 2] p3 [lindex $points 3] \
                             color $color layer $layer
+                        return
                     } else {
                         # Get the first point in the list as the "base" point of the triangles
                         set p0 [lindex $points 0]
