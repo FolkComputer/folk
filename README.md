@@ -1,4 +1,4 @@
-**Note: Folk is in a *pre-alpha* state and isn't yet well-documented
+**Note: Folk is in a _pre-alpha_ state and isn't yet well-documented
 or well-exampled.**
 
 **We're making Folk's source code free and available to the public, in
@@ -12,7 +12,7 @@ more about the goals of the project & provide canonical examples/demos
 to show what's possible. If you don't know what this is, then you
 might want to wait for that release.
 
------
+---
 
 # [Folk](https://folk.computer)
 
@@ -48,87 +48,88 @@ version 570 or newer)
 issue](https://github.com/raspberrypi/rpi-imager/issues/466#issuecomment-1207107554)
 if flashing from a Mac] -- Ubuntu doesn't have a good kernel for Pi 5)
 
-1. Install Linux with username `folk`, hostname
-   `folk-SOMETHING`? (check hosts.tcl in this repo to make sure
-   you're not reusing one)
+1.  Install Linux with username `folk`, hostname
+    `folk-SOMETHING`? (check hosts.tcl in this repo to make sure
+    you're not reusing one)
 
-   If no `folk` user, then:
+    If no `folk` user, then:
 
-        sudo useradd -m folk; sudo passwd folk
+         sudo useradd -m folk; sudo passwd folk
 
-   Add the `folk` user to groups:
+    Add the `folk` user to groups:
 
-        for group in adm dialout cdrom sudo audio video plugdev games users input tty render netdev lpadmin gpio i2c spi; do sudo usermod -a -G $group folk; done; groups folk
+         for group in adm dialout cdrom sudo audio video plugdev games users input tty render netdev lpadmin gpio i2c spi; do sudo usermod -a -G $group folk; done; groups folk
 
-1. `sudo apt update`
+1.  `sudo apt update`
 
-1. Set up OpenSSH server if needed; connect to network. To ssh into
-   `folk@folk-WHATEVER.local` by name, `sudo apt install avahi-daemon`
-   and then on your laptop: `ssh-copy-id folk@folk-WHATEVER.local`
+1.  Set up OpenSSH server if needed; connect to network. To ssh into
+    `folk@folk-WHATEVER.local` by name, `sudo apt install avahi-daemon`
+    and then on your laptop: `ssh-copy-id folk@folk-WHATEVER.local`
 
-1. Install dependencies:
+1.  Install dependencies:
 
-       sudo apt install rsync git cmake libturbojpeg0-dev libpng-dev libdrm-dev pkg-config v4l-utils vulkan-tools libvulkan-dev libvulkan1 meson libgbm-dev glslc vulkan-validationlayers ghostscript console-data kbd psmisc zlib1g-dev libssl-dev automake libtool autoconf-archive
+           sudo apt install rsync git cmake libturbojpeg0-dev libpng-dev libdrm-dev pkg-config v4l-utils vulkan-tools libvulkan-dev libvulkan1 meson libgbm-dev glslc vulkan-validationlayers ghostscript console-data kbd psmisc zlib1g-dev libssl-dev automake libtool autoconf-archive
 
-   (When prompted while installing `console-data` for `Policy for
+    (When prompted while installing `console-data` for `Policy for
    handling keymaps` type `3` (meaning `3. Keep kernel keymap`) and
-   press `Enter`)
+    press `Enter`)
 
-     1. on a non-NVIDIA GPU: `sudo apt install mesa-vulkan-drivers`
-     1. on an NVIDIA GPU: run `sudo ubuntu-drivers install nvidia:580`
-     1. for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
-`libgoogle-perftools-dev`
+         1. on a non-NVIDIA GPU: `sudo apt install mesa-vulkan-drivers`
+         1. on an NVIDIA GPU: run `sudo ubuntu-drivers install nvidia:580`
+         1. for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 
-1. Vulkan testing (optional):
-     1. Try `vulkaninfo` and see if it works.
-          1. On a Pi, if vulkaninfo reports "Failed to detect any
-             valid GPUs in the current config", add `dtoverlay=vc4-kms-v3d` to the bottom of
-             `/boot/firmware/config.txt`.
-             (<https://raspberrypi.stackexchange.com/questions/116507/open-dev-dri-card0-no-such-file-or-directory-on-rpi4>)
-     1. Try `vkcube`:
+    `libgoogle-perftools-dev`
+
+1.  Vulkan testing (optional):
+    1.  Try `vulkaninfo` and see if it works.
+        1. On a Pi, if vulkaninfo reports "Failed to detect any
+           valid GPUs in the current config", add `dtoverlay=vc4-kms-v3d` to the bottom of
+           `/boot/firmware/config.txt`.
+           (<https://raspberrypi.stackexchange.com/questions/116507/open-dev-dri-card0-no-such-file-or-directory-on-rpi4>)
+    1.  Try `vkcube`:
 
             git clone https://github.com/krh/vkcube
             cd vkcube
             mkdir build; cd build; meson .. && ninja
             ./vkcube -m khr -k 0:0:0
-      
+
         If vkcube says `Assertion ``vc->image_count > 0' failed`, you
         might be able to still skip vkcube and continue the install
         process. See [this
         bug](https://github.com/FolkComputer/folk/issues/109#issuecomment-1788085237)
-     1. See [notes](https://folk.computer/notes/vulkan) and [Naveen's
+
+    1.  See [notes](https://folk.computer/notes/vulkan) and [Naveen's
         notes](https://gist.github.com/nmichaud/1c08821833449bdd3ac70dcb28486539).
 
-1.
-        sudo sh -c 'echo SUBSYSTEM=="input", GROUP="input", MODE="0666" > /etc/udev/rules.d/99-input.rules && udevadm control --reload-rules && udevadm trigger'
+1.        sudo sh -c 'echo SUBSYSTEM=="input", GROUP="input", MODE="0666" > /etc/udev/rules.d/99-input.rules && udevadm control --reload-rules && udevadm trigger'
 
-1. Add the systemd service so it starts on boot and can be managed
-   when you run it from laptop. On Ubuntu Server or Raspberry Pi OS
-   (as root) ([from
-   here](https://medium.com/@benmorel/creating-a-linux-service-with-systemd-611b5c8b91d6)):
+1.  Add the systemd service so it starts on boot and can be managed
+    when you run it from laptop. On Ubuntu Server or Raspberry Pi OS
+    (as root) ([from
+    here](https://medium.com/@benmorel/creating-a-linux-service-with-systemd-611b5c8b91d6)):
 
-       # cat >/etc/systemd/system/folk.service
-       [Unit]
-       Description=Folk service
-       After=network.target
-       StartLimitIntervalSec=0
+        # cat >/etc/systemd/system/folk.service
+        [Unit]
+        Description=Folk service
+        After=network.target
+        StartLimitIntervalSec=0
 
-       [Service]
-       Type=simple
-       Restart=always
-       RestartSec=1
-       User=folk
-       WorkingDirectory=/home/folk/folk
-       ExecStart=make -C /home/folk/folk start
+        [Service]
+        Type=simple
+        Restart=always
+        RestartSec=1
+        User=folk
+        WorkingDirectory=/home/folk/folk
+        ExecStart=make -C /home/folk/folk start
 
-       [Install]
-       WantedBy=multi-user.target
+        [Install]
+        WantedBy=multi-user.target
 
-   Run these commands as root after editing the file above:
+    Run these commands as root after editing the file above:
 
-       # chmod 644 /etc/systemd/system/folk.service
-       # systemctl start folk
-       # systemctl enable folk
+        # chmod 644 /etc/systemd/system/folk.service
+        # systemctl start folk
+        # systemctl enable folk
 
 Use `visudo` to add `folk ALL=(ALL) NOPASSWD: /usr/bin/systemctl` to
 the bottom of `/etc/sudoers` on the tabletop. (This lets the `make`
@@ -155,6 +156,7 @@ as well to see all statements in the database.
 ### Printer support
 
 On the tabletop:
+
 ```
 $ sudo apt update
 $ sudo apt install cups cups-bsd
@@ -188,7 +190,6 @@ You can also test printing again with `lpr
 ~/folk-data/program/SOMETHING.pdf` (you have to print the PDF and
 not the PS for it to work, probably)
 
-
 ### Projector-camera setup and calibration
 
 1. Make sure Folk is running. Go to your Folk server's Web page
@@ -207,7 +208,6 @@ After calibrating, on http://whatever.local:4273/ : click New Program,
 hit Save, drag it around. You should see the program move on your
 table as you drag it around on your laptop.
 
-
 ### Connect a keyboard
 
 Follow [the instructions on this Folk wiki page](https://folk.computer/guides/keyboard)
@@ -222,7 +222,6 @@ and connect.
 (FIXME: Write down the Bluetooth MAC address of your keyboard. We'll
 proceed as though it's "f4:73:35:93:7f:9d" (it's important that you
 turn it into lowercase).)
-
 
 #### Python support
 
@@ -273,10 +272,11 @@ $ make run-tracy
 
 Potentially useful for graphs: `graphviz`
 
-Potentially useful:  `gdb`, `streamer`, `cec-utils`,
+Potentially useful: `gdb`, `streamer`, `cec-utils`,
 `file`, `strace`
 
 Potentially useful: add `folk-WHATEVER` shortcut to your laptop `~/.ssh/config`:
+
 ```
 Host folk-WHATEVER
      HostName folk-WHATEVER.local
@@ -441,14 +441,31 @@ around until you do another `Hold!`. You can use this to create the
 equivalent of 'variables', stateful statements.
 
 ```
-Hold! { Claim $this has a ball at x 100 y 100 }
+Hold! {
+  Claim $this has a ball at x 100 y 100
+}
 
 When $this has a ball at x /x/ y /y/ {
-    puts "ball at $x $y"
-    After 10 milliseconds {
-        Hold! { Claim $this has a ball at x $x y [expr {$y+1}] }
-        if {$y > 115} { set ::done true }
-    }
+  Wish $this is labelled "The ball is at $x $y"
+  sleep 0.5
+  Hold! { Claim $this has a ball at x $x y [expr {$y+1}] }
+}
+```
+
+This could also be written as:
+
+```
+set x 100
+set y 100
+
+When $this has a ball at x /x/ y /y/ {
+  Wish $this is labelled "The ball is at $x $y"
+}
+
+while true {
+  sleep 0.5
+  incr y
+  Hold! Claim $this has a ball at x $x y $y
 }
 ```
 
@@ -550,7 +567,6 @@ On unmatch {
 }
 ```
 
-
 #### Non-capturing
 
 You can disable capturing of lexical context around a When with the
@@ -578,6 +594,7 @@ block. Use `Claim`, `Wish`, and `When` instead.
 ## Tcl for JavaScripters
 
 JS:
+
 ```
 let names = ["64", "GameCube", "Wii", "Switch"];
 names = names.map(name => `Nintendo ${name}`);
@@ -589,6 +606,7 @@ console.log(add(...numbers));
 ```
 
 Tcl:
+
 ```
 set names [list 64 GameCube Wii Switch]
 set names [lmap name $names {expr {"Nintendo $name"}}]
@@ -611,7 +629,7 @@ Most new code (both libraries and applications) should be virtual
 programs (which ilve as .folk files in the builtin-programs/
 subfolder) or printed programs.
 
-### Folk 
+### Folk
 
 - Use complete sentences when you word your claims and wishes.
 
@@ -667,12 +685,11 @@ create`.
 
 Capitalized namespace, like `Statements`.
 
-
 ## Thanks
 
 - Omar Rizwan: evaluator; display, AprilTag, camera subsystems
 - Andrés Cuervo: keyboard library and code editor, sprites
-- Naveen Michaud-Agrawal: connections, points-at, 
+- Naveen Michaud-Agrawal: connections, points-at,
 - Jacob Haip: web endpoints, tag masking, blob detection
 - Arcade Wise: fonts
 - s-ol bekic: WebSocket library, keyboard locale support
@@ -698,13 +715,15 @@ Capitalized namespace, like `Statements`.
 - camera slices cause hop/distortion when pulled off
 
 ### ideas
+
 - aborted executions shouldn't be too high a percentage of total # of
-executions of the block? if they are, then we warn on the page that it
-isn't meeting timing
+  executions of the block? if they are, then we warn on the page that it
+  isn't meeting timing
 - build a settlement-based local fps counter like clock time labeler
   (how many frames are we dropping?)
 
 ### other stuff
+
 - stereo calibration
 - ~~run segmentation model~~
   - speed up segmentation model
@@ -728,6 +747,7 @@ isn't meeting timing
 - folk-convivial way too blinky, slow, _big board stops_
 
 #### calibration
+
 - try keeping a calibration history so we can diff them and see trends
 - add skew parameter?
 - **calibrate render loop blinks out regularly**
@@ -738,4 +758,4 @@ isn't meeting timing
 - pose estimate
   - exclude any pose estimate that dips below the table plane
   - pick the pose estimate that maximizes projected area
-  - 
+  -
