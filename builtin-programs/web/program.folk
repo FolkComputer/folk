@@ -1,10 +1,6 @@
 Wish the web server handles route {/program/(.*)$} with handler {
     set programName $1
-    Expect! $programName has program code /programCode/
-    if {$match eq ""} {
-        html "<html><body>Program not found: [htmlEscape $programName]</body></html>"
-        return
-    }
+    Expect! $1 has program code /programCode/
 
     html [subst {
         <html>
@@ -14,7 +10,7 @@ Wish the web server handles route {/program/(.*)$} with handler {
         </head>
         <body>
         <h1>[htmlEscape $programName]</h1>
-        <pre><code>[htmlEscape $match(programCode)]</code></pre>
+        <pre><code>[htmlEscape $programCode]</code></pre>
         </body>
         </html>
     }]
