@@ -1,31 +1,3 @@
-# TODO: inline these functions, only used once rn anyway tbh
-fn drawLabelMaxLineLength {text} {
-    set maxLength 0
-    foreach line [split $text "\n"] {
-        set lineLength [string length $line]
-        if {$lineLength > $maxLength} {
-            set maxLength $lineLength
-        }
-    }
-    return $maxLength
-}
-
-fn drawLabelDefaultScale {text} {
-    set maxLength [drawLabelMaxLineLength $text]
-    if {$maxLength == 0} { return 0.02 }
-    ::math::min 0.02 [/ 0.45 $maxLength] 
-}
-
-fn drawLabelDefaultOptions {text width height} { 
-    set scale [drawLabelDefaultScale $text]
-    set position [list [expr {$width / 2.0}] [expr {$height / 2.0}]]
-    dict create \
-        position $position \
-        scale $scale \
-        anchor center \
-        font "PTSans-Regular"
-}
-
 When /thing/ has resolved geometry /geom/ {
     When the collected results for [list /someone/ wishes $thing is labelled /text/ with /...options/] are /results/ {
         set text [join [lmap result $results {dict get $result text}] "\n"]
@@ -33,23 +5,42 @@ When /thing/ has resolved geometry /geom/ {
 
         set width [dict get $geom width]
         set height [dict get $geom height]
-        set options [drawLabelDefaultOptions $text $width $height]
+
+        set maxLength 0
+        foreach line [split $text "\n"] {
+            set lineLength [string length $line]
+            if {$lineLength > $maxLength} {
+                set maxLength $lineLength
+            }
+        }
+        if {$maxLength == 0} {
+            set scale 0.02
+        } else {
+            set scale [::math::min 0.02 [/ 0.45 $maxLength]]
+        }
+        set position [list [expr {$width / 2.0}] [expr {$height / 2.0}]]
+        set options [dict create \
+            position $position \
+            scale $scale \
+            anchor center \
+            font "PTSans-Regular"]
+
         if {[dict exists $geom top] &&
             [dict exists $geom tagSize] &&
             [dict exists $geom bottom]} {
-                dict set options position \
-                    [list [expr {$width / 2.0}] \
+            dict set options position \
+                [list [expr {$width / 2.0}] \
                     [expr {[dict get $geom top] + [dict get $geom tagSize] + [dict get $geom bottom] / 2.0}]]
-            }
-
-            foreach result $results {
-                set options [dict merge $options [dict get $result options]]
-            }
-            dict set options text $text
-            Wish to draw text onto $thing with {*}$options
         }
-    }
 
-    When /someone/ wishes /thing/ is labelled /text/ {
-        Wish $thing is labelled $text with font "PTSans-Regular"
+        foreach result $results {
+            set options [dict merge $options [dict get $result options]]
+        }
+        dict set options text $text
+        Wish to draw text onto $thing with {*}$options
     }
+}
+
+When /someone/ wishes /thing/ is labelled /text/ {
+    Wish $thing is labelled $text with font "PTSans-Regular"
+}
