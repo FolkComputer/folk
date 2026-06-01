@@ -20,6 +20,9 @@ When /k/ is a keyboard with /...opts/ {
             Claim $k has created editor $editor
             Claim $k is typing into $editor
         }
+        When $program is an editor {
+            Claim $k is typing into $program
+        }
     }
 }
 
