@@ -1474,6 +1474,20 @@ void workerExit() {
     // Need this so that this worker doesn't count as still being
     // alive and count toward the worker cap.
 
+    // Donate any remaining items in our local workQueue to the global
+    // queue. Otherwise they'd be stranded: workerSteal skips workers
+    // whose tid == 0. This matters for self-kill scenarios like a
+    // When body whose Hold!/Say replaces its own match's parent —
+    // reactToNewStatement pushes the follow-up RUN_WHEN onto the
+    // local queue right before SIGUSR1 tears the worker down.
+    if (self->workQueue != NULL) {
+        while (true) {
+            WorkQueueItem item = workQueueTake(self->workQueue);
+            if (item.op == NONE) { break; }
+            globalWorkQueuePush(item);
+        }
+    }
+
     // TODO: Clear everything else out?
     self->tid = 0;
     epochThreadDestroy();
