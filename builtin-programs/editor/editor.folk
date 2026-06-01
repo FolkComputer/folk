@@ -3,23 +3,23 @@
 When /k/ is a keyboard with /...opts/ {
     Wish tag $k is stabilized
 
-    When $k points up with length 0.3 at /program/ &\
-         /nobody/ claims /program/ is an editor {
+    When $k points up with length 0.3 at /program/ {
+        When /nobody/ claims $program is an editor {
+            Wish tag $program is stabilized
 
-        Wish tag $program is stabilized
+            # Create a synthetic editor on top of the program being edited,.
+            set editor [list $k editor]
+            Claim $editor is an editor
+            Claim editor $editor has selected program $program
+            Wish $editor has a canvas with layer 98
 
-        # Create a synthetic editor on top of the program being edited,.
-        set editor [list $k editor]
-        Claim $editor is an editor
-        Claim editor $editor has selected program $program
-        Wish $editor has a canvas with layer 98
-
-        When $program has resolved geometry /geom/ {
-            Claim $editor has resolved geometry $geom
+            When $program has resolved geometry /geom/ {
+                Claim $editor has resolved geometry $geom
+            }
+            When $program has quad /q/ { Claim $editor has quad $q }
+            Claim $k has created editor $editor
+            Claim $k is typing into $editor
         }
-        When $program has quad /q/ { Claim $editor has quad $q }
-        Claim $k has created editor $editor
-        Claim $k is typing into $editor
     }
 }
 
@@ -30,6 +30,12 @@ When the program save directory is /programDir/ &\
 set defaults { textScale 0.01 }
 When /someone/ claims /editor/ is an editor {
     Claim $editor is an editor with {*}$defaults
+    When /nobody/ has created editor $editor &\
+         $editor points up with length 0.3 at /program/ {
+        Wish tag $editor is stabilized
+        Wish tag $program is stabilized
+        Claim editor $editor has selected program $program
+    }
 }
 
 When /editor/ is an editor with /...options/ {
