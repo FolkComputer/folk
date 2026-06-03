@@ -1360,18 +1360,21 @@ void traceItem(char* buf, size_t bufsz, WorkQueueItem item) {
         snprintf(buf, bufsz, "Retract (%.100s)",
                  clauseToString(item.retract.pattern));
     } else if (item.op == RUN_WHEN) {
-        Statement* when = statementUnsafeGet(db, item.runWhen.when);
-        Statement* stmt = statementUnsafeGet(db, item.runWhen.stmt);
+        Statement* when = statementAcquire(db, item.runWhen.when);
+        Statement* stmt = statementAcquire(db, item.runWhen.stmt);
         snprintf(buf, bufsz, "Run when(%.100s) pattern(%.100s) stmt(%.100s)",
                  when != NULL ? clauseToString(statementClause(when)) : "NULL",
                  clauseToString(item.runWhen.whenPattern),
                  stmt != NULL ? clauseToString(statementClause(stmt)) : "NULL");
+        if (when) statementRelease(db, when);
+        if (stmt) statementRelease(db, stmt);
     } else if (item.op == RUN_SUBSCRIBE) {
-        Statement* subscribe = statementUnsafeGet(db, item.runSubscribe.subscribeRef);
+        Statement* subscribe = statementAcquire(db, item.runSubscribe.subscribeRef);
         snprintf(buf, bufsz, "Run subscribe(%.100s) pattern(%.100s) stmt(%.100s)",
                  subscribe != NULL ? clauseToString(statementClause(subscribe)) : "NULL",
                  clauseToString(item.runSubscribe.subscribePattern),
                  clauseToString(item.runSubscribe.notifyClause));
+        if (subscribe) statementRelease(db, subscribe);
     } else if (item.op == EVAL) {
         snprintf(buf, bufsz, "Eval");
     } else if (item.op == NONE) {
