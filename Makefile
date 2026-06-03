@@ -40,7 +40,7 @@ folk: workqueue.o db.o trie.o sysmon.o epoch.o folk.o output-redirection.o block
 		dsymutil $@; \
 	fi
 	# Hack for the gadget trigger button.
-	if [ "$$(uname)" = "Linux" ]; then \
+	if [ "$$(uname)" = "Linux" ] && case "$$(hostname)" in gadget-*) true;; *) false;; esac; then \
 		(sudo -n true 2>/dev/null && sudo setcap cap_sys_rawio+ep $@) || true; \
 	fi
 
