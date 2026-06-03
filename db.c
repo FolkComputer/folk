@@ -9,6 +9,8 @@
 #include <pthread.h>
 #include <signal.h>
 #include <stdatomic.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 
 #if __has_include ("tracy/TracyC.h")
 #include "tracy/TracyC.h"
@@ -887,7 +889,7 @@ void matchRemoveSelf(Db* db, Match* match) {
 
             char buf[10000]; traceItem(buf, sizeof(buf), item);
             fprintf(stderr, "KILL (%.150s)\n", buf);
-            kill(workerThread->tid, SIGUSR1);
+            syscall(SYS_tgkill, getpid(), workerThread->tid, SIGUSR1);
         }
     }
 }
