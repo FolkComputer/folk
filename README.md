@@ -227,7 +227,7 @@ to connect your keyboard.
 
 Note down your keyboard's MAC address so you can identify it on the keyboards page at `http://WHATEVER.local:4273/keyboards`.
 
-If your keyboard is connected but does not show up, follow [this wiki guide](https://folk.computer/guides/udev-rule) to add a udev rule for it.
+If your keyboard is connected but does not show up on the keyboard page, follow [this wiki guide](https://folk.computer/guides/udev-rule) to add a udev rule for it.
 
 #### Python support
 
