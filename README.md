@@ -213,13 +213,21 @@ to connect a new keyboard to your system.
 
 #### Bluetooth keyboards
 
-Install `bluetoothctl`. Follow the instructions in
-https://wiki.archlinux.org/title/bluetooth_keyboard to pair and trust
-and connect.
+Install the core packages for bluetooth:
 
-(FIXME: Write down the Bluetooth MAC address of your keyboard. We'll
-proceed as though it's "f4:73:35:93:7f:9d" (it's important that you
-turn it into lowercase).)
+```
+sudo apt update
+sudo apt install bluetooth bluez
+```
+
+Once installed, you can pair a new keyboard with `bluetoothctl`.
+
+Follow [these instructions](https://wiki.archlinux.org/title/bluetooth_keyboard) from the Arch Linux wiki
+to connect your keyboard.
+
+Note down your keyboard's MAC address so you can identify it on the keyboards page at `http://WHATEVER.local:4273/keyboards`.
+
+If your keyboard is connected but does not show up on the keyboard page, follow [this wiki guide](https://folk.computer/guides/udev-rule) to add a udev rule for it.
 
 #### Python support
 
