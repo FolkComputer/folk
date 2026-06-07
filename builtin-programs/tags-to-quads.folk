@@ -767,6 +767,14 @@ When the quad changer is /quadChange/ &\
         [list 0 0 1]]
 
     When -atomically $tag has quad /quad/ {
+        set corrResults [Query! $tag has projection correction dx /dx/ dy /dy/]
+        if {[llength $corrResults] > 0} {
+            set corr [lindex $corrResults 0]
+            set quad [$quadLib move $quad \
+                right [dict get $corr dx]m \
+                down  [dict get $corr dy]m]
+        }
+
         lassign [lmap v [$quadLib vertices [quadChange $quad "display $disp"]] {
             $poseLib project $displayIntrinsics \
                 $displayWidth $displayHeight $v

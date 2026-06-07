@@ -1,0 +1,109 @@
+When the image library is /imageLib/ {
+    set cc [C]
+    $cc extend $imageLib
+    $cc proc detectRingAndDot {Image off_im Image on_im} char* {
+        int w = off_im.width, h = off_im.height;
+
+        // ring: weighted centroid of below-average pixels in off frame
+        double sum = 0;
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++) {
+                uint8_t *p = &off_im.data[y*off_im.bytesPerRow + x*off_im.components];
+                sum += (p[0]+p[1]+p[2]) / 3.0;
+            }
+        double avg = sum / (w * h);
+
+        double rwx=0, rwy=0, rwsum=0;
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++) {
+                uint8_t *p = &off_im.data[y*off_im.bytesPerRow + x*off_im.components];
+                double v = (p[0]+p[1]+p[2]) / 3.0, wt = avg - v;
+                if (wt > 0) { rwx += x*wt; rwy += y*wt; rwsum += wt; }
+            }
+
+        // dot: weighted centroid of positive (on - off) diff pixels
+        double dwx=0, dwy=0, dwsum=0;
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++) {
+                uint8_t *on_p  = &on_im.data[y*on_im.bytesPerRow  + x*on_im.components];
+                uint8_t *off_p = &off_im.data[y*off_im.bytesPerRow + x*off_im.components];
+                double diff = (on_p[0]+on_p[1]+on_p[2])/3.0
+                            - (off_p[0]+off_p[1]+off_p[2])/3.0;
+                if (diff > 0) { dwx += x*diff; dwy += y*diff; dwsum += diff; }
+            }
+
+        static char buf[128];
+        snprintf(buf, sizeof(buf), "%g %g %g %g",
+            rwsum > 0 ? rwx/rwsum : -1.0, rwsum > 0 ? rwy/rwsum : -1.0,
+            dwsum > 0 ? dwx/dwsum : -1.0, dwsum > 0 ? dwy/dwsum : -1.0);
+        return buf;
+    }
+    Claim the projection calibration library is [$cc compile]
+}
+
+When /someone/ wishes to calibrate projection for 1806 {
+    When the quad library is /quadLib/ &\
+         1806 has resolved geometry /geom/ &\
+         1806 has quad /q/ {
+        set outerRadius $geom(adjustmentRingOuterRadius)
+        set sliceGeom [dict create \
+            width  [* $outerRadius 4] \
+            height [* $outerRadius 4]]
+        set left [expr {$geom(adjustmentRingLeft) - $sliceGeom(width)  / 2.0}]
+        set top  [expr {$geom(adjustmentRingTop)  - $sliceGeom(height) / 2.0}]
+
+        Claim RING has resolved geometry $sliceGeom
+        set sq [$quadLib alignGeometry $q $sliceGeom]
+        set sq [$quadLib move $sq down ${top}m right ${left}m]
+        Claim RING has quad $sq
+    }
+
+    When the projection calibration library is /detLib/ &\
+         the image library is /imageLib/ &\
+         1806 has resolved geometry /geom/ {
+
+        set sliceM [* $geom(adjustmentRingOuterRadius) 4]
+
+        # ensure RING slice is being computed
+        Hold! -key [list projection-calibrate ring-slice] Wish RING has camera slice
+
+        # --- frame 1: dot off ---
+        after 300
+        ForEach! RING has camera slice /offSlice/ {
+            StatementAcquire! $__ref
+            set offRef $__ref
+            set off $offSlice
+            break
+        }
+
+        # --- frame 2: dot on ---
+        Hold! -key [list projection-calibrate ring-dot] \
+            Wish to draw a circle onto 1806 with \
+                x $geom(adjustmentRingLeft) y $geom(adjustmentRingTop) \
+                radius [/ $geom(adjustmentRingInnerRadius) 2] \
+                thickness 0 color white filled true
+        after 300
+        ForEach! RING has camera slice /onSlice/ {
+            StatementAcquire! $__ref
+            set onRef $__ref
+            set on $onSlice
+            break
+        }
+
+        # Hold! -key [list projection-calibrate ring-dot] {}
+
+        # --- detect ---
+        set w [$imageLib Image_width $off]
+        set h [$imageLib Image_height $off]
+        lassign [$detLib detectRingAndDot $off $on] ringCx ringCy dotCx dotCy
+
+        StatementRelease! $offRef
+        StatementRelease! $onRef
+
+        # --- report correction ---
+        set dx_m [expr {($ringCx - $dotCx) * $sliceM / $w}]
+        set dy_m [expr {($ringCy - $dotCy) * $sliceM / $h}]
+        puts "projection-calibrate: ring ($ringCx,$ringCy) dot ($dotCx,$dotCy) correction (${dx_m}m, ${dy_m}m)"
+        Claim 1806 has projection correction dx $dx_m dy $dy_m
+    }
+}
