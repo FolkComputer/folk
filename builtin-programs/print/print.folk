@@ -131,10 +131,10 @@ fn codeToPostScript {id code opts {printedMeasurementsVar {}}} {
 
         set adjustmentRingOuterRadius 16
         set adjustmentRingInnerRadius 10
-        set adjustmentRingCenter \
-            [list [expr {$marginLeft + $adjustmentRingOuterRadius}] \
-                 [expr {$PageHeight - $marginTop -
-                        ([llength $pageLines] + 1.5) * $lineHeight}]]
+        set adjustmentRingLeft \
+            [expr {$marginLeft + $adjustmentRingOuterRadius}]
+        set adjustmentRingTop \
+            [expr {$marginTop + ([llength $pageLines] + 1.5) * $lineHeight}]
 
         set pageLineIdx 0
         # The typesetting here is meant to exactly duplicate the
@@ -174,11 +174,11 @@ fn codeToPostScript {id code opts {printedMeasurementsVar {}}} {
                 gsave
                 0 setgray
                 newpath
-                [join $adjustmentRingCenter " "] $adjustmentRingOuterRadius 0 360 arc
+                $adjustmentRingLeft [- $PageHeight $adjustmentRingTop] $adjustmentRingOuterRadius 0 360 arc
                 closepath fill
                 1 setgray
                 newpath
-                [join $adjustmentRingCenter " "] $adjustmentRingInnerRadius 0 360 arc
+                $adjustmentRingLeft [- $PageHeight $adjustmentRingTop] $adjustmentRingInnerRadius 0 360 arc
                 closepath fill
                 grestore
             }] : {}}]
@@ -211,7 +211,11 @@ fn codeToPostScript {id code opts {printedMeasurementsVar {}}} {
                  marginTop $marginTop \
                  marginBottom $marginBottom \
                  marginLeft $marginLeft \
-                 marginRight $marginRight]
+                 marginRight $marginRight \
+                 adjustmentRingOuterRadius $adjustmentRingOuterRadius \
+                 adjustmentRingInnerRadius $adjustmentRingInnerRadius \
+                 adjustmentRingLeft $adjustmentRingLeft \
+                 adjustmentRingTop $adjustmentRingTop]
     }
 
     return [join $outPages "\n"]
@@ -333,10 +337,10 @@ Subscribe: print program /id/ with /...options/ {
     # Geometry should reflect where the tag actually lands on the
     # paper, so use printedMeasurements. These are the distances from
     # the edge of the tag to each side of the paper.
-    set gLeft   [expr {($PageWidth - $tagOut - $printedMeasurements(marginRight) - $tagInset + $border) * $ptmm}]
-    set gRight  [expr {($printedMeasurements(marginRight) + $tagInset + $border) * $ptmm}]
-    set gTop    [expr {($printedMeasurements(marginTop) + $tagInset + $border) * $ptmm}]
-    set gBottom [expr {($PageHeight - $tagOut - $printedMeasurements(marginTop) - $tagInset + $border) * $ptmm}]
+    set gLeft   [expr {$PageWidth - $tagOut - $printedMeasurements(marginRight) - $tagInset + $border}]
+    set gRight  [expr {$printedMeasurements(marginRight) + $tagInset + $border}]
+    set gTop    [expr {$printedMeasurements(marginTop) + $tagInset + $border}]
+    set gBottom [expr {$PageHeight - $tagOut - $printedMeasurements(marginTop) - $tagInset + $border}]
 
     # If the first page has few enough lines, assume the user will
     # fold the page in half vertically and shrink the reported bottom
@@ -350,17 +354,28 @@ Subscribe: print program /id/ with /...options/ {
         set gBottom [expr {$gBottom - $pageHeightMm / 2.0}]
     }
 
-    set geomStr [format \
-        {tagSize %.4gmm left %.4gmm right %.4gmm top %.4gmm bottom %.4gmm lineHeight %.4gmm advance %.4gmm marginTop %.4gmm marginRight %.4gmm marginBottom %.4gmm marginLeft %.4gmm} \
-        [expr {$tagInn * $ptmm}] $gLeft $gRight $gTop $gBottom \
-        [expr {$lh * $ptmm}] [expr {$adv * $ptmm}] \
-        [expr {$printedMeasurements(marginTop) * $ptmm}] \
-        [expr {$printedMeasurements(marginRight) * $ptmm}] \
-        [expr {$printedMeasurements(marginBottom) * $ptmm}] \
-        [expr {$printedMeasurements(marginLeft) * $ptmm}]]
+    set geometryInPoints \
+        [dict create \
+             tagSize $tagInn \
+             left $gLeft \
+             right $gRight \
+             top $gTop \
+             bottom $gBottom \
+             lineHeight $lh \
+             advance $adv]
+    # The printed measurements from the PostScript render are all
+    # directly inherited into the saved geometry as well, so they can
+    # be looked up at runtime.
+    set geometryInPoints \
+        [dict merge $printedMeasurements $geometryInPoints]
+
+    set geometry [dict create]
+    dict for {k v} $geometryInPoints {
+        dict set geometry $k [format %.4gmm [* $v $ptmm]]
+    }
 
     set fp [open "$saveDir/$id.meta.folk" w]
-    puts $fp "Claim tag \$this has geometry \{$geomStr\}"
+    puts $fp "Claim tag \$this has geometry \{$geometry\}"
     close $fp
 
     puts "Printing program $id on $::thisNode"
