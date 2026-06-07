@@ -233,7 +233,8 @@ Subscribe: print code /code/ {
         code $code \
         lineHeight [* $textScale $mToPt] \
         advance [* 0.5859375 $textScale $mToPt] \
-        margin [lmap x $margin {* $x $mToPt}]]]
+        margin [lmap x $margin {* $x $mToPt}] \
+        tagInset 16]]
     Notify: print a new program with {*}$options
 }
 Subscribe: print a new program with /...options/ {
@@ -269,8 +270,6 @@ Subscribe: print program /id/ with /...options/ {
         dict set options calibratedPrintTranslation \
             [dict get [lindex $calibTranslationResults 0] translation]
     }
-
-    dict set options tagInset 16
 
     set printedMargins {}
     set ps [codeToPostScript $id $code $options printedMargins]
