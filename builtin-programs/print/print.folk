@@ -82,8 +82,10 @@ $cc proc tagPsForId {int id} char* {
 set printLib [$cc compile]
 Claim the print library is $printLib
 
-fn codeToPostScript {id code opts {marginsVar {}}} {
+fn codeToPostScript {id code opts {printedMeasurementsVar {}}} {
     # All opts should be passed in as points (1/2834.65 of a meter).
+    # We write marginTop, marginBottom, marginLeft, and marginRight
+    # back into printedMeasurementsVar (also measured in points).
     lassign $opts(pageSize) PageWidth PageHeight
     set tagInnerSideLength $opts(tagInnerSideLength)
     set tagWidth [expr {$tagInnerSideLength * 10.0 / 6}]
@@ -103,24 +105,19 @@ fn codeToPostScript {id code opts {marginsVar {}}} {
     set effLeft   [expr {-$calibTx / $calibScale}]
     set effRight  [expr {($PageWidth - $calibTx) / $calibScale}]
 
-    # Effective margins, measured from the physical paper edge. The
-    # intent of marginTop/etc is "this far from the paper edge". If the
-    # printer's unprintable margin already exceeds that, clamp to the
-    # printable edge (rather than adding the two, which would push
+    # These margins are measured from the physical paper edge. The
+    # intent of marginTop/etc is "this far from the paper edge". If
+    # the printer's unprintable margin already exceeds that, clamp to
+    # the printable edge (rather than adding the two, which would push
     # content way inward).
-    if {$marginsVar ne {}} {
-        upvar $marginsVar effMargins
-    } else {
-        set effMargins {}
-    }
-    set effMargins(top)    [::math::max $marginTop [expr {$PageHeight - $effTop}]]
-    set effMargins(bottom) [::math::max $marginBottom $effBottom]
-    set effMargins(left)   [::math::max $marginLeft $effLeft]
-    set effMargins(right)  [::math::max $marginRight [expr {$PageWidth - $effRight}]]
+    set marginTop [::math::max $marginTop [expr {$PageHeight - $effTop}]]
+    set marginBottom [::math::max $marginBottom $effBottom]
+    set marginLeft [::math::max $marginLeft $effLeft]
+    set marginRight [::math::max $marginRight [expr {$PageWidth - $effRight}]]
 
-    set maxLines [expr {int(($PageHeight - $effMargins(top) - $effMargins(bottom)) / $lineHeight)}]
+    set maxLines [expr {int(($PageHeight - $marginTop - $marginBottom) / $lineHeight)}]
 
-    set lineNumbersRight [expr {$effMargins(left) + $opts(advance)*1.5}]
+    set lineNumbersRight [expr {$marginLeft + $opts(advance)*1.5}]
 
     set lines [split $code "\n"]
 
@@ -131,6 +128,13 @@ fn codeToPostScript {id code opts {marginsVar {}}} {
     while {[llength $lines] > 0} {
         set pageLines [lrange $lines 0 $maxLines-1]
         set lines [lreplace $lines 0 $maxLines-1]
+
+        set adjustmentRingOuterRadius 16
+        set adjustmentRingInnerRadius 10
+        set adjustmentRingCenter \
+            [list [expr {$marginLeft + $adjustmentRingOuterRadius}] \
+                 [expr {$PageHeight - $marginTop -
+                        ([llength $pageLines] + 1.5) * $lineHeight}]]
 
         set pageLineIdx 0
         # The typesetting here is meant to exactly duplicate the
@@ -153,34 +157,63 @@ fn codeToPostScript {id code opts {marginsVar {}}} {
                 incr lineIdx
                 incr pageLineIdx
                 subst {
-                    $lineNumbersRight [expr {$PageHeight-$effMargins(top)-$pageLineIdx*$lineHeight}] moveto
+                    % Line number:
+                    $lineNumbersRight [expr {$PageHeight-$marginTop-$pageLineIdx*$lineHeight}] moveto
                     0.6 setgray ([format "% 3s" $lineIdx])
                     dup stringwidth pop neg 0 rmoveto
                     show
 
-                    [+ $lineNumbersRight $opts(advance)] [expr {$PageHeight-$effMargins(top)-$pageLineIdx*$lineHeight}] moveto
+                    % The line of code itself:
+                    [+ $lineNumbersRight $opts(advance)] [expr {$PageHeight-$marginTop-$pageLineIdx*$lineHeight}] moveto
                     settextcolor ($line) show
                 }
             }] "\n"]
 
-            [expr {[llength $outPages] > 0 ? {} : [subst {
+            % Calibration adjustment ring at bottom of the line number column:
+            [expr {[llength $outPages] == 0 ? [subst {
                 gsave
-                [expr {$PageWidth-$effMargins(right)-$tagWidth-$tagInset}] [expr {$PageHeight-$effMargins(top)-$tagHeight-$tagInset}] translate
+                0 setgray
+                newpath
+                [join $adjustmentRingCenter " "] $adjustmentRingOuterRadius 0 360 arc
+                closepath fill
+                1 setgray
+                newpath
+                [join $adjustmentRingCenter " "] $adjustmentRingInnerRadius 0 360 arc
+                closepath fill
+                grestore
+            }] : {}}]
+
+            [expr {[llength $outPages] > 0 ? {} : [subst {
+                % AprilTag:
+                gsave
+                [expr {$PageWidth-$marginRight-$tagWidth-$tagInset}] [expr {$PageHeight-$marginTop-$tagHeight-$tagInset}] translate
                 $tagWidth $tagHeight scale
                 $image
                 grestore
 
+                % Timestamp:
                 /Helvetica-Narrow findfont
-                7 scalefont
+                8 scalefont
                 setfont
                 newpath
-                [expr {$PageWidth-$effMargins(right)-$tagWidth-$tagInset}] [expr {$PageHeight-$effMargins(top)-$tagHeight-14-$tagInset}] moveto
+                [expr {$PageWidth-$marginRight-$tagWidth-$tagInset}] [expr {$PageHeight-$marginTop-$tagHeight-12-$tagInset}] moveto
                 ($id ([clock format [clock seconds] -format "%a, %d %b %Y, %r"])) show
             }] }]
 
             showpage
         }]
     }
+
+    if {$printedMeasurementsVar ne {}} {
+        upvar $printedMeasurementsVar printedMeasurements
+        set printedMeasurements \
+            [dict create \
+                 marginTop $marginTop \
+                 marginBottom $marginBottom \
+                 marginLeft $marginLeft \
+                 marginRight $marginRight]
+    }
+
     return [join $outPages "\n"]
 }
 Claim the codeToPostScript is [fn codeToPostScript]
@@ -271,8 +304,8 @@ Subscribe: print program /id/ with /...options/ {
             [dict get [lindex $calibTranslationResults 0] translation]
     }
 
-    set printedMargins {}
-    set ps [codeToPostScript $id $code $options printedMargins]
+    set printedMeasurements {}
+    set ps [codeToPostScript $id $code $options printedMeasurements]
 
     # save code and ps to disk
     if {[file exists "$saveDir/$id.folk"]} {
@@ -298,16 +331,18 @@ Subscribe: print program /id/ with /...options/ {
     set border [expr {($tagOut - $tagInn) / 2.0}]
 
     # Geometry should reflect where the tag actually lands on the
-    # paper, so use printedMargins.
-    set gLeft   [expr {($PageWidth - $tagOut - $printedMargins(right) - $tagInset + $border) * $ptmm}]
-    set gRight  [expr {($printedMargins(right) + $tagInset + $border) * $ptmm}]
-    set gTop    [expr {($printedMargins(top) + $tagInset + $border) * $ptmm}]
-    set gBottom [expr {($PageHeight - $tagOut - $printedMargins(top) - $tagInset + $border) * $ptmm}]
+    # paper, so use printedMeasurements. These are the distances from
+    # the edge of the tag to each side of the paper.
+    set gLeft   [expr {($PageWidth - $tagOut - $printedMeasurements(marginRight) - $tagInset + $border) * $ptmm}]
+    set gRight  [expr {($printedMeasurements(marginRight) + $tagInset + $border) * $ptmm}]
+    set gTop    [expr {($printedMeasurements(marginTop) + $tagInset + $border) * $ptmm}]
+    set gBottom [expr {($PageHeight - $tagOut - $printedMeasurements(marginTop) - $tagInset + $border) * $ptmm}]
 
-    # If the first page is sparse enough, assume the user will fold the
-    # page in half vertically and shrink the reported bottom geometry.
+    # If the first page has few enough lines, assume the user will
+    # fold the page in half vertically and shrink the reported bottom
+    # geometry.
     set numLines [llength [split $code "\n"]]
-    set maxLines [expr {int(($PageHeight - $printedMargins(top) - $printedMargins(bottom)) / $lh)}]
+    set maxLines [expr {int(($PageHeight - $printedMeasurements(marginTop) - $printedMeasurements(marginBottom)) / $lh)}]
     set firstPageLines [expr {$numLines < $maxLines ? $numLines : $maxLines}]
     if {$firstPageLines < $maxLines / 2.0} {
         set tagSize [expr {$tagInn * $ptmm}]
@@ -319,10 +354,10 @@ Subscribe: print program /id/ with /...options/ {
         {tagSize %.4gmm left %.4gmm right %.4gmm top %.4gmm bottom %.4gmm lineHeight %.4gmm advance %.4gmm marginTop %.4gmm marginRight %.4gmm marginBottom %.4gmm marginLeft %.4gmm} \
         [expr {$tagInn * $ptmm}] $gLeft $gRight $gTop $gBottom \
         [expr {$lh * $ptmm}] [expr {$adv * $ptmm}] \
-        [expr {$printedMargins(top) * $ptmm}] \
-        [expr {$printedMargins(right) * $ptmm}] \
-        [expr {$printedMargins(bottom) * $ptmm}] \
-        [expr {$printedMargins(left) * $ptmm}]]
+        [expr {$printedMeasurements(marginTop) * $ptmm}] \
+        [expr {$printedMeasurements(marginRight) * $ptmm}] \
+        [expr {$printedMeasurements(marginBottom) * $ptmm}] \
+        [expr {$printedMeasurements(marginLeft) * $ptmm}]]
 
     set fp [open "$saveDir/$id.meta.folk" w]
     puts $fp "Claim tag \$this has geometry \{$geomStr\}"
