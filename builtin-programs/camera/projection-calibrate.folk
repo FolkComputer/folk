@@ -47,8 +47,8 @@ When /someone/ wishes to calibrate projection for 1806 {
          1806 has quad /q/ {
         set outerRadius $geom(adjustmentRingOuterRadius)
         set sliceGeom [dict create \
-            width  [* $outerRadius 4] \
-            height [* $outerRadius 4]]
+            width  [* $outerRadius 2.5] \
+            height [* $outerRadius 2.5]]
         set left [expr {$geom(adjustmentRingLeft) - $sliceGeom(width)  / 2.0}]
         set top  [expr {$geom(adjustmentRingTop)  - $sliceGeom(height) / 2.0}]
 
@@ -60,6 +60,7 @@ When /someone/ wishes to calibrate projection for 1806 {
 
     When the projection calibration library is /detLib/ &\
          the image library is /imageLib/ &\
+         the jpeg library is /jpegLib/ &\
          1806 has resolved geometry /geom/ {
 
         set sliceM [* $geom(adjustmentRingOuterRadius) 4]
@@ -71,10 +72,10 @@ When /someone/ wishes to calibrate projection for 1806 {
         after 300
         ForEach! RING has camera slice /offSlice/ {
             StatementAcquire! $__ref
-            set offRef $__ref
             set off $offSlice
             break
         }
+        $jpegLib saveAsJpeg $off /tmp/ring-off.jpg
 
         # --- frame 2: dot on ---
         Hold! -key [list projection-calibrate ring-dot] \
@@ -85,12 +86,10 @@ When /someone/ wishes to calibrate projection for 1806 {
         after 300
         ForEach! RING has camera slice /onSlice/ {
             StatementAcquire! $__ref
-            set onRef $__ref
             set on $onSlice
             break
         }
-
-        # Hold! -key [list projection-calibrate ring-dot] {}
+        $jpegLib saveAsJpeg $on /tmp/ring-on.jpg
 
         # --- detect ---
         set w [$imageLib Image_width $off]
@@ -106,4 +105,28 @@ When /someone/ wishes to calibrate projection for 1806 {
         puts "projection-calibrate: ring ($ringCx,$ringCy) dot ($dotCx,$dotCy) correction (${dx_m}m, ${dy_m}m)"
         Claim 1806 has projection correction dx $dx_m dy $dy_m
     }
+}
+
+Wish the web server handles route {/ring-off} with handler {
+    set fsize [file size /tmp/ring-off.jpg]
+    set fd [open /tmp/ring-off.jpg r]
+    fconfigure $fd -translation binary
+    set data [read $fd $fsize]
+    close $fd
+    dict create statusAndHeaders "HTTP/1.1 200 OK
+Connection: close
+Content-Type: image/jpeg
+Content-Length: $fsize\n\n" body $data
+}
+
+Wish the web server handles route {/ring-on} with handler {
+    set fsize [file size /tmp/ring-on.jpg]
+    set fd [open /tmp/ring-on.jpg r]
+    fconfigure $fd -translation binary
+    set data [read $fd $fsize]
+    close $fd
+    dict create statusAndHeaders "HTTP/1.1 200 OK
+Connection: close
+Content-Type: image/jpeg
+Content-Length: $fsize\n\n" body $data
 }
