@@ -1,0 +1,165 @@
+# sha1 for stable, content-addressed pipeline names.
+set cc [C]
+$cc include <string.h>
+$cc include <openssl/sha.h>
+$cc proc sha1 {char* d} Jim_Obj* {
+    unsigned char md[20];
+    SHA1((unsigned char *)d, strlen(d), md);
+    return Jim_NewStringObj(interp, (char *)md, 20);
+}
+$cc endcflags -lssl -lcrypto
+set sha1Lib [$cc compile]
+
+When the GPU Vulkan handle type definer is /defineVulkanHandleType/ &\
+     the GPU pipeline library is /pipelineLib/ {
+
+# Custom push-constants encoder, hard-coded for ShaderToy's built-in
+# uniforms. Layout (matches GLSL std430):
+#   offset  0  mat3  surfaceToClip  (3 cols × 4 floats = 48 bytes)
+#   offset 48  vec3  iResolution    (12 bytes + 4 pad to vec4 align)
+#   offset 64  float iTime          (4 bytes)
+#
+# Wish arguments form (passed to encode at draw time):
+#   [list $surfaceToClip $resolution $iTime]
+set cc [C]
+$cc include <string.h>
+$cc include <stdint.h>
+$cc code {
+    // HACK: copied from pipelines.folk
+    typedef struct PushConstantsEncoder {
+        int (*encode)(Jim_Interp* interp, Jim_Obj* obj, uint8_t out[128]);
+    } PushConstantsEncoder;
+
+    typedef struct Args {
+        float surfaceToClip[12];
+        float iResolution[3];
+        float _pad;
+        float iTime;
+    } Args;
+
+    static int encodeToy(Jim_Interp* interp, Jim_Obj* obj, uint8_t out[128]) {
+        Args args = {0};
+
+        // surfaceToClip: 3x3 row-major from Tcl -> column-major with
+        // 1-float padding per column.
+        Jim_Obj* matObj = Jim_ListGetIndex(interp, obj, 0);
+        if (Jim_ListLength(interp, matObj) != 3) return -1;
+        for (int y = 0; y < 3; y++) {
+            Jim_Obj* rowObj = Jim_ListGetIndex(interp, matObj, y);
+            if (Jim_ListLength(interp, rowObj) != 3) return -1;
+            for (int x = 0; x < 3; x++) {
+                double el;
+                if (Jim_GetDouble(interp, Jim_ListGetIndex(interp, rowObj, x), &el) != JIM_OK) return -1;
+                args.surfaceToClip[x * 4 + y] = (float)el;
+            }
+        }
+
+        // iResolution: caller passes {width height}; we synthesize z=1.
+        Jim_Obj* resObj = Jim_ListGetIndex(interp, obj, 1);
+        if (Jim_ListLength(interp, resObj) != 2) return -1;
+        double w, h;
+        if (Jim_GetDouble(interp, Jim_ListGetIndex(interp, resObj, 0), &w) != JIM_OK) return -1;
+        if (Jim_GetDouble(interp, Jim_ListGetIndex(interp, resObj, 1), &h) != JIM_OK) return -1;
+        args.iResolution[0] = (float)w;
+        args.iResolution[1] = (float)h;
+        args.iResolution[2] = 1.0f;
+
+        // iTime: seconds, passed in from Tcl side.
+        double t;
+        if (Jim_GetDouble(interp, Jim_ListGetIndex(interp, obj, 2), &t) != JIM_OK) return -1;
+        args.iTime = (float)t;
+
+        memcpy(out, &args, sizeof(args));
+        return sizeof(args);
+    }
+}
+$cc proc makeToyEncoder {} PushConstantsEncoder* {
+    PushConstantsEncoder* e = malloc(sizeof(PushConstantsEncoder));
+    e->encode = encodeToy;
+    return e;
+}
+$cc proc getToyArgsSize {} int { return sizeof(Args); }
+set toyEncoderLib [$cc compile]
+
+set toyEncoder [$toyEncoderLib makeToyEncoder]
+set toyArgsSize [$toyEncoderLib getToyArgsSize]
+
+# Run glslc as a subprocess to turn GLSL into SPIR-V words.
+fn toyGlslc {stage glsl} {
+    set glslfile [file tempfile /tmp/toyshaderXXXXXX].glsl
+    set glslfd [open $glslfile w]; puts $glslfd $glsl; close $glslfd
+    split [string map {\n ""} [exec glslc -fshader-stage=$stage -mfmt=num -o - $glslfile]] ","
+}
+
+set toyPushConstantsBlock {
+    layout(push_constant) uniform Args {
+        mat3 surfaceToClip;
+        vec3 iResolution;
+        float iTime;
+    } args;
+}
+
+When /someone/ wishes /p/ draws toy shader /shaderCode/ {
+    binary scan [$sha1Lib sha1 $shaderCode] H* sha1
+
+    set vertGlsl [csubst {
+        #version 450
+
+        $toyPushConstantsBlock
+
+        layout(location = 0) out vec2 vUv;
+
+        void main() {
+            vec2 vertices[6] = vec2[6](
+                vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(1.0, 1.0),
+                vec2(0.0, 0.0), vec2(1.0, 1.0), vec2(0.0, 1.0)
+            );
+            vec2 uv = vertices[gl_VertexIndex];
+            vUv = uv;
+            vec3 v = args.surfaceToClip * vec3(uv, 1.0);
+            gl_Position = vec4(v.xy/v.z, 0.0, 1.0);
+        }
+    }]
+
+    set fragGlsl [csubst {
+        #version 450
+
+        $toyPushConstantsBlock
+
+        layout(location = 0) in vec2 vUv;
+        layout(location = 0) out vec4 outColor;
+
+        // Expose ShaderToy's built-in uniforms by the names user code expects.
+        #define iResolution args.iResolution
+        #define iTime args.iTime
+
+        $shaderCode
+
+        void main() {
+            vec2 fragCoord = vUv * iResolution.xy;
+            vec4 fragColor = vec4(0.0);
+            mainImage(fragColor, fragCoord);
+            // Premultiplied alpha, matching pipelines.folk.
+            outColor = vec4(fragColor.rgb * fragColor.a, fragColor.a);
+        }
+    }]
+
+    set vertShaderModule [$pipelineLib createShaderModule [toyGlslc vert $vertGlsl]]
+    set fragShaderModule [$pipelineLib createShaderModule [toyGlslc frag $fragGlsl]]
+
+    set pipeline [$pipelineLib createPipeline \
+                      $vertShaderModule $fragShaderModule \
+                      $toyEncoder $toyArgsSize]
+
+    Claim the GPU compiles pipeline $sha1 to $pipeline
+
+    When $p has canvas /id/ with /...wiOptions/ &\
+         $p has canvas projection /surfaceToClip/ &\
+         the clock time is /t/ {
+        set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
+        Wish the GPU draws pipeline $sha1 onto canvas $id \
+            with arguments [list $surfaceToClip $wiResolution $t]
+    }
+}
+
+}
