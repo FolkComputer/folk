@@ -41,10 +41,9 @@ When the image library is /imageLib/ {
     Claim the projection calibration library is [$cc compile]
 }
 
-When /someone/ wishes to calibrate projection for 1806 {
+When /someone/ wishes to calibrate projection for /p/ {
     When the quad library is /quadLib/ &\
-         1806 has resolved geometry /geom/ &\
-         1806 has quad /q/ {
+         $p has resolved geometry /geom/ {
         set outerRadius $geom(adjustmentRingOuterRadius)
         set sliceGeom [dict create \
             width  [* $outerRadius 2.5] \
@@ -53,39 +52,42 @@ When /someone/ wishes to calibrate projection for 1806 {
         set top  [expr {$geom(adjustmentRingTop)  - $sliceGeom(height) / 2.0}]
 
         Claim RING has resolved geometry $sliceGeom
-        set sq [$quadLib alignGeometry $q $sliceGeom]
-        set sq [$quadLib move $sq down ${top}m right ${left}m]
-        Claim RING has quad $sq
+        When $p has quad /q/ {
+            set sq [$quadLib alignGeometry $q $sliceGeom]
+            set sq [$quadLib move $sq down ${top}m right ${left}m]
+            Claim RING has quad $sq
+        }
     }
 
     When the projection calibration library is /detLib/ &\
          the image library is /imageLib/ &\
          the jpeg library is /jpegLib/ &\
-         1806 has resolved geometry /geom/ {
+         $p has resolved geometry /geom/ {
 
         set sliceM [* $geom(adjustmentRingOuterRadius) 4]
 
         # ensure RING slice is being computed
-        Hold! -key [list projection-calibrate ring-slice] Wish RING has camera slice
+        Wish RING has camera slice
 
         # --- frame 1: dot off ---
         after 300
         ForEach! RING has camera slice /offSlice/ {
             StatementAcquire! $__ref
+            set offRef $__ref
             set off $offSlice
             break
         }
         $jpegLib saveAsJpeg $off /tmp/ring-off.jpg
 
         # --- frame 2: dot on ---
-        Hold! -key [list projection-calibrate ring-dot] \
-            Wish to draw a circle onto 1806 with \
-                x $geom(adjustmentRingLeft) y $geom(adjustmentRingTop) \
-                radius [/ $geom(adjustmentRingInnerRadius) 2] \
-                thickness 0 color white filled true
+        Wish to draw a circle onto $p with \
+            x $geom(adjustmentRingLeft) y $geom(adjustmentRingTop) \
+            radius [/ $geom(adjustmentRingInnerRadius) 2] \
+            thickness 0 color white filled true
         after 300
         ForEach! RING has camera slice /onSlice/ {
             StatementAcquire! $__ref
+            set onRef $__ref
             set on $onSlice
             break
         }
@@ -103,7 +105,49 @@ When /someone/ wishes to calibrate projection for 1806 {
         set dx_m [expr {($ringCx - $dotCx) * $sliceM / $w}]
         set dy_m [expr {($ringCy - $dotCy) * $sliceM / $h}]
         puts "projection-calibrate: ring ($ringCx,$ringCy) dot ($dotCx,$dotCy) correction (${dx_m}m, ${dy_m}m)"
-        Claim 1806 has projection correction dx $dx_m dy $dy_m
+        Claim $p has projection correction dx $dx_m dy $dy_m
+
+        Wish the web server handles route {/ring-report} with handler {
+            set hdr [subst {<!DOCTYPE html><html><head><title>Ring Report</title>
+<style>body{font-family:monospace;padding:1em;}.row{display:flex;gap:12px;}canvas{border:1px solid #ccc;image-rendering:pixelated;width:240px;height:240px;}h4{margin:4px 0;}</style>
+</head><body>
+<h3>Ring Calibration Report</h3>
+<p>Ring: ([format %.2f $ringCx], [format %.2f $ringCy]) &amp;nbsp; Dot: ([format %.2f $dotCx], [format %.2f $dotCy]) &amp;nbsp; Offset: ([format %.2f [expr {$ringCx-$dotCx}]], [format %.2f [expr {$ringCy-$dotCy}]]) px</p>
+<div class="row">
+  <div><h4>Off</h4><canvas id="cOff"></canvas></div>
+  <div><h4>On</h4><canvas id="cOn"></canvas></div>
+  <div><h4>Diff x5</h4><canvas id="cDiff"></canvas></div>
+</div>
+<img id="imgOff" src="/ring-off" style="display:none">
+<img id="imgOn"  src="/ring-on"  style="display:none">
+<script>var ringCx=$ringCx,ringCy=$ringCy,dotCx=$dotCx,dotCy=$dotCy;</script>}]
+            html [string cat $hdr {<script>
+function cross(ctx,x,y,col){ctx.strokeStyle=col;ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(x-7,y);ctx.lineTo(x+7,y);ctx.moveTo(x,y-7);ctx.lineTo(x,y+7);ctx.stroke();}
+var imgOff=document.getElementById('imgOff'),imgOn=document.getElementById('imgOn'),ready=0;
+function onReady(){
+  if(++ready<2)return;
+  var W=imgOff.naturalWidth,H=imgOff.naturalHeight;
+  ['cOff','cOn','cDiff'].forEach(function(id){var c=document.getElementById(id);c.width=W;c.height=H;});
+  var ctxOff=document.getElementById('cOff').getContext('2d');
+  var ctxOn=document.getElementById('cOn').getContext('2d');
+  var ctxDiff=document.getElementById('cDiff').getContext('2d');
+  ctxOff.drawImage(imgOff,0,0);
+  ctxOn.drawImage(imgOn,0,0);
+  var dOff=ctxOff.getImageData(0,0,W,H).data;
+  var dOn=ctxOn.getImageData(0,0,W,H).data;
+  var diff=ctxDiff.createImageData(W,H);
+  for(var i=0;i<diff.data.length;i+=4){
+    for(var c=0;c<3;c++){var d=dOn[i+c]-dOff[i+c];diff.data[i+c]=d>0?Math.min(255,d*5):0;}
+    diff.data[i+3]=255;
+  }
+  ctxDiff.putImageData(diff,0,0);
+  cross(ctxOff,ringCx,ringCy,'red');
+  cross(ctxOn,ringCx,ringCy,'red');cross(ctxOn,dotCx,dotCy,'cyan');
+  cross(ctxDiff,ringCx,ringCy,'red');cross(ctxDiff,dotCx,dotCy,'cyan');
+}
+imgOff.onload=onReady;imgOn.onload=onReady;
+</script></body></html>}]
+        }
     }
 }
 
