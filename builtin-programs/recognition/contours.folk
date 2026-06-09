@@ -55,10 +55,15 @@ When the image library is /imageLib/ {
     Claim the contour library is $contourLib
 }
 
+When /someone/ wishes /p/ has contours {
+    Wish $p has contours with threshold 128 epsilon 1.0
+}
 When the contour library is /contourLib/ &\
-     /someone/ wishes /p/ has contours {
+     /someone/ wishes /p/ has contours with /...opts/ {
     Wish $p has camera slice
     When -serially $p has camera slice /s/ {
-        Claim $p has contours [$contourLib findImageContours $s 128 1.0]
+        Claim $p has contours [$contourLib findImageContours $s \
+                                   $opts(threshold) $opts(epsilon)] \
+            with {*}$opts
     }
 }
