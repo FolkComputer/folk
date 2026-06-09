@@ -15,8 +15,9 @@ When the GPU Vulkan handle type definer is /defineVulkanHandleType/ &\
 
 # Custom push-constants encoder for ShaderToy uniforms.
 # Layout (std430):
-#   offset  0  vec3  iResolution    (12 bytes + 4 pad)
-#   offset 16  float iTime          (4 bytes)
+#   offset  0  vec3  iResolution    (12 bytes — no trailing pad,
+#                                    since the next member is a scalar)
+#   offset 12 float iTime          (4 bytes)
 #
 # Wish arguments: [list $resolution $iTime]
 set cc [C]
@@ -30,7 +31,6 @@ $cc code {
 
     typedef struct Args {
         float iResolution[3];
-        float _pad;
         float iTime;
     } Args;
 
@@ -134,11 +134,12 @@ When /someone/ wishes /p/ draws toy shader /shaderCode/ {
 
     Claim the GPU compiles pipeline $sha1 to $pipeline
 
+    set startTime [/ [clock microseconds] 1000000.0]
     When $p has canvas /id/ with /...wiOptions/ &\
          the clock time is /t/ {
         set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
         Wish the GPU draws pipeline $sha1 onto canvas $id \
-            with arguments [list $wiResolution $t]
+            with arguments [list $wiResolution [- $t $startTime]]
     }
 }
 
