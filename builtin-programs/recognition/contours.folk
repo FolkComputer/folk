@@ -1,0 +1,64 @@
+When the image library is /imageLib/ {
+    set cc [C]
+    $cc extend $imageLib
+    $cc cflags -I.
+    $cc include "vendor/CContour.c"
+
+    # Binarizes the first channel of `im` at `threshold` and returns the
+    # contours as a Tcl list. Each contour is itself a Tcl list of
+    # {x y} pairs. If epsilon > 0, each contour is simplified with
+    # Ramer-Douglas-Peucker.
+    $cc proc findImageContours {Image im int threshold double epsilon} Jim_Obj* {
+        int w = (int)im.width;
+        int h = (int)im.height;
+        if (w < 3 || h < 3) return Jim_NewListObj(interp, NULL, 0);
+
+        int *F = malloc(sizeof(int) * (size_t)w * (size_t)h);
+        for (int y = 0; y < h; y++) {
+            uint8_t *row = im.data + (size_t)y * im.bytesPerRow;
+            int *Frow = F + (size_t)y * w;
+            for (int x = 0; x < w; x++) {
+                Frow[x] = (row[x * im.components] > threshold) ? 1 : 0;
+            }
+        }
+
+        Contour *contours = findContours(F, w, h);
+        free(F);
+
+        Jim_Obj *outer = Jim_NewListObj(interp, NULL, 0);
+        for (ptrdiff_t c = 0; c < arrlen(contours); c++) {
+            Point *pts = (epsilon > 0)
+                ? approxPolyDP(contours[c].points, (float)epsilon)
+                : contours[c].points;
+            ptrdiff_t n = arrlen(pts);
+
+            // Upper bound: "{-2147483648 -2147483648} " is 26 chars; round up.
+            size_t cap = (size_t)n * 28 + 1;
+            char *buf = malloc(cap);
+            size_t off = 0;
+            for (ptrdiff_t k = 0; k < n; k++) {
+                off += snprintf(buf + off, cap - off,
+                                k == 0 ? "{%d %d}" : " {%d %d}",
+                                pts[k].x, pts[k].y);
+            }
+            // Jim_NewStringObjNoAlloc takes ownership of buf.
+            Jim_ListAppendElement(interp, outer,
+                Jim_NewStringObjNoAlloc(interp, buf, (int)off));
+
+            if (epsilon > 0) arrfree(pts);
+        }
+        freeContours(contours);
+        return outer;
+    }
+
+    set contourLib [$cc compile]
+    Claim the contour library is $contourLib
+}
+
+When the contour library is /contourLib/ &\
+     /someone/ wishes /p/ has contours {
+    Wish $p has camera slice
+    When -serially $p has camera slice /s/ {
+        Claim $p has contours [$contourLib findImageContours $s 128 1.0]
+    }
+}
