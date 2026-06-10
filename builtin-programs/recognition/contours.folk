@@ -4,11 +4,19 @@ When the image library is /imageLib/ {
     $cc cflags -I.
     $cc include "vendor/CContour.c"
 
-    # Binarizes the first channel of `im` at `threshold` and returns the
-    # contours as a Tcl list. Each contour is itself a Tcl list of
+    # Binarizes the first channel of `im` at `threshold` and returns
+    # the contours as a Tcl list. Each contour is itself a Tcl list of
     # {x y} pairs. If epsilon > 0, each contour is simplified with
     # Ramer-Douglas-Peucker.
-    $cc proc findImageContours {Image im int threshold double epsilon} Jim_Obj* {
+    #
+    # Contours are scaled by `scaleX` and `scaleY` so that they can be
+    # returned in real-world meters (instead of image-pixel space).
+    #
+    # Discards any contours that are not at least minLength long
+    # (unless minLength is very small).
+    $cc proc findImageContours {Image im int threshold double epsilon
+                                double scaleX double scaleY
+                                double minLength} Jim_Obj* {
         int w = (int)im.width;
         int h = (int)im.height;
         if (w < 3 || h < 3) return Jim_NewListObj(interp, NULL, 0);
@@ -32,14 +40,14 @@ When the image library is /imageLib/ {
                 : contours[c].points;
             ptrdiff_t n = arrlen(pts);
 
-            // Upper bound: "{-2147483648 -2147483648} " is 26 chars; round up.
-            size_t cap = (size_t)n * 28 + 1;
+            // %g prints up to ~13 chars per double; round up to give headroom.
+            size_t cap = (size_t)n * 40 + 1;
             char *buf = malloc(cap);
             size_t off = 0;
             for (ptrdiff_t k = 0; k < n; k++) {
                 off += snprintf(buf + off, cap - off,
-                                k == 0 ? "{%d %d}" : " {%d %d}",
-                                pts[k].x, pts[k].y);
+                                k == 0 ? "{%g %g}" : " {%g %g}",
+                                pts[k].x * scaleX, pts[k].y * scaleY);
             }
             // Jim_NewStringObjNoAlloc takes ownership of buf.
             Jim_ListAppendElement(interp, outer,
@@ -56,14 +64,22 @@ When the image library is /imageLib/ {
 }
 
 When /someone/ wishes /p/ has contours {
-    Wish $p has contours with threshold 128 epsilon 1.0
+    Wish $p has contours with _ {}
 }
 When the contour library is /contourLib/ &\
      /someone/ wishes /p/ has contours with /...opts/ {
     Wish $p has camera slice
-    When -serially $p has camera slice /s/ {
+    When $p has resolved geometry /geom/ &\
+         $p has camera slice /s/ {
+        set scaleX [/ $geom(width) $s(width)]
+        set scaleY [/ $geom(height) $s(height)]
+        set threshold [dict getdef $opts threshold 128]
+        set epsilon [dict getdef $opts epsilon 3.0]
+        set minLength [dict getdef $opts minLength 0.0]
         Claim $p has contours [$contourLib findImageContours $s \
-                                   $opts(threshold) $opts(epsilon)] \
+                                   $threshold $epsilon \
+                                   $scaleX $scaleY \
+                                   $minLength] \
             with {*}$opts
     }
 }
