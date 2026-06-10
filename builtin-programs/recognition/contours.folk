@@ -40,6 +40,19 @@ When the image library is /imageLib/ {
                 : contours[c].points;
             ptrdiff_t n = arrlen(pts);
 
+            if (minLength > 0.0001) {
+                double total = 0;
+                for (ptrdiff_t k = 1; k < n; k++) {
+                    double dx = (pts[k].x - pts[k-1].x) * scaleX;
+                    double dy = (pts[k].y - pts[k-1].y) * scaleY;
+                    total += sqrt(dx*dx + dy*dy);
+                }
+                if (total < minLength) {
+                    if (epsilon > 0) arrfree(pts);
+                    continue;
+                }
+            }
+
             // %g prints up to ~13 chars per double; round up to give headroom.
             size_t cap = (size_t)n * 40 + 1;
             char *buf = malloc(cap);
