@@ -81,7 +81,7 @@ set toyPushConstantsBlock {
     } args;
 }
 
-When /someone/ wishes /p/ draws toy shader /shaderCode/ {
+When /wisher/ wishes /p/ draws toy shader /shaderCode/ {
     binary scan [$sha1Lib sha1 $shaderCode] H* sha1
 
     set vertGlsl [csubst {
@@ -125,8 +125,13 @@ When /someone/ wishes /p/ draws toy shader /shaderCode/ {
         }
     }]
 
-    set vertShaderModule [$pipelineLib createShaderModule [toyGlslc vert $vertGlsl]]
-    set fragShaderModule [$pipelineLib createShaderModule [toyGlslc frag $fragGlsl]]
+    try {
+        set vertShaderModule [$pipelineLib createShaderModule [toyGlslc vert $vertGlsl]]
+        set fragShaderModule [$pipelineLib createShaderModule [toyGlslc frag $fragGlsl]]
+    } on error e {
+        puts stderr "Error compiling toy shader: [errorInfo $e]"
+        Claim $wisher has error $e with info [errorInfo $e]
+    }
 
     set pipeline [$pipelineLib createPipeline \
                       $vertShaderModule $fragShaderModule \
