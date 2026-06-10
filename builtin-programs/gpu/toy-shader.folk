@@ -119,7 +119,7 @@ When /wisher/ wishes /p/ draws toy shader /shaderCode/ {
         #define iResolution args.iResolution
         #define iTime args.iTime
 
-        #line $wishLine $wishFile
+        #line $wishLine "$wishFile"
         $shaderCode
 
         void main() {
