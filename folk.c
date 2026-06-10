@@ -519,6 +519,37 @@ static int StatementReleaseFunc(Jim_Interp *interp, int argc, Jim_Obj *const *ar
     statementRelease(db, statementUnsafeGet(db, ref));
     return JIM_OK;
 }
+static int __statementOfCurrentMatchSourceInfoFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 1);
+    StatementRef stmtRef = STATEMENT_REF_NULL;
+    mutexLock(&self->currentItemMutex);
+    if (self->currentItem.op == RUN_WHEN) {
+        stmtRef = self->currentItem.runWhen.stmt;
+    }
+    mutexUnlock(&self->currentItemMutex);
+
+    if (statementRefIsNull(stmtRef)) {
+        Jim_SetEmptyResult(interp);
+        return JIM_OK;
+    }
+
+    Statement* stmt = statementAcquire(db, stmtRef);
+    if (stmt == NULL) {
+        Jim_SetEmptyResult(interp);
+        return JIM_OK;
+    }
+
+    const char* fileName = statementSourceFileName(stmt);
+    int lineNumber = statementSourceLineNumber(stmt);
+    Jim_Obj* result[2] = {
+        Jim_NewStringObj(interp, fileName ? fileName : "", -1),
+        Jim_NewIntObj(interp, lineNumber),
+    };
+    Jim_SetResult(interp, Jim_NewListObj(interp, result, 2));
+
+    statementRelease(db, stmt);
+    return JIM_OK;
+}
 
 static int __scanVariableFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
@@ -681,6 +712,7 @@ static void interpBoot() {
 
     Jim_CreateCommand(interp, "StatementAcquire!", StatementAcquireFunc, NULL, NULL);
     Jim_CreateCommand(interp, "StatementRelease!", StatementReleaseFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__statementOfCurrentMatchSourceInfo", __statementOfCurrentMatchSourceInfoFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "__scanVariable", __scanVariableFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__variableNameIsNonCapturing", __variableNameIsNonCapturingFunc, NULL, NULL);

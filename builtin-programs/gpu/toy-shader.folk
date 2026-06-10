@@ -102,6 +102,11 @@ When /wisher/ wishes /p/ draws toy shader /shaderCode/ {
         }
     }]
 
+    # Attribute glslc errors back to the wisher's .folk source by
+    # pulling source info off the matched `Wish X draws toy shader`
+    # statement.
+    lassign [__statementOfCurrentMatchSourceInfo] wishFile wishLine
+    if {$wishLine eq {}} { set wishLine 1 }
     set fragGlsl [csubst {
         #version 450
 
@@ -114,6 +119,7 @@ When /wisher/ wishes /p/ draws toy shader /shaderCode/ {
         #define iResolution args.iResolution
         #define iTime args.iTime
 
+        #line $wishLine $wishFile
         $shaderCode
 
         void main() {
