@@ -32,22 +32,22 @@ Wish the GPU compiles pipeline "arc" [list \
             return vec4(0.0);
         }]]
 
-        When the color map is /colorMap/ &\
-            /p/ has canvas /id/ with /...wiOptions/ &\
-            /p/ has canvas projection /surfaceToClip/ &\
-            /someone/ wishes to draw an arc onto /p/ with /...options/ {
-                set center [dict getdef $options center ""]
-                if {$center eq ""} { set center [list [dict get $options x] [dict get $options y]] }
-                set radius [dict get $options radius]
-                set thickness [dict get $options thickness]
-                set start [dict get $options start]
-                set arclen [dict get $options arclen]
-                set color [dict get $options color]
-                set color [dict getdef $colorMap $color $color]
-                set layer [dict getdef $options layer 0]
-                set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
-                Wish the GPU draws pipeline "arc" onto canvas $id with arguments \
-                    [list $wiResolution $surfaceToClip \
-                    $center $radius $thickness $start $arclen $color] \
-                    layer $layer
-            }
+When the color map is /colorMap/ &\
+    /p/ has canvas /id/ with /...wiOptions/ &\
+    /p/ has canvas projection /surfaceToClip/ &\
+    /someone/ wishes to draw an arc onto /p/ with /...options/ {
+        set center [dict getdef $options center ""]
+        if {$center eq ""} { set center [list [dict get $options x] [dict get $options y]] }
+        set radius [dict get $options radius]
+        set thickness [dict get $options thickness]
+        set start [dict get $options start]
+        set arclen [dict get $options arclen]
+        set color [dict get $options color]
+        set color [dict getdef $colorMap $color $color]
+        set layer [dict getdef $options layer 0]
+        set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
+        Wish the GPU draws pipeline "arc" onto canvas $id with arguments \
+            [list $wiResolution $surfaceToClip \
+            $center $radius $thickness $start $arclen $color] \
+            layer $layer
+    }

@@ -26,40 +26,30 @@ Wish the GPU compiles pipeline "circle" {
     When the color map is /colorMap/ &\
         /p/ has canvas /id/ with /...wiOptions/ &\
         /p/ has canvas projection /surfaceToClip/ &\
-        the collected results for [list /someone/ wishes to draw a circle onto /canvas/ with /...options/] are /results/ {
+        /someone/ wishes to draw a circle onto /p/ with /...options/ {
             set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
-            set instancesByLayer [dict create]
-
-            foreach result $results {
-                if {[dict get $result canvas] ne $p} { continue }
-                set options [dict get $result options]
-                set center [dict getdef $options center ""]
-                if {$center eq ""} {
-                    set center [list [dict get $options x] [dict get $options y]]
-                }
-
-                set radius [dict get $options radius]
-                set thickness [dict getdef $options thickness 0]
-                set color [dict get $options color]
-                set color [dict getdef $colorMap $color $color]
-                set filled [drawTruthy [dict getdef $options filled false]]
-                set layer [dict getdef $options layer 0]
-
-                if {$filled} {
-                    set innerRadius 0.0
-                } else {
-                    set innerRadius $radius
-                }
-                set outerRadius [expr {$radius + $thickness}]
-
-
-                dict lappend instancesByLayer $layer \
-                    [list $wiResolution $surfaceToClip \
-                    $center $innerRadius $outerRadius $color]
+            
+            set center [dict getdef $options center ""]
+            if {$center eq ""} {
+                set center [list [dict get $options x] [dict get $options y]]
             }
 
-            dict for {layer instances} $instancesByLayer {
-                Wish the GPU draws pipeline "circle" onto canvas $id \
-                    with instances $instances layer $layer
+            set radius [dict get $options radius]
+            set thickness [dict getdef $options thickness 0]
+            set color [dict get $options color]
+            set color [dict getdef $colorMap $color $color]
+            set filled [drawTruthy [dict getdef $options filled false]]
+            set layer [dict getdef $options layer 0]
+
+            if {$filled} {
+                set innerRadius 0.0
+            } else {
+                set innerRadius $radius
             }
+            set outerRadius [expr {$radius + $thickness}]
+
+            Wish the GPU draws pipeline "circle" onto canvas $id with arguments \
+                [list $wiResolution $surfaceToClip \
+                $center $innerRadius $outerRadius $color] \
+                layer $layer
         }
