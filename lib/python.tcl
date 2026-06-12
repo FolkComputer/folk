@@ -65,7 +65,7 @@ cc::proc sockRecvMulti {int fd} Jim_Obj* {
 # These need to be maintained in C so that they can be written and
 # read from multiple threads (any thread may call into the Python
 # module at any time).
-cc::code {
+cc::addcode {
     // This C module is global, so we need to maintain a separate
     // functions/registeredArgtypes per uvx (per endpoint).
 

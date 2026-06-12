@@ -39,7 +39,6 @@ fn csubst {s} {
                         if {$bracketcount == 0} { break }
                     }
                     set script [string range $tail 1 [- $j 1]]
-                    puts "Script about to run: $script"
                     lappend result [uplevel $script]
                     incr i [expr {$j+1}]
                 }
@@ -146,7 +145,7 @@ set C {
                         // First, try to read the obj as a raw pointer.
                         if (sscanf(Jim_String($obj), "($argtype) 0x%p", &$argname) != 1) {
                             // No? Then try to coerce to a Tcl object.
-#if $[dict exists $objtypes $basetype]
+#if $[dict exists $self::objtypes $basetype]
                                 __ENSURE_OK($[set basetype]_setFromAnyProc(interp, $obj));
                                 $argname = $obj->internalRep.ptrIntValue.ptr;
 #else
@@ -169,7 +168,7 @@ set C {
                     $basetype $argname[$[set argname]_objc];
                     {
                         for (int i = 0; i < $[set argname]_objc; i++) {
-                            $[$self arg $basetype ${argname}_i "Jim_ListGetIndex(interp, $obj, i)"]
+                            $[self::arg $basetype ${argname}_i "Jim_ListGetIndex(interp, $obj, i)"]
                             $argname[i] = $[set argname]_i;
                         }
                     }
@@ -180,7 +179,7 @@ set C {
                     $basetype $argname[$[set argname]_objc][$arraylen2];
                     {
                         for (int j = 0; j < $[set argname]_objc; j++) {
-                            $[$self arg $basetype\[\] ${argname}_j "Jim_ListGetIndex(interp, $obj, j)"]
+                            $[self::arg $basetype\[\] ${argname}_j "Jim_ListGetIndex(interp, $obj, j)"]
                             memcpy(${argname}[j], ${argname}_j, sizeof(${argname}_j));
                         }
                     }
@@ -220,7 +219,7 @@ set C {
                     {
                         Jim_Obj* objv[$arraylen];
                         for (int i = 0; i < $arraylen; i++) {
-                            $[$self ret $basetype objv\[i\] $rvalue\[i\]]
+                            $[self::ret $basetype objv\[i\] $rvalue\[i\]]
                         }
                         $robj = Jim_NewListObj(interp, objv, $arraylen);
                     }
@@ -231,7 +230,7 @@ set C {
                         for (int i = 0; i < $arraylen; i++) {
                             $basetype* rrow = $rvalue[i];
                             Jim_Obj** objrow = &objv[i];
-                            $[$self ret ${basetype}\[${arraylen2}\] *objrow rrow]
+                            $[self::ret ${basetype}\[${arraylen2}\] *objrow rrow]
                         }
                         $robj = Jim_NewListObj(interp, objv, $arraylen);
                     }
@@ -259,8 +258,8 @@ method C::argtype {self t h} {
 }
 # Looks up the argtype and returns C code to convert it.
 method C::arg {self argtype argname obj} {
-    csubst [eval [dict getdef $argtypes $argtype \
-                      [dict get $argtypes default]]]
+    csubst [eval [dict getdef $self::argtypes $argtype \
+                      [dict get $self::argtypes default]]]
 }
 
 # Registers a new rtype.
@@ -268,8 +267,8 @@ method C::rtype {self t h} {
     dict set rtypes $t [csubst {expr {{$h}}}]
 }
 method C::ret {self rtype robj rvalue} {
-    csubst [eval [dict getdef $rtypes $rtype \
-                      [dict get $rtypes default]]]
+    csubst [eval [dict getdef $self::rtypes $rtype \
+                      [dict get $self::rtypes default]]]
 }
 
 method C::include {self h} {
@@ -285,7 +284,7 @@ method C::include {self h} {
     }
 }
 
-method C::code {self newcode} {
+method C::addcode {self newcode} {
     lassign [info source $newcode] filename line
     if {$filename ne ""} { 
         set newcode [subst {
@@ -320,19 +319,19 @@ method C::define {self newvars} {
 }
 
 method C::enum {self type values} {
-    lappend code [subst {
+    lappend self::code [subst {
         typedef enum $type $type;
         enum $type {$values};
     }] :extend
 
     regsub -all {,} $values "" values
     argtype $type [dict get $argtypes int]
-    rtype $type [dict get $rtypes int]
+    rtype $type [dict get $self::rtypes int]
 }
 
 method C::typedef {self t newt {emitC true}} {
     if {$emitC} {
-        lappend code "typedef $t $newt;" :extend
+        lappend self::code "typedef $t $newt;" :extend
     }
     set argtype $t; set rtype $t
 
@@ -340,21 +339,21 @@ method C::typedef {self t newt {emitC true}} {
     # opaque pointers where c.tcl doesn't know the actual struct
     # definition.
     try {
-        $self argtype $newt [eval [dict getdef $argtypes $argtype \
+        self::argtype $newt [eval [dict getdef $argtypes $argtype \
                                        [dict get $argtypes default]]]
     } on error e {
         # puts stderr "C typedef: $e"
     }
     try {
-        $self rtype $newt [eval [dict getdef $rtypes $rtype \
-                                     [dict get $rtypes default]]]
+        self::rtype $newt [eval [dict getdef $self::rtypes $rtype \
+                                     [dict get $self::rtypes default]]]
     } on error e {
         # puts stderr "C typedef: $e"
     }
 }
 
 method C::struct {self type fields} {
-    lappend code [subst {
+    lappend self::code [subst {
         typedef struct $type $type;
         struct $type {$fields};
     }] :extend
@@ -376,7 +375,7 @@ method C::struct {self type fields} {
         lset fields $i+1 $fieldname
     }
 
-    $self include <string.h>
+    self::include <string.h>
     # ptrAndLongRep.value = 1 means the data is owned by
     # the Jim_ObjType and should be freed by this
     # code. value = 0 means the data is owned externally
@@ -406,7 +405,7 @@ method C::struct {self type fields} {
             $[join [lmap {fieldtype fieldname} $fields {
                 csubst {
                     Jim_Obj* robj_$fieldname;
-                    $[$self ret $fieldtype robj_$fieldname robj->$fieldname]
+                    $[self::ret $fieldtype robj_$fieldname robj->$fieldname]
                 }
             }] "\n"]
             objPtr->length = snprintf(NULL, 0, format, $[join [lmap fieldname $fieldnames {expr {"Jim_String(robj_$fieldname)"}}] ", "]);
@@ -431,7 +430,7 @@ method C::struct {self type fields} {
                     }
                     __ENSURE_OK(Jim_DictKey(interp, objPtr, k__$[set type]__$fieldname, &obj_$fieldname, JIM_ERRMSG));
 
-                    $[$self arg $fieldtype robj_$fieldname obj_${fieldname}]
+                    $[self::arg $fieldtype robj_$fieldname obj_${fieldname}]
                     memcpy(&robj->$fieldname, &robj_$fieldname, sizeof(robj->$fieldname));
                 }
             }] "\n"]
@@ -463,13 +462,13 @@ method C::struct {self type fields} {
         }
     }]
 
-    $self argtype $type [csubst {
+    self::argtype $type [csubst {
         __ENSURE_OK($[set type]_setFromAnyProc(interp, \$obj));
         \$argtype \$argname;
         \$argname = *(($type *)\$obj->internalRep.ptrIntValue.ptr);
     }]
 
-    $self rtype $type {
+    self::rtype $type {
         $robj = Jim_NewObj(interp);
         $robj->bytes = NULL;
         $robj->typePtr = $[set rtype]_ObjType;
@@ -486,13 +485,13 @@ method C::struct {self type fields} {
             if {$fieldtype ne "Jim_Obj*" &&
                 [regexp {(^[^\[]+)(?:\[(\d*)\]|\*)(?:\[(\d+)\])?$} $fieldtype -> basefieldtype arraylen arraylen2]} {
                 if {$basefieldtype eq "char"} {
-                    $self proc ${type}_$fieldname {Jim_Interp* interp Jim_Obj* obj} char* {
+                    self::proc ${type}_$fieldname {Jim_Interp* interp Jim_Obj* obj} char* {
                         __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
                         return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname;
                     }
                 } else {
                     if {$arraylen2 eq ""} {
-                        $self proc ${type}_${fieldname}_ptr {Jim_Interp* interp Jim_Obj* obj} $basefieldtype* {
+                        self::proc ${type}_${fieldname}_ptr {Jim_Interp* interp Jim_Obj* obj} $basefieldtype* {
                             __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
                             return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname;
                         }
@@ -502,13 +501,13 @@ method C::struct {self type fields} {
                     }
                     # If fieldtype is a pointer or an array,
                     # then make a getter that takes an index.
-                    $self proc ${type}_$fieldname {Jim_Interp* interp Jim_Obj* obj int idx} $elementtype {
+                    self::proc ${type}_$fieldname {Jim_Interp* interp Jim_Obj* obj int idx} $elementtype {
                         __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
                         return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname[idx];
                     }
                 }
             } else {
-                $self proc ${type}_$fieldname {Jim_Interp* interp Jim_Obj* obj} $fieldtype {
+                self::proc ${type}_$fieldname {Jim_Interp* interp Jim_Obj* obj} $fieldtype {
                     __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
                     return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname;
                 }
@@ -539,7 +538,8 @@ method C::proc {self name arguments rtype body} {
         if {$argtype eq "Zicl_Interp*" && $argname eq "interp"} { continue }
 
         set obj [subst {objv\[1 + [llength $loadargs]\]}]
-        lappend loadargs [$self arg {*}[typestyle $argtype $argname] $obj]
+        set res [typestyle $argtype $argname]
+        lappend loadargs [self::arg {*}$res $obj]
     }
     regsub {\[\d*\]} $rtype * decayedRtype
     if {$rtype eq "void"} {
@@ -550,7 +550,7 @@ method C::proc {self name arguments rtype body} {
         set saverv [subst {
             $decayedRtype rvalue = $cname ([join $argnames ", "]);
             Zicl_Obj* robj;
-            [$self ret $rtype robj rvalue]
+            [self::ret $rtype robj rvalue]
             Zicl_SetResultOwning(interp, robj);
         }]
     }
@@ -682,7 +682,7 @@ method C::compile {self args} {
                 Jim_Eval(interp, script);
             }
 
-            [join [lmap type [dict keys $objtypes] { subst {
+            [join [lmap type [dict keys $self::objtypes] { subst {
                 ${type}_init(interp, "$cid");
             } }] "\n"]
             return JIM_OK;
@@ -700,14 +700,14 @@ extern "C" \{
 }]
     set sourcecode [join [list \
                               $externC \
-                              $prelude \
+                              $self::prelude \
                               $unexternC \
                               \
-                              {*}[lmap {snippet extend} $code {set snippet}] \
+                              {*}[lmap {snippet extend} $self::code {set snippet}] \
                               \
                               $externC \
-                              {*}[dict values $objtypes] \
-                              {*}[lmap p [dict values $procs] {dict get $p code}] \
+                              {*}[dict values $self::objtypes] \
+                              {*}[lmap p [dict values $self::procs] {dict get $p code}] \
                               $init \
                               $unexternC \
                              ] "\n"]
@@ -762,8 +762,8 @@ extern "C" \{
     }
 
     set cInfo [dict create]
-    foreach varName [$self vars] {
-        dict set cInfo $varName [$self get $varName]
+    foreach varName [self::vars] {
+        dict set cInfo $varName [self::get $varName]
     }
     
     # Load the compiled module immediately so we can set its C info.
@@ -781,7 +781,7 @@ method C::import {self srclib srcname {_as {}} {destname {}}} {
     set arglist [dict get $procinfo arglist]
 
     set addr [dict get [set "::$srclib __addrs"] $srcname]
-    $self code "$rtype (*$destname) ([join $arglist {, }]) = ($rtype (*) ([join $arglist {, }])) $addr;"
+    self::addcode "$rtype (*$destname) ([join $arglist {, }]) = ($rtype (*) ([join $arglist {, }])) $addr;"
 }
 
 method C::string_toupper_first {self s} {
@@ -806,28 +806,28 @@ method C::extend {self args} {
     }
 
     set argtypes [dict merge [dict get $srcinfo argtypes] $argtypes]
-    set rtypes [dict merge [dict get $srcinfo rtypes] $rtypes]
+    set rtypes [dict merge [dict get $srcinfo rtypes] $self::rtypes]
     dict for {objtype _} [dict get $srcinfo objtypes] {
-        $self code "int (*${objtype}_setFromAnyProc)(Jim_Interp *interp, Jim_Obj *objPtr) = \
+        self::addcode "int (*${objtype}_setFromAnyProc)(Jim_Interp *interp, Jim_Obj *objPtr) = \
 (int (*)(Jim_Interp *interp, Jim_Obj *objPtr)) \
 [dict get $srcaddrs ${objtype}_setFromAnyProc];"
-        $self code "Jim_ObjType* ${objtype}_ObjType = (Jim_ObjType*) [dict get $srcaddrs ${objtype}_ObjType];"
+        self::addcode "Jim_ObjType* ${objtype}_ObjType = (Jim_ObjType*) [dict get $srcaddrs ${objtype}_ObjType];"
     }
 
     if {!$noprocs} {
         foreach procName [dict keys [dict get $srcinfo procs]] {
-            $self import $srclib $procName
+            self::import $srclib $procName
         }
     }
 
     dict for {varname vartype} [dict get $srcinfo vars] {
         set addr [dict get $srcaddrs ${varname}_ptr]
-        $self code "$vartype* (*${varname}_ptr)() = ($vartype* (*)()) $addr;"
+        self::addcode "$vartype* (*${varname}_ptr)() = ($vartype* (*)()) $addr;"
     }
 
     regexp {<C:([^ ]+)>} $srclib -> srcid
     set addr [dict get $srcaddrs Jim_${srcid}Init]
-    $self code "int (*Jim_${srcid}Init)(Jim_Interp* intp) =
+    self::addcode "int (*Jim_${srcid}Init)(Jim_Interp* intp) =
                      (int (*)(Jim_Interp* intp)) $addr;"
 
     lappend extends $srcid

@@ -11,110 +11,14 @@ source "lib/text.tcl"
 
 set pid [pid]
 
-proc unknown {cmdName args} {
-    if {[regexp {<C:([^ ]+)>} $cmdName -> cid]} {
-        # Allow C libraries to be callable from any thread, because we
-        # load the library into the Tcl interpreter for a given thread
-        # on demand.
+# FIXME: zicl doesn't have channel handles like Jimtcl. Re-enable
+# buffering configuration when I/O is properly set up.
+# $::realStdout buffering line
+# $::realStderr buffering none
+# stdout buffering line
 
-        # Is it a C file? load it now.
-        if {[llength [info commands $cmdName]] == 0} {
-            # HACK: somehow this keeps getting called repeatedly which
-            # causes a leak??
-            load /tmp/$cid.so
-        }
-        proc <C:$cid> {procName args} {cid} { tailcall "<C:$cid> $procName" {*}$args }
-        if {[llength $args] == 0} {
-            return
-        }
-        tailcall $cmdName {*}$args
-
-    } elseif {[regexp {<library:([^ ]+)>} $cmdName -> tclfile]} {
-        # Allow Tcl `library create` libraries to be callable from any
-        # thread, because we load the library into the Tcl interpreter
-        # for a given thread on demand.
-        source $tclfile
-        tailcall $cmdName {*}$args
-
-    } else {
-        set fnVarName ^$cmdName
-        upvar $fnVarName fn
-        if {[info exists fn]} {
-            if {[llength $fn] == 1} {
-                # fn[0] is a sealed obj that includes its own
-                # environment (probably passed through a statement)
-                # and can just be applied to args.
-                set fnObj [lindex $fn 0]
-                proc $cmdName args {fnObj} { tailcall {*}$fnObj {*}$args }
-                tailcall $cmdName {*}$args
-            }
-
-            lassign $fn argNames body sourceInfo
-            if {[info source $body] ne $sourceInfo} {
-                set body [info source $body {*}$sourceInfo]
-            }
-
-            upvar __envStack envStack
-            # Walk the env stack backwards (innermost env first) until
-            # we find the fn.
-            for {set i $([llength $envStack] - 1)} {$i >= 0} {incr i -1} {
-                set env [lindex $envStack $i]
-                if {[dict exists $env $fnVarName]} {
-                    break
-                }
-            }
-            if {$i < 0} {
-                error "unknown: Did not find fn $cmdName in env stack"
-            }
-
-            # We found the function somewhere in the env stack.
-
-            # Merge all envs up to and including envStack[i] to create
-            # the lexical environment for fn.
-            set env [dict merge {*}[lrange $envStack 0 $i]]
-            dict set env __envStack $envStack
-            dict set env __env $env
-            dict with env {
-                proc $cmdName $argNames [dict keys $env] $body
-            }
-
-            tailcall $cmdName {*}$args
-        }
-    }
-
-    tailcall error "Unknown command '$cmdName'"
-}
-
-proc captureEnvStack {} {
-    # Capture and return the lexical environment at the caller.
-
-    upvar __env oldEnv
-    if {![info exists oldEnv]} { set oldEnv {} }
-
-    # Get all changed variables and serialize them, to fake lexical
-    # scope.
-    set env [dict create]
-    set upNames [uplevel {list {*}[info statics] {*}[info locals]}]
-    foreach name $upNames {
-        if {[string match "__*" $name]} { continue }
-
-        upvar $name value
-        if {![dict exists $oldEnv $name] ||
-            $value ne [dict get $oldEnv $name]} {
-
-            dict set env $name $value
-        }
-    }
-
-    return [list {*}[uplevel set __envStack] $env]
-}
-
-$::realStdout buffering line
-$::realStderr buffering none
-stdout buffering line
-
-rename exec __exec
-proc ::exec {args} {
+set __exec exec
+fn exec {args} {
     # For background exec (ending with &), redirect stdout and stderr
     # to the current thread-local output files so the subprocess's
     # output lands in the right per-program /tmp/ file.
@@ -143,18 +47,8 @@ proc ::exec {args} {
     tailcall __exec {*}$args
 }
 
-proc applyBlock {body envStack} {pid} {
+fn applyBlock {body envStack} {
     set env [dict merge {*}$envStack]
-    foreach name [dict keys $env] {
-        if {[string index $name 0] eq "^"} {
-            # Delete any old version of the fn that may exist in
-            # command-space. We want to reload this one when it
-            # gets called.
-            try {
-                rename [string index $name 1 end] {}
-            } on error e {}
-        }
-    }
 
     dict set env __envStack $envStack
     dict set env __env $env
@@ -172,7 +66,7 @@ proc applyBlock {body envStack} {pid} {
     tailcall apply [list $names $body] {*}$values
 }
 
-proc evaluateBlock {whenBody envStack} {
+fn evaluateBlock {whenBody envStack} {
     try {
         applyBlock $whenBody $envStack
     } on error {err opts} {
@@ -189,118 +83,16 @@ proc evaluateBlock {whenBody envStack} {
     }
 }
 
-proc fn {args} {
-    if {[llength $args] == 1} {
-        set fnName [lindex $args 0]
-
-        if {[uplevel info exists $fnName]} {
-            upvar $fnName fnObj
-
-            # They want to just be able to call an existing fn that
-            # already exists in scope as a `fnName` variable.
-
-            # Create this function (both in lexical variable scope, so
-            # it can be inherited by child scopes, and in
-            # callable-function namespace) and then return.
-
-            uplevel [list set ^$fnName [list $fnObj]]
-            proc $fnName args {fnObj} { tailcall {*}$fnObj {*}$args }
-            return
-        }
-
-        # They just want to capture an existing fn + env as a
-        # self-contained value, to share in a statement or
-        # whatever. This is a pretty slow operation.
-
-        upvar ^$fnName fn
-
-        # TODO: Probably not safe to call outside the original context
-        # where the fn was defined.
-
-        set envStack [uplevel captureEnvStack]
-
-        # Call like [{*}[fn hello] 1 2] should be equivalent to [hello
-        # 1 2].
-        return [list apply {{fn envStack args} {
-            lassign $fn argNames body sourceInfo
-            if {[info source $body] ne $sourceInfo} {
-                set body [info source $body {*}$sourceInfo]
-            }
-
-            set env [dict merge {*}$envStack]
-            dict set env __envStack $envStack
-            dict set env __env $env
-            
-            set argNames [list {*}[dict keys $env] {*}$argNames]
-            tailcall apply [list $argNames $body] \
-                {*}[dict values $env] \
-                {*}$args
-        }} $fn $envStack]
-    }
-    lassign $args fnName argNames body
-
-    # Creates a variable in the caller lexical env called ^$name. Our
-    # custom unknown implementation will check ^$name on call.
-    #
-    # Note that we _don't_ capture an environment into
-    # ^$name. Instead, we assume that the enclosing environment will
-    # be captured later anyway (that's how you would get this
-    # function! we don't expect people to pass it around really), so
-    # the caller of this function will just rehydrate that enclosing
-    # environment.
-    uplevel [list set ^$fnName [list $argNames $body [info source $body]]]
-
-    # In case they actually want to call the fn in the same context,
-    # we make a proc immediately also:
-
-    # We need to use tailcall here to preserve the filename/lineno
-    # info for $body for some reason.
-    # TODO: also capture info statics?
-    tailcall proc $fnName $argNames [uplevel info locals] $body
-}
-
-proc assert condition {
+fn assert condition {
     if {![uplevel [list expr $condition]]} {
         return -code error "assertion failed: $condition"
     }
 }
-namespace eval ::library {
-    # statics is a list of names to capture from the surrounding
-    # context.
-    proc create {args} {
-        if {[llength $args] == 1} {
-            set name library
-            set body [lindex $args 0]
-            set statics {}
-        } elseif {[llength $args] == 2} {
-            lassign $args name body
-            set statics {}
-        } elseif {[llength $args] == 3} {
-            lassign $args name statics body
-        } else {
-            error "library create: Invalid arguments"
-        }
-        set tclfile [file tempfile /tmp/${name}_XXXXXX].tcl
-
-        set statics [lmap static $statics {list $static [uplevel set $static]}]
-        set tclcode [list apply {{tclfile statics body bodySourceInfo} {
-            foreach static $statics {
-                lassign $static name value
-                namespace eval ::<library:$tclfile> [list variable $name $value]
-            }
-            namespace eval ::<library:$tclfile> [info source $body {*}$bodySourceInfo]
-            namespace eval ::<library:$tclfile> {namespace ensemble create}
-        }} $tclfile $statics $body [info source $body]]
-
-        set tclfd [open $tclfile w]; puts $tclfd $tclcode; close $tclfd
-        return "<library:$tclfile>"
-    }
-    namespace ensemble create
+fn baretime {body} {
+    string map {" microseconds per iteration" ""} [uplevel [list time $body]]
 }
 
-proc baretime body { string map {" microseconds per iteration" ""} [uplevel [list time $body]] }
-
-proc Hold! {args} {
+fn Hold! {args} {
     set this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
 
     set on $this
@@ -347,11 +139,7 @@ proc Hold! {args} {
         # Hold! { ... body ... }
         set body [lindex $clause 0]
 
-        if {$isNonCapturing} {
-            set envStack {}
-        } else {
-            set envStack [uplevel captureEnvStack]
-        }
+        set envStack {}
         lassign [info source $body] filename lineno
         set clause [list when $body with environment $envStack]
     } elseif {[llength $clause] > 1} {
@@ -379,7 +167,7 @@ proc Hold! {args} {
         $filename $lineno
 }
 
-proc Say {args} {
+fn Say {args} {
     set callerInfo [info frame -1]
     set sourceFileName [dict get $callerInfo file]
     set sourceLineNumber [dict get $callerInfo line]
@@ -416,8 +204,7 @@ proc Say {args} {
             set isWith true
         } elseif {$isWith && $term eq "handler"} {
             set handler [lindex $args $i+1]
-            set envStack [uplevel captureEnvStack]
-            lset args $i+1 [list applyBlock $handler $envStack]
+            lset args $i+1 [list applyBlock $handler {}]
         }
     }
     tailcall SayWithSource $sourceFileName $sourceLineNumber \
@@ -426,10 +213,10 @@ proc Say {args} {
         $destructorCode \
         {*}$pattern
 }
-proc Claim {args} { upvar this this; tailcall Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
-proc Wish {args} { upvar this this; tailcall Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }
+fn Claim {args} { upvar this this; tailcall Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
+fn Wish {args} { upvar this this; tailcall Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }
 # returns the statement to Say/Assert (minus the envStack), as well as all bound variable names
-proc desugarWhen {pattern body} {
+fn desugarWhen {pattern body} {
     set varNamesWillBeBound [list]
     set isNegated false
     for {set i 0} {$i < [llength $pattern]} {incr i} {
@@ -479,7 +266,8 @@ proc desugarWhen {pattern body} {
             $varNamesWillBeBound]
     }
 }
-proc When {args} {
+fn When {args} {
+    upvar this this
     set body [lindex $args end]
     set sourceInfo [info source $body]
 
@@ -505,7 +293,7 @@ proc When {args} {
         } elseif {$term eq "-serially"} {
             set isSerially true
         } elseif {$term eq "-atomically"} {
-            set key [list [uplevel set this] $sourceInfo $pattern]
+            set key [list $this $sourceInfo $pattern]
             set atomicallyVersion [list "fresh" $key]
         } elseif {$term eq "-atomicallyInherit"} {
             set atomicallyVersion [__currentAtomicallyVersion]
@@ -527,7 +315,7 @@ proc When {args} {
             if {([lrange $pattern 1 end-1] eq {has camera slice} ||
                  [lrange $pattern 0 end-1] eq {the clock time is})} {
 
-                set key [list [uplevel set this] $sourceInfo $pattern]
+                set key [list $this $sourceInfo $pattern]
                 set atomicallyVersion [list "fresh" $key]
             } else {
                 set atomicallyVersion {}
@@ -540,7 +328,7 @@ proc When {args} {
     if {$isNonCapturing} {
         set envStack {}
     } else {
-        set envStack [uplevel captureEnvStack]
+        set envStack {}
     }
 
     if {$isSerially} {
@@ -573,25 +361,23 @@ proc When {args} {
         0 $atomicallyVersion {} \
         {*}$statement
 }
-proc Subscribe: {args} {
+fn Subscribe: {args} {
     set pattern [lrange $args 0 end-1]
     set body [lindex $args end]
 
     set sourceInfo [info source $body]
-    set envStack [uplevel captureEnvStack]
 
     tailcall SayWithSource {*}$sourceInfo \
         0 {} {} \
-        subscribe {*}$pattern $body with environment $envStack
+        subscribe {*}$pattern $body with environment {}
 }
-proc Notify: {args} {
+fn Notify: {args} {
     NotifyImpl {*}$args
 }
-proc On {event args} {
+fn On {event args} {
     if {$event eq "unmatch"} {
         set body [lindex $args 0]
-        set envStack [uplevel captureEnvStack]
-        Destructor [list applyBlock $body $envStack]
+        Destructor [list applyBlock $body {}]
     } else {
         error "On: Unknown '$event' (called with: [string range $args 0 50]...)"
     }
@@ -600,7 +386,7 @@ proc On {event args} {
 # Query! is like QuerySimple! but with added support for & joins, and
 # it'll automatically also query the claimized pattern (the pattern
 # with `/someone/ claims` prepended).
-proc Query! {args} {
+fn Query! {args} {
     # HACK: this (parsing &s and filling resolved vars) is mostly
     # copy-and-pasted from When.
 
@@ -685,7 +471,7 @@ proc Query! {args} {
     }
     return $results
 }
-proc QueryOne! {args} {
+fn QueryOne! {args} {
     set results [Query! {*}$args]
 
     if {[llength $results] != 1} {
@@ -694,7 +480,7 @@ proc QueryOne! {args} {
 
     return [lindex $results 0]
 }
-proc ForEach! {args} {
+fn ForEach! {args} {
     set body [lindex $args end]
     set pattern [lreplace $args end end]
 
@@ -741,7 +527,7 @@ if {[__isTracyEnabled]} {
     set tracyCid "tracy_$pid"
     set ::tracyLib "<C:$tracyCid>"
     set tracySo "/tmp/$tracyCid.so"
-    proc tracyCompile {} {tracyCid} {
+    fn tracyCompile {} {
         # We should only compile this once, then load the same library
         # everywhere in Folk (no matter what thread).
         set tracyCpp [C++]
@@ -810,22 +596,22 @@ if {[__isTracyEnabled]} {
         }
         return [$tracyCpp compile $tracyCid]
     }
-    proc tracyTryLoad {} {tracySo} {
+    fn tracyTryLoad {} {
         if {![file exists $tracySo]} {
             return false
         }
         $::tracyLib init
-        rename ::tracy ""
-        rename $::tracyLib ::tracy
+        unset ::tracy
+        set ::tracy $::tracyLib
         return true
     }
 
     if {[__threadId] == 0} {
         set tracyTemp [tracyCompile]
         $tracyTemp init
-        rename $tracyTemp ::tracy
+        set ::tracy $tracyTemp
     } else {
-        proc ::tracy {args} {
+        fn ::tracy {args} {
             # HACK: We pretty much just throw away all tracing calls
             # until tracy is loaded.
             if {[tracyTryLoad]} {
@@ -835,18 +621,19 @@ if {[__isTracyEnabled]} {
     }
 
 } else {
-    proc ::tracy {args} {}
+    fn ::tracy {args} {}
 }
 
-signal handle SIGUSR1
+# FIXME: zicl doesn't have [signal] yet.
+# signal handle SIGUSR1
 
 source "lib/python.tcl"
 
 # For backward-compatibility:
-proc Assert {args} {
+fn Assert {args} {
     puts stderr "Warning: Assert with no ! is deprecated: trying to [list Assert {*}$args]"
     uplevel Assert! {*}$args
 }
-set ::isLaptop [expr {$::tcl_platform(os) eq "darwin" ||
-                      ([info exists ::env(XDG_SESSION_TYPE)] &&
-                       $::env(XDG_SESSION_TYPE) ne "tty")}]
+set isLaptop [expr {$tcl_platform::os eq "darwin" ||
+                      ([info exists env::XDG_SESSION_TYPE] &&
+                       $env::XDG_SESSION_TYPE ne "tty")}]
