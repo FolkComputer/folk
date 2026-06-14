@@ -3,7 +3,8 @@
 /* For json-decode we want strict mode so we don't get
  * garbage for malformed json
  */
-#define JSMN_STRICT
+// osnr: Disabled because I want to parse `null`.
+// #define JSMN_STRICT
 
 /**
  * Allocates a fresh unused token from the token pool.

@@ -1,0 +1,723 @@
+# calibrate.folk --
+#
+#     Implements camera-projector calibration: generate a calibration
+#     pattern PDF, have the user measure its real-world dimension, run
+#     iterative projector-camera process to get various poses of the
+#     printed tags alongside projected tags, do linear fit and then
+#     nonlinear refinement to find intrinsic and extrinsic parameters
+#     for the camera and projector.
+#
+#     Closely based on the technique in Audet (2009):
+#     http://www.ok.sc.e.titech.ac.jp/res/PCS/publications/procams2009.pdf
+#
+
+package require linalg
+
+foreach p {add norm sub scale matmul
+    getelem transpose determineSVD shape mkIdentity show
+    solvePGauss crossproduct getcol setcol unitLengthVector det
+} {
+    namespace import ::math::linearalgebra::$p
+}
+
+Hold! -key {calibration poses max} \
+    Claim the calibration poses max is 10
+
+When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
+     display /display/ has width /displayWidth/ height /displayHeight/ &\
+     the AprilTag detector maker is /makeAprilTagDetector/ &\
+     the jpeg library is /jpegLib/ &\
+     the calibration model library is /modelLib/ &\
+     the calibration matrix library is /matLib/ &\
+     /someone/ wishes to calibrate camera /camera/ to display /display/ \
+         using measurements /measurements/ {
+
+    set printedSideLengthMm [string trimright $measurements(tagSideLength) mm]
+
+    fn makeAprilTagDetector
+    set calibrationTagDetector [makeAprilTagDetector "tagStandard52h13" 2.0 3]
+
+    set calibrationId [clock milliseconds]
+
+    # VERY IMPORTANT: disable autofocus forever.
+    catch { exec v4l2-ctl --device=$camera --set-ctrl=focus_automatic_continuous=0 }
+
+    if {$cameraWidth < 1920} {
+        set camResults [Query! /someone/ wishes $::thisNode uses camera $camera with /...camOpts/]
+        if {[llength $camResults] == 1} {
+            set camOpts [dict get [lindex $camResults 0] camOpts]
+            if {![dict exists $camOpts crops]} {
+                Retract! /someone/ wishes $::thisNode uses camera $camera \
+                    with width $cameraWidth height $cameraHeight
+                Assert! $this wishes $::thisNode uses camera $camera \
+                    with width 1920 height 1080
+                # TODO: restore old camera resolution later
+            }
+
+        } else {
+            puts stderr "calibrate: Warning: camera $camera has [llength $camResults] use wishes"
+        }
+    }
+
+    package require linalg
+    namespace import ::math::linearalgebra::scale
+
+    set tagSideLength 1.0
+    set tagOuterLength [expr {$tagSideLength * 10/6}]
+    set pad $tagSideLength
+
+    # Unit model's 2D coordinates have inner tag side length of 1.0:
+    # scale it to real-world coordinates.
+    set printedSideLengthM [/ $printedSideLengthMm 1000.0]
+    set baseModel [$modelLib scaleModel [$modelLib unitModel] \
+                       $printedSideLengthM]
+    set ROWS [$modelLib rows]
+    set COLS [$modelLib cols]
+
+    # A list of pose dictionaries. Each dictionary has entries `model`
+    # and `H_modelToDisplay` ('prewarp' homography from model plane to
+    # projector plane) and `tags` (tag ID => dictionary of tag
+    # detection info from camera and AprilTag detector) and
+    # `displayResolution` and `cameraResolution` and `tagsSize`.
+    Hold! -key last-seen-poses \
+        Claim the calibration last-seen poses are [list]
+    On unmatch { Hold! -key last-seen-poses {} }
+    set SEEN_POSES_MAX 3
+
+    # The poses to use for actual calibration at the end. We'll want
+    # at least 10 poses to do ultimate calibration+refinement.
+    Hold! -on calibration -key poses \
+        Claim the calibration poses from camera $camera to display $display are [list]
+
+    Hold! -key cycle-time \
+        Claim the calibration cycle time is 0
+
+    # Project calibration tags based on the current model-to-display
+    # homography (which gets dynamically updated as you move the board
+    # around):
+    When the calibration poses from camera $camera to display $display are /poses/ &\
+         the calibration poses max is /posesMax/ &\
+         the calibration cycle time is /cycleTime/ &\
+         the calibration model-to-display homography is /H_modelToDisplay/ \
+             with /...modelToDisplayOpts/ {
+        set message "[llength $poses]/$posesMax poses ([expr {round($cycleTime*1000)}] ms)"
+        Wish to draw calibration model [dict get $modelToDisplayOpts model] \
+            using model-to-display homography $H_modelToDisplay \
+            with message $message
+    }
+
+    # This is made a function so it can also be called by the Web page
+    # when the user drags the slider to adjust projected tag scale.
+    fn HoldDefaultModel! {scale} {
+        # Default model: just makes the tags fill most of the middle
+        # of the projector area.
+        set tagSideLengthPixels [::math::min $($displayWidth/($COLS * ($tagOuterLength + $pad))) \
+                                     $($displayHeight/($ROWS * ($tagOuterLength + $pad)))]
+        set tagSideLengthPixels [expr {$tagSideLengthPixels * $scale}]
+
+        # TODO: Center this on the projector area.
+        set H_modelToDisplay [$matLib estimateHomography [subst {
+            {$printedSideLengthM $printedSideLengthM $tagSideLengthPixels $tagSideLengthPixels}
+            {$printedSideLengthM 0 $tagSideLengthPixels 0}
+            {0 $printedSideLengthM 0 $tagSideLengthPixels}
+            {0 0 0 0}
+        }]]
+        Hold! -key H_modelToDisplay {
+            # Default model and version: nothing rotated.
+            Claim the calibration model-to-display homography is $H_modelToDisplay with \
+                model $baseModel version -1 \
+                frameTimestamp [expr {[clock milliseconds] / 1000.0}] \
+                modelTimestamp [expr {[clock milliseconds] / 1000.0}]
+        }
+    }
+    Claim the calibration HoldDefaultModel! is [fn HoldDefaultModel!]
+    HoldDefaultModel! 1.0
+
+    On unmatch {
+        Hold! -key H_modelToDisplay {}
+    }
+
+    When the calibration poses max is /calibrationPosesMax/ &\
+         -serially camera $camera has gray frame /frame/ at timestamp /frameTimestamp/ {
+        # HACK: so we just lookup whatever is latest _right now_,
+        # instead of subscribing.
+        set calibrationStates \
+            [Query! the calibration model-to-display homography is /H_modelToDisplay/ with \
+                 /...modelToDisplayOpts/]
+        if {[llength $calibrationStates] == 0} {
+            return
+        }
+        # Sort in ascending order to find the newest (highest frameTimestamp) model.
+        set calibrationState [lindex [lsort -command [list apply {{a b} {
+            expr {[dict get $a modelToDisplayOpts frameTimestamp] <
+                  [dict get $b modelToDisplayOpts frameTimestamp]}
+        }}] $calibrationStates] end]
+        dict with calibrationState {}
+
+        set model [dict get $modelToDisplayOpts model]
+        set version [dict get $modelToDisplayOpts version]
+        set modelFrameTimestamp [dict get $modelToDisplayOpts frameTimestamp]
+        set modelTimestamp [dict get $modelToDisplayOpts modelTimestamp]
+        if {$modelFrameTimestamp >= $frameTimestamp} {
+            # This is an old homography. This seems to only happen on
+            # slider manual size adjust.
+            return
+        }
+
+        set aprilTime [time {
+            set tags [$calibrationTagDetector detect $frame]
+        }]
+
+        package require linalg
+
+        # This runs every frame, looks at the detected tags (both
+        # projected and printed), and updates the H_modelToDisplay
+        # such that the projected tags should sit in the middle of the
+        # calibration board.
+
+        set printedTags [dict create] ;# dict keyed by tag id for easy lookup
+        foreach tag $tags {
+            set id [dict get $tag id]
+            dict set allDetectedTags $id $tag
+            if {[$modelLib isPrintedTag $id]} { dict set printedTags $id $tag }
+        }
+        if {[dict size $printedTags] == 0} { return }
+
+        set printedPointPairs [list]
+        dict for {id printedTag} $printedTags {
+            set modelTag [dict get $model $id]
+            foreach modelCorner [dict get $modelTag p] \
+                cameraCorner [dict get $printedTag p] {
+                    lappend printedPointPairs [list {*}$modelCorner {*}$cameraCorner]
+                }
+        }
+        # Describes how tags from the model that were printed
+        # ended up mapping to camera coordinates.
+        set H_modelToCameraViaPs [$matLib estimateHomography $printedPointPairs]
+
+        # Map the bounds of the board to camera coordinates, so we can
+        # check if projected tags are inside the board.
+        set modelTopLeft [lindex [dict get $model [expr {48600 + 0*$COLS + 0}] p] 3]
+        set modelTopRight [lindex [dict get $model [expr {48600 + 0*$COLS + $COLS-1}] p] 2]
+        set modelBottomRight [lindex [dict get $model [expr {48600 + ($ROWS-1)*$COLS + $COLS-1}] p] 1]
+        set modelBottomLeft [lindex [dict get $model [expr {48600 + ($ROWS-1)*$COLS + 0}] p] 0]
+        set printedCalibrationBoard [list {*}[$matLib applyHomography $H_modelToCameraViaPs $modelTopLeft] \
+                                         {*}[$matLib applyHomography $H_modelToCameraViaPs $modelTopRight] \
+                                         {*}[$matLib applyHomography $H_modelToCameraViaPs $modelBottomRight] \
+                                         {*}[$matLib applyHomography $H_modelToCameraViaPs $modelBottomLeft]]
+        set boardMinX 100000; set boardMinY 100000
+        set boardMaxX -100000; set boardMaxY -100000
+        foreach {cornerX cornerY} $printedCalibrationBoard {
+            if {$cornerX < $boardMinX} { set boardMinX $cornerX }
+            if {$cornerY < $boardMinY} { set boardMinY $cornerY }
+            if {$cornerX > $boardMaxX} { set boardMaxX $cornerX }
+            if {$cornerY > $boardMaxY} { set boardMaxY $cornerY }
+        }
+
+        # We only count projected tags that are inside the board.
+        set projectedTags [dict create]
+        dict for {id tag} $allDetectedTags {
+            if {![$modelLib isProjectedTag $id]} { continue }
+
+            lassign [dict get $tag c] x y
+            if {$x > $boardMinX && $x < $boardMaxX &&
+                $y > $boardMinY && $y < $boardMaxY} {
+                # This is a projected tag that we detected.
+                dict set projectedTags $id $tag
+            }
+        }
+        if {[dict size $projectedTags] == 0} { return }
+
+        if {$version != -1} {
+            set detectedVersion [$modelLib detectVersionFromDetectedTags $tags]
+            # If the detected version does not correspond to version
+            # mod 4, then we should abort and wait until a later
+            # frame to proceed.
+            set expectedVersion [expr {$version % 4}]
+            if {$detectedVersion != $expectedVersion} {
+                return
+            }
+        }
+
+        set projectedPointPairs [list]
+        dict for {id projectedTag} $projectedTags {
+            set modelTag [dict get $model $id]
+            foreach modelCorner [dict get $modelTag p] \
+                cameraCorner [dict get $projectedTag p] {
+                    set displayCorner [$matLib applyHomography $H_modelToDisplay $modelCorner]
+                    lappend projectedPointPairs [list {*}$cameraCorner {*}$displayCorner]
+                }
+        }
+
+        # puts "point pairs (camera -> display): {$projectedPointPairs}"
+        set H_cameraToDisplay [$matLib estimateHomography $projectedPointPairs]
+        if {abs([::math::linearalgebra::det $H_cameraToDisplay]) < 0.001} {
+            # Garbage homography that just shrinks the points way down
+            # (https://stackoverflow.com/questions/10972438/detecting-garbage-homographies-from-findhomography-in-opencv).
+            # It's sort of 'overfitted' and just has a big y-intercept
+            # and will break everything if we let it through. Skip.
+            return
+        }
+
+        # Update H_modelToDisplay to project the tags into the right
+        # spots on the board next frame.
+        set nextH_modelToDisplay [$matLib matdMul $H_cameraToDisplay $H_modelToCameraViaPs]
+        set nextModelFrameTimestamp $frameTimestamp
+        set nextVersion [+ $version 1]
+        set nextModel [$modelLib updateModelVersion $baseModel $nextVersion]
+        set nextModelTimestamp [expr {[clock milliseconds] / 1000.0}]
+
+        # Check if any tag corners will be outside display bounds.
+        foreach tagId [dict keys $nextModel] {
+            set tag [dict get $nextModel $tagId]
+            set corners [dict get $tag p]
+            foreach corner $corners {
+                lassign [$matLib applyHomography $nextH_modelToDisplay $corner] x y
+                if {$x < 0 || $x > $displayWidth || $y < 0 || $y > $displayHeight} {
+                    # Tag corner is outside display bounds; skip this
+                    # update.
+                    return
+                }
+            }
+        }
+
+        Hold! -key H_modelToDisplay \
+            -version $nextModelFrameTimestamp \
+            Claim the calibration model-to-display homography \
+            is $nextH_modelToDisplay with \
+            model $nextModel version $nextVersion \
+            frameTimestamp $nextModelFrameTimestamp \
+            modelTimestamp $nextModelTimestamp
+        Hold! -key cycle-time \
+            Claim the calibration cycle time is \
+            $($nextModelTimestamp - $modelTimestamp)
+
+        # Should we record the points we just saw as a calibration
+        # pose?
+
+        # We want to be seeing at least 50% of printed and projected tags.
+        if {[dict size $printedTags] < $COLS + $ROWS ||
+            [dict size $projectedTags] < $COLS - 2} {
+            return
+        }
+
+        # We can do an error check here. H_modelToCameraViaPs was
+        # derived above from printed tags -- we should be able to run
+        # _projected_ tags through it and compare the coordinates to
+        # the actual detection coordinates. If there's too much error,
+        # we won't record this as a calibration pose.
+        set totalError 0.0
+        dict for {id projectedTag} $projectedTags {
+            foreach modelCorner [dict get $model $id p] \
+                cameraCorner [dict get $projectedTag p] {
+                    lassign $cameraCorner cx cy
+                    # Predicted camera x and y.
+                    lassign [$matLib applyHomography $H_modelToCameraViaPs $modelCorner] px py
+                    set dx [- $cx $px]; set dy [- $cy $py]
+                    set err [expr {$dx*$dx + $dy*$dy}]
+                    set totalError [+ $totalError $err]
+            }
+        }
+        set poseRmse [expr {sqrt($totalError / ([llength $projectedTags] * 4))}]
+        if {$poseRmse > 5} {
+            puts "calibrate: Pose has too-high rmse ($poseRmse); skipping"
+            return
+        }
+
+        set pose [dict create \
+                      model $model version $version \
+                      camera $camera \
+                      cameraWidth $cameraWidth cameraHeight $cameraHeight \
+                      display $display \
+                      displayWidth $displayWidth displayHeight $displayHeight \
+                      tagSize $printedSideLengthM \
+                      H_modelToDisplay $H_modelToDisplay \
+                      rmse $poseRmse \
+                      tags [dict merge $printedTags $projectedTags]]
+
+        Expect! the calibration last-seen poses are /seenPoses/
+        lappend seenPoses $pose
+        if {[llength $seenPoses] > $SEEN_POSES_MAX} {
+            set seenPoses [lreplace $seenPoses 0 0]
+        }
+        Hold! -key last-seen-poses \
+            -version $nextModelFrameTimestamp \
+            Claim the calibration last-seen poses are $seenPoses
+
+        # Next, we check if projected tag corners have been pretty
+        # stable in the last few frames.
+
+        if {[llength $seenPoses] < 3} {
+            return
+        }
+
+        # If the corners have moved a lot since last frame, we're not
+        # stable enough and shouldn't record this as a calibration
+        # pose.
+        foreach seenPose [lrange $seenPoses 0 end-1] {
+            # Decreasing this threshold to 1 helps with data
+            # accuracy. TODO: Use an _older_ frame?
+            if {[$modelLib meanTagsDifference $pose(tags) $seenPose(tags)] > 5} {
+                return
+            }
+        }
+
+        puts "WOULD APPEND CALIBRATION..."
+
+        # If the corners have _not_ moved a lot since last _saved_
+        # calibration pose, this isn't different enough to be a good
+        # calibration pose to save.
+        Expect! the calibration poses from camera $camera to display $display are /calibrationPoses/
+        if {[llength $calibrationPoses] > 0} {
+            set prevCalibrationPose [lindex $calibrationPoses end]
+            if {[$modelLib meanTagsDifference $pose(tags) $prevCalibrationPose(tags)] < 50} {
+                return
+            }
+        }
+
+        # Save the pose / camera image to a jpeg (for debugging
+        # purposes).
+        set imageName "pose-$calibrationId-[llength $calibrationPoses].jpeg"
+        exec mkdir -p "$::env(HOME)/folk-calibration-poses"
+        $jpegLib saveAsJpeg $frame "$::env(HOME)/folk-calibration-poses/$imageName"
+        dict set pose imageName $imageName
+
+        # OK, let's save this calibration pose.
+        lappend calibrationPoses $pose
+        puts "calibrate: APPENDED CALIBRATION TO POSES ([llength $calibrationPoses] poses collected)"
+        Hold! -on calibration -key poses \
+            -version $nextModelFrameTimestamp \
+            Claim the calibration poses from camera $camera to display $display are $calibrationPoses
+
+        # If we have enough poses, then stop the calibration process
+        # (retract the printed side length?) and do a calibration. :-)
+        if {[llength $calibrationPoses] >= $calibrationPosesMax} {
+            puts "calibrate: GOT ALL CALIBRATION POSES!"
+
+            # Don't save the measurements until now, so the user can
+            # always safely abort calibration before this without
+            # having lasting effects.
+            Hold! -save -on calibration -key calibration-measurements \
+                Claim the calibration measurements are $measurements
+
+            Hold! -save -on calibration -key poses \
+                Claim the calibration poses from camera $camera to display $display are $calibrationPoses
+            # Destroy the old calibration and trigger a new one.
+            Hold! -save -on calibration -key calibration {}
+
+            Hold! -key {start calibration} {}
+        }
+    }
+}
+
+fn processHomography {H} {
+    package require linalg
+    namespace import ::math::linearalgebra::getelem
+    namespace import ::math::linearalgebra::sub
+
+    fn h {i j} { getelem $H [- $j 1] [- $i 1] }
+
+    fn v {i j} {
+        list \
+            [* [h $i 1] [h $j 1]] \
+            [+ [* [h $i 1] [h $j 2]] [* [h $i 2] [h $j 1]]] \
+            [* [h $i 2] [h $j 2]] \
+            [+ [* [h $i 3] [h $j 1]] [* [h $i 1] [h $j 3]]] \
+            [+ [* [h $i 3] [h $j 2]] [* [h $i 2] [h $j 3]]] \
+            [* [h $i 3] [h $j 3]]
+    }
+
+    set V [list \
+               [v 1 2] \
+               [sub [v 1 1] [v 2 2]]]
+    return $V
+}
+
+
+# Uses Zhang's calibration technique
+# (https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr98-71.pdf)
+# to calibrate a projector or camera given a known 2D planar pattern
+# and multiple observed poses.
+#
+# Returns intrinsic matrix for the camera/projector, which explains
+# how 3D real-world coordinates get projected to 2D coordinates by
+# that device. (The intrinsic matrix can be used with an AprilTag
+# detector to get real-world coordinates for each AprilTag.)
+#
+# Arguments:
+#         width  width of camera or projector in pixels
+#         height height of camera or projector in pixels
+#         Hs     a list of N homographies from camera/projector image
+#                plane -> model plane (for N different poses).
+fn zhangUnrefinedCalibrate {name width height Hs} {
+    package require linalg
+    namespace import ::math::linearalgebra::shape \
+        ::math::linearalgebra::transpose \
+        ::math::linearalgebra::matmul \
+        ::math::linearalgebra::determineSVD \
+        ::math::linearalgebra::mkIdentity \
+        ::math::linearalgebra::solvePGauss \
+        ::math::linearalgebra::getcol \
+        ::math::linearalgebra::norm \
+        ::math::linearalgebra::scale \
+        ::math::linearalgebra::crossproduct \
+        ::math::linearalgebra::add \
+        ::math::linearalgebra::sub
+
+    # Try to solve for the camera intrinsics:
+
+    # Construct V:
+    set Vtop [list]; set Vbottom [list]
+    foreach H $Hs {
+        lassign [processHomography $H] Vtop_ Vbottom_
+        lappend Vtop $Vtop_
+        lappend Vbottom $Vbottom_
+    }
+    set V [list {*}$Vtop {*}$Vbottom]
+    assert {[shape $V] eq [list [* 2 [llength $Hs]] 6]}
+
+    # Solve Vb = 0:
+    lassign [determineSVD [matmul [transpose $V] $V]] U S V
+    set b [lindex [transpose $V] [lindex [lsort-indices $S] 0]]
+
+    # Compute camera intrinsic matrix A:
+    lassign $b B11 B12 B22 B13 B23 B33
+    set v0 [expr {($B12*$B13 - $B11*$B23) / ($B11*$B22 - $B12*$B12)}]
+    set lambda [expr {$B33 - ($B13*$B13 + $v0*($B12*$B13 - $B11*$B23))/$B11}]
+    set alpha [expr {sqrt($lambda/$B11)}]
+    set beta [expr {sqrt($lambda*$B11/($B11*$B22 - $B12*$B12))}]
+    set gamma [expr {-$B12*$alpha*$alpha*$beta/$lambda}]
+    set u0 [expr {$gamma*$v0/$beta - $B13*$alpha*$alpha/$lambda}]
+    foreach var {v0 lambda alpha beta gamma u0} {
+        puts "$var = [set $var]"
+    }
+
+    set fx $alpha; set fy $beta
+    set cx $u0; set cy $v0
+    set s $gamma
+    puts "   Focal Length: \[ $fx $fy ]"
+    puts "Principal Point: \[ $cx $cy ]"
+    puts "           Skew: \[ $s ] "
+
+    # Intrinsic matrix:
+    set A [subst {
+        {$fx  $s   $cx}
+        {0    $fy  $cy}
+        {0    0    1}
+    }]
+    set Ainv [solvePGauss $A [mkIdentity 3]]
+
+    set extrinsics [lmap H $Hs {
+        set h1 [getcol $H 0]
+        set h2 [getcol $H 1]
+        set h3 [getcol $H 2]
+        set lambda [/ 1.0 [norm [matmul $Ainv $h1]]]
+
+        set r1 [scale $lambda [matmul $Ainv $h1]]
+        set r2 [scale $lambda [matmul $Ainv $h2]]
+        set r3 [crossproduct $r1 $r2]
+        set R [transpose [list $r1 $r2 $r3]]
+
+        set t [scale $lambda [matmul $Ainv $h3]]
+
+        # Refine R into a better rotation matrix (reorthogonalize)
+        # using SVD.
+        lassign [determineSVD $R] U S V
+        set R [matmul $U [transpose $V]]
+
+        dict create R $R t $t
+    }]
+
+    # Initialize distortion terms k1 and k2 to 0 -- they get figured
+    # out during nonlinear refinement.
+    set intrinsics [dict create \
+                        width $width height $height \
+                        fx $fx fy $fy cx $cx cy $cy s $s \
+                        k1 0 k2 0 p1 0 p2 0]
+    return [dict create \
+                name $name \
+                intrinsics $intrinsics \
+                extrinsics $extrinsics]
+}
+
+fn setCameraToProjectorExtrinsics {modelLib calibrationVar calibrationPoses} {
+    # Use the "Kabsch algorithm" (https://nghiaho.com/?page_id=671;
+    # https://zpl.fi/aligning-point-patterns-with-kabsch-umeyama-algorithm/)
+    # to find the rotation and translation from 3D camera-space to 3D
+    # projector-space.
+
+    upvar $calibrationVar cal
+
+    # Let's take all the points for which we have a corresponding
+    # camera frame point and projector frame point.
+    set cameraFramePoints [list]
+    set projectorFramePoints [list]
+
+    for {set i 0} {$i < [llength $calibrationPoses]} {incr i} {
+        set calibrationPose [lindex $calibrationPoses $i]
+
+        set Rc [dict get [lindex [dict get $cal camera extrinsics] $i] R]
+        set tc [dict get [lindex [dict get $cal camera extrinsics] $i] t]
+
+        set Rp [dict get [lindex [dict get $cal projector extrinsics] $i] R]
+        set tp [dict get [lindex [dict get $cal projector extrinsics] $i] t]
+
+        # TODO: Try using pose estimation instead?
+        dict for {id tag} [dict get $calibrationPose model] {
+            if {![$modelLib isProjectedTag $id]} { continue }
+            set k 0
+            foreach v [dict get $tag p] {
+                incr k
+                lappend v 0.0
+
+                set vc [add [matmul $Rc $v] $tc]
+                set vp [add [matmul $Rp $v] $tp]
+
+                lappend cameraFramePoints $vc
+                lappend projectorFramePoints $vp
+            }
+        }
+    }
+
+    # puts "cameraFramePoints = \[[join [lmap p $cameraFramePoints {concat \[ [join $p ,] \]}] ,\n]\]"
+    # puts "projectorFramePoints = \[[join [lmap p $projectorFramePoints {concat \[ [join $p ,] \]}] ,\n]\]"
+
+    set n [llength $cameraFramePoints]
+
+    set vcsum {0 0 0}
+    foreach vc $cameraFramePoints { set vcsum [add $vcsum $vc] }
+    set cameraFramePointsCentroid [scale [/ 1.0 $n] $vcsum]
+
+    set vpsum {0 0 0}
+    foreach vp $projectorFramePoints { set vpsum [add $vpsum $vp] }
+    set projectorFramePointsCentroid [scale [/ 1.0 $n] $vpsum]
+
+    set H [matmul [transpose [sub $cameraFramePoints \
+                                  [lrepeat $n $cameraFramePointsCentroid]]] \
+               [sub $projectorFramePoints \
+                    [lrepeat $n $projectorFramePointsCentroid]]]
+
+    lassign [determineSVD $H] U S V
+    set R [matmul $V [transpose $U]]
+    set t [sub $projectorFramePointsCentroid \
+               [matmul $R $cameraFramePointsCentroid]]
+
+    dict set cal R_cameraToProjector $R
+    dict set cal t_cameraToProjector $t
+}
+
+# End-to-end calibrates a camera-projector pair. calibrationPoses is
+# a list of N pose dictionaries. Each pose dictionary includes `tags`
+# from a camera detection, `model` with coordinates in meters,
+# `H_modelToDisplay`.
+fn unrefinedCalibrateCameraAndProjector {modelLib matLib calibrationPoses} {
+    package require linalg
+    namespace import ::math::linearalgebra::det
+    namespace import ::math::linearalgebra::scale
+
+    # Just used to get metadata about cam/proj:
+    set pose0 [lindex $calibrationPoses 0]
+
+    # First, calibrate the camera. "Using only the corners from
+    # printed markers xb and their detected corners xc, [...]
+    # calibrate the camera with no difficulties using Zhang’s method."
+    set i 0
+    set Hs_modelToCamera [lmap pose $calibrationPoses {
+        # Pairs of (camera coordinates, model coordinates).
+        set model [dict get $pose model]
+        set tags [dict get $pose tags]
+        set pointPairs [list]
+        dict for {id cameraTag} $tags {
+            if {![$modelLib isPrintedTag $id]} continue
+            set modelTag [dict get $model $id]
+            foreach modelCorner [dict get $modelTag p] \
+                cameraCorner [dict get $cameraTag p] {
+                    lappend pointPairs [list {*}$modelCorner {*}$cameraCorner]
+                }
+        }
+
+        set H [$matLib estimateHomography $pointPairs]
+        if {[det $H] < 0} {
+            set H [scale -1 $H]
+        }
+        set H
+    }]
+    puts "Zhang calibrate camera:"
+    puts "========"
+    set cameraName [dict get $pose0 camera]
+    set cameraWidth [dict get $pose0 cameraWidth]
+    set cameraHeight [dict get $pose0 cameraHeight]
+    set cameraCalibration [zhangUnrefinedCalibrate \
+                               $cameraName $cameraWidth $cameraHeight \
+                               $Hs_modelToCamera]
+    puts "\n======================\n"
+
+    # Second, calibrate the projector.
+    set i 0
+    set Hs_modelToDisplay [lmap pose $calibrationPoses {
+        set H_modelToDisplay [dict get $pose H_modelToDisplay]
+
+        set pointPairs [list]
+        set model [dict get $pose model]
+        dict for {id modelTag} $model {
+            if {![$modelLib isProjectedTag $id]} continue
+            foreach modelCorner [dict get $modelTag p] {
+                set displayCorner [$matLib applyHomography $H_modelToDisplay $modelCorner]
+                lappend pointPairs [list {*}$modelCorner {*}$displayCorner]
+            }
+        }
+
+        if {[det $H_modelToDisplay] < 0} {
+            set H_modelToDisplay [scale -1 $H_modelToDisplay]
+        }
+        set H_modelToDisplay
+    }]
+    puts "Zhang calibrate projector:"
+    puts "========"
+    set projectorName [dict get $pose0 display]
+    set projectorWidth [dict get $pose0 displayWidth]
+    set projectorHeight [dict get $pose0 displayHeight]
+    set projectorCalibration [zhangUnrefinedCalibrate \
+                                  $projectorName \
+                                  $projectorWidth $projectorHeight \
+                                  $Hs_modelToDisplay]
+    puts "\n======================\n"
+
+    set calibration [dict create \
+                         camera $cameraCalibration \
+                         projector $projectorCalibration]
+    setCameraToProjectorExtrinsics $modelLib calibration $calibrationPoses
+    return $calibration
+}
+
+When the calibration model library is /modelLib/ &\
+     the calibration matrix library is /matLib/ &\
+     the calibration poses max is /calibrationPosesMax/ &\
+     the calibration poses from camera /camera/ to display /display/ are /calibrationPoses/ &\
+     /nobody/ claims a calibration from camera /camera/ to display /display/ is /anything/ &\
+     the calibration refiner is /refineCalibration/ {
+
+    if {[llength $calibrationPoses] < $calibrationPosesMax} {
+        return
+    }
+
+    set calibration [unrefinedCalibrateCameraAndProjector $modelLib $matLib \
+                         $calibrationPoses]
+    puts "======== Unrefined calibration ========="
+    puts $calibration
+    puts ""
+
+    set calibration [{*}$refineCalibration \
+                         $modelLib $matLib \
+                         [fn setCameraToProjectorExtrinsics] \
+                         $calibrationPoses $calibration]
+    puts "======== Refined calibration intrinsics ========="
+
+    puts "."
+    puts "======== Refined calibration ========="
+    puts $calibration
+    puts "."
+
+    Hold! -save -on calibration -key calibration \
+        Claim a calibration from camera $camera to display $display is $calibration
+}

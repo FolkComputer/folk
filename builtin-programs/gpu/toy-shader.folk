@@ -1,0 +1,157 @@
+# sha1 for stable, content-addressed pipeline names.
+set cc [C]
+$cc include <string.h>
+$cc include <openssl/sha.h>
+$cc proc sha1 {char* d} Jim_Obj* {
+    unsigned char md[20];
+    SHA1((unsigned char *)d, strlen(d), md);
+    return Jim_NewStringObj(interp, (char *)md, 20);
+}
+$cc endcflags -lssl -lcrypto
+set sha1Lib [$cc compile]
+
+When the GPU Vulkan handle type definer is /defineVulkanHandleType/ &\
+     the GPU pipeline library is /pipelineLib/ {
+
+# Custom push-constants encoder for ShaderToy uniforms.
+# Layout (std430):
+#   offset  0  vec3  iResolution    (12 bytes — no trailing pad,
+#                                    since the next member is a scalar)
+#   offset 12 float iTime          (4 bytes)
+#
+# Wish arguments: [list $resolution $iTime]
+set cc [C]
+$cc include <string.h>
+$cc include <stdint.h>
+$cc code {
+    // HACK: copied from pipelines.folk
+    typedef struct PushConstantsEncoder {
+        int (*encode)(Jim_Interp* interp, Jim_Obj* obj, uint8_t out[128]);
+    } PushConstantsEncoder;
+
+    typedef struct Args {
+        float iResolution[3];
+        float iTime;
+    } Args;
+
+    static int encodeToy(Jim_Interp* interp, Jim_Obj* obj, uint8_t out[128]) {
+        Args args = {0};
+
+        // iResolution: caller passes {width height}; we synthesize z=1.
+        Jim_Obj* resObj = Jim_ListGetIndex(interp, obj, 0);
+        if (Jim_ListLength(interp, resObj) != 2) return -1;
+        double w, h;
+        if (Jim_GetDouble(interp, Jim_ListGetIndex(interp, resObj, 0), &w) != JIM_OK) return -1;
+        if (Jim_GetDouble(interp, Jim_ListGetIndex(interp, resObj, 1), &h) != JIM_OK) return -1;
+        args.iResolution[0] = (float)w;
+        args.iResolution[1] = (float)h;
+        args.iResolution[2] = 1.0f;
+
+        // iTime: seconds since shader load.
+        double t;
+        if (Jim_GetDouble(interp, Jim_ListGetIndex(interp, obj, 1), &t) != JIM_OK) return -1;
+        args.iTime = (float)t;
+
+        memcpy(out, &args, sizeof(args));
+        return sizeof(args);
+    }
+}
+$cc proc makeToyEncoder {} PushConstantsEncoder* {
+    PushConstantsEncoder* e = malloc(sizeof(PushConstantsEncoder));
+    e->encode = encodeToy;
+    return e;
+}
+$cc proc getToyArgsSize {} int { return sizeof(Args); }
+set toyEncoderLib [$cc compile]
+
+set toyEncoder [$toyEncoderLib makeToyEncoder]
+set toyArgsSize [$toyEncoderLib getToyArgsSize]
+
+# Run glslc as a subprocess to turn GLSL into SPIR-V words.
+fn toyGlslc {stage glsl} {
+    set glslfile [file tempfile /tmp/toyshaderXXXXXX].glsl
+    set glslfd [open $glslfile w]; puts $glslfd $glsl; close $glslfd
+    split [string map {\n ""} [exec glslc -fshader-stage=$stage -mfmt=num -o - $glslfile]] ","
+}
+
+set toyPushConstantsBlock {
+    layout(push_constant) uniform Args {
+        vec3 iResolution;
+        float iTime;
+    } args;
+}
+
+When /wisher/ wishes /p/ draws toy shader /shaderCode/ {
+    binary scan [$sha1Lib sha1 $shaderCode] H* sha1
+
+    set vertGlsl [csubst {
+        #version 450
+
+        $toyPushConstantsBlock
+
+        layout(location = 0) out vec2 vUv;
+
+        void main() {
+            vec2 vertices[6] = vec2[6](
+                vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(1.0, 1.0),
+                vec2(0.0, 0.0), vec2(1.0, 1.0), vec2(0.0, 1.0)
+            );
+            vec2 uv = vertices[gl_VertexIndex];
+            vUv = uv;
+            gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
+        }
+    }]
+
+    # Attribute glslc errors back to the wisher's .folk source by
+    # pulling source info off the matched `Wish X draws toy shader`
+    # statement.
+    lassign [__statementOfCurrentMatchSourceInfo] wishFile wishLine
+    if {$wishLine eq {}} { set wishLine 1 }
+    set fragGlsl [csubst {
+        #version 450
+
+        $toyPushConstantsBlock
+
+        layout(location = 0) in vec2 vUv;
+        layout(location = 0) out vec4 outColor;
+
+        // Expose ShaderToy's built-in uniforms by the names user code expects.
+        #define iResolution args.iResolution
+        #define iTime args.iTime
+
+        #line $wishLine "$wishFile"
+        $shaderCode
+
+        void main() {
+            vec2 fragCoord = vUv * iResolution.xy;
+            vec4 fragColor = vec4(0.0);
+            mainImage(fragColor, fragCoord);
+            // ShaderToy convention ignores alpha; force opaque.
+            outColor = vec4(fragColor.rgb, 1.0);
+        }
+    }]
+
+    try {
+        set vertShaderModule [$pipelineLib createShaderModule [toyGlslc vert $vertGlsl]]
+        set fragShaderModule [$pipelineLib createShaderModule [toyGlslc frag $fragGlsl]]
+    } on error e {
+        puts stderr "Error compiling toy shader: [errorInfo $e]"
+        Claim $wisher has error $e with info [errorInfo $e]
+    }
+
+    set pipeline [$pipelineLib createPipeline \
+                      $vertShaderModule $fragShaderModule \
+                      $toyEncoder $toyArgsSize]
+
+    Claim the GPU compiles pipeline $sha1 to $pipeline
+
+    set startTime [/ [clock microseconds] 1000000.0]
+    When $p has canvas /id/ with /...wiOptions/ &\
+         the clock time is /t/ {
+        set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
+        Wish the GPU draws pipeline $sha1 onto canvas $id \
+            with arguments [list $wiResolution [- $t $startTime]]
+    }
+}
+
+}

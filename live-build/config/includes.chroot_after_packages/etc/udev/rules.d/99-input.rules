@@ -1,1 +1,0 @@
-SUBSYSTEM=="input", GROUP="input", MODE="0666"

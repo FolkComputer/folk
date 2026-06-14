@@ -2,20 +2,30 @@
 
 #include <unistd.h>
 #include <stdio.h>
+#include <fcntl.h>
 
 #include <time.h>
 #include <sys/time.h>
 #include <inttypes.h>
 #include <string.h>
 #include <stdatomic.h>
+#include <assert.h>
+
 #ifdef __linux__
 #include <sys/sysinfo.h>
 #include <sys/resource.h>
+#endif
+#ifdef __APPLE__
+#include <sys/sysctl.h>
+#include <sys/resource.h>
+#include <mach/mach.h>
 #endif
 
 #include "common.h"
 #include "epoch.h"
 #include "jim.h"
+
+extern void installLocalStdoutAndStderr(int stdoutfd, int stderrfd);
 
 // TODO: declare these in folk.h or something.
 extern ThreadControlBlock threads[];
@@ -24,14 +34,19 @@ extern void trace(const char* format, ...);
 extern void HoldStatementGlobally(const char *key, double version, Jim_Obj *jimClause,
                                   long keepMs, const char *destructorCode,
                                   const char *sourceFileName, int sourceLineNumber);
-extern void workerReactivateOrSpawn(int64_t msSinceBoot);
+
+extern void workerReactivateOrSpawn(int64_t msSinceBoot, int targetNotBlockedWorkersCount);
 extern void initSysmonInterp();
 extern void rewindSysmonInterp();
 extern __thread Jim_Interp* interp;
 
+extern void dbGarbageCollectAtomicallys(Db* db, int64_t now);
+
 // How many ms are in each tick? You probably want this to be less
 // than half of 16ms (1 frame).
 #define SYSMON_TICK_MS 3
+
+char thisNode[256];
 
 typedef struct RemoveLater {
     StatementRef _Atomic stmt;
@@ -44,11 +59,14 @@ RemoveLater removeLater[REMOVE_LATER_MAX];
 int64_t _Atomic tick;
 
 int64_t timestampAtBoot;
+int targetNotBlockedWorkersCount;
 
-void sysmonInit() {
+void sysmonInit(int targetCount) {
     timestampAtBoot = timestamp_get(CLOCK_MONOTONIC);
+    targetNotBlockedWorkersCount = targetCount;
 }
 
+static void checkRam();
 void sysmon() {
     /* trace("%" PRId64 "ns: Sysmon Tick", */
     /*       timestamp_get(CLOCK_MONOTONIC) - timestampAtBoot); */
@@ -59,34 +77,12 @@ void sysmon() {
     int64_t currentMs = currentTick * SYSMON_TICK_MS;
 
     // First: check that we have a reasonable amount of free RAM.
-#ifdef __linux__
+    // TODO: move this check to userspace.
     if (currentTick % 1000 == 0) {
         // assuming that ticks happen every 2ms, this should happen
         // every 2s.
-        int freeRamMb = get_avphys_pages() * sysconf(_SC_PAGESIZE) / 1000000;
-        int totalRamMb = get_phys_pages() * sysconf(_SC_PAGESIZE) / 1000000;
-        // Check directly folk's own use of RAM, so we can
-        // detect leaks (I think system RAM is good for killing but
-        // process RAM use is better for leak diagnosis).
-        struct rusage ru; getrusage(RUSAGE_SELF, &ru);
-        fprintf(stderr, "Check avail system RAM: %d MB / %d MB\n"
-                "Check self RAM usage: %ld MB\n",
-                freeRamMb, totalRamMb,
-                ru.ru_maxrss / 1024);
-        if (freeRamMb < 200) {
-            // Hard die if we are likely to run out of RAM, because
-            // that will lock the system (making it hard to ssh in,
-            // etc).
-            fprintf(stderr, "--------------------\n"
-                    "OUT OF RAM, EXITING.\n"
-                    "--------------------\n");
-#ifdef __SANITIZE_ADDRESS__
-            __lsan_do_leak_check();
-#endif
-            exit(1);
-        }
+        checkRam();
     }
-#endif
 
     // Second: deal with any remove-later statements that we should
     // remove.
@@ -114,13 +110,20 @@ void sysmon() {
     // Third: collect garbage.
     epochGlobalCollect();
 
+    // Fourth: reap Atomically versions / attached statements that
+    // haven't had a new convergence in 'a long time'.
+    if (currentTick % 20 == 0) { // every 60ms or so.
+        int64_t nowNs = timestamp_get(CLOCK_MONOTONIC);
+        dbGarbageCollectAtomicallys(db, nowNs);
+    }
+
     ///////////////////////////////////
     if (currentMs < 1000) { return; }
     // Don't do the management tasks after this if the system isn't
     // fully online yet.
     ///////////////////////////////////
 
-    // Fourth: manage the pool of worker threads.
+    // Fifth: manage the pool of worker threads.
     // How many workers are _not_ blocked on I/O?
 #ifdef __linux__
     int notBlockedWorkersCount = 0;
@@ -151,59 +154,108 @@ void sysmon() {
             threads[i].wasObservedAsBlocked = true;
         }
     }
-    // TODO: Use NCPUS for this.
-    if (notBlockedWorkersCount < 3) {
-        // Too many threads are blocked on I/O. Let's pull in another
-        // one to occupy a CPU and do Folk work.
-        workerReactivateOrSpawn(currentMs);
+
+    if (notBlockedWorkersCount < targetNotBlockedWorkersCount) {
+        workerReactivateOrSpawn(currentMs, targetNotBlockedWorkersCount);
     }
 #endif
 
-    // Fifth: update the time statements in the database.
-
+    // Sixth: update the time statements in the database.
     int64_t timeNs = timestamp_get(CLOCK_REALTIME);
 
-    char *timeStr = calloc(100, 1);
-    snprintf(timeStr, 100, "%f", (double)timeNs / 1000000000.0);
-
-    Jim_Obj* internalTimeTerms[] = {
-        Jim_NewStringObj(interp, "sysmon.c", -1),
-        Jim_NewStringObj(interp, "claims", -1),
-        Jim_NewStringObj(interp, "the", -1),
-        Jim_NewStringObj(interp, "internal", -1),
-        Jim_NewStringObj(interp, "time", -1),
-        Jim_NewStringObj(interp, "is", -1),
-        Jim_NewStringObj(interp, timeStr, -1),
-    };
-    Jim_Obj* internalTimeClause = Jim_NewListObj(
-        interp, internalTimeTerms, sizeof(internalTimeTerms)/sizeof(internalTimeTerms[0]));
-    free(timeStr);
-
+    Jim_Obj* internalTimeClause = clauseFormat(
+        "sysmon.c claims the internal time is %f",
+        (double)timeNs / 1000000000.0);
     HoldStatementGlobally("internal-time", currentTick,
                           internalTimeClause, 0, NULL,
                           "sysmon.c", __LINE__);
 
-    // sysmon.c claims the clock time is <TIME>
     if (currentTick % 3 == 0) {
-        char *timeStr = calloc(100, 1);
-        snprintf(timeStr, 100, "%f", (double)timeNs / 1000000000.0);
-
-        Jim_Obj* clockTimeTerms[] = {
-            Jim_NewStringObj(interp, "sysmon.c", -1),
-            Jim_NewStringObj(interp, "claims", -1),
-            Jim_NewStringObj(interp, "the", -1),
-            Jim_NewStringObj(interp, "clock", -1),
-            Jim_NewStringObj(interp, "time", -1),
-            Jim_NewStringObj(interp, "is", -1),
-            Jim_NewStringObj(interp, timeStr, -1),
-        };
-        Jim_Obj* clockTimeClause = Jim_NewListObj(
-            interp, clockTimeTerms, sizeof(clockTimeTerms)/sizeof(clockTimeTerms[0]));
-        free(timeStr);
-
+        Jim_Obj* clockTimeClause = clauseFormat(
+            "sysmon.c claims the clock time is %f",
+            (double)timeNs / 1000000000.0);
         HoldStatementGlobally("clock-time", currentTick,
                               clockTimeClause, 0, NULL,
                               "sysmon.c", __LINE__);
+    }
+}
+
+static void checkRam() {
+#ifdef __linux__
+    // Read MemAvailable from /proc/meminfo (includes reclaimable buffers/cache)
+    int freeRamMb = 0;
+
+    FILE* meminfo = fopen("/proc/meminfo", "r");
+    if (meminfo != NULL) {
+        char line[256];
+        while (fgets(line, sizeof(line), meminfo)) {
+            long memAvailableKb;
+            if (sscanf(line, "MemAvailable: %ld kB", &memAvailableKb) == 1) {
+                freeRamMb = memAvailableKb / 1024;
+                break;
+            }
+        }
+        fclose(meminfo);
+    }
+    // Fallback to old method if /proc/meminfo reading failed
+    if (freeRamMb == 0) {
+        freeRamMb = get_avphys_pages() * sysconf(_SC_PAGESIZE) / 1000000;
+    }
+
+    int totalRamMb = get_phys_pages() * sysconf(_SC_PAGESIZE) / 1000000;
+    // Check directly folk's own use of RAM, so we can
+    // detect leaks (I think system RAM is good for killing but
+    // process RAM use is better for leak diagnosis).
+    struct rusage ru; getrusage(RUSAGE_SELF, &ru);
+    int selfRamMb = ru.ru_maxrss / 1024;
+#endif
+#ifdef __APPLE__
+    // Get total physical memory
+    int64_t totalRamBytes = 0;
+    size_t len = sizeof(totalRamBytes);
+    if (sysctlbyname("hw.memsize", &totalRamBytes, &len, NULL, 0) != 0) {
+        totalRamBytes = 0;
+    }
+    int totalRamMb = totalRamBytes / (1024 * 1024);
+
+    // Get VM statistics for free/available memory
+    vm_size_t page_size;
+    mach_port_t mach_port = mach_host_self();
+    mach_msg_type_number_t count = sizeof(vm_statistics64_data_t) / sizeof(integer_t);
+    vm_statistics64_data_t vm_stats;
+
+    int freeRamMb = 0;
+    if (host_page_size(mach_port, &page_size) == KERN_SUCCESS &&
+        host_statistics64(mach_port, HOST_VM_INFO64, (host_info64_t)&vm_stats, &count) == KERN_SUCCESS) {
+        // Calculate available memory (free + inactive + purgeable)
+        int64_t free_pages = vm_stats.free_count;
+        int64_t inactive_pages = vm_stats.inactive_count;
+        int64_t purgeable_pages = vm_stats.purgeable_count;
+        int64_t available_bytes = (free_pages + inactive_pages + purgeable_pages) * page_size;
+        freeRamMb = available_bytes / (1024 * 1024);
+    }
+
+    // Check process's own RAM usage
+    struct rusage ru; getrusage(RUSAGE_SELF, &ru);
+    // Note: On macOS, ru_maxrss is in bytes, not kilobytes like Linux
+    int selfRamMb = ru.ru_maxrss / (1024 * 1024);
+#endif
+
+    HoldStatementGlobally("selfRam", tick,
+                          clauseFormat("sysmon.c claims %s has self RAM usage %d MB",
+                                       thisNode, selfRamMb),
+                          0, NULL, "sysmon.c", __LINE__);
+    HoldStatementGlobally("totalRam", tick,
+                          clauseFormat("sysmon.c claims %s has available RAM %d MB of %d MB",
+                                       thisNode, freeRamMb, totalRamMb),
+                          0, NULL, "sysmon.c", __LINE__);
+
+    if (freeRamMb < 200) {
+        // Hard die if we are likely to run out of RAM
+        fprintf(stderr, "--------------------\n"
+                "OUT OF RAM, EXITING.\n"
+                "--------------------\n");
+        exit(1);
     }
 }
 
@@ -216,7 +268,17 @@ void *sysmonMain(void *ptr) {
 
     epochThreadInit();
 
+    {
+        char path[256];
+        snprintf(path, sizeof(path), "/var/tmp/folk-%d/sysmon.c.stdout", getpid());
+        int outfd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        snprintf(path, sizeof(path), "/var/tmp/folk-%d/sysmon.c.stderr", getpid());
+        int errfd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        installLocalStdoutAndStderr(outfd, errfd);
+    }
+
     tick = 0;
+    gethostname(thisNode, sizeof(thisNode));
 
     struct timespec tickTime;
     tickTime.tv_sec = 0;
@@ -225,8 +287,17 @@ void *sysmonMain(void *ptr) {
         nanosleep(&tickTime, NULL);
 
         tick++;
+
+#ifdef TRACY_ENABLE
+        TracyCZoneN(zone, "sysmon", 1);
+#endif
         sysmon();
+
         rewindSysmonInterp();
+
+#ifdef TRACY_ENABLE
+        TracyCZoneEnd(zone);
+#endif
     }
     return NULL;
 }
@@ -251,7 +322,7 @@ void sysmonScheduleRemoveAfter(StatementRef stmtRef, int afterMs) {
         fprintf(stderr, "sysmon: Ran out of remove-later slots!");
         for (int i = 0; i < REMOVE_LATER_MAX; i++) {
             fprintf(stderr, "  %d: (%.200s)\n", i,
-                    Jim_String(interp, statementJimClause(statementAcquire(db, removeLater[i].stmt))));
+                    Jim_String(interp, statementClause(statementAcquire(db, removeLater[i].stmt))));
         }
         exit(1);
     }

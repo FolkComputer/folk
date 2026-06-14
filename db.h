@@ -10,6 +10,8 @@ typedef struct Statement Statement;
 typedef struct Match Match;
 typedef struct Db Db;
 
+typedef struct AtomicallyVersion AtomicallyVersion;
+
 typedef struct Destructor Destructor;
 Destructor* destructorNew(void (*fn)(void*), void* arg);
 void destructorRun(Destructor* d);
@@ -51,14 +53,14 @@ bool statementCheck(Db* db, StatementRef ref);
 StatementRef statementRef(Db* db, Statement* stmt);
 
 // Getters:
-Clause* jimClauseToTrieClause(Jim_Interp* interp, Jim_Obj* obj);
-Jim_Obj* statementJimClause(Statement* stmt);
-Clause* statementTrieClause(Statement* stmt);
+Jim_Obj* statementClause(Statement* stmt);
+
+AtomicallyVersion* statementAtomicallyVersion(Statement* stmt);
+
 char* statementSourceFileName(Statement* stmt);
 int statementSourceLineNumber(Statement* stmt);
 
-bool statementHasOtherIncompleteChildMatch(Db* db, Statement* stmt,
-                                           MatchRef otherThan);
+int statementIncompleteChildMatchesCount(Db* db, Statement* stmt);
 
 void statementAddDestructor(Statement* stmt, Destructor* d);
 void statementInheritDestructors(Statement* stmt, Statement* fromStmt);
@@ -79,6 +81,9 @@ void matchRelease(Db* db, Match* m);
 
 bool matchCheck(Db* db, MatchRef ref);
 
+AtomicallyVersion* matchAtomicallyVersion(Match* m);
+void matchSetAtomicallyVersion(Match* m, AtomicallyVersion* a);
+
 void matchAddDestructor(Match* m, Destructor* d);
 
 void matchCompleted(Match* m);
@@ -88,8 +93,6 @@ MatchRef matchRef(Db* db, Match* m);
 
 // Db
 // --
-
-typedef struct Clause Clause;
 
 Db* dbNew();
 const Trie* dbGetClauseToStatementRef(Db* db);
@@ -104,7 +107,27 @@ typedef struct ResultSet {
 // invalid by the time dbQuery returns.
 //
 // Caller must free the returned ResultSet*.
-ResultSet* dbQuery(Db* db, Clause* pattern);
+ResultSet* dbQuery(Db* db, Jim_Obj* pattern);
+
+// Creates and returns a new version (convergence-tracking subgraph)
+// on `key`.
+//
+// Copies `key` if needed (so the caller may safely free it
+// afterward). The returned pointer can be passed to Match and
+// Statement insertion to attach them to that version. The
+// AtomicallyVersion is guaranteed not to ever be freed.
+AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key,
+                                                 MatchRef rootMatchRef);
+
+bool dbAtomicallyVersionHasConverged(AtomicallyVersion* atomicallyVersion);
+int dbAtomicallyVersionInflightCount(AtomicallyVersion* atomicallyVersion);
+int dbAtomicallyVersionNumber(AtomicallyVersion* atomicallyVersion);
+const char* dbAtomicallyVersionKey(AtomicallyVersion* atomicallyVersion);
+
+void dbInflightIncr(Statement* stmt);
+void dbInflightDecr(Db* db, Statement* stmt);
+void dbAtomicallyVersionInflightIncr(AtomicallyVersion* atomicallyVersion);
+void dbAtomicallyVersionInflightDecr(Db* db, AtomicallyVersion* atomicallyVersion);
 
 // Note: once you call this, ownership of `clause` transfers to the
 // DB, which then becomes responsible for freeing it later.
@@ -117,6 +140,7 @@ ResultSet* dbQuery(Db* db, Clause* pattern);
 // new statement was created.
 Statement* dbInsertOrReuseStatement(Db* db, Jim_Interp* interp,
                                     Jim_Obj* jimClause, long keepMs,
+                                    AtomicallyVersion* atomicallyVersion,
                                     const char* sourceFileName, int sourceLineNumber,
                                     MatchRef parent,
                                     StatementRef* outReusedStatementRef);
@@ -130,9 +154,10 @@ Statement* dbInsertOrReuseStatement(Db* db, Jim_Interp* interp,
 // The new Match is returned acquired and needs to be released by the
 // caller.
 Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
+                     AtomicallyVersion* atomicallyVersion,
                      int workerThreadIndex);
 
-void dbRetractStatements(Db* db, Clause* pattern);
+void dbRetractStatements(Db* db, Jim_Obj* pattern);
 
 // If `version` is negative, then this statement will always stomp the
 // previous version.

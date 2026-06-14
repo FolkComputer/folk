@@ -1,0 +1,80 @@
+# Title/footnote wish fulfillment
+# for wishes of the form:
+# Wish $this is titled "This is a tag"
+# Wish $this is footnoted "This is a footnote"
+# Wish $this is right-margined "This is right-margined text"
+# Wish $this is left-margined "This is left-margined text"
+
+When /thing/ has quad /quad/ {
+    Claim -keep 50ms $thing has a quad
+}
+
+When the quad library is /quadLib/ &\
+     the pose library is /poseLib/ &\
+     the quad changer is /quadChange/ &\
+     display /disp/ has width /displayWidth/ height /displayHeight/ &\
+     display /disp/ has intrinsics /displayIntrinsics/ &\
+     /thing/ has a quad {
+
+    fn quadChange
+
+    foreach {label edge textAnchor} {
+        titled         top    bottom
+        footnoted      bottom top
+        right-margined right  left
+        left-margined  left   right
+    } {
+        When the collected results for [list /someone/ wishes $thing is $label /text/] are /results/ {
+            set text [join [lmap result $results {dict get $result text}] "\n"]
+            if {$text eq ""} { return }
+
+            When -atomicallyWithKey [list $thing quad $label] $thing has quad /q/ {
+                package require linalg
+                namespace import \
+                    ::math::linearalgebra::add \
+                    ::math::linearalgebra::sub \
+                    ::math::linearalgebra::scale \
+                    ::math::linearalgebra::unitLengthVector
+
+                lassign [$quadLib vertices [quadChange $q "display $disp"]] \
+                    topLeft topRight bottomRight bottomLeft
+
+                switch $edge {
+                    top { 
+                        set physicalPos [scale 0.5 [add $topLeft $topRight]]
+                        set physicalDir [sub $topLeft $bottomLeft]
+                    }
+                    bottom { 
+                        set physicalPos [scale 0.5 [add $bottomLeft $bottomRight]]
+                        set physicalDir [sub $bottomLeft $topLeft]
+                    }
+                    right { 
+                        set physicalPos [scale 0.5 [add $topRight $bottomRight]]
+                        set physicalDir [sub $topRight $topLeft]
+                    }
+                    left { 
+                        set physicalPos [scale 0.5 [add $topLeft $bottomLeft]]
+                        set physicalDir [sub $topLeft $topRight]
+                    }
+                }
+
+                set paddingMeters 0.02
+                set offset [scale $paddingMeters [unitLengthVector $physicalDir]]
+                set physicalPos [add $physicalPos $offset]
+
+                set dispPosition [$poseLib project $displayIntrinsics $displayWidth $displayHeight $physicalPos]
+
+                set dispTopLeft [$poseLib project $displayIntrinsics $displayWidth $displayHeight $topLeft]
+                set dispTopRight [$poseLib project $displayIntrinsics $displayWidth $displayHeight $topRight]
+                
+                set dispTop [vec2 sub $dispTopRight $dispTopLeft]
+                set dispRadians [expr {-atan2([lindex $dispTop 1], [lindex $dispTop 0])}]
+
+                Wish to draw text onto $disp with \
+                    position $dispPosition \
+                    scale 36.0 radians $dispRadians anchor $textAnchor \
+                    text $text
+            }
+        }
+    }
+}

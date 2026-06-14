@@ -1,0 +1,19 @@
+When the db library is /dbLib/ {
+  set db [__db]
+  Wish the web server handles route "/report" with handler {
+    set aliveCount [$dbLib countAliveStatements $db]
+
+    html [subst {
+      <html>
+      <head>
+        <link rel="stylesheet" href="/style.css">
+        <title>Statement Report</title>
+      </head>
+      <h1>Statement Report</h1>
+      <div>
+        <h2>Alive Statements: $aliveCount</h2>
+      </div>
+      </html>
+    }]
+  }
+}

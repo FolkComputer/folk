@@ -1,9 +1,0 @@
-#!/bin/sh
-
-set -e
-
-# Remove dbus machine id.
-#
-# This removes dbus machine id that cache that makes each system unique.
-
-rm -f /var/lib/dbus/machine-id

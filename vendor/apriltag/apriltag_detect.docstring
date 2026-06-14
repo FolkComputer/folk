@@ -42,7 +42,9 @@ a tuple containing the detections. Each detection is a dict with keys:
 
 - id: integer identifying each detected tag
 
-- center: pixel coordinates of the center of each detection
+- center: pixel coordinates of the center of each detection.  NOTE: Please be
+  cautious regarding the image coordinate convention. Here, we define (0,0) as
+  the left-top corner (not the center point) of the left-top-most pixel.
 
 - lb-rb-rt-lt: pixel coordinates of the 4 corners of each detection. The order
   is left-bottom, right-bottom, right-top, left-top
@@ -58,3 +60,8 @@ a tuple containing the detections. Each detection is a dict with keys:
   of detection accuracy only for very small tags-- not effective for larger tags
   (where we could have sampled anywhere within a bit cell and still gotten a
   good detection.)
+
+- homography: A 3x3 homography matrix that describes the projection from an
+  "ideal" tag (with corners at (-1,1), (1,1), (1,-1), and (-1,-1)) to pixels
+  in the image. This matrix can be used to map points from the tag's coordinate
+  system to the image coordinate system, and is useful for pose estimation.

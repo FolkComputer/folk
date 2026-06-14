@@ -1,0 +1,4 @@
+When this is a first boot {
+    Hold! -save -on builtin-programs/print.folk -key next-id \
+        the next program id is 0
+}

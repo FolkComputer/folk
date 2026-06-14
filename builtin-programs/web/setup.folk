@@ -1,0 +1,597 @@
+Wish the web server handles route "/setup" with nav "<button>Setup</button>" handler {
+    html [subst {
+<!DOCTYPE html>
+<html>
+<head>
+<title>Folk setup</title>
+<script src="/lib/folk.js"></script>
+</head>
+
+<body>
+<script>
+const folk = new FolkWS();
+
+let hasSeenHandlers = false;
+folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with handler /handler/`, handlers => {
+    if (hasSeenHandlers) {
+        window.location.reload();
+    } else {
+        hasSeenHandlers = true;
+    }
+});
+</script>
+
+<h1>Folk setup</h1>
+<!-- 
+     <div>
+     <h2>Start service on boot</h2>
+     LIST IF SYSTEMD SERVICE EXISTS
+     </div>
+
+     <div>
+     <h2>Configure user permissions</h2>
+     LIST IF PART OF ALL GROUPS
+     </div>
+
+     <div>
+     <h2>Errors</h2>
+     LIST ALL ERRORS
+     </div>
+-->
+<style>
+  .mode-select .mode input\[type=radio] {
+      display: none;
+  }
+  .mode-select .resolution:hover, 
+  .mode-select label:has(input\[type=radio]):hover,
+  .mode-select .resolution:hover + label,
+  .mode-select .resolution:has(~ label input\[type=radio]:hover) {
+      background-color: #a8e6a3;
+      cursor: pointer;
+  }
+  .mode-select .mode:has(input:checked) {
+      background-color: #ccc;
+  }
+  .mode-select .mode:has(input:checked) .resolution,
+  .mode-select label:has(input:checked) {
+      background-color: #27ae60;
+  }
+  .mode-select .resolution {
+      width: 100px;
+  }
+  .mode {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+  }
+</style>
+
+<div class="mode-select">
+  <h2>Displays</h2>
+  <div style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
+    <button onclick="dontUseDisplay()"><strong>Don't use a display</strong></button>
+  </div>
+
+  [HtmlWhen $::thisNode has display /display/ with /...opts/ {
+   HtmlWhen the collected results for \
+            [list /someone/ wishes $::thisNode uses display $display with /...usingOpts/] \
+            are /results/ {
+    set isUsingDisplay $([llength $results] >= 1)
+    if {$isUsingDisplay} {
+      set usingOpts [dict get [lindex $results 0] usingOpts]
+    }
+
+    set info [dict get $opts info]
+    set displayName [dict get $info name]
+
+    set modesByRegion [dict create]
+    foreach mode [dict getdef $info modes [list]] {
+      dict lappend modesByRegion $mode(visibleRegion) $mode
+    }
+    set regions [lsort -decreasing -integer -index 0 \
+                     [dict keys $modesByRegion]]
+
+    set displayId [string map {/ _} $display]
+    subst {
+      <div style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
+        <label>
+          <input type="checkbox" name="display-enabled"
+                 $($isUsingDisplay ? "checked" : "")
+                 value="$display"
+                 onchange="displayEnabledChange.call(this, event)">
+          <strong>$displayName</strong><br>
+          [if {[dict exists $info physicalResolution]} { subst {
+              (Physical resolution: [join $info(physicalResolution) x])
+          } }]
+        </label>
+
+        [if {[llength $regions] > 0} { subst {
+        <fieldset style="margin-left: 20px;">
+          <legend>Select mode:</legend>
+          [join [lmap region $regions {
+            lassign $region width height
+            set refreshRates [lmap mode [dict get $modesByRegion $region] \
+                                   {dict get $mode refreshRate}]
+            set refreshRates [lsort -decreasing -integer $refreshRates]
+            subst {
+              <div class="mode">
+                <span class="resolution" data-display="$display"
+                      data-resolution="width $width height $height"
+                      onclick="displayResolutionClicked.call(this, event)">
+                  ${width}x${height}
+                </span>
+                [join [lmap refreshRate $refreshRates { subst {
+                  <label>
+                    <input type="radio" name="display-refreshRate-$displayId"
+                           $([info exists usingOpts] && 
+                             $width == $usingOpts(width) &&
+                             $height == $usingOpts(height) &&
+                             $refreshRate == $usingOpts(refreshRate) ?
+                             "checked" : "")
+                           data-display="$display"
+                           value="width $width height $height refreshRate $refreshRate"
+                           onchange="displayModeChange.call(this, event)">
+                    [format "%.3g" [/ $refreshRate 1000]] Hz
+                  </label>
+                } }] \n]
+              </div>
+            }
+          }] \n]
+        </fieldset>
+        } }]
+      </div>
+    }
+  }}]
+  <script>
+   function dontUseDisplay() {
+     document.querySelectorAll('input\[type="checkbox"\]\[name="display-enabled"]:checked').forEach(cb => {
+       cb.checked = false;
+
+       // HACK: remove older-form display setup.
+       folk.hold(`display`, '', 'builtin-programs/web/setup.folk', true);
+
+       folk.hold(`display \${cb.value}`, '',
+                 'builtin-programs/web/setup.folk', true);
+     });
+   }
+   function displayEnabledChange(event) {
+     // HACK: remove older-form display setup.
+     folk.hold(`display`, '', 'builtin-programs/web/setup.folk', true);
+
+     const display = this.value;
+     if (this.checked) {
+       if (display === "glfw") {
+         // glfw doesn't have any mode settings (for now).
+         folk.hold(`display \${display}`, `Wish \$::thisNode uses display "\${display}" with width 640 height 480 refreshRate -1`,
+                   'builtin-programs/web/setup.folk', true);
+       } else {
+         const firstRefreshRateRadio = document.querySelector(
+           `input\[type="radio"\]\[name^="display-refreshRate-"\]\[data-display="\${display}"]`
+         );
+         firstRefreshRateRadio.checked = true;
+         firstRefreshRateRadio.dispatchEvent(new Event('change'));
+       }
+     } else {
+       folk.hold(`display \${display}`, '',
+                 'builtin-programs/web/setup.folk', true);
+     }
+   }
+   function displayResolutionClicked(event) {
+     const display = this.dataset.display;
+     const firstRefreshRateRadio = document.querySelector(
+       `input\[type="radio"\]\[name^="display-refreshRate-"\]\[data-display="\${display}"]` +
+       `\[value^="\${this.dataset.resolution}"]`
+     );
+     firstRefreshRateRadio.checked = true;
+     firstRefreshRateRadio.dispatchEvent(new Event('change'));
+     event.preventDefault();
+   }
+   function displayModeChange(event) {
+     if (this.checked) {
+       const display = this.dataset.display;
+       const mode = this.value;
+       folk.hold(`display \${display}`, `Wish \$::thisNode uses display "\${display}" with \${mode}`,
+                 'builtin-programs/web/setup.folk', true);
+     }
+     event.preventDefault();
+   }
+  </script>
+</div>
+
+<style>
+  .crop-box {
+      position: absolute;
+      border: 2px solid #27ae60;
+      background: rgba(39,174,96,0.15);
+      box-sizing: border-box;
+      pointer-events: auto;
+      cursor: move;
+  }
+  .crop-handle {
+      position: absolute;
+      width: 12px; height: 12px;
+      background: white;
+      border: 2px solid #27ae60;
+      box-sizing: border-box;
+      pointer-events: auto;
+  }
+  .crop-handle\[data-corner="nw"] { top: -7px; left: -7px; cursor: nwse-resize; }
+  .crop-handle\[data-corner="ne"] { top: -7px; right: -7px; cursor: nesw-resize; }
+  .crop-handle\[data-corner="sw"] { bottom: -7px; left: -7px; cursor: nesw-resize; }
+  .crop-handle\[data-corner="se"] { bottom: -7px; right: -7px; cursor: nwse-resize; }
+</style>
+<div class="mode-select">
+  <h2>Cameras</h2>
+  [HtmlWhen $::thisNode has camera /camera/ with /...opts/ {
+   HtmlWhen the collected results for \
+            [list /someone/ wishes $::thisNode uses camera $camera with /...usingOpts/] \
+            are /results/ {
+    set isUsingCamera $([llength $results] >= 1)
+    if {$isUsingCamera} {
+      set usingOpts [dict get [lindex $results 0] usingOpts]
+    }
+
+    set resolutions [list]
+    foreach format [dict get $opts formats] {
+        # For now, we only support MJPG. The more raw formats are
+        # rarely used by cameras at even medium resolutions and
+        # framerates, anyway, so it's only worth supporting MJPG.
+        if {$format(fourcc) eq "MJPG"} {
+            lappend resolutions {*}$format(resolutions)
+        }
+    }
+    set resolutions [lsort -command {apply {{a b} {
+        expr {[dict get $b width] - [dict get $a width]}
+    }}} $resolutions]
+
+    if {[llength $resolutions] == 0} {
+      # Cameras often have extra camera devices with no formats (or no
+      # MJPG, at least) for some reason. Not very useful for us.
+      subst {
+      <div style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
+        <strong>$camera</strong> (<code>[dict getdef $opts card ""]</code>)<br>
+        (no supported formats)
+      </div>
+      }
+
+    } else {
+      set cameraId [string map {/ _} $camera]
+      subst {
+      <div style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
+        <label>
+          <input type="checkbox" name="camera-enabled"
+                 $($isUsingCamera ? "checked" : "")
+                 value="$camera"
+                 onchange="cameraEnabledChange.call(this, event)">
+          <strong>$camera</strong> (<code>[dict getdef $opts card ""]</code>)
+        </label>
+
+        <fieldset style="margin-left: 20px; margin-top: 10px">
+          <legend>Select resolution:</legend>
+          [join [lmap resolution $resolutions { subst {
+            <div class="mode">
+              <span class="resolution" data-camera="$camera"
+                    data-resolution="width ${resolution(width)} height ${resolution(height)}"
+                    onclick="cameraResolutionClicked.call(this, event)">
+                ${resolution(width)}x${resolution(height)}
+              </span>
+              [join [lmap framerate $resolution(framerates) { subst {
+                <label>
+                  <input type="radio" name="camera-framerate-$cameraId"
+                         $([info exists usingOpts] && 
+                           $resolution(width) == $usingOpts(width) &&
+                           $resolution(height) == $usingOpts(height) &&
+                           $framerate == $usingOpts(framerate) ?
+                           "checked" : "")
+                         data-camera="$camera"
+                         value="width ${resolution(width)} height ${resolution(height)} framerate $framerate"
+                         onchange="cameraFramerateChange.call(this, event)">
+                  [format "%.3g" $framerate] Hz
+                </label>
+              } }] \n]
+            </div>
+          } }] \n]
+        </fieldset>
+        
+        [if {$isUsingCamera} {
+          set iframeWidth 600
+          set cameraAreaHeight [expr {int(600.0 * $usingOpts(height) / $usingOpts(width))}]
+          set iframeHeight [expr {$cameraAreaHeight + 48}]
+          set existingCrops [dict getdef $usingOpts crops [list]]
+          subst {
+          <div class="camera-preview" data-camera="$camera"
+               style="position: relative; display: inline-block; margin-top: 10px; line-height: 0;">
+            <iframe src="/camera?camera=[string map {/ %2F} $camera]"
+                    width="$iframeWidth" height="$iframeHeight"
+                    style="border: 1px solid #999; display: block;"></iframe>
+            <div class="crop-overlay"
+                 style="position: absolute; top: 1px; left: 1px;
+                        width: ${iframeWidth}px; height: ${cameraAreaHeight}px;
+                        pointer-events: none;">
+              <!-- [set i 0] -->
+              [join [lmap c $existingCrops {
+                set cx [dict get $c x]
+                set cy [dict get $c y]
+                set cw [dict get $c width]
+                set ch [dict get $c height]
+                set rx [expr {int($cx * $iframeWidth / $usingOpts(width))}]
+                set ry [expr {int($cy * $cameraAreaHeight / $usingOpts(height))}]
+                set rw [expr {int($cw * $iframeWidth / $usingOpts(width))}]
+                set rh [expr {int($ch * $cameraAreaHeight / $usingOpts(height))}]
+                set cropHtml [subst {
+                  <div class="crop-box" data-index="$i" data-crop="$cx,$cy,$cw,$ch"
+                       style="left: ${rx}px; top: ${ry}px;
+                              width: ${rw}px; height: ${rh}px;">
+                    <div class="crop-handle" data-corner="nw"></div>
+                    <div class="crop-handle" data-corner="ne"></div>
+                    <div class="crop-handle" data-corner="sw"></div>
+                    <div class="crop-handle" data-corner="se"></div>
+                  </div>
+                }]
+                incr i
+                set cropHtml
+              }] \n]
+            </div>
+          </div>
+
+          <div style="margin-top: 10px;">
+            <button data-camera="$camera"
+                    onclick="createVirtualCroppedCamera.call(this, event)">
+              Create virtual cropped camera
+            </button>
+          </div>
+        } }]
+      </div>
+      }
+    }
+  }}]
+  <script>
+    function cameraEnabledChange(event) {
+      const camera = this.value;
+      if (this.checked) {
+        const firstFramerateRadio = document.querySelector(
+          `input\[type="radio"\]\[name^="camera-framerate-"\]\[data-camera="\${camera}"]`
+        );
+        firstFramerateRadio.checked = true;
+        firstFramerateRadio.dispatchEvent(new Event('change'));
+      } else {
+        folk.hold(`camera \${camera}`, '',
+                  'builtin-programs/web/setup.folk', true);
+      }
+      event.preventDefault();
+    }
+    function cameraResolutionClicked(event) {
+      const camera = this.dataset.camera;
+      const firstFramerateRadio = document.querySelector(
+        `input\[type="radio"\]\[name^="camera-framerate-"\]\[data-camera="\${camera}"]` +
+        `\[value^="\${this.dataset.resolution}"]`
+      );
+      firstFramerateRadio.checked = true;
+      firstFramerateRadio.dispatchEvent(new Event('change'));
+      event.preventDefault();
+    }
+    function cameraFramerateChange(event) {
+      if (this.checked) {
+        const camera = this.dataset.camera;
+        const format = this.value;
+        folk.hold(`camera \${camera}`, `Wish \$::thisNode uses camera "\${camera}" with \${format}`,
+                  'builtin-programs/web/setup.folk', true);
+      }
+      event.preventDefault();
+    }
+    const CROP_MCU = 16;
+    const snap = v => Math.floor(v / CROP_MCU) * CROP_MCU;
+
+    function getCropContext(el) {
+      let preview = el.closest('.camera-preview');
+      const camera = preview ? preview.dataset.camera : el.dataset.camera;;
+      if (!preview) {
+        preview = document.querySelector(`.camera-preview\[data-camera="\${camera}"]`);
+      }
+
+      const iframe = preview.querySelector('iframe');
+      const overlay = preview.querySelector('.crop-overlay');
+      const framerateRadio = document.querySelector(
+        `input\[type="radio"\]\[name^="camera-framerate-"\]\[data-camera="\${camera}"]:checked`);
+      if (!framerateRadio) return null;
+      const format = framerateRadio.value;
+      const m = format.match(/width (\\d+) height (\\d+)/);
+      if (!m) return null;
+      return {
+        camera, preview, iframe, overlay, format,
+        sourceWidth: parseInt(m\[1]),
+        sourceHeight: parseInt(m\[2]),
+        iframeWidth: parseInt(iframe.width),
+        canvasHeight: parseInt(iframe.height) - 48,
+      };
+    }
+
+    function issueCrops(ctx, crops) {
+      const cropsTcl = crops
+        .map((\[x,y,w,h]) => `{x \${x} y \${y} width \${w} height \${h}}`)
+        .join(' ');
+      folk.hold(`camera \${ctx.camera}`,
+        `Wish \$::thisNode uses camera "\${ctx.camera}" with \${ctx.format} crops {\${cropsTcl}}`,
+        'builtin-programs/web/setup.folk', true);
+    }
+
+    function readCrops(overlay) {
+      return Array.from(overlay.querySelectorAll('.crop-box'))
+        .map(el => el.dataset.crop.split(',').map(Number));
+    }
+
+    function applyBoxStyle(ctx, box, x, y, w, h) {
+      box.style.left = (x * ctx.iframeWidth / ctx.sourceWidth) + 'px';
+      box.style.top = (y * ctx.canvasHeight / ctx.sourceHeight) + 'px';
+      box.style.width = (w * ctx.iframeWidth / ctx.sourceWidth) + 'px';
+      box.style.height = (h * ctx.canvasHeight / ctx.sourceHeight) + 'px';
+    }
+
+    function createVirtualCroppedCamera(event) {
+      const ctx = getCropContext(this);
+      if (!ctx) return;
+      // Default: ~1/3 of source, centered, MCU-aligned.
+      const w = Math.max(CROP_MCU, snap(ctx.sourceWidth / 3));
+      const h = Math.max(CROP_MCU, snap(ctx.sourceHeight / 3));
+      const x = snap((ctx.sourceWidth - w) / 2);
+      const y = snap((ctx.sourceHeight - h) / 2);
+      const crops = readCrops(ctx.overlay);
+      crops.push(\[x, y, w, h]);
+      issueCrops(ctx, crops);
+      event.preventDefault();
+    }
+
+    // Drag to move (crop-box body) or resize (crop-handle corners).
+    // During drag the overlay flips to pointer-events: auto so the iframe
+    // underneath doesn't steal mousemove events when the cursor passes
+    // over it.
+    let cropDrag = null;
+    document.addEventListener('mousedown', e => {
+      const handle = e.target.closest('.crop-handle');
+      const box = e.target.closest('.crop-box');
+      if (!box) return;
+      const ctx = getCropContext(box);
+      if (!ctx) return;
+      const \[x0, y0, w0, h0] = box.dataset.crop.split(',').map(Number);
+      const mode = handle ? 'resize' : 'move';
+      const corner = handle ? handle.dataset.corner : null;
+      cropDrag = {
+        ctx, box, mode, corner,
+        sx: e.clientX, sy: e.clientY,
+        x0, y0, w0, h0,
+        live: null,
+      };
+      ctx.overlay.style.pointerEvents = 'auto';
+      document.body.style.cursor = mode === 'move' ? 'move'
+        : (corner === 'nw' || corner === 'se') ? 'nwse-resize'
+        : 'nesw-resize';
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    document.addEventListener('mousemove', e => {
+      const d = cropDrag;
+      if (!d) return;
+      const dx = (e.clientX - d.sx) * (d.ctx.sourceWidth / d.ctx.iframeWidth);
+      const dy = (e.clientY - d.sy) * (d.ctx.sourceHeight / d.ctx.canvasHeight);
+      let x, y, w, h;
+      if (d.mode === 'move') {
+        x = Math.max(0, Math.min(d.ctx.sourceWidth - d.w0, snap(d.x0 + dx)));
+        y = Math.max(0, Math.min(d.ctx.sourceHeight - d.h0, snap(d.y0 + dy)));
+        w = d.w0; h = d.h0;
+      } else {
+        let left = d.x0, top = d.y0;
+        let right = d.x0 + d.w0, bottom = d.y0 + d.h0;
+        if (d.corner.includes('w')) {
+          left = Math.max(0, Math.min(right - CROP_MCU, snap(d.x0 + dx)));
+        }
+        if (d.corner.includes('e')) {
+          right = Math.max(left + CROP_MCU,
+                           Math.min(d.ctx.sourceWidth, snap(d.x0 + d.w0 + dx)));
+        }
+        if (d.corner.includes('n')) {
+          top = Math.max(0, Math.min(bottom - CROP_MCU, snap(d.y0 + dy)));
+        }
+        if (d.corner.includes('s')) {
+          bottom = Math.max(top + CROP_MCU,
+                            Math.min(d.ctx.sourceHeight, snap(d.y0 + d.h0 + dy)));
+        }
+        x = left; y = top; w = right - left; h = bottom - top;
+      }
+      d.live = \[x, y, w, h];
+      applyBoxStyle(d.ctx, d.box, x, y, w, h);
+    });
+    document.addEventListener('mouseup', () => {
+      const d = cropDrag;
+      if (!d) return;
+      cropDrag = null;
+      d.ctx.overlay.style.pointerEvents = '';
+      document.body.style.cursor = '';
+      if (!d.live) return;
+      d.box.dataset.crop = d.live.join(',');
+      issueCrops(d.ctx, readCrops(d.ctx.overlay));
+    });
+  </script>
+</div>
+
+<div>
+  <h2>Projector-camera calibration</h2>
+  <p>Select <strong>one display</strong> and <strong>one or more cameras</strong> to calibrate:</p>
+
+  <fieldset style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
+    <legend><strong>Display (projector)</strong></legend>
+    [HtmlWhen /someone/ wishes $::thisNode uses display /display/ with /...opts/ {
+      subst {
+        <div style="margin: 5px 0;">
+          <label>
+            <input type="radio" name="calibration-display"
+                   value="$display"
+                   onchange="calibrationSelectionChange()">
+            $display
+          </label>
+        </div>
+      }
+    }]
+  </fieldset>
+
+  <fieldset style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
+    <legend><strong>Cameras</strong></legend>
+    <!-- [fn emitCameraHtml {camera} {
+      subst {
+        <div style="margin: 5px 0;">
+          <label>
+            <input type="checkbox" name="calibration-camera"
+                   value="$camera"
+                   onchange="calibrationSelectionChange()">
+            $camera
+          </label>
+        </div>
+      }
+    }] -->
+    [HtmlWhen /someone/ wishes $::thisNode uses camera /camera/ with /...opts/ {
+        if {[dict exists $opts crops]} {
+            set htmls [list]
+            loop i [llength $opts(crops)] {
+                lappend htmls [emitCameraHtml [list $camera $i]]
+            }
+            join $htmls \n
+        } else {
+            emitCameraHtml $camera
+        }
+    }]
+  </fieldset>
+
+  <button id="calibrate-button" disabled onclick="startCalibration()">Calibrate</button>
+
+  <script>
+    function calibrationSelectionChange() {
+      const display = document.querySelector('input\[name="calibration-display"]:checked');
+      const cameras = document.querySelectorAll('input\[name="calibration-camera"]:checked');
+      const button = document.getElementById('calibrate-button');
+      button.disabled = !display || cameras.length === 0;
+    }
+
+    function startCalibration() {
+      const display = document.querySelector('input\[name="calibration-display"]:checked');
+      const cameras = Array.from(document.querySelectorAll('input\[name="calibration-camera"]:checked'));
+
+      if (!display || cameras.length === 0) return;
+
+      const params = new URLSearchParams();
+      params.append('display', display.value);
+      cameras.forEach(camera => params.append('camera', camera.value));
+
+      window.location.href = `/calibrate?\${params.toString()}`;
+    }
+
+    const firstDisplay = document.querySelector('input\[name="calibration-display"]');
+    if (firstDisplay) firstDisplay.checked = true;
+    const firstCamera = document.querySelector('input\[name="calibration-camera"]');
+    if (firstCamera) firstCamera.checked = true;
+    calibrationSelectionChange();
+  </script>
+</div>
+
+</body>
+</html>
+}]
+}

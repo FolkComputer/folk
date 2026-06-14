@@ -1,0 +1,121 @@
+if {$::tcl_platform(os) ne "linux"} { return }
+
+set cc [C]
+$cc include <fcntl.h>
+$cc include <unistd.h>
+$cc include <sys/ioctl.h>
+$cc include <linux/videodev2.h>
+$cc proc getInfoForCamera {char* camera} Jim_Obj* {
+    int fd = open(camera, O_RDWR);
+    FOLK_ENSURE(fd >= 0);
+
+    Jim_Obj *infoObj = Jim_NewDictObj(interp, NULL, 0);
+
+    struct v4l2_capability cap;
+    if (ioctl(fd, VIDIOC_QUERYCAP, &cap) >= 0) {
+        Jim_DictAddElement(interp, infoObj,
+                           Jim_NewStringObj(interp, "card", -1),
+                           Jim_NewStringObj(interp, (const char *)cap.card, -1));
+    }
+
+    Jim_Obj *formatsList = Jim_NewListObj(interp, NULL, 0);
+
+    // Enumerate pixel formats
+    struct v4l2_fmtdesc fmt_desc = {0};
+    fmt_desc.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+
+    while (ioctl(fd, VIDIOC_ENUM_FMT, &fmt_desc) == 0) {
+        char fourcc_str[5];
+        fourcc_str[0] = fmt_desc.pixelformat & 0xFF;
+        fourcc_str[1] = (fmt_desc.pixelformat >> 8) & 0xFF;
+        fourcc_str[2] = (fmt_desc.pixelformat >> 16) & 0xFF;
+        fourcc_str[3] = (fmt_desc.pixelformat >> 24) & 0xFF;
+        fourcc_str[4] = '\0';
+
+        Jim_Obj *resolutionsList = Jim_NewListObj(interp, NULL, 0);
+
+        struct v4l2_frmsizeenum frm_size = {0};
+        frm_size.pixel_format = fmt_desc.pixelformat;
+
+        while (ioctl(fd, VIDIOC_ENUM_FRAMESIZES, &frm_size) == 0) {
+            if (frm_size.type == V4L2_FRMSIZE_TYPE_DISCRETE) {
+                Jim_Obj *frameratesList = Jim_NewListObj(interp, NULL, 0);
+
+                struct v4l2_frmivalenum frm_interval = {0};
+                frm_interval.pixel_format = fmt_desc.pixelformat;
+                frm_interval.width = frm_size.discrete.width;
+                frm_interval.height = frm_size.discrete.height;
+
+                while (ioctl(fd, VIDIOC_ENUM_FRAMEINTERVALS, &frm_interval) == 0) {
+                    if (frm_interval.type == V4L2_FRMIVAL_TYPE_DISCRETE) {
+                        double fps = (double)frm_interval.discrete.denominator /
+                                    frm_interval.discrete.numerator;
+                        Jim_ListAppendElement(interp, frameratesList, Jim_NewDoubleObj(interp, fps));
+                    } else if (frm_interval.type == V4L2_FRMIVAL_TYPE_STEPWISE) {
+                        double min_fps = (double)frm_interval.stepwise.max.denominator /
+                                        frm_interval.stepwise.max.numerator;
+                        double max_fps = (double)frm_interval.stepwise.min.denominator /
+                                        frm_interval.stepwise.min.numerator;
+
+                        Jim_Obj *rangeDict = Jim_ObjPrintf("min %f max %f", min_fps, max_fps);
+                        Jim_ListAppendElement(interp, frameratesList, rangeDict);
+                    }
+                    frm_interval.index++;
+                }
+
+                int frameratesLen;
+                const char *frameratesStr = Jim_GetString(frameratesList, &frameratesLen);
+                Jim_Obj *resDict = Jim_ObjPrintf("width %u height %u framerates {%s}",
+                    frm_size.discrete.width,
+                    frm_size.discrete.height,
+                    frameratesStr);
+
+                Jim_ListAppendElement(interp, resolutionsList, resDict);
+            }
+            frm_size.index++;
+        }
+
+        int resolutionsLen;
+        const char *resolutionsStr = Jim_GetString(resolutionsList, &resolutionsLen);
+        Jim_Obj *formatDict = Jim_ObjPrintf("fourcc {%s} description {%s} resolutions {%s}",
+            fourcc_str,
+            (char*)fmt_desc.description,
+            resolutionsStr);
+
+        Jim_ListAppendElement(interp, formatsList, formatDict);
+
+        fmt_desc.index++;
+    }
+    Jim_DictAddElement(interp, infoObj,
+                       Jim_NewStringObj(interp, "formats", -1),
+                       formatsList);
+
+    close(fd);
+    return infoObj;
+}
+set formatsLib [$cc compile]
+
+set camerasByCanonicalName [dict create]
+set cameras [glob -nocomplain "/dev/v4l/by-path/*"]
+# sort first so the order (and therefore which dedupe wins) is
+# consistent across boots.
+set cameras [lsort $cameras]
+foreach camera $cameras {
+    # I would prefer to use by-id, but not all cameras show up in
+    # by-id (webcam on my Dell laptop does not, for instance).
+    try {
+        set canonicalName [file readlink $camera]
+    } on error e {
+        set canonicalName $camera
+    }
+    if {[dict exists $camerasByCanonicalName $canonicalName]} {
+        # Skip cameras that we already have by another name, so there
+        # aren't dupes in the enumeration (in particular, by-path
+        # often has both -usb- and -usbv2- copies of a camera).
+        continue
+    }
+    dict set camerasByCanonicalName $canonicalName $camera
+
+    set info [$formatsLib getInfoForCamera $camera]
+    Claim $::thisNode has camera $camera with {*}$info
+}

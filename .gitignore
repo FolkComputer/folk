@@ -4,6 +4,11 @@ folk.pid
 .vscode
 fuzzing-output
 folk.dSYM
+folk_interpose.dylib
+folk_interpose.dylib.dSYM
 CFLAGS
 .DS_Store
 play
+.vscode/settings.json
+vendor/jimtcl/conftest__.dSYM/Contents/Info.plist
+vendor/jimtcl/conftest__.dSYM/Contents/Resources/Relocations/aarch64/conftest__.yml

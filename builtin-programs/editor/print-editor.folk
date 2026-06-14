@@ -1,0 +1,64 @@
+fn editorToPrintOptions {editor} {
+    Expect! editor $editor has selected program /program/
+    Expect! editor buffer for $program is /code/
+
+    Expect! editor $editor on program $program has font options with /...fontOptions/
+    set textScale $fontOptions(scale)
+    Expect! editor $editor has margin /margin/
+
+    Expect! the paper formats are /formats/
+    set formatName [QueryOne! paper format /./ is the default paper format \
+                       -default letter]
+    set fmt $formats($formatName)
+    set mToPt 2834.646
+    return [dict merge $fmt \
+                [dict create \
+                     code $code \
+                     lineHeight [* $textScale $mToPt] \
+                     advance [* 0.5859375 $textScale $mToPt] \
+                     margin [lmap x $margin {* $x $mToPt}]]]
+}
+
+Subscribe: print program from editor /editor/ {
+    set options [editorToPrintOptions $editor]
+    Notify: print a new program with {*}$options
+}
+
+# Print preview:
+When the codeToPostScript is /codeToPostScript/ &\
+     /someone/ wishes editor /editor/ has a print preview &\
+     editor /editor/ has selected program /program/ {
+
+    set preview [list $editor preview]
+    Wish $preview has a canvas
+
+    Expect! the paper formats are /formats/
+    set formatName [QueryOne! paper format /./ is the default paper format \
+                       -default letter]
+    set fmt $formats($formatName)
+
+    set mToPt 2834.646
+    set previewGeom [list width [/ [lindex $fmt(pageSize) 0] $mToPt] \
+                         height [/ [lindex $fmt(pageSize) 1] $mToPt]]
+    Claim $preview has resolved geometry $previewGeom
+    When the quad library is /quadLib/ & $editor has quad /q/ {
+        Claim $preview has quad [$quadLib alignGeometry \
+                                     [$quadLib move $q right 100%] \
+                                     $previewGeom]
+    }
+    Wish $preview is outlined white
+
+    fn codeToPostScript
+    When editor buffer for $program is /code/ {
+        set ps [codeToPostScript 48700 $code [editorToPrintOptions $editor]]
+
+        set psFile [file tempfile].ps
+        set fp [open $psFile w]; puts $fp $ps; close $fp
+        set pngFile [file tempfile].png
+        set result [exec gs -dNOPAUSE -dBATCH -sFONTPATH=vendor/fonts \
+                        -sDEVICE=png16m -r300 \
+                        -sOutputFile=$pngFile $psFile]
+        puts stderr "gs to render preview: $result"
+        Wish $preview displays image $pngFile with width $previewGeom(width)
+    }
+}

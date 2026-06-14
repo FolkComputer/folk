@@ -9,7 +9,7 @@ When cool {
 }
 
 
-When { source "virtual-programs/collect.folk" }
+When { source "builtin-programs/collect.folk" }
 
 When cool2 {
     On unmatch {

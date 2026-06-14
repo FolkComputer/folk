@@ -1,0 +1,17 @@
+Wish the web server handles route {/program/(.*)$} with handler {
+    set programName $1
+    Expect! $1 has program code /programCode/
+
+    html [subst {
+        <html>
+        <head>
+            <title>[htmlEscape $programName]</title>
+            <link rel="stylesheet" href="/style.css">
+        </head>
+        <body>
+        <h1>[htmlEscape $programName]</h1>
+        <pre><code>[htmlEscape $programCode]</code></pre>
+        </body>
+        </html>
+    }]
+}

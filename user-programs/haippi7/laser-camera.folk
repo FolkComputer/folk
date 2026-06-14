@@ -1,4 +1,4 @@
-# Comment out the main virtual-programs/Camera.folk before running this
+# Comment out the main builtin-programs/Camera.folk before running this
 
 if {$::isLaptop} return
 

@@ -13,7 +13,7 @@
     1. Pure Tcl (and/or C) libraries that we wrote (need to be
        explicitly sourced into Folk & don't use Folk constructs),
        including the C FFI and the C trie
-6. `virtual-programs`
+6. `builtin-programs`
     1. Our own high-level Folk programs
     2. They could be printed out... Perhaps, should be.
 9. `replmain.tcl`

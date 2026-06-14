@@ -10,20 +10,20 @@ Assert! when we are on {
     }
 
     # When we are on {
-    #     source "virtual-programs/web/web.folk"
+    #     source "builtin-programs/web/web.folk"
     # }
     # When we are on {
-    #     source "virtual-programs/web/db-lib.folk"
-    #     source "virtual-programs/web/index.folk"
+    #     source "builtin-programs/web/db-lib.folk"
+    #     source "builtin-programs/web/index.folk"
     # }
     # When we are on {
     #     set this SELF
     #     source "$::env(HOME)/folk-live/setup.folk"
-    #     source "virtual-programs/gpu.folk"
+    #     source "builtin-programs/gpu.folk"
     # }
-    # source "virtual-programs/draw/color-map.folk"
-    # source "virtual-programs/draw/line.folk"
-    # source "virtual-programs/decorations/outline.folk"
+    # source "builtin-programs/draw/color-map.folk"
+    # source "builtin-programs/draw/line.folk"
+    # source "builtin-programs/decorations/outline.folk"
     # When the local tick is /tick/ {
     #     set x $($tick % 300); set y $($tick % 300)
     #     set w 100; set h 100

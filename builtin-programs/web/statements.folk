@@ -1,0 +1,41 @@
+When the db library is /dbLib/ {
+  set db [__db]
+  Wish the web server handles route "/statements" with handler {
+    set l [list]
+    # You need to use the Simple form so it doesn't auto-claimize it.
+    set results [QuerySimple! false /...terms/]
+    foreach result $results { dict with result {
+        set childMatchRefs [$dbLib childMatches $db $__ref]
+        set childMatchInfo [join [lmap childMatchRef $childMatchRefs {
+            set childStatementRefs [$dbLib childStatements $db $childMatchRef]
+            subst {
+                \[ $childMatchRef ($childStatementRefs) \]
+            }
+        }] " "]
+
+        lappend l [subst {
+            <li>
+            <details>
+            <summary style="[expr {
+              [lsearch -exact $terms error] != -1
+              ? "color: red"
+              : ""}]">
+            $__ref ([$dbLib statementParentCount $db $__ref]): <code>[htmlEscape [string range $terms 0 100]]</code> ($childMatchInfo)</summary>
+            <pre>[htmlEscape $terms]</pre>
+            </details>
+            </li>
+        }]
+    } }
+
+    html [subst {
+        <html>
+        <head>
+        <link rel="stylesheet" href="/style.css">
+        <title>Statements</title>
+        </head>
+        <h1>Statements</h1>
+        <ul>[join $l "\n"]</ul>
+        </html>
+    }]
+  }
+}

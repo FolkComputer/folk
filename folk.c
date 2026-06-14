@@ -9,13 +9,17 @@
 #include <inttypes.h>
 #include <signal.h>
 #include <setjmp.h>
+#include <sys/syscall.h>
+#include <fcntl.h>
 
 #if __has_include ("tracy/TracyC.h")
 #include "tracy/TracyC.h"
 #endif
 
-#define JIM_EMBEDDED
 #include <jim.h>
+
+#define STB_DS_IMPLEMENTATION
+#include "vendor/stb_ds.h"
 
 #include "vendor/c11-queues/mpmc_queue.h"
 
@@ -23,7 +27,11 @@
 #include "db.h"
 #include "common.h"
 #include "sysmon.h"
-#include "cache.h"
+#include "output-redirection.h"
+
+#define FATAL(...) do { dprintf(realStderr, __VA_ARGS__); exit(1); } while(0)
+
+#include "block-stats.h"
 
 ThreadControlBlock threads[THREADS_MAX];
 int _Atomic threadCount;
@@ -42,14 +50,13 @@ void globalWorkQueuePush(WorkQueueItem item) {
     WorkQueueItem* pushee = malloc(sizeof(item));
     *pushee = item;
     if (!mpmc_queue_push(&globalWorkQueue, pushee)) {
-        fprintf(stderr, "globalWorkQueuePush: failed\n");
         while (mpmc_queue_available(&globalWorkQueue)) {
             WorkQueueItem* x;
             mpmc_queue_pull(&globalWorkQueue, (void **)&x);
             char s[1000]; traceItem(s, 1000, *x);
-            fprintf(stderr, "(%.200s)\n", s);
+            dprintf(realStderr, "(%.200s)\n", s);
         }
-        exit(1);
+        FATAL("globalWorkQueuePush: failed\n");
     }
     globalWorkQueueSize++;
 }
@@ -66,18 +73,10 @@ WorkQueueItem globalWorkQueueTake() {
     return ret;
 }
 
-// Pushes to either self or the global workqueue, depending on how
-// long the current work item has been running.
 void appropriateWorkQueuePush(WorkQueueItem item) {
     if (self) {
-        int64_t now = timestamp_get(self->clockid);
-        if (self->currentItemStartTimestamp == 0 ||
-            now - self->currentItemStartTimestamp < 1000000) {
-            // The current worker is responsive (hasn't been running that
-            // long). Push to its queue.
-            workQueuePush(self->workQueue, item);
-            return;
-        }
+        workQueuePush(self->workQueue, item);
+        return;
     }
     globalWorkQueuePush(item);
 }
@@ -91,36 +90,11 @@ __thread jmp_buf __onError;
 // wrapper directly), you shouldn't.
 __thread bool __onErrorIsSet;
 
-__thread Cache* cache = NULL;
-
 Db* db;
 
 // Appends a string to a list. List be non-shared
 static void jimAppendString(Jim_Interp* interp, Jim_Obj* listPtr, const char* str) {
     Jim_ListAppendElement(interp, listPtr, Jim_NewStringObj(interp, str, -1));
-}
-
-static Clause* jimObjsToTrieClause(int objc, Jim_Obj *const *objv) {
-    Clause* clause = malloc(SIZEOF_CLAUSE(objc));
-    clause->nTerms = objc;
-
-    const char* str;
-    char* newStr;
-    int len;
-    for (int i = 0; i < objc; i++) {
-        // Jim "strings" are not guaranteed to be null terminated,
-        // as they're effectively byte arrays. We'll go ahead and
-        // terminate it ourselves in the case that this object is
-        // not terminated.
-
-        str = Jim_GetString(interp, objv[i], &len);
-        newStr = malloc(len + 1); // +1 for null cap
-        memcpy(newStr, str, len);
-        newStr[len] = 0x00;
-
-        clause->terms[i] = newStr;
-    }
-    return clause;
 }
 
 static void destructorHelper(void* arg) {
@@ -188,8 +162,7 @@ Environment* clauseUnify(Jim_Interp* interp, Jim_Obj* a, Jim_Obj* b) {
         } else if (!Jim_StringEqObj(interp, aTerms[i], bTerms[i])) {
             free(env);
             fprintf(stderr, "clauseUnify: Unification of (%s) (%s) failed\n",
-                    clauseToString(jimClauseToTrieClause(interp, a)),
-                    clauseToString(jimClauseToTrieClause(interp, b)));
+                    Jim_String(interp, a), Jim_String(interp, b));
             return NULL;
         }
     }
@@ -284,6 +257,7 @@ Statement* HoldStatementGloballyAcquiring(const char *key, double version,
             statementRelease(db, stmt);
         }
     }
+
     return newStmt;
 }
 void HoldStatementGlobally(const char *key, double version,
@@ -293,6 +267,7 @@ void HoldStatementGlobally(const char *key, double version,
                                                      jimClause, keepMs, destructorCode,
                                                      sourceFileName, sourceLineNumber);
     if (stmt != NULL) {
+        dbInflightDecr(db, stmt);
         statementRelease(db, stmt);
     }
 }
@@ -325,11 +300,14 @@ static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *cons
 }
 
 
-static StatementRef Say(Jim_Obj* jimClause, long keepMs, const char *destructorCode,
+static StatementRef Say(Jim_Obj* jimClause, long keepMs,
+                        AtomicallyVersion* atomicallyVersion,
+                        const char *destructorCode,
                         const char *sourceFileName, int sourceLineNumber) {
     MatchRef parent;
     if (self->currentMatch) {
         parent = matchRef(db, self->currentMatch);
+
     } else {
         parent = MATCH_REF_NULL;
         const char *s = Jim_String(interp, jimClause);
@@ -338,6 +316,7 @@ static StatementRef Say(Jim_Obj* jimClause, long keepMs, const char *destructorC
 
     Statement* stmt;
     stmt = dbInsertOrReuseStatement(db, interp, jimClause, keepMs,
+                                    atomicallyVersion,
                                     sourceFileName, sourceLineNumber,
                                     parent, NULL);
 
@@ -352,9 +331,11 @@ static StatementRef Say(Jim_Obj* jimClause, long keepMs, const char *destructorC
         }
 
         StatementRef ref = statementRef(db, stmt);
-        statementRelease(db, stmt);
 
         reactToNewStatement(ref);
+
+        dbInflightDecr(db, stmt);
+        statementRelease(db, stmt);
         return ref;
 
     } else {
@@ -367,36 +348,47 @@ static StatementRef Say(Jim_Obj* jimClause, long keepMs, const char *destructorC
 }
 
 static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    assert(argc >= 6);
-    Jim_Obj* jimClause = Jim_NewListObj(interp, argv + 5, argc - 5);
+    assert(argc >= 7);
+    Jim_Obj* jimClause = Jim_NewListObj(interp, argv + 6, argc - 6);
 
     const char* sourceFileName;
     long sourceLineNumber;
     sourceFileName = Jim_String(interp, argv[1]);
     if (sourceFileName == NULL) { return JIM_ERR; }
+
     if (Jim_GetLong(interp, argv[2], &sourceLineNumber) == JIM_ERR) {
-        return JIM_ERR;
+        goto err;
     }
 
     long keepMs;
     if (Jim_GetLong(interp, argv[3], &keepMs) == JIM_ERR) {
-        return JIM_ERR;
+        goto err;
+    }
+
+    AtomicallyVersion* atomicallyVersion = NULL;
+    const char* atomicallyVersionStr = Jim_String(interp, argv[4]);
+    if (atomicallyVersionStr && strlen(atomicallyVersionStr) > 0) {
+        sscanf(atomicallyVersionStr, "(AtomicallyVersion*) %p", &atomicallyVersion);
     }
 
     int destructorCodeLen;
-    const char* destructorCode = Jim_GetString(interp, argv[4], &destructorCodeLen);
+    const char* destructorCode = Jim_GetString(interp, argv[5], &destructorCodeLen);
     if (destructorCodeLen == 0) {
         destructorCode = NULL;
     }
 
     if (self->inSubscription) {
         Jim_SetResultString(interp, "Cannot call Say within Subscribe", -1);
-        return JIM_ERR;
+        goto err;
     }
 
-    Say(jimClause, keepMs, destructorCode,
+    Say(jimClause, keepMs,
+        atomicallyVersion, destructorCode,
         sourceFileName, (int) sourceLineNumber);
     return JIM_OK;
+
+ err:
+    return JIM_ERR;
 }
 
 static int DestructorFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
@@ -417,32 +409,48 @@ static int NotifyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc >= 2);
 
     Notify(Jim_NewListObj(interp, argv + 1, argc - 1));
-
     return JIM_OK;
 }
 
-Jim_Obj* QuerySimple(Jim_Obj* pattern) {
+extern int statementParentCount(Statement* stmt);
+Jim_Obj* QuerySimple(bool isAtomically, Jim_Obj* pattern) {
     // pattern can be on the temp list, as its child elements
     // can outlast the temp list being cleared
     pattern = Jim_DupIfImmutAndWrongRep(interp, pattern, Jim_ListType(), JIM_TEMP_LIST);
     // make sure it has a list rep
     Jim_ListLength(interp, pattern);
 
-    Clause* tempClause = jimClauseToTrieClause(interp, pattern);
-    ResultSet* rs = dbQuery(db, tempClause);
-    clauseFree(tempClause);
+    ResultSet* rs = dbQuery(db, pattern);
 
     Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
     for (size_t i = 0; i < rs->nResults; i++) {
         Statement* result = statementAcquire(db, rs->results[i]);
         if (result == NULL) { continue; }
 
-        Environment* env = clauseUnify(interp, pattern, statementJimClause(result));
-        assert(env != NULL);
+        // If `isAtomically` is on, then throw away any
+        // statement that has an AtomicallyVersion _and_ that
+        // AtomicallyVersion isn't converged yet.
+        if (isAtomically &&
+            statementAtomicallyVersion(result) != NULL &&
+            !dbAtomicallyVersionHasConverged(statementAtomicallyVersion(result))) {
+
+            /* fprintf(stderr, "DISCARD %.100s\n", */
+            /*         clauseToString(statementClause(result))); */
+            statementRelease(db, result);
+            continue;
+        }
+
+        Environment* env = clauseUnify(interp, pattern, statementClause(result));
+        if (env == NULL) {
+            statementRelease(db, result);
+            continue;
+        }
+
         Jim_Obj* envDict[(env->nBindings + 1) * 2];
         envDict[0] = Jim_NewStringObj(interp, "__ref", -1);
         char buf[100]; snprintf(buf, 100,  "s%d:%d", rs->results[i].idx, rs->results[i].gen);
         envDict[1] = Jim_NewStringObj(interp, buf, -1);
+
         for (int j = 0; j < env->nBindings; j++) {
             envDict[(j+1)*2] = Jim_NewStringObj(interp, env->bindings[j].name, -1);
             envDict[(j+1)*2+1] = env->bindings[j].value;
@@ -460,16 +468,18 @@ Jim_Obj* QuerySimple(Jim_Obj* pattern) {
 }
 
 static int QuerySimpleFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    assert(argc >= 2);
+    assert(argc >= 3);
 
-    Jim_Obj* pattern = Jim_NewListObj(interp, argv + 1, argc - 1);
-#ifdef TRACY_ENABLE
-    TracyCMessageFmt("query: %.200s", Jim_String(interp, pattern));
-#endif
+    int isAtomically;
+    if (Jim_GetBoolean(interp, argv[1], &isAtomically) != JIM_OK) {
+        return JIM_ERR;
+    }
 
-    Jim_Obj *retObj = QuerySimple(pattern);
+    Jim_Obj* pattern = Jim_NewListObj(interp, argv + 2, argc - 2);
+
+    Jim_Obj *retObj = QuerySimple(isAtomically, pattern);
     Jim_FreeNewObj(pattern);
-
+    
     Jim_SetResult(interp, retObj);
     return JIM_OK;
 }
@@ -493,6 +503,37 @@ static int StatementReleaseFunc(Jim_Interp *interp, int argc, Jim_Obj *const *ar
     assert(sscanf(Jim_String(interp, argv[1]), "s%d:%d", &ref.idx, &ref.gen) == 2);
 
     statementRelease(db, statementUnsafeGet(db, ref));
+    return JIM_OK;
+}
+static int __statementOfCurrentMatchSourceInfoFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 1);
+    StatementRef stmtRef = STATEMENT_REF_NULL;
+    mutexLock(&self->currentItemMutex);
+    if (self->currentItem.op == RUN_WHEN) {
+        stmtRef = self->currentItem.runWhen.stmt;
+    }
+    mutexUnlock(&self->currentItemMutex);
+
+    if (statementRefIsNull(stmtRef)) {
+        Jim_SetEmptyResult(interp);
+        return JIM_OK;
+    }
+
+    Statement* stmt = statementAcquire(db, stmtRef);
+    if (stmt == NULL) {
+        Jim_SetEmptyResult(interp);
+        return JIM_OK;
+    }
+
+    const char* fileName = statementSourceFileName(stmt);
+    int lineNumber = statementSourceLineNumber(stmt);
+    Jim_Obj* result[2] = {
+        Jim_NewStringObj(interp, fileName ? fileName : "", -1),
+        Jim_NewIntObj(interp, lineNumber),
+    };
+    Jim_SetResult(interp, Jim_NewListObj(interp, result, 2));
+
+    statementRelease(db, stmt);
     return JIM_OK;
 }
 
@@ -528,7 +569,20 @@ static int __currentMatchRefFunc(Jim_Interp *interp, int argc, Jim_Obj *const *a
     Jim_SetResultString(interp, ret, strlen(ret));
     return JIM_OK;
 }
-static int __isWhenOfCurrentMatchAlreadyRunningFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+static int __statementIncompleteChildMatchesCountFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 2);
+    StatementRef ref;
+    assert(sscanf(Jim_String(interp, argv[1]), "s%d:%d", &ref.idx, &ref.gen) == 2);
+    Statement* stmt = statementAcquire(db, ref);
+    if (stmt == NULL) {
+        Jim_SetResultInt(interp, 0);
+        return JIM_OK;
+    }
+    Jim_SetResultInt(interp, statementIncompleteChildMatchesCount(db, stmt));
+    statementRelease(db, stmt);
+    return JIM_OK;
+}
+static int __whenOfCurrentMatchIncompleteChildMatchesCountFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 1);
     StatementRef whenRef = STATEMENT_REF_NULL;
     mutexLock(&self->currentItemMutex);
@@ -546,8 +600,7 @@ static int __isWhenOfCurrentMatchAlreadyRunningFunc(Jim_Interp *interp, int argc
         return JIM_OK;
     }
 
-    MatchRef currentMatchRef = matchRef(db, self->currentMatch);
-    Jim_SetResultBool(interp, statementHasOtherIncompleteChildMatch(db, when, currentMatchRef));
+    Jim_SetResultInt(interp, statementIncompleteChildMatchesCount(db, when));
 
     statementRelease(db, when);
     return JIM_OK;
@@ -574,6 +627,28 @@ static int __threadIdFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return JIM_OK;
 }
 
+static int __setFreshAtomicallyVersionOnKeyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 2);
+    const char* key = Jim_String(interp, argv[1]);
+    self->currentAtomicallyVersion =
+        dbFreshAtomicallyVersionOnKey(db, key,
+                                      matchRef(db, self->currentMatch));
+    matchSetAtomicallyVersion(self->currentMatch, self->currentAtomicallyVersion);
+    return JIM_OK;
+}
+static int __currentAtomicallyVersionFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 1);
+    if (self->currentAtomicallyVersion == NULL) {
+        Jim_SetResultString(interp, "", -1);
+    } else {
+        char ret[100];
+        snprintf(ret, 100, "(AtomicallyVersion*) %p",
+                 self->currentAtomicallyVersion);
+        Jim_SetResultString(interp, ret, strlen(ret));
+    }
+    return JIM_OK;
+}
+
 static int setpgrpFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     int ret = setpgrp();
     if (ret != -1) {
@@ -587,25 +662,15 @@ static int exitFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
     long exitCode; Jim_GetLong(interp, argv[1], &exitCode);
 
-    // Stop and await all other threads. If we just do a normal exit,
-    // then other threads are likely to crash the program first by
-    // trying to access freed stuff.
-    for (int i = 0; i < threadCount; i++) {
-        if (threads[i].tid == 0) { continue; }
-        if (&threads[i] == self) { continue; }
-
-        char buf[10000]; traceItem(buf, sizeof(buf), threads[i].currentItem);
-
-        pthread_kill(threads[i].pthread, SIGUSR1);
-        pthread_cancel(threads[i].pthread);
-    }
-    for (int i = 0; i < threadCount; i++) {
-        if (threads[i].tid == 0) { continue; }
-        if (&threads[i] == self) { continue; }
-        pthread_join(threads[i].pthread, NULL);
-    }
-
-    exit(exitCode);
+    // Use _exit to skip atexit handlers and avoid crashing threads
+    // that are in non-cancellation-safe code (like dlopen).
+    // Ignore SIGTRAP so pthread_cancel doesn't cause EXC_BREAKPOINT.
+    fflush(stdout);
+    fflush(stderr);
+    close(STDOUT_FILENO);
+    close(STDERR_FILENO);
+    signal(SIGTRAP, SIG_IGN);
+    _exit(exitCode);
 
     return JIM_OK;
 }
@@ -620,9 +685,10 @@ void rewindSysmonInterp() {
 
 static void interpBoot() {
     interp = Jim_CreateInterp();
-    cache = cacheNew();
     Jim_RegisterCoreCommands(interp);
     Jim_InitStaticExtensions(interp);
+
+    outputRedirectionInterpSetup(interp);
 
     Jim_CreateCommand(interp, "Assert!", AssertFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Retract!", RetractFunc, NULL, NULL);
@@ -637,26 +703,31 @@ static void interpBoot() {
 
     Jim_CreateCommand(interp, "StatementAcquire!", StatementAcquireFunc, NULL, NULL);
     Jim_CreateCommand(interp, "StatementRelease!", StatementReleaseFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__statementOfCurrentMatchSourceInfo", __statementOfCurrentMatchSourceInfoFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "__scanVariable", __scanVariableFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__variableNameIsNonCapturing", __variableNameIsNonCapturingFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__startsWithDollarSign", __startsWithDollarSignFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__currentMatchRef", __currentMatchRefFunc, NULL, NULL);
-    Jim_CreateCommand(interp, "__isWhenOfCurrentMatchAlreadyRunning", __isWhenOfCurrentMatchAlreadyRunningFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__statementIncompleteChildMatchesCount", __statementIncompleteChildMatchesCountFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__whenOfCurrentMatchIncompleteChildMatchesCount", __whenOfCurrentMatchIncompleteChildMatchesCountFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__isInSubscription", __isInSubscriptionFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "__isTracyEnabled", __isTracyEnabledFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__blockRuntimeStats", __blockRuntimeStatsFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "__db", __dbFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__threadId", __threadIdFunc, NULL, NULL);
+
+    Jim_CreateCommand(interp, "__setFreshAtomicallyVersionOnKey", __setFreshAtomicallyVersionOnKeyFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__currentAtomicallyVersion", __currentAtomicallyVersionFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "setpgrp", setpgrpFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Exit!", exitFunc, NULL, NULL);
 
     if (Jim_EvalFile(interp, "prelude.tcl") == JIM_ERR) {
         Jim_MakeErrorMessage(interp);
-        fprintf(stderr, "prelude: %s\n", Jim_String(interp, Jim_GetResult(interp)));
-        exit(1);
+        FATAL("prelude: %s\n", Jim_String(interp, Jim_GetResult(interp)));
     }
 }
 void eval(const char* code) {
@@ -678,9 +749,9 @@ void eval(const char* code) {
 void workerExit();
 
 // Caller is responsible for ref counting all provided objects
-static void runBlock(Jim_Obj* bodyPattern, Jim_Obj* toUnifyWith, Jim_Obj* bodyObj,
-                     const char *sourceFileName, int sourceLineNumber,
-                     Jim_Obj *envStackObj) {
+static int runBlock(Jim_Obj* bodyPattern, Jim_Obj* toUnifyWith, Jim_Obj* bodyObj,
+                    const char *sourceFileName, int sourceLineNumber,
+                    Jim_Obj *envStackObj) {
     Jim_Obj* combinedEnvStack = Jim_NewListObj(interp, NULL, 0);
     Jim_IncrRefCount(combinedEnvStack);
 
@@ -699,19 +770,25 @@ static void runBlock(Jim_Obj* bodyPattern, Jim_Obj* toUnifyWith, Jim_Obj* bodyOb
         // reparsed (why??).
         Jim_SetSourceInfo(interp, bodyObj,
                           Jim_NewStringObj(interp, sourceFileName, -1),
-                          sourceLineNumber);
+                          sourceLineNumber, 0);
     }
 
     {
         // Figure out all the bound match variables by unifying when &
         // stmt:
         Environment* env = clauseUnify(interp, bodyPattern, toUnifyWith);
-        assert(env != NULL);
+        if (env == NULL) {
+            // Unification failed.
+            Jim_DecrRefCount(bodyObj);
+            return JIM_OK;
+        }
 
         if (env->nBindings > 50) {
             fprintf(stderr, "runBlock: Too many bindings in env: %d\n",
                     env->nBindings);
-            return;
+            Jim_DecrRefCount(bodyObj);
+            free(env);
+            return JIM_ERR;
         }
 
         Jim_Obj *objs[env->nBindings*2];
@@ -734,12 +811,11 @@ static void runBlock(Jim_Obj* bodyPattern, Jim_Obj* toUnifyWith, Jim_Obj* bodyOb
     int error;
     {
 #ifdef TRACY_ENABLE
-        const char *source = statementSourceFileName(when);
         char name[1000];
         int namesz = snprintf(name, 1000, "%s:%d",
-                              source, statementSourceLineNumber(when));
-        uint64_t srcloc = ___tracy_alloc_srcloc(statementSourceLineNumber(when),
-                                               source, strlen(source),
+                              sourceFileName, sourceLineNumber);
+        uint64_t srcloc = ___tracy_alloc_srcloc(sourceLineNumber,
+                                               sourceFileName, strlen(sourceFileName),
                                                name, namesz,
                                                0);
         TracyCZoneCtx ctx = ___tracy_emit_zone_begin_alloc(srcloc, 1);
@@ -751,7 +827,10 @@ static void runBlock(Jim_Obj* bodyPattern, Jim_Obj* toUnifyWith, Jim_Obj* bodyOb
             bodyObj,
             combinedEnvStack
         };
+        int64_t t0 = timestamp_get(CLOCK_MONOTONIC);
         error = Jim_EvalObjVector(interp, sizeof(objv)/sizeof(objv[0]), objv);
+        blockStatsUpdate(sourceFileName, sourceLineNumber,
+                         timestamp_get(CLOCK_MONOTONIC) - t0);
 
 #ifdef TRACY_ENABLE
         ___tracy_emit_zone_end(ctx);
@@ -759,22 +838,8 @@ static void runBlock(Jim_Obj* bodyPattern, Jim_Obj* toUnifyWith, Jim_Obj* bodyOb
     }
     interp->signal_level--;
 
-    if (error == JIM_ERR) {
-        Jim_MakeErrorMessage(interp);
-        const char *errorMessage = Jim_GetString(interp, Jim_GetResult(interp), NULL);
-        fprintf(stderr, "Fatal (uncaught) error running When (%.100s):\n  %s\n",
-                Jim_String(interp, bodyObj), errorMessage);
-        Jim_FreeInterp(interp);
-        exit(EXIT_FAILURE);
-
-    } else if (error == JIM_SIGNAL) {
-        // FIXME: I think this is the only signal handler path that
-        // actually runs mostly.
-        interp->sigmask = 0;
-        workerExit();
-    }
-
     Jim_DecrRefCount(combinedEnvStack);
+    return error;
 }
 
 static void runWhenBlock(StatementRef whenRef, Jim_Obj* whenPattern, StatementRef stmtRef) {
@@ -802,15 +867,47 @@ static void runWhenBlock(StatementRef whenRef, Jim_Obj* whenPattern, StatementRe
     // parent this match
     if (stmt != NULL) {
         StatementRef parents[] = { whenRef, stmtRef };
-        self->currentMatch = dbInsertMatch(db, 2, parents, self->index);
+
+        AtomicallyVersion* whenAtomicallyVersion = statementAtomicallyVersion(when);
+        AtomicallyVersion* stmtAtomicallyVersion = statementAtomicallyVersion(stmt);
+        AtomicallyVersion* atomicallyVersion = NULL;
+        if (whenAtomicallyVersion && stmtAtomicallyVersion &&
+            whenAtomicallyVersion != stmtAtomicallyVersion) {
+            fprintf(stderr, "runWhenBlock: Warning: Conflicting atomicallyVersion between:\n"
+                    "  when (%p): (%.150s)\n"
+                    "  stmt (%p): (%.150s)\n",
+                    whenAtomicallyVersion, Jim_String(interp, statementClause(when)),
+                    stmtAtomicallyVersion, Jim_String(interp, statementClause(stmt)));
+        }
+        atomicallyVersion = stmtAtomicallyVersion ?
+            stmtAtomicallyVersion : whenAtomicallyVersion;
+        self->currentMatch = dbInsertMatch(db, 2, parents,
+                                           atomicallyVersion,
+                                           self->index);
+        self->currentAtomicallyVersion = atomicallyVersion;
     } else {
         StatementRef parents[] = { whenRef };
-        self->currentMatch = dbInsertMatch(db, 1, parents, self->index);
+        self->currentMatch = dbInsertMatch(db, 1, parents,
+                                           statementAtomicallyVersion(when),
+                                           self->index);
+        self->currentAtomicallyVersion = statementAtomicallyVersion(when);
     }
+    if (self->currentAtomicallyVersion != NULL) {
+        dbAtomicallyVersionInflightIncr(self->currentAtomicallyVersion);
+    }
+    // We don't want to hang onto these inflight when running the
+    // block. (If we're keeping one, we've just incr-ed it for
+    // ourselves before this.)
+    dbInflightDecr(db, when);
+    dbInflightDecr(db, stmt);
 
     // check if match failed to be created
     if (!self->currentMatch) {
         // A parent is gone. Abort.
+        if (self->currentAtomicallyVersion != NULL) {
+            dbAtomicallyVersionInflightDecr(db, self->currentAtomicallyVersion);
+        }
+
         statementRelease(db, when);
         if (stmt != NULL) {
             statementRelease(db, stmt);
@@ -823,8 +920,8 @@ static void runWhenBlock(StatementRef whenRef, Jim_Obj* whenPattern, StatementRe
 
     // now that all the preconditions are met, we can get the parameters set
     // up for `runBlock`
-    Jim_Obj* whenClause = statementJimClause(when);
-    Jim_Obj* stmtClause = stmt == NULL ? whenPattern : statementJimClause(stmt);
+    Jim_Obj* whenClause = statementClause(when);
+    Jim_Obj* stmtClause = stmt == NULL ? whenPattern : statementClause(stmt);
 
     assert(Jim_IsList(whenClause));
     assert(Jim_ListLength(interp, whenClause) >= 5);
@@ -842,6 +939,10 @@ static void runWhenBlock(StatementRef whenRef, Jim_Obj* whenPattern, StatementRe
 
     runBlock(whenPattern, stmtClause, bodyObj,
         statementSourceFileName(when), statementSourceLineNumber(when), capturedEnvStack);
+
+    if (self->currentAtomicallyVersion != NULL) {
+        dbAtomicallyVersionInflightDecr(db, self->currentAtomicallyVersion);
+    }
 
     statementRelease(db, when);
     if (stmt != NULL) { statementRelease(db, stmt); }
@@ -864,7 +965,7 @@ static void runSubscribeBlock(StatementRef subscribeRef, Jim_Obj* subscribePatte
     self->currentMatch = NULL;
     self->inSubscription = true;
 
-    Jim_Obj* subscribeClause = statementJimClause(subscribeStmt);
+    Jim_Obj* subscribeClause = statementClause(subscribeStmt);
     assert(Jim_IsList(subscribeClause));
     assert(Jim_ListLength(interp, subscribeClause) >= 5);
 
@@ -893,14 +994,26 @@ static void runSubscribeBlock(StatementRef subscribeRef, Jim_Obj* subscribePatte
 
 // Copies the whenPattern Clause and all terms so it can be owned (and
 // freed) by the eventual handler of the block.
-static void pushRunWhenBlock(StatementRef when, Jim_Obj* whenPattern, StatementRef stmt) {
+static void pushRunWhenBlock(StatementRef whenRef, Jim_Obj* whenPattern, StatementRef stmtRef) {
     // make sure whenPattern is immutable, as it's about to become shared
     Jim_MakeImmutable(interp, whenPattern);
     Jim_IncrRefCount(whenPattern);
 
+    // TODO: Ideally we wouldn't re-acquire.
+    Statement* stmt = statementAcquire(db, whenRef);
+    Statement* when = statementAcquire(db, stmtRef);
+    if (stmt != NULL) {
+        dbInflightIncr(stmt);
+        statementRelease(db, stmt);
+    }
+    if (when != NULL) {
+        dbInflightIncr(when);
+        statementRelease(db, when);
+    }
+    
     appropriateWorkQueuePush((WorkQueueItem) {
        .op = RUN_WHEN,
-       .runWhen = { .when = when, .whenPattern = whenPattern, .stmt = stmt }
+       .runWhen = { .when = whenRef, .whenPattern = whenPattern, .stmt = stmtRef }
     });
 }
 
@@ -923,6 +1036,13 @@ static void pushRunSubscriptionBlock(StatementRef subscribeRef, Jim_Obj* subscri
     });
 }
 
+#define TERM_STATIC(str) ({ \
+    static struct { int32_t len; char buf[sizeof(str)]; } _term = { \
+        .len = sizeof(str) - 1, .buf = str \
+    }; \
+    (Term*)&_term; \
+})
+
 // Prepends `/someone/ claims` to `clause`. Returns NULL if `clause`
 // shouldn't be claimized. Returns new Jim_Obj with refCount = 0
 Jim_Obj* claimizeClause(Jim_Obj* jimClause) {
@@ -931,12 +1051,13 @@ Jim_Obj* claimizeClause(Jim_Obj* jimClause) {
     assert(Jim_IsList(jimClause));
     int nTerms = Jim_ListLength(interp, jimClause);
 
-    const char* firstTerm = Jim_String(interp, Jim_ListGetIndex(interp, jimClause, 1));
-    if (nTerms >= 2 &&
-        (strcmp(firstTerm, "claims") == 0 ||
-         strcmp(firstTerm, "wishes") == 0)) {
-        Jim_FreeNewObj(ret);
-        return NULL;
+    if (nTerms >= 2) {
+        const char* secondTerm = Jim_String(interp, Jim_ListGetIndex(interp, jimClause, 1));
+        if (strcmp(secondTerm, "claims") == 0 ||
+            strcmp(secondTerm, "wishes") == 0) {
+            Jim_FreeNewObj(ret);
+            return NULL;
+        }
     }
 
     // the time is /t/ -> /someone/ claims the time is /t/
@@ -1044,7 +1165,7 @@ static void reactToNewStatement(StatementRef ref) {
     // This is just to ensure clause validity.
     Statement* stmt = statementAcquire(db, ref);
     if (stmt == NULL) { return; }
-    Jim_Obj* jimClause = statementJimClause(stmt);
+    Jim_Obj* jimClause = statementClause(stmt);
     assert(jimClause != NULL);
 
     Jim_Obj* firstTerm = Jim_ListGetIndex(interp, jimClause, 0);
@@ -1070,8 +1191,7 @@ static void reactToNewStatement(StatementRef ref) {
         } else {
             // Scan the existing statement set for any
             // already-existing matching statements.
-            Clause* triePattern = jimClauseToTrieClause(interp, pattern);
-            ResultSet* existingMatchingStatements = dbQuery(db, triePattern);
+            ResultSet* existingMatchingStatements = dbQuery(db, pattern);
             for (int i = 0; i < existingMatchingStatements->nResults; i++) {
                 pushRunWhenBlock(
                     ref,
@@ -1080,14 +1200,12 @@ static void reactToNewStatement(StatementRef ref) {
                 );
             }
             free(existingMatchingStatements);
-            clauseFree(triePattern);
 
             Jim_Obj* claimizedPattern = claimizeClause(pattern);
             if (claimizedPattern) {
                 Jim_IncrRefCount(claimizedPattern);
 
-                Clause* claimizedTriePattern = jimClauseToTrieClause(interp, claimizedPattern);
-                existingMatchingStatements = dbQuery(db, claimizedTriePattern);
+                existingMatchingStatements = dbQuery(db, claimizedPattern);
                 for (int i = 0; i < existingMatchingStatements->nResults; i++) {
                     pushRunWhenBlock(
                         ref,
@@ -1096,7 +1214,7 @@ static void reactToNewStatement(StatementRef ref) {
                     );
                 }
                 free(existingMatchingStatements);
-                clauseFree(claimizedTriePattern);
+
                 Jim_DecrRefCount(claimizedPattern);
             }
         }
@@ -1127,9 +1245,8 @@ static void reactToNewStatement(StatementRef ref) {
     {
         // the time is 3
         //   -> when the time is 3 /__lambda/ with environment /__env/
-        Jim_Obj* whenizedJimClause = whenizeClause(jimClause);
-        Clause* whenizedTrieClause = jimClauseToTrieClause(interp, whenizedJimClause);
-        ResultSet* existingReactingWhens = dbQuery(db, whenizedTrieClause);
+        Jim_Obj* whenizedClause = whenizeClause(jimClause);
+        ResultSet* existingReactingWhens = dbQuery(db, whenizedClause);
         /* trace("Adding stmt: existing reacting whens (%d)", */
         /*       existingReactingWhens->nResults); */
         for (int i = 0; i < existingReactingWhens->nResults; i++) {
@@ -1138,7 +1255,7 @@ static void reactToNewStatement(StatementRef ref) {
             //   -> the time is /t/
             Statement* when = statementAcquire(db, whenRef);
             if (when) {
-                Jim_Obj* whenPattern = unwhenizeClause(statementJimClause(when));
+                Jim_Obj* whenPattern = unwhenizeClause(statementClause(when));
                 statementRelease(db, when);
 
                 pushRunWhenBlock(
@@ -1150,8 +1267,7 @@ static void reactToNewStatement(StatementRef ref) {
         }
         free(existingReactingWhens);
 
-        Jim_FreeNewObj(whenizedJimClause);
-        clauseFree(whenizedTrieClause);
+        Jim_FreeNewObj(whenizedClause);
     }
 
     Jim_Obj* secondTerm = Jim_ListGetIndex(interp, jimClause, 1);
@@ -1162,13 +1278,10 @@ static void reactToNewStatement(StatementRef ref) {
         //   -> when the time is 3 /__lambda/ with environment /__env/
         Jim_Obj* unclaimizedClause = unclaimizeClause(jimClause);
         Jim_Obj* whenizedUnclaimizedClause = whenizeClause(unclaimizedClause);
-        Clause* whenizedUnclaimizedTrieClause =
-            jimClauseToTrieClause(interp, whenizedUnclaimizedClause);
 
-        ResultSet* existingReactingWhens = dbQuery(db, whenizedUnclaimizedTrieClause);
+        ResultSet* existingReactingWhens = dbQuery(db, whenizedUnclaimizedClause);
         Jim_FreeNewObj(unclaimizedClause);
         Jim_FreeNewObj(whenizedUnclaimizedClause);
-        clauseFree(whenizedUnclaimizedTrieClause);
 
         for (int i = 0; i < existingReactingWhens->nResults; i++) {
             StatementRef whenRef = existingReactingWhens->results[i];
@@ -1176,9 +1289,8 @@ static void reactToNewStatement(StatementRef ref) {
             //   -> /someone/ claims the time is /t/
             Statement* when = statementAcquire(db, whenRef);
             if (when) {
-                Jim_Obj* unwhenizedWhenPattern = unwhenizeClause(statementJimClause(when));
+                Jim_Obj* unwhenizedWhenPattern = unwhenizeClause(statementClause(when));
                 Jim_Obj* claimizedUnwhenizedWhenPattern = claimizeClause(unwhenizedWhenPattern);
-                statementRelease(db, when);
 
                 pushRunWhenBlock(
                     whenRef,
@@ -1186,6 +1298,7 @@ static void reactToNewStatement(StatementRef ref) {
                     claimizedUnwhenizedWhenPattern,
                     ref
                 );
+                statementRelease(db, when);
 
                 Jim_FreeNewObj(unwhenizedWhenPattern);
             }
@@ -1199,23 +1312,21 @@ static void reactToNewStatement(StatementRef ref) {
 static void Notify(Jim_Obj* toNotify) {
     // key x was pressed
     // -> subscribe key x was pressed /lambda/ with environment /__env/
-    Jim_Obj* jimQuery = subscriptionizeClause(toNotify);
-    Clause* clauseQuery = jimClauseToTrieClause(interp, jimQuery);
+    Jim_Obj* clauseQuery = subscriptionizeClause(toNotify);
     ResultSet* rs = dbQuery(db, clauseQuery);
 
     for (size_t i = 0; i < rs->nResults; i++) {
         Statement* subscription = statementAcquire(db, rs->results[i]);
         if (subscription == NULL) { continue; }
 
-        Jim_Obj* subscriptionPattern = unsubscriptionizeClause(statementJimClause(subscription));
+        Jim_Obj* subscriptionPattern = unsubscriptionizeClause(statementClause(subscription));
         pushRunSubscriptionBlock(rs->results[i], subscriptionPattern, toNotify);
 
         statementRelease(db, subscription);
     }
 
     free(rs);
-    clauseFree(clauseQuery);
-    Jim_FreeNewObj(jimQuery);
+    Jim_FreeNewObj(clauseQuery);
 }
 
 void workerRun(WorkQueueItem item) {
@@ -1232,8 +1343,7 @@ void workerRun(WorkQueueItem item) {
     } else if (item.op == EVAL) {
         TracyCZoneN(ctx, "EVAL", 1); zone = ctx;
     } else {
-        fprintf(stderr, "workerRun: Unknown item type\n");
-        exit(1);
+        FATAL("workerRun: Unknown item type\n");
     }
 #endif
 
@@ -1247,15 +1357,18 @@ void workerRun(WorkQueueItem item) {
         /* printf("Assert (%s)\n", clauseToString(item.assert.clause)); */
 
         Statement* stmt;
-        stmt = dbInsertOrReuseStatement(db, interp, item.assert.clause, 0,
+        stmt = dbInsertOrReuseStatement(db, interp, item.assert.clause,
+                                        0, NULL,
                                         item.assert.sourceFileName,
-                                       item.assert.sourceLineNumber,
+                                        item.assert.sourceLineNumber,
                                         MATCH_REF_NULL, NULL);
         if (stmt != NULL) {
             StatementRef ref = statementRef(db, stmt);
-            statementRelease(db, stmt);
 
             reactToNewStatement(ref);
+
+            dbInflightDecr(db, stmt);
+            statementRelease(db, stmt);
         }
 
         // incremented when pushed to the queue
@@ -1264,12 +1377,10 @@ void workerRun(WorkQueueItem item) {
 
     } else if (item.op == RETRACT) {
         /* printf("Retract (%s)\n", clauseToString(item.retract.pattern)); */
-        Clause *triePattern = jimClauseToTrieClause(interp, item.retract.pattern);
-        dbRetractStatements(db, triePattern);
+        dbRetractStatements(db, item.retract.pattern);
 
         // incremented when pushed to the queue
         Jim_DecrRefCount(item.retract.pattern);
-        clauseFree(triePattern);
 
     } else if (item.op == RUN_WHEN) {
         /* printf("  when: %d:%d; stmt: %d:%d\n", item.run.when.idx, item.run.when.gen, */
@@ -1295,9 +1406,7 @@ void workerRun(WorkQueueItem item) {
         free(code);
 
     } else {
-        fprintf(stderr, "workerRun: Unknown work item op: %d\n",
-                item.op);
-        exit(1);
+        FATAL("workerRun: Unknown work item op: %d\n", item.op);
     }
 
     self->currentItemStartTimestamp = 0;
@@ -1332,32 +1441,31 @@ void workerRun(WorkQueueItem item) {
 extern Statement* statementUnsafeGet(Db* db, StatementRef ref);
 void traceItem(char* buf, size_t bufsz, WorkQueueItem item) {
     if (item.op == ASSERT) {
-        Clause* trieClause = jimClauseToTrieClause(interp, item.assert.clause);
-        snprintf(buf, bufsz, "Assert (%.100s)", clauseToString(trieClause));
-        clauseFree(trieClause);
+        snprintf(buf, bufsz, "Assert (%.100s)",
+                 Jim_String(interp, item.assert.clause));
+
     } else if (item.op == RETRACT) {
-        Clause* triePattern = jimClauseToTrieClause(interp, item.retract.pattern);
-        snprintf(buf, bufsz, "Retract (%.100s)", clauseToString(triePattern));
-        clauseFree(triePattern);
+        snprintf(buf, bufsz, "Retract (%.100s)",
+                 Jim_String(interp, item.retract.pattern));
+
     } else if (item.op == RUN_WHEN) {
-        Statement* when = statementUnsafeGet(db, item.runWhen.when);
-        Statement* stmt = statementUnsafeGet(db, item.runWhen.stmt);
-        Clause* trieWhenPattern = jimClauseToTrieClause(interp, item.runWhen.whenPattern);
+        Statement* when = statementAcquire(db, item.runWhen.when);
+        Statement* stmt = statementAcquire(db, item.runWhen.stmt);
         snprintf(buf, bufsz, "Run when(%.100s) pattern(%.100s) stmt(%.100s)",
-                 when != NULL ? Jim_String(interp, statementJimClause(when)) : "NULL",
-                 clauseToString(trieWhenPattern),
-                 stmt != NULL ? Jim_String(interp, statementJimClause(stmt)) : "NULL");
-        clauseFree(trieWhenPattern);
+                 when != NULL ? Jim_String(interp, statementClause(when)) : "NULL",
+                 Jim_String(interp, item.runWhen.whenPattern),
+                 stmt != NULL ? Jim_String(interp, statementClause(stmt)) : "NULL");
+        if (when) statementRelease(db, when);
+        if (stmt) statementRelease(db, stmt);
+
     } else if (item.op == RUN_SUBSCRIBE) {
-        Statement* subscribe = statementUnsafeGet(db, item.runSubscribe.subscribeRef);
-        Clause* trieSubscribePattern = jimClauseToTrieClause(interp, item.runSubscribe.subscribePattern);
-        Clause* trieNotifyClause = jimClauseToTrieClause(interp, item.runSubscribe.notifyClause);
+        Statement* subscribe = statementAcquire(db, item.runSubscribe.subscribeRef);
         snprintf(buf, bufsz, "Run subscribe(%.100s) pattern(%.100s) stmt(%.100s)",
-                 subscribe != NULL ? clauseToString(statementTrieClause(subscribe)) : "NULL",
-                 clauseToString(trieSubscribePattern),
-                 clauseToString(trieNotifyClause));
-        clauseFree(trieSubscribePattern);
-        clauseFree(trieNotifyClause);
+                 subscribe != NULL ? Jim_String(interp, statementClause(subscribe)) : "NULL",
+                 Jim_String(interp, item.runSubscribe.subscribePattern),
+                 Jim_String(interp, item.runSubscribe.notifyClause));
+        if (subscribe) statementRelease(db, subscribe);
+
     } else if (item.op == EVAL) {
         snprintf(buf, bufsz, "Eval");
     } else if (item.op == NONE) {
@@ -1464,9 +1572,24 @@ void workerExit() {
     // Need this so that this worker doesn't count as still being
     // alive and count toward the worker cap.
 
+    // Donate any remaining items in our local workQueue to the global
+    // queue. Otherwise they'd be stranded: workerSteal skips workers
+    // whose tid == 0. This matters for self-kill scenarios like a
+    // When body whose Hold!/Say replaces its own match's parent —
+    // reactToNewStatement pushes the follow-up RUN_WHEN onto the
+    // local queue right before SIGUSR1 tears the worker down.
+    if (self->workQueue != NULL) {
+        while (true) {
+            WorkQueueItem item = workQueueTake(self->workQueue);
+            if (item.op == NONE) { break; }
+            globalWorkQueuePush(item);
+        }
+    }
+
     // TODO: Clear everything else out?
     self->tid = 0;
     Jim_FreeInterp(interp);
+    epochThreadDestroy();
 
     pthread_exit(NULL);
 }
@@ -1487,8 +1610,7 @@ void* workerMain(void* arg) {
         }
     }
     if (threadIndex == -1) {
-        fprintf(stderr, "folk: workerMain: exceeded THREADS_MAX\n");
-        exit(1);
+        FATAL("folk: workerMain: exceeded THREADS_MAX\n");
     }
     if (i >= threadCount) {
         threadCount = i + 1;
@@ -1532,7 +1654,7 @@ static void workerInfo(int threadIndex) {
     printf("Elapsed time: %.3f us\n", elapsed);
 }
 
-void workerReactivateOrSpawn(int64_t msSinceBoot) {
+void workerReactivateOrSpawn(int64_t msSinceBoot, int targetNotBlockedWorkersCount) {
     int nLivingThreads = 0;
     for (int i = 0; i < THREADS_MAX; i++) {
         if (threads[i].tid != 0) {
@@ -1543,13 +1665,15 @@ void workerReactivateOrSpawn(int64_t msSinceBoot) {
             }
         }
     }
-    if (nLivingThreads > 20) {
+    // Arbitrarily picked: we don't want to have more than 15
+    // background threads hanging around.
+    if (nLivingThreads > targetNotBlockedWorkersCount + 15) {
         if (msSinceBoot > 10000) {
             // (Don't print a warning before 10 seconds have elapsed
             // since boot, because we expect to have to do a lot of
             // work at startup, and we don't want to spam stderr.)
-            fprintf(stderr, "folk: workerReactivateOrSpawn: "
-                    "Not spawning new thread; too many already\n");
+            /* fprintf(stderr, "folk: workerReactivateOrSpawn: " */
+            /*         "Not spawning new thread; too many already\n"); */
         }
 
         /* { */
@@ -1564,7 +1688,7 @@ void workerReactivateOrSpawn(int64_t msSinceBoot) {
 
         return;
     }
-    fprintf(stderr, "workerSpawn\n");
+    fprintf(stderr, "folk: workerReactivateOrSpawn: Worker spawn\n");
     workerSpawn();
 }
 
@@ -1628,27 +1752,15 @@ int main(int argc, char** argv) {
 
     // Jim_Allocator = webDebugAllocator;
 
+    outputRedirectionInit();
+
     // Set up database.
     db = dbNew();
 
     workQueueInit();
 
     globalWorkQueueInit();
-
-    {
-        // Spawn the sysmon thread, which isn't managed the same way
-        // as worker threads, and which doesn't run a Folk
-        // interpreter. It's just pure C. It's also guaranteed(?) to
-        // not run more than every few milliseconds, so it's ok to let
-        // it run on the free core.
-        sysmonInit();
-        pthread_t sysmonTh;
-        pthread_create(&sysmonTh, NULL, sysmonMain, NULL);
-    }
-
-    /* struct sched_param param; */
-    /* param.sched_priority = 1; */
-    /* pthread_setschedparam(pthread_self(), SCHED_FIFO, &param); */
+    blockStatsInit();
 
 #ifdef __linux__
     // Count CPUs so we can set up the thread pool to align with the
@@ -1656,18 +1768,32 @@ int main(int argc, char** argv) {
     cpu_set_t cs; CPU_ZERO(&cs);
     sched_getaffinity(0, sizeof(cs), &cs);
     int cpuCount = CPU_COUNT(&cs);
-    printf("main: CPU_COUNT = %d\n", cpuCount);
+    // printf("main: CPU_COUNT = %d\n", cpuCount);
     assert(cpuCount >= 2);
 
+    int cpuUsableCount = cpuCount - 1; // will exclude CPU 0 later.
+#else
+    // HACK: for macOS.
+    int cpuUsableCount = 8;
+#endif
+
+    {
+        // Spawn the sysmon thread, which isn't managed the same way
+        // as worker threads, and which doesn't run a Folk
+        // interpreter. It's just pure C. It's also guaranteed(?) to
+        // not run more than every few milliseconds, so it's ok to let
+        // it run on the free core.
+        sysmonInit(cpuUsableCount > 5 ? 5 : cpuUsableCount);
+        pthread_t sysmonTh;
+        pthread_create(&sysmonTh, NULL, sysmonMain, NULL);
+    }
+
+#ifdef __linux__
     // Disable CPU 0 entirely; we will leave it to Linux. Goal:
     // exclude one CPU from Folk, so that Linux can still accept ssh
     // connections and stuff like that if Folk goes off the rails.
     CPU_CLR(0, &cs);
     sched_setaffinity(0, sizeof(cs), &cs);
-    int cpuUsableCount = cpuCount - 1;
-#else
-    // HACK: for macOS.
-    int cpuUsableCount = 8;
 #endif
 
     threadCount = 1; // i.e., this current thread.

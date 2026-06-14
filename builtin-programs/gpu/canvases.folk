@@ -1,0 +1,522 @@
+When the GPU library is /gpuLib/ &\
+     the image library is /imageLib/ &\
+     the GPU pipeline library is /pipelineLib/ &\
+     the GPU texture library is /gpuTextureLib/ {
+    set gpuc [C]
+    $gpuc include <pthread.h>
+    $gpuc cflags -I./vendor
+    $gpuc code {
+        #define VOLK_IMPLEMENTATION
+        #include "volk/volk.h"
+    }
+
+    $gpuc extend -noprocs $gpuLib
+    $gpuc import $gpuLib VkResultToString
+    $gpuc import $gpuLib getCommandBuffer
+
+    $gpuc extend $imageLib
+    $gpuc extend -noprocs $pipelineLib
+    $gpuc extend $gpuTextureLib
+
+    local proc vktry {call} { string map {\n " "} [csubst {{
+        VkResult res = $call;
+        if (res != VK_SUCCESS) {
+            fprintf(stderr, "Failed $call: %s (%d)\n",
+                    VkResultToString(res), res); exit(1);
+        }
+    }}] }
+
+    $gpuc code {
+        VkDevice device;
+        // Canvas format must match the pipeline render pass format
+        // (VK_FORMAT_B8G8R8A8_UNORM) so that shared pipelines are
+        // render-pass-compatible when drawing onto canvases.
+        VkFormat canvasFormat = VK_FORMAT_B8G8R8A8_UNORM;
+
+        // This render pass is used to draw on all canvases.
+        VkRenderPass renderPass;
+    }
+    $gpuc proc init {} void {
+        $[vktry volkInitialize()]
+        volkLoadInstanceOnly(*instance_ptr());
+
+        device = *device_ptr();
+        volkLoadDevice(device);
+
+        // Set up VkRenderPass renderPass:
+        {
+            VkAttachmentDescription colorAttachment = {0};
+            colorAttachment.format = canvasFormat;
+            colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+            colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+            colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+            colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            colorAttachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            VkAttachmentReference colorAttachmentRef = {0};
+            colorAttachmentRef.attachment = 0;
+            colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+            VkSubpassDescription subpass = {0};
+            subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+            subpass.colorAttachmentCount = 1;
+            subpass.pColorAttachments = &colorAttachmentRef;
+
+            VkRenderPassCreateInfo renderPassInfo = {0};
+            renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+            renderPassInfo.attachmentCount = 1;
+            renderPassInfo.pAttachments = &colorAttachment;
+            renderPassInfo.subpassCount = 1;
+            renderPassInfo.pSubpasses = &subpass;
+
+            VkSubpassDependency dependency = {0};
+            dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+            dependency.dstSubpass = 0;
+            dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            dependency.srcAccessMask = 0;
+            dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+            renderPassInfo.dependencyCount = 1;
+            renderPassInfo.pDependencies = &dependency;
+
+            $[vktry {vkCreateRenderPass(device, &renderPassInfo, NULL, &renderPass)}]
+        }
+    }
+
+    $gpuc code {
+        typedef struct GpuCanvas {
+            VkExtent2D extent;
+
+            GpuTextureHandle gpuTexture;
+            VkFramebuffer framebuffer;
+
+            VkFence inFlightFence;
+        } GpuCanvas;
+    }
+    $gpuc proc gpuTexture {GpuCanvas* wi} GpuTextureHandle {
+        return wi->gpuTexture;
+    }
+
+    $gpuc proc create {int width int height} GpuCanvas* {
+        GpuCanvas* wi = malloc(sizeof(GpuCanvas));
+        wi->extent.width = width; wi->extent.height = height;
+
+        GpuTextureBlock* block = createGpuTexture(width, height, canvasFormat);
+        wi->gpuTexture = block->handle;
+        // make it immediately renderable
+        transitionImageLayout(block->textureImage, canvasFormat,
+                              VK_IMAGE_LAYOUT_UNDEFINED,
+                              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        addToTextureDescriptorSet(block->handle);
+
+        VkImageView attachments[] = { block->textureImageView };
+
+        VkFramebufferCreateInfo framebufferInfo = {0};
+        framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        framebufferInfo.renderPass = renderPass;
+        framebufferInfo.attachmentCount = 1;
+        framebufferInfo.pAttachments = attachments;
+        framebufferInfo.width = width;
+        framebufferInfo.height = height;
+        framebufferInfo.layers = 1;
+        $[vktry {vkCreateFramebuffer(device, &framebufferInfo, NULL, &wi->framebuffer)}]
+
+        {
+            VkFenceCreateInfo fenceInfo = {0};
+            fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+            fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+            $[vktry {vkCreateFence(device, &fenceInfo, NULL, &wi->inFlightFence)}]
+        }
+
+        return wi;
+    }
+    $gpuc proc destroy {GpuCanvas* wi} void {
+        freeGpuTexture(wi->gpuTexture);
+        vkDestroyFramebuffer(device, wi->framebuffer, NULL);
+        vkDestroyFence(device, wi->inFlightFence, NULL);
+        free(wi);
+    }
+    $gpuc code {
+        __thread GpuCanvas* boundCanvas;
+        __thread VkPipeline boundPipeline;
+        __thread VkDescriptorSet boundDescriptorSet;
+    }
+    $gpuc proc drawStart {GpuCanvas* wi} void {
+        FOLK_ENSURE(boundCanvas == NULL);
+        boundCanvas = wi;
+
+        vkResetFences(device, 1, &wi->inFlightFence);
+
+        VkCommandBuffer commandBuffer = getCommandBuffer();
+        vkResetCommandBuffer(commandBuffer, 0);
+
+        // We can't have this texture in the descriptor set while
+        // we're rendering to it.
+        replaceInTextureDescriptorSet(wi->gpuTexture, 0);
+
+        VkCommandBufferBeginInfo beginInfo = {0};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        beginInfo.pInheritanceInfo = NULL;
+
+        $[vktry {vkBeginCommandBuffer(commandBuffer, &beginInfo)}]
+
+        {
+            VkRenderPassBeginInfo renderPassInfo = {0};
+            renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+            renderPassInfo.renderPass = renderPass;
+            renderPassInfo.framebuffer = wi->framebuffer;
+            renderPassInfo.renderArea.offset = (VkOffset2D) {0, 0};
+            renderPassInfo.renderArea.extent = wi->extent;
+
+            VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 0.0f}}};
+            renderPassInfo.clearValueCount = 1;
+            renderPassInfo.pClearValues = &clearColor;
+
+            vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+        }
+
+        boundCanvas = wi;
+        boundPipeline = VK_NULL_HANDLE;
+        boundDescriptorSet = VK_NULL_HANDLE;
+    }
+    $gpuc proc draw {Pipeline pipeline Jim_Obj* argsObj} void {
+        VkCommandBuffer commandBuffer = getCommandBuffer();
+
+        if (boundPipeline != pipeline.pipeline) {
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
+            boundPipeline = pipeline.pipeline;
+
+            VkViewport viewport = {0}; {
+                viewport.x = 0.0f;
+                viewport.y = 0.0f;
+                viewport.width = (float) boundCanvas->extent.width;
+                viewport.height = (float) boundCanvas->extent.height;
+                viewport.minDepth = 0.0f;
+                viewport.maxDepth = 1.0f;
+            }
+            vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+            VkRect2D scissor = {0}; {
+                scissor.offset = (VkOffset2D) {0, 0};
+                scissor.extent = boundCanvas->extent;
+            }
+            vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+        }
+
+        if (boundDescriptorSet != *textureDescriptorSet_ptr()) {
+            vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    pipeline.pipelineLayout, 0, 1, textureDescriptorSet_ptr(), 0, NULL);
+            boundDescriptorSet = *textureDescriptorSet_ptr();
+        }
+
+        {
+            uint8_t pushConstantsData[128];
+            int pushConstantsDataSize = pipeline.encodePushConstants->encode(interp, argsObj, pushConstantsData);
+            if (pushConstantsDataSize == -1) {
+                FOLK_ABORT();
+            }
+            if (pushConstantsDataSize != pipeline.pushConstantsSize) {
+                FOLK_ERROR("drawImpl: Expected push constants size %zu; push constants data size was %d\n",
+                           pipeline.pushConstantsSize, pushConstantsDataSize);
+            }
+            vkCmdPushConstants(commandBuffer, pipeline.pipelineLayout,
+                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                               pipeline.pushConstantsSize, pushConstantsData);
+        }
+
+        // 1 quad -> 2 triangles -> 6 vertices
+        vkCmdDraw(commandBuffer, 6, 1, 0, 0);
+    }
+    $gpuc proc drawEnd {} void {
+        VkCommandBuffer commandBuffer = getCommandBuffer();
+
+        vkCmdEndRenderPass(commandBuffer);
+        $[vktry {vkEndCommandBuffer(commandBuffer)}]
+
+        {
+            VkSubmitInfo submitInfo = {0};
+            submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+
+            VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+            submitInfo.pWaitDstStageMask = waitStages;
+
+            submitInfo.commandBufferCount = 1;
+            submitInfo.pCommandBuffers = &commandBuffer;
+
+            pthread_mutex_lock(graphicsQueueMutex_ptr());
+            $[vktry {vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo,
+                                   boundCanvas->inFlightFence)}]
+            pthread_mutex_unlock(graphicsQueueMutex_ptr());
+        }
+
+        vkWaitForFences(device, 1, &boundCanvas->inFlightFence, VK_TRUE, UINT64_MAX);
+
+        replaceInTextureDescriptorSet(boundCanvas->gpuTexture,
+                                      boundCanvas->gpuTexture);
+        boundCanvas = NULL;
+    }
+
+    set gpuCanvasLib [$gpuc compile]
+    Claim the GPU canvas library is $gpuCanvasLib
+
+    $gpuCanvasLib init
+
+    # `id` is arbitrarily chosen by the caller:
+    When /someone/ wishes the GPU creates canvas /id/ with /...options/ {
+        puts "Create canvas: $id"
+
+        dict set options width [dict getdef $options width 1024]
+        dict set options height [dict getdef $options height 1024]
+        dict set options settle [dict getdef $options settle 3ms]
+
+        set wi [$gpuCanvasLib create $options(width) $options(height)]
+
+        Claim the GPU has created canvas $id with \
+            {*}$options \
+            texture [$gpuCanvasLib gpuTexture $wi] \
+            writableInfo $wi \
+            -destructor [list $gpuCanvasLib destroy $wi]
+
+        Wish to collect results for \
+            [list /wisher/ wishes the GPU draws pipeline /name/ \
+                 onto canvas $id with /...options/] \
+            with settle $options(settle)
+    }
+
+    Wish the GPU runs frame prelude handler [list apply {{gpuCanvasLib gpuTextureLib} {
+        upvar missingPipelines missingPipelines
+        upvar mostRecentDrawListsByTexture mostRecentDrawListsByTexture
+        if {![info exists missingCanvases]} {
+            set missingCanvases [dict create]
+        }
+        if {![info exists mostRecentDrawListsByTexture]} {
+            set mostRecentDrawListsByTexture [dict create]
+        }
+
+        set results [Query! the GPU compiles pipeline /name/ to /pipeline/]
+        set pipelines [dict create]
+        foreach result $results { dict with result { dict set pipelines $name $pipeline } }
+
+        set acquiredRefs [list]
+
+        set results [Query! the GPU has created canvas /id/ with /...options/]
+        set canvases [dict create]
+        foreach result $results { dict with result {
+            set ref [dict get $result __ref]
+            try {
+                StatementAcquire! $ref
+                lappend acquiredRefs $ref
+            } on error e {
+                continue
+            }
+
+            dict with options {
+                dict set canvases $id $writableInfo
+            }
+        } }
+
+        # Discard cached draw-lists for canvases that
+        # have been destroyed, since we'll want to re-draw them
+        # if/when they get re-created.
+        foreach id [dict keys $mostRecentDrawListsByTexture] {
+            if {![dict exists $canvases $id]} {
+                dict unset mostRecentDrawListsByTexture $id
+            }
+        }
+
+        local proc addToDrawLists {&drawLists pipelineName options} {
+            upvar gpuCanvasLib gpuCanvasLib
+            upvar pipelines pipelines
+            upvar missingPipelines missingPipelines
+
+            if {![dict exists $pipelines $pipelineName]} {
+                if {![dict exists $missingPipelines $pipelineName]} {
+                    puts stderr "canvases: Missing pipeline $pipelineName"
+                    dict set missingPipelines $pipelineName true
+                }
+                continue
+            }
+            dict unset missingPipelines $pipelineName
+            set pipeline [dict get $pipelines $pipelineName]
+
+            set layer [dict getdef $options layer 0]
+            if {[dict exists $options instances]} {
+                set instances [dict get $options instances]
+            } else {
+                set instances [list [dict get $options arguments]]
+            }
+            foreach instance $instances {
+                dict lappend drawLists $layer \
+                    [list $gpuCanvasLib draw $pipeline $instance]
+            }
+        }
+
+        set drawListsByTexture [dict create]
+        dict for {id wi} $canvases {
+            set resultsList [Query! the collected results for \
+                                 [list /wisher/ wishes the GPU draws pipeline /name/ \
+                                      onto canvas $id with /...options/] are /results/]
+            if {[llength $resultsList] == 0} {
+                # No collect statement present. Just reuse the
+                # last draw list. (Note: this is _not_ the same as
+                # a collect statement being present with 0 results
+                # inside it, where we actually shouldn't display
+                # anything, not reuse the last draw list.)
+                dict set drawListsByTexture $id \
+                    [dict getdef $mostRecentDrawListsByTexture $id [list]]
+                continue
+            }
+
+            dict set drawListsByTexture $id [list]
+
+            set resultsStmt [lindex $resultsList 0]
+            set ref [dict get $resultsStmt __ref]
+            try {
+                StatementAcquire! $ref
+                lappend acquiredRefs $ref
+                set results [dict get $resultsStmt results]
+
+            } on error e {
+                # Couldn't acquire the collect statement (it
+                # must have just been invalidated). Just reuse
+                # the last one.
+                dict set drawListsByTexture $id \
+                    [dict getdef $mostRecentDrawListsByTexture $id [list]]
+                continue
+            }
+
+            foreach result $results { dict with result {
+                try {
+                    addToDrawLists drawListsByTexture($id) \
+                        $name $options
+                } on error e {
+                    puts stderr "Error: GPU draws pipeline $name: [errorInfo $e]"
+                    Assert! $this claims $wisher has error $e with info [errorInfo $e]
+                    # TODO: does this ever get disposed?
+                }
+            } }
+        }
+
+        # Image texture wishes can publish draw commands while their
+        # descriptor writes are still queued. Drain before recording
+        # canvas command buffers so those handles are drawable.
+        $gpuTextureLib drainDeferredTextureOps
+
+        dict for {id drawLists} $drawListsByTexture {
+            if {[dict exists $mostRecentDrawListsByTexture $id] &&
+                ($drawLists eq $mostRecentDrawListsByTexture($id))} {
+                continue
+            }
+            set wi [dict get $canvases $id]
+            $gpuCanvasLib drawStart $wi
+
+            foreach layer [lsort -real [dict keys $drawLists]] {
+                set layerDrawList [dict get $drawLists $layer]
+                foreach drawCommand $layerDrawList {
+                    try { {*}$drawCommand } \
+                        on error e { puts stderr [errorInfo $e] }
+                }
+            }
+
+            $gpuCanvasLib drawEnd
+
+            dict set mostRecentDrawListsByTexture $id $drawLists
+        }
+
+        foreach ref $acquiredRefs {
+            StatementRelease! $ref
+        }
+    }} $gpuCanvasLib $gpuTextureLib]
+
+    When /someone/ wishes /p/ has a canvas {
+        Wish $p has a canvas with width 1024 height 1024 settle 3ms
+    }
+    When /someone/ wishes /p/ has a canvas with /...options/ {
+        if {![info exists options]} {
+            # HACK: this matches even if the options aren't
+            # there. just return early
+            return
+        }
+        set pCanvas [list $p canvas]
+        # -keep is to deduplicate canvases and reduce canvas churn.
+        Wish -keep 100ms the GPU creates canvas $pCanvas with {*}$options
+        When the GPU has created canvas $pCanvas with /...canvOpts/ {
+            Claim $p has canvas $pCanvas with {*}$canvOpts
+
+            When $p has resolved geometry /geom/ {
+                set width [dict get $geom width]
+                set height [dict get $geom height]
+                set proj [list [list $(2.0/$width) 0 -1] \
+                              [list 0 $(2.0/$height) -1] \
+                              [list 0 0 1]]
+                Claim $p has canvas projection $proj
+            }
+        }
+    }
+
+    Wish the GPU compiles pipeline "composite-canvas" {
+        {vec2 viewport mat3 surfaceToClip
+            sampler2D image vec2 a vec2 b vec2 c vec2 d} {
+            vec2 vertices[6] = vec2[6](a, b, c, a, c, d);
+            vec3 v = surfaceToClip * vec3(vertices[gl_VertexIndex], 1.0);
+            return vec4(v.xy/v.z, 0.0, 1.0);
+
+        } {fn invBilinear} {
+            vec2 clipXy = (gl_FragCoord.xy / viewport) * 2.0 - 1.0;
+            vec3 surfaceXy = inverse(surfaceToClip) * vec3(clipXy, 1.0);
+            surfaceXy /= surfaceXy.z;
+
+            vec2 uv = invBilinear(surfaceXy.xy, a, b, c, d);
+            if( max( abs(uv.x-0.5), abs(uv.y-0.5))<0.5 ) {
+                vec4 texColor = texture(image, uv);
+                
+                // Prevent divide-by-zero errors on empty pixels
+                if (texColor.a < 0.001) return vec4(0.0);
+                
+                // Un-premultiply! The compiler's auto-premultiply will cancel this out, 
+                // leaving the canvas pixels mathematically untouched.
+                return vec4(texColor.rgb / texColor.a, texColor.a);
+            }
+            return vec4(0.0);
+    }}
+
+    When display /disp/ has width /dispWidth/ height /dispHeight/ {
+        # Create a canvas wrapper around the bare display so that you
+        # can draw onto it using the canvas-oriented interface.
+        set dispCanvas [list $disp canvas]
+        Wish the GPU creates canvas $dispCanvas with \
+            width $dispWidth height $dispHeight settle 0ms layer 100
+
+        When the GPU has created canvas $dispCanvas with /...canvOpts/ {
+            Claim $disp has canvas $dispCanvas with {*}$canvOpts
+
+            # HACK: for now, we just impose a surfaceToClip that means
+            # you draw onto the display canvas in screen-space pixels
+            # (not meters, yet -- what would that mean without
+            # awareness of a specific table/plane?).
+            set surfaceToClip \
+                [list \
+                     [list [expr {2.0 / $dispWidth}] 0 -1.0] \
+                     [list 0 [expr {2.0 / $dispHeight}] -1.0] \
+                     [list 0 0 1]]
+            Claim $disp has canvas projection $surfaceToClip
+
+            # Actually draw the canvas onto the bare display.
+
+            # Vertex order needs to be clockwise to align with
+            # Vulkan. Top-left to bottom-left.
+            set a [list 0 0]
+            set b [list $dispWidth 0]
+            set c [list $dispWidth $dispHeight]
+            set d [list 0 $dispHeight]
+            Wish the GPU draws pipeline "composite-canvas" with arguments \
+                [list [list $dispWidth $dispHeight] \
+                     $surfaceToClip \
+                     [dict get $canvOpts texture] $a $b $c $d] \
+                layer [dict getdef $canvOpts layer 99]
+        }
+    }
+}

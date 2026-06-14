@@ -1,0 +1,78 @@
+# Example program, i.e the public API
+#
+# When $this has camera slice /slice/ {
+#     Wish $this displays camera slice $slice
+# }
+
+# Callback: extract out a camera slice
+When the image library is /imageLib/ &\
+     the quad library is /quadLib/ &\
+     the pose library is /poseLib/ &\
+     the quad changer is /quadChange/ &\
+     /someone/ wishes /p/ has camera slice &\
+     camera /cam/ has intrinsics /cameraIntrinsics/ &\
+     camera /cam/ has frame /frame/ at timestamp /timestamp/ &\
+     /p/ has quad /q/ {
+    fn quadChange
+
+    package require linalg
+    namespace import \
+        ::math::linearalgebra::sub \
+        ::math::linearalgebra::norm \
+
+    set fWidth [$imageLib Image_width $frame]
+    set fHeight [$imageLib Image_height $frame]
+    # Convert quad to camera coordinates
+    tracy zoneBegin
+    tracy zoneName "quadChange"
+    set q [quadChange $q $cam]
+    set vertices [lmap v [$quadLib vertices $q] {
+        $poseLib project $cameraIntrinsics \
+            $fWidth $fHeight $v
+    }]
+    tracy zoneEnd
+
+    lassign [$quadLib vertices $q] topLeft topRight bottomRight bottomLeft
+    # These dimensions are in meters. We have to start from these quad
+    # dimensions (not projected camera-plane dimensions) to maintain
+    # aspect ratio.
+    set quadWidth [::math::max [norm [sub $topRight $topLeft]] \
+                        [norm [sub $bottomRight $bottomLeft]]]
+    set quadHeight [::math::max [norm [sub $bottomRight $topRight]] \
+                        [norm [sub $bottomLeft $topLeft]]]
+
+    # Scale quadWidth and quadHeight to appropriate pixel dimensions
+    # by finding the scale factor from projected vertices
+    lassign $vertices topLeftProj topRightProj bottomRightProj bottomLeftProj
+    set projectedWidth [::math::max [norm [sub $topRightProj $topLeftProj]] \
+                            [norm [sub $bottomRightProj $bottomLeftProj]]]
+    set projectedHeight [::math::max [norm [sub $bottomRightProj $topRightProj]] \
+                             [norm [sub $bottomLeftProj $topLeftProj]]]
+
+    # Use the larger dimension to determine pixels per meter
+    set maxProjected [::math::max $projectedWidth $projectedHeight]
+    set max3D [::math::max $quadWidth $quadHeight]
+    set pixelsPerMeter [expr {$maxProjected / $max3D}]
+
+    # Scale to pixels while maintaining aspect ratio
+    set sliceWidth [expr {int($quadWidth * $pixelsPerMeter)}]
+    set sliceHeight [expr {int($quadHeight * $pixelsPerMeter)}]
+
+    tracy zoneBegin
+    tracy zoneName "warpQuad"
+    set slice [$imageLib warpQuad $frame $vertices \
+                   $sliceWidth $sliceHeight]
+    tracy zoneEnd
+    Claim $p has camera slice $slice \
+        -destructor [list $imageLib imageFree $slice]
+}
+
+# Auto-trigger callback for `when has camera slice` statements
+When when /p/ has camera slice /slice/ /lambda/ with environment /e/ {
+    Wish -nonatomically $p has camera slice
+}
+
+# Display a camera slice (for backward compatibility).
+When /someone/ wishes /p/ displays camera slice /slice/ {
+    Wish $p displays image $slice
+}

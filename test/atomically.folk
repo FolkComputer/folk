@@ -1,0 +1,25 @@
+When stuff should run {
+    Claim we started running
+    sleep 1
+    Claim we are done
+}
+When -atomically whatever {
+    Claim stuff should run
+}
+Claim whatever
+
+sleep 0.5
+
+assert {[llength [Query! -atomically stuff should run]] == 0}
+assert {[llength [Query! -atomically we started running]] == 0}
+
+sleep 2
+puts =====
+puts [join [Query! /someone/ claims /...xxx/] \n]
+puts =====
+
+assert {[llength [Query! -atomically stuff should run]] == 1}
+assert {[llength [Query! -atomically we started running]] == 1}
+
+Exit! 0
+

@@ -5,14 +5,12 @@ on: [push, pull_request]
 jobs:
   # build on Ubuntu docker images
   build_linux:
-    name: "Ubuntu (${{ matrix.ros_distribution }}, shared: ${{ matrix.cmake_shared_libs }})"
+    name: "${{ matrix.docker_image }} (${{ matrix.ros_distribution }})"
 
     runs-on: ubuntu-latest
 
     strategy:
       matrix:
-        ros_distribution: [noetic, humble]
-        cmake_shared_libs: ['ON', 'OFF']
         include:
           - docker_image: ubuntu:20.04
             ros_distribution: noetic
@@ -22,95 +20,56 @@ jobs:
             ros_distribution: humble
             ros_version: 2
 
+          - docker_image: ubuntu:24.04
+            ros_distribution: jazzy
+            ros_version: 2
+
+          - docker_image: almalinux:8
+            ros_distribution: humble
+            ros_version: 2
+
+          - docker_image: almalinux:9
+            ros_distribution: jazzy
+            ros_version: 2
+
     container:
       image: ${{ matrix.docker_image }}
 
     steps:
-      - name: install core dependencies
-        run: |
-          apt update
-          apt install --no-install-recommends -y git ca-certificates
-
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup ROS environment
         uses: ros-tooling/setup-ros@v0.7
 
       - name: ROS 1 CI Action
         if: ${{ matrix.ros_version == 1 }}
-        uses: ros-tooling/action-ros-ci@v0.3
+        uses: ros-tooling/action-ros-ci@v0.4
         with:
           package-name: apriltag
           target-ros1-distro: ${{ matrix.ros_distribution }}
-          extra-cmake-args: "-DBUILD_SHARED_LIBS=${{ matrix.cmake_shared_libs }}"
 
       - name: ROS 2 CI Action
         if: ${{ matrix.ros_version == 2 }}
-        uses: ros-tooling/action-ros-ci@v0.3
+        uses: ros-tooling/action-ros-ci@v0.4
         with:
           package-name: apriltag
           target-ros2-distro: ${{ matrix.ros_distribution }}
-          extra-cmake-args: "-DBUILD_SHARED_LIBS=${{ matrix.cmake_shared_libs }}"
 
-
-  # build on Windows native
-  build_windows:
-    name: "Windows (${{ matrix.ros_distribution }}, shared: ${{ matrix.cmake_shared_libs }})"
-
-    runs-on: windows-2019
-
-    strategy:
-      matrix:
-        ros_distribution: [noetic, humble]
-        cmake_shared_libs: ['OFF']
-        include:
-          - ros_distribution: noetic
-            ros_version: 1
-
-          - ros_distribution: humble
-            ros_version: 2
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Setup ROS environment
-        uses: ros-tooling/setup-ros@v0.7
-
-      - name: ROS 1 CI Action
-        if: ${{ matrix.ros_version == 1 }}
-        uses: ros-tooling/action-ros-ci@v0.3
-        with:
-          package-name: apriltag
-          target-ros1-distro: ${{ matrix.ros_distribution }}
-          extra-cmake-args: "-DBUILD_SHARED_LIBS=${{ matrix.cmake_shared_libs }}"
-
-      - name: ROS 2 CI Action
-        if: ${{ matrix.ros_version == 2 }}
-        uses: ros-tooling/action-ros-ci@v0.3
-        with:
-          package-name: apriltag
-          target-ros2-distro: ${{ matrix.ros_distribution }}
-          extra-cmake-args: "-DBUILD_SHARED_LIBS=${{ matrix.cmake_shared_libs }}"
 
   # build on macOS native
   build_macos:
-    name: "macOS (${{ matrix.ros_distribution }}, shared: ${{ matrix.cmake_shared_libs }})"
+    name: "macOS (${{ matrix.ros_distribution }})"
 
     runs-on: macos-latest
 
     strategy:
       matrix:
-        ros_distribution: [humble]
-        cmake_shared_libs: ['OFF']
+        ros_distribution: [humble, jazzy]
 
     steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
@@ -118,8 +77,7 @@ jobs:
         uses: ros-tooling/setup-ros@v0.7
 
       - name: ROS 2 CI Action
-        uses: ros-tooling/action-ros-ci@v0.3
+        uses: ros-tooling/action-ros-ci@v0.4
         with:
           package-name: apriltag
           target-ros2-distro: ${{ matrix.ros_distribution }}
-          extra-cmake-args: "-DBUILD_SHARED_LIBS=${{ matrix.cmake_shared_libs }}"

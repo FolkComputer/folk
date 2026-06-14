@@ -1,0 +1,246 @@
+# Goal of the calibration board is to have the user do four
+# measurements:
+#
+# - paper edge to top margin
+#
+# - paper edge to bottom margin
+#
+# - paper edge to left margin
+#
+# - tag inner width, to account for scaling. (We also want this tag
+#   inner width to be exactly the same as the tag inner width that we
+#   use on every printed program, so that if the user measures the tag
+#   wrong, it still looks OK on the average program.)
+#
+# Then we can correct for these factors in all future prints, so we
+# can print mm-accurate.
+
+# These values are all in points (1/72 of an inch).
+set marginTop 48; set marginLeft 48
+
+set measureTop [/ $marginTop 2]; set measureLeft [/ $marginLeft 2]
+set tagInnerSideLength 70
+
+When the calibration measurements are /measurements/ {
+    set m_tag [string trimright [dict get $measurements tagSideLength] mm]
+    set m_left [string trimright [dict get $measurements left] mm]
+    set m_bottom [string trimright [dict get $measurements bottom] mm]
+
+    # Derive a PostScript CTM that maps calibrated space (origin at
+    # paper bottom-left, 1 unit = 1 physical point = 25.4/72 mm) to
+    # the printer's raw PS coordinate space.
+    #
+    # The calibration board was printed unmediated, so its PS coords
+    # are the printer's raw coords.  The measurement lines were drawn
+    # at PS positions measureLeft and measureTop; the tag inner side
+    # was tagInnerSideLength PS points.  From the physical measurements
+    # (in mm) we can recover the printer's scale and origin offset.
+    set scale [expr {25.4 * $tagInnerSideLength / (72.0 * $m_tag)}]
+    set tx [expr {$measureLeft - $m_left * $tagInnerSideLength / $m_tag}]
+    set ty [expr {$measureTop - $m_bottom * $tagInnerSideLength / $m_tag}]
+
+    Claim the calibrated print scale is $scale
+    Claim the calibrated print translation is [list $tx $ty]
+}
+
+When the print library is /printLib/ &\
+     the calibration model library is /modelLib/ &\
+     the calibration matrix library is /matLib/ {
+
+fn makeCalibrationBoardPs {} {
+    set model [$modelLib unitModel]
+
+    package require linalg
+    namespace import ::math::linearalgebra::add
+
+    Expect! the paper formats are /formats/
+    set formatName [QueryOne! paper format /./ is the default paper format \
+                       -default letter]
+    lassign [dict get $formats($formatName) pageSize] PageWidth PageHeight
+
+    set innerToOuter 0.333333
+
+    set tagOuterLengthPs [expr {$tagInnerSideLength * 10/6}]
+
+    set H_modelToPs [$matLib estimateHomography [subst {
+        {1 1 $tagInnerSideLength $tagInnerSideLength}
+        {1 0 $tagInnerSideLength 0}
+        {0 1 0 $tagInnerSideLength}
+        {0 0 0 0}
+    }]]
+
+    set ps [subst {
+        %!PS
+        << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
+
+        gsave
+        $marginLeft [- $PageHeight [/ $marginTop 2]] translate
+        0 setgray /Helvetica findfont 14 scalefont setfont
+        newpath 0 0 moveto (Folk calibration board) show
+        grestore
+
+        /Helvetica findfont 7 scalefont setfont
+        1 setlinecap
+        2 setlinewidth 0.67 0.1 0.1 setrgbcolor
+
+        % Short red segment at top measure, with arrow up to top edge.
+        2 setlinewidth
+        newpath
+        [expr {$PageWidth/2 - 20}] [- $PageHeight $measureTop] moveto
+        [expr {$PageWidth/2 + 20}] [- $PageHeight $measureTop] lineto
+        stroke
+        1 setlinewidth
+        newpath
+        [/ $PageWidth 2] [- $PageHeight $measureTop] moveto
+        [/ $PageWidth 2] [expr {$PageHeight - 2}] lineto
+        stroke
+        newpath
+        [/ $PageWidth 2] [expr {$PageHeight - 2}] moveto
+        [expr {$PageWidth/2 - 4}] [expr {$PageHeight - 8}] lineto
+        stroke
+        newpath
+        [/ $PageWidth 2] [expr {$PageHeight - 2}] moveto
+        [expr {$PageWidth/2 + 4}] [expr {$PageHeight - 8}] lineto
+        stroke
+        newpath [expr {$PageWidth/2 + 12}] [expr {$PageHeight - $measureTop/2 - 3}] moveto
+        (Measure to top edge of paper) show
+
+        % Short red segment at bottom measure, with arrow down to bottom edge.
+        2 setlinewidth
+        newpath
+        [expr {$PageWidth/2 - 20}] $measureTop moveto
+        [expr {$PageWidth/2 + 20}] $measureTop lineto
+        stroke
+        1 setlinewidth
+        newpath
+        [/ $PageWidth 2] $measureTop moveto
+        [/ $PageWidth 2] 2 lineto
+        stroke
+        newpath
+        [/ $PageWidth 2] 2 moveto
+        [expr {$PageWidth/2 - 4}] 8 lineto
+        stroke
+        newpath
+        [/ $PageWidth 2] 2 moveto
+        [expr {$PageWidth/2 + 4}] 8 lineto
+        stroke
+        newpath [expr {$PageWidth/2 + 12}] [expr {$measureTop/2- 3}] moveto
+        (Measure to bottom edge of paper) show
+
+        0.1 0.1 0.67 setrgbcolor
+
+        % Short blue segment at left measure, with arrow left to left edge.
+        2 setlinewidth
+        newpath
+        $measureLeft [expr {$PageHeight/2 - 20}] moveto
+        $measureLeft [expr {$PageHeight/2 + 20}] lineto
+        stroke
+        1 setlinewidth
+        newpath
+        $measureLeft [/ $PageHeight 2] moveto
+        2 [/ $PageHeight 2] lineto
+        stroke
+        newpath
+        2 [/ $PageHeight 2] moveto
+        8 [expr {$PageHeight/2 - 4}] lineto
+        stroke
+        newpath
+        2 [/ $PageHeight 2] moveto
+        8 [expr {$PageHeight/2 + 4}] lineto
+        stroke
+        newpath [/ $measureLeft 4] [expr {$PageHeight/2 - 30}] moveto
+        (Measure to) show
+        [/ $measureLeft 4] [expr {$PageHeight/2 - 37}] moveto
+        (left edge of paper) show
+
+        % We should flip the coordinate system to match the model coordinate system,
+        % so (0, 0) is top-left.
+        1 -1 scale
+        $marginLeft [- $marginTop $PageHeight] translate        
+
+        [set tagIdx -1]
+        [join [lmap {id modelTag} $model {
+            if {![$modelLib isPrintedTag $id]} { continue }
+            incr tagIdx
+
+            set modelInnerTopLeft [lindex [dict get $modelTag p] 3]
+            set modelOuterTopLeft [add $modelInnerTopLeft [list -$innerToOuter -$innerToOuter]]
+            lassign [$matLib applyHomography $H_modelToPs $modelOuterTopLeft] psX psY
+            subst {
+                gsave
+                $psX [+ $psY $tagOuterLengthPs] translate
+                $tagOuterLengthPs -$tagOuterLengthPs scale
+                [$printLib tagPsForId $id]
+                grestore
+
+                % gsave
+                % 0 setgray /Helvetica findfont 14 scalefont setfont
+                % 1 0 0 setrgbcolor
+                % newpath $psX $psY moveto 1 -1 scale ($tagIdx) show
+                % grestore
+
+                % Label the inner side length:
+                [if {$tagIdx == 1} { subst {
+                    gsave
+                    [expr {$psX + ($tagOuterLengthPs - $tagInnerSideLength)/2}]
+                    [expr {$psY - 15}] translate
+                    1 -1 scale
+                    0.1 0.67 0.1 setrgbcolor 2 setlinewidth
+                    newpath 0 0 moveto $tagInnerSideLength 0 lineto stroke
+                    newpath 0 0 moveto 0 -5 lineto stroke
+                    newpath $tagInnerSideLength 0 moveto $tagInnerSideLength -5 lineto stroke
+                    /Helvetica findfont 7 scalefont setfont
+                    newpath 0 5 moveto (inner side length) show
+                    grestore
+                } }]
+            }
+        }] "\n"]
+
+        showpage
+    }]
+
+    return $ps
+}
+Claim the makeCalibrationBoardPs is [fn makeCalibrationBoardPs]
+
+fn makeCalibrationBoardPdf {} {
+    set ps [makeCalibrationBoardPs]
+    set fp [open [list |ps2pdf - - <<$ps] rb]
+    set pdf [read $fp]; close $fp
+    return $pdf
+}
+Claim the makeCalibrationBoardPdf is [fn makeCalibrationBoardPdf]
+
+fn makeCalibrationBoardPng {} {
+    set ps [makeCalibrationBoardPs]
+    set psFile [file tempfile].ps
+    set fp [open $psFile w]; puts $fp $ps; close $fp
+    set pngFile [file tempfile].png
+    exec gs -dNOPAUSE -dBATCH -sFONTPATH=vendor/fonts \
+        -sDEVICE=png16m -r144 \
+        -sOutputFile=$pngFile $psFile
+    set fp [open $pngFile rb]
+    set png [read $fp]; close $fp
+    return $png
+}
+Claim the makeCalibrationBoardPng is [fn makeCalibrationBoardPng]
+
+Wish the web server handles route {/calibrate/board.pdf} with hidden true handler {
+    dict create statusAndHeaders "HTTP/1.1 200 OK
+Connection: close
+Content-Type: application/pdf
+
+" \
+        body [makeCalibrationBoardPdf]
+}
+
+Wish the web server handles route {/calibrate/board.png} with hidden true handler {
+    dict create statusAndHeaders "HTTP/1.1 200 OK
+Connection: close
+Content-Type: image/png
+
+" \
+        body [makeCalibrationBoardPng]
+}
+
+}

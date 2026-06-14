@@ -1,7 +1,0 @@
-#!/bin/sh
-
-set -e
-
-# Create /etc/environment and /etc/default/locale
-touch /etc/environment
-echo "LANG=C.UTF-8" >/etc/default/locale

@@ -49,7 +49,9 @@ proc csubst {s} {
     join $result ""
 }
 ::proc cstyle {type name} {
-    if {[regexp {([^\[]+)(\[\d*\](\[\d*\])?)$} $type -> basetype arraysuffix]} {
+    if {[regexp {([^\[]+)(\[[^\]]*\](\[[^\]]*\])?)$} $type -> basetype arraysuffix]} {
+        # Normalize any named dimension (identifier) to [] for the C declaration.
+        regsub {\[[a-zA-Z_]\w*\]} $arraysuffix {[]} arraysuffix
         list $basetype $name$arraysuffix
     } else {
         list $type $name
@@ -163,26 +165,38 @@ class C {
                         __ENSURE(sscanf(Jim_String(interp, $obj), "($argtype) 0x%p", &$argname) == 1);
                     }}
                 }
-            } elseif {[regexp {(^[^\[]+)\[(\d*)\]$} $argtype -> basetype arraylen]} {
-                # note: arraylen can be ""
+            } elseif {[regexp {(^[^\[]+)\[([^\]]*)\]$} $argtype -> basetype arraylen]} {
+                # note: arraylen can be "" or a named identifier
                 if {$basetype eq "char"} { expr {{
                     char $argname[$arraylen]; memcpy($argname, Jim_String(interp, $obj), $arraylen);
-                }} } else { expr {{
-                    int $[set argname]_objc = Jim_ListLength(interp, $obj);
-                    $basetype $argname[$[set argname]_objc];
+                }} } else {
+                    if {[regexp {^[a-zA-Z_]} $arraylen]} {
+                        set countvar $arraylen
+                    } else {
+                        set countvar ${argname}_objc
+                    }
+                    expr {{
+                    int $countvar = Jim_ListLength(interp, $obj);
+                    $basetype $argname[$countvar];
                     {
-                        for (int i = 0; i < $[set argname]_objc; i++) {
+                        for (int i = 0; i < $countvar; i++) {
                             $[$self arg $basetype ${argname}_i "Jim_ListGetIndex(interp, $obj, i)"]
                             $argname[i] = $[set argname]_i;
                         }
                     }
                 }} }
-            } elseif {[regexp {(^[^\[]+)\[(\d*)\]\[(\d*)\]$} $argtype -> basetype arraylen arraylen2]} {
+            } elseif {[regexp {(^[^\[]+)\[([^\]]*)\]\[(\d*)\]$} $argtype -> basetype arraylen arraylen2]} {
+                # If arraylen is a named identifier, expose it as that C variable name.
+                if {[regexp {^[a-zA-Z_]} $arraylen]} {
+                    set countvar $arraylen
+                } else {
+                    set countvar ${argname}_objc
+                }
                 expr {{
-                    int $[set argname]_objc = Jim_ListLength(interp, $obj);
-                    $basetype $argname[$[set argname]_objc][$arraylen2];
+                    int $countvar = Jim_ListLength(interp, $obj);
+                    $basetype $argname[$countvar][$arraylen2];
                     {
-                        for (int j = 0; j < $[set argname]_objc; j++) {
+                        for (int j = 0; j < $countvar; j++) {
                             $[$self arg $basetype\[\] ${argname}_j "Jim_ListGetIndex(interp, $obj, j)"]
                             memcpy(${argname}[j], ${argname}_j, sizeof(${argname}_j));
                         }
@@ -287,7 +301,7 @@ C method include {h} {
     }
 }
 
-C method code {newcode} {
+C method code {newcode {extendArg {:noextend}}} {
     lassign [info source $newcode] filename line
     if {$filename ne ""} { 
         set newcode [subst {
@@ -295,7 +309,7 @@ C method code {newcode} {
             $newcode
         }]
     }
-    lappend code $newcode :noextend
+    lappend code $newcode {*}$extendArg
     list
 }
 
@@ -549,6 +563,14 @@ C method proc {name arguments rtype body} {
     set loadargs [list]
     foreach {argtype argname} $arguments {
         lassign [typestyle $argtype $argname] argtype argname
+
+        # If type has a named first dimension (e.g. int[n] or float[n][4]),
+        # inject that dimension as an implicit int parameter before the array.
+        if {[regexp {^[^\[]+\[([a-zA-Z_]\w*)\]} $argtype -> dimname]} {
+            lappend arglist "int $dimname"
+            lappend argnames $dimname
+        }
+
         lappend arglist [join [cstyle $argtype $argname] " "]
         lappend argnames $argname
 
@@ -614,7 +636,16 @@ C method proc {name arguments rtype body} {
 C method cflags {args} { lappend cflags {*}$args }
 C method endcflags {args} { lappend endcflags {*}$args }
 
-C method compile {{cid {}}} {
+C method compile {args} {
+    set noload false
+    set cid {}
+    foreach arg $args {
+        if {$arg eq "-noload"} {
+            set noload true
+        } else {
+            set cid $arg
+        }
+    }
     set cfile [file tempfile /tmp/cfileXXXXXX].c
 
     # A universally unique id that can be used as a global proc name
@@ -721,7 +752,10 @@ C method compile {{cid {}}} {
     if {[info exists ::env(ASAN_ENABLE)] && $::env(ASAN_ENABLE) != ""} {
         set asan_flags "-fsanitize=address -fsanitize-recover=address"
     }
-    set out [exec $compiler {*}$asan_flags -Wall -g -fno-omit-frame-pointer -fPIC \
+    set out [exec $compiler {*}$asan_flags -Wall \
+                 {*}$($::tcl_platform(os) eq "linux" ? [list -Wno-alloc-size-larger-than] : [list]) \
+                 -U_FORTIFY_SOURCE -O2 -march=native -g \
+                 -fno-omit-frame-pointer -fPIC \
                  {*}$cflags $cfile -c -o [file rootname $cfile].o]
     if {[string trim $out] ne ""} {
         puts $out
@@ -744,7 +778,12 @@ C method compile {{cid {}}} {
     while {![file exists /tmp/$cid.so]} {
         sleep 0.01
         incr n
-        if {$n > 10} { error "Failed! [string range $e 0 500]" }
+        if {$n > 200} { error "Failed on /tmp/$cid.so! Timed out" }
+    }
+
+    if {$noload} {
+        # Return the name of the compiled file instead of loading it.
+        return /tmp/$cid.so
     }
 
     set cInfo [dict create]
@@ -767,7 +806,8 @@ C method import {srclib srcname {_as {}} {destname {}}} {
     set arglist [dict get $procinfo arglist]
 
     set addr [dict get [set "::$srclib __addrs"] $srcname]
-    $self code "$rtype (*$destname) ([join $arglist {, }]) = ($rtype (*) ([join $arglist {, }])) $addr;"
+    regsub {\[\d*\]} $rtype * decayedRtype
+    $self code "$decayedRtype (*$destname) ([join $arglist {, }]) = ($decayedRtype (*) ([join $arglist {, }])) $addr;"
 }
 
 C method string_toupper_first {s} {

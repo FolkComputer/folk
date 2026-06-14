@@ -1,0 +1,364 @@
+When the codeToPostScript is /codeToPostScript/ {
+
+fn codeToPostScript
+
+Wish the web server handles route "/calibrate" with hidden true handler {
+    package require base64
+
+    set camera $QUERY(camera)
+    set display $QUERY(display)
+
+    # Query the camera resolution for proper aspect ratio in preview (defaults to 1920x1080)
+    Expect! camera $camera has width /cameraWidth/ height /cameraHeight/
+
+    upvar ^html ^html
+    html [csubst {
+      <html>
+        <head>
+          <title>Folk: Calibrate</title>
+          <style>
+           body { margin: 0; }
+           article { max-width: 600px; }
+           aside {
+               position: fixed; top: 0; right: 0;
+               width: min(calc(100vw - 650px), 550px);
+               height: 100vh; overflow-y: auto;
+               padding: 1em;
+               box-sizing: border-box;
+               text-align: right;
+           }
+           aside iframe {
+               width: 100%;
+               height: calc(100cqw * $cameraHeight / $cameraWidth + 72px);
+           }
+           @media (max-width: 800px) {
+               aside {
+                   left: 0;
+                   width: 100%;
+                   height: 50vh;
+                   text-align: left;
+               }
+               aside iframe {
+                   width: 65%;
+                   height: calc(65cqw * $cameraHeight / $cameraWidth + 72px)
+               }
+               article {
+                   position: fixed;
+                   top: 50vh;
+                   left: 0; right: 0;
+                   max-height: 50vh;
+                   width: 100%; max-width: 100%;
+                   overflow-y: auto;
+               }
+           }
+          </style>
+        </head>
+      <body>
+        <span id="status">Status</span>
+        <script src="/lib/folk.js"></script>
+        <script>
+         function uuidv4() {
+           return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+             (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+           );
+         }
+         const self = uuidv4();
+
+         const folk = new FolkWS(document.getElementById('status'));
+         folk.send(`
+    On unmatch {
+        Hold! -on builtin-programs/calibrate/calibrate.folk -key {start calibration} {}
+    }
+         `);
+        </script>
+
+        <aside style="container-type: inline-size">
+          <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position):</p>
+          <div style="position: relative">
+            <iframe src="/camera?camera=$[string map {/ %2F} $camera]"
+                    style="border: 1px solid #999"></iframe>
+            $[HtmlWhen /someone/ detects calibration tags /detectedTags/ on camera $camera {
+                concat \
+                  [subst {<svg class="apriltag-overlay"
+                               viewBox="0 0 $cameraWidth $cameraHeight"
+                               style="position: absolute; top: 1px; left: 1px;
+                                      width: 100%; height: calc(100cqw * $cameraHeight / $cameraWidth)%;
+                                      pointer-events: none;">}] \
+                  [join [lmap tag $detectedTags {
+                    set points [dict get $tag p]
+                    set coords [lmap point $points {
+                        format "%g,%g" [lindex $point 0] [lindex $point 1]
+                    }]
+                    lappend coords [lindex $coords 0]
+                    set id [dict get $tag id]
+                    subst {
+                        <polyline points="$coords" fill="none" stroke="green" stroke-width="3" />
+                        <text x="[lindex $points 0 0]" y="[lindex $points 0 1]" fill="green" font-size="12">${id}</text>
+                    }
+                  }] "\n"] \
+                  "</svg>"
+            }]
+          </div>
+        </aside>
+
+        <article>
+        <ol>
+          <li>
+            <h3>Print the calibration board.</h3>
+
+            <p>We're going to print this calibration board and glue/tape it to
+            something solid and flat (hardcover book, solid cardboard,
+            etc):</p>
+            <img width="200" src="/calibrate/board.png" style="border: 1px solid gray">
+            <p>Make sure <a href="https://github.com/FolkComputer/folk#printer-support">your printer is set up</a> for Folk to print.</p>
+            <p>Print the calibration board through Folk: <button id="boardPrintThroughFolk">Print Calibration Board through Folk</button> (print through Folk so that we can calibrate the way you will actually print)</p>
+            <script>
+              boardPrintThroughFolk.addEventListener('click', (e) => {
+                folk.run(`
+                  Expect! the makeCalibrationBoardPdf is /maker/
+                  set boardPdf [{*}\$maker]
+                  set boardPdfFile [file tempfile /tmp/folk-calibration-board-XXXXXX].pdf
+                  set fd [open \$boardPdfFile wb]; puts \$fd \$boardPdf; close \$fd
+                  Notify: print pdf \$boardPdfFile
+                `);
+              });
+            </script>
+            <p>Try to keep the board from bending or warping. Printing on cardstock can help.</p>
+          </li>
+
+          <li>
+            <h3>Measure your calibration board.</h3>
+
+            <p>On your calibration board, measure each indicator in millimeters and enter it here.
+              (Try to be as accurate as possible, like to within half a millimeter or better --
+              the more accurate, the better your calibration will be.)</p>
+            <ul>
+              <li style="color: rgb(10% 67% 10%)">Tag inner side length: <input id="boardTagSideLengthMm" type="text" style="background: rgb(10% 67% 10% / 15%)">mm</li>
+              <li style="color: rgb(10% 10% 67%)">Left margin: <input id="boardLeftMm" type="text" style="background: rgb(10% 10% 67% / 15%)">mm</li>
+              <li style="color: rgb(67% 10% 10%)">Top margin: <input id="boardTopMm" type="text" style="background: rgb(67% 10% 10% / 15%)">mm</li>
+              <li style="color: rgb(67% 10% 10%)">Bottom margin: <input id="boardBottomMm" type="text" style="background: rgb(67% 10% 10% / 15%)">mm</li>
+            </ul>
+          </li>
+
+          <li>
+            <h3>Run the calibration process.</h3>
+
+            <p>Start calibration: <button id="startCalibration">Start Calibration</button></p>
+            <script>
+              startCalibration.addEventListener('click', (e) => {
+                if (!([boardTagSideLengthMm.value, boardLeftMm.value,
+                      boardTopMm.value, boardBottomMm.value].every(x => x != "" && !isNaN(x)))) {
+                   alert("Error: You need to type in valid measurements before clicking Start Calibration.");
+                   return;
+                }
+                const measurements = {
+                  tagSideLength: boardTagSideLengthMm.value + 'mm',
+                  left: boardLeftMm.value + 'mm',
+                  top: boardTopMm.value + 'mm',
+                  bottom: boardBottomMm.value + 'mm'
+                };
+
+                folk.hold('start calibration', tcl`
+                  Wish to calibrate camera "$camera" to display "$display" using measurements \${measurements}
+                `, 'builtin-programs/calibrate/calibrate.folk');
+              });
+            </script>
+
+
+            <p><strong>Are the projected tags too big to fit in the gaps between printed tags?</strong> Adjust this slider to reset & adjust the default projected tag size:
+              <input type="range" min="10" max="100" value="100" class="slider" id="projected-tag-slider">
+            </p>
+            <script>
+              document.getElementById('projected-tag-slider').addEventListener('input', (e) => {
+                const scale = e.target.value / 100.0;
+                folk.run(tcl`
+                  Expect! the calibration HoldDefaultModel! is /HoldDefaultModel!/
+                  {*}[set HoldDefaultModel!] \${scale}
+                `);
+              });
+            </script>
+
+            <p>Adjust this slider to choose how many calibration poses you want to record:
+              <input type="range" min="10" max="25" value="10" class="slider" id="calibration-poses-max-slider">
+            </p>
+            <script>
+              document.getElementById('calibration-poses-max-slider').addEventListener('input', (e) => {
+                const calibrationPosesMax = parseInt(e.target.value);
+                folk.hold(`calibration poses max`, tcl`
+Claim the calibration poses max is \${calibrationPosesMax}
+                `, 'builtin-programs/calibrate/calibrate.folk');
+              });
+            </script>
+
+            <p>Once you start calibration, you'll see some AprilTags get automatically projected on your table. Move your board to the projected tags <em>so that at least one projected tag sits inside the gap between printed AprilTags</em>, wait a second for the projected tags to refit into the grid,
+              then <strong>hold the board still for a few seconds until
+              the pose is recorded.</strong></p>
+
+            <p><strong>You should be lifting your board above the table plane and tilting it in the air. Don't just keep it flat on the table!</strong></p>
+
+            <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/l1liP4_yiVM?si=DqgfNKq05EPBT3hT" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+
+            <p style="font-style: italic; width: 100%; text-align: center;">Example video of Andr&eacute;s calibrating the folk0 system (2x speed)</p>
+
+          <p>Once you've recorded the first pose, <em>slowly drag the board around your space</em>, going slow enough for the projected AprilTags to catch up with the printed AprilTags and fit into the gaps on your board. When you've moved the board at least a full board-length away from the first pose, try to slant it 45 degrees or so off the table and hold it still again to capture another pose.</p>
+
+          <p>Repeat this process of dragging the board around and
+          capturing a new pose. You'll need to record 10 different
+          poses; try to slant the board and move it up and around to
+          cover the projector/camera area as much as possible. Once 10
+          poses are recorded, you'll see the results below.</p>
+        <p>(If calibration gets into a bad/stuck state, feel free to click Start Calibration again.)</p>
+
+            <details>
+              <summary>Troubleshooting</summary>
+              <p>Look at ~/folk-calibration-poses to see images of the captured poses (maybe tags are distorted or washed out?).</p>
+              <p>You can try manually adjusting webcam settings if your poses are bad. (They should be immediately reflected in the camera preview once you refresh.) Folk tries to turn off autofocus by default, and you might also want to check that your camera actually has an exposure setting and focus setting. For example:</p>
+              <pre>
+\$ v4l2-ctl --device=/dev/video0 --list-ctrls
+
+User Controls
+
+                     brightness 0x00980900 (int)    : min=0 max=255 step=1 default=128 value=128
+                       contrast 0x00980901 (int)    : min=0 max=255 step=1 default=128 value=128
+                     saturation 0x00980902 (int)    : min=0 max=255 step=1 default=128 value=128
+        white_balance_automatic 0x0098090c (bool)   : default=1 value=1
+                           gain 0x00980913 (int)    : min=0 max=255 step=1 default=0 value=109
+           power_line_frequency 0x00980918 (menu)   : min=0 max=2 default=2 value=2 (60 Hz)
+      white_balance_temperature 0x0098091a (int)    : min=2000 max=6500 step=1 default=4000 value=3453 flags=inactive
+                      sharpness 0x0098091b (int)    : min=0 max=255 step=1 default=128 value=128
+         backlight_compensation 0x0098091c (int)    : min=0 max=1 step=1 default=0 value=0
+
+Camera Controls
+
+                  auto_exposure 0x009a0901 (menu)   : min=0 max=3 default=3 value=3 (Aperture Priority Mode)
+         exposure_time_absolute 0x009a0902 (int)    : min=3 max=2047 step=1 default=250 value=83 flags=inactive
+     exposure_dynamic_framerate 0x009a0903 (bool)   : default=0 value=1
+                   pan_absolute 0x009a0908 (int)    : min=-36000 max=36000 step=3600 default=0 value=0
+                  tilt_absolute 0x009a0909 (int)    : min=-36000 max=36000 step=3600 default=0 value=0
+                 focus_absolute 0x009a090a (int)    : min=0 max=250 step=5 default=0 value=30
+     focus_automatic_continuous 0x009a090c (bool)   : default=1 value=0
+                  zoom_absolute 0x009a090d (int)    : min=100 max=500 step=1 default=100 value=100
+\$ v4l2-ctl --device=/dev/video0 --set-ctrl=auto_exposure=1 # to set them manually from terminal
+\$ v4l2-ctl --device=/dev/video0 --set-ctrl=exposure_time_absolute=25
+              </pre>
+              <p>Camera needs to have auto_exposure and exposure_time_absolute settings listed for Folk to be able to set them.</p>
+            </details>
+          </li>
+
+          <li>
+            <h3>Calibration results:</h3> <div id="calibration-report"></div>
+            <script>
+              const calibrationReportEl = document.getElementById('calibration-report');
+              folk.watchCollected(`/someone/ claims the calibration report is /calibrationReport/`, reports => {
+                if (reports.length === 0) {
+                  calibrationReportEl.innerHTML = "<pre>Not calibrating yet.</pre>";
+                  return;
+                }
+                calibrationReportEl.innerHTML = reports[0].calibrationReport;
+              });
+            </script>
+
+            <p>(For a good calibration, camera RMSE and projector RMSE should ideally be less than 1 [1 to 2 is OK]. Stereo RMSE should ideally be less than 5 [less than 10 is OK].)</p>
+
+            <p>Calibration should be in place once you have 10 poses!</p>
+
+            <p>If you have a bad calibration, you can try just
+            calibrating again.</p>
+          </li>
+
+          <li>
+            <h3>Test calibration.</h3>
+
+            <p>The best way to test calibration is to look at your
+              printed program and see how well the projected outline
+              lines up with the physical edge of your program.</p>
+
+            <p>Again, if you have a bad calibration, you can try just
+            calibrating again. (Just scroll back up and click Start
+            Calibration. You don't need to redo any of the steps
+            before or after.)</p>
+          </li>
+        </ol>
+        </article>
+      </body>
+    </html>
+  }]
+}
+
+When the calibration poses from camera /camera/ to display /display/ are /calibrationPoses/ {
+    # Hold reporting info for the Web page.
+    set posesReport [subst {
+      <p>Poses:</p><ol>
+      [join [lmap pose $calibrationPoses {
+        set width [dict get $pose cameraWidth]
+        set height [dict get $pose cameraHeight]
+        subst {
+          <li style="padding-bottom: 1em">
+          RMSE [dict getdef $pose rmse (unavailable)]
+          <div style="position: relative; width: 300px; height: [expr {(300.0 / $width) * $height}]px">
+            <img style="position: absolute; top: 0; left: 0; width: 300px; height: [expr {(300.0 / $width) * $height}]px"
+                 src="/calibration-poses/[dict get $pose imageName]">
+            <svg style="position: absolute; top: 0; left: 0; width: 300px; height: [expr {(300.0 / $width) * $height}]px; pointer-events: none"
+                 viewBox="0 0 [dict get $pose cameraWidth] [dict get $pose cameraHeight]">
+               [join [lmap det [dict values [dict get $pose tags]] {
+                    set points [dict get $det p]
+                    set coords [lmap point $points {
+                        format "%g,%g" [lindex $point 0] [lindex $point 1]
+                    }]
+                    lappend coords [lindex $coords 0]
+                    set id [dict get $det id]
+                    subst {
+                        <polyline points="$coords" fill="none" stroke="green" stroke-width="3" />
+                        <text x="[lindex $points 0 0]" y="[lindex $points 0 1]" fill="green" font-size="12">${id}</text>
+                    }
+                }] "\n"]
+            </svg>
+          </div>
+          </li>
+        }
+      }] \n]
+      [string repeat {<li>Not detected yet</li>} [- 10 [llength $calibrationPoses]]]
+      </ol>
+    }]
+
+    When /nobody/ claims a calibration from camera /camera/ to display /display/ is /anything/ {
+        Claim the calibration report is $posesReport
+    }
+    When a calibration from camera /camera/ to display /display/ is /calibration/ {
+        set calibrationReport "$posesReport
+        <p>Calibration:</p><pre>
+Camera intrinsics --------
+[join [lmap {k v} [dict get $calibration camera intrinsics] {list $k $v}] \n]
+
+Camera RMSE [dict getdef $calibration camera rmse (unavailable)]
+
+Projector intrinsics -----
+[join [lmap {k v} [dict get $calibration projector intrinsics] {list $k $v}] \n]
+
+Projector RMSE [dict getdef $calibration projector rmse (unavailable)]
+
+----
+Stereo RMSE [dict getdef $calibration rmse (unavailable)]
+</pre>"
+        Claim the calibration report is $calibrationReport
+    }
+}
+
+Wish the web server handles route {/calibration-poses/([^/]+)$} with handler {
+    set filename "$::env(HOME)/folk-calibration-poses/$1"
+
+    set fsize [file size $filename]
+    set fd [open $filename r]
+    fconfigure $fd -translation binary
+    set body [read $fd $fsize]
+    close $fd
+    dict create statusAndHeaders "HTTP/1.1 200 OK
+Connection: close
+Content-Type: image/jpeg
+Content-Length: $fsize
+
+" \
+        body $body
+}
+
+}

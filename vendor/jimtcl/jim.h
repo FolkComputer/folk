@@ -370,6 +370,7 @@ typedef struct Jim_Obj {
         struct {
             struct Jim_Obj *fileNameObj;
             int lineNumber;
+            int columnNumber;
         } sourceValue;
         /* Dict substitution type */
         struct {
@@ -378,6 +379,7 @@ typedef struct Jim_Obj {
         } dictSubstValue;
         struct {
             int line;
+            int col;
             int argc;
         } scriptLineValue;
     } internalRep;
@@ -735,10 +737,10 @@ JIM_EXPORT int Jim_SubstObj (Jim_Interp *interp, Jim_Obj *substObjPtr,
 
 /* source information */
 JIM_EXPORT Jim_Obj *Jim_GetSourceInfo(Jim_Interp *interp, Jim_Obj *objPtr,
-        int *lineptr);
+        int *lineptr, int *colptr);
 /* may only be called on an unshared object */
 JIM_EXPORT void Jim_SetSourceInfo(Jim_Interp *interp, Jim_Obj *objPtr,
-        Jim_Obj *fileNameObj, int lineNumber);
+        Jim_Obj *fileNameObj, int lineNumber, int columnNumber);
 
 
 /* stack */
@@ -1028,6 +1030,7 @@ JIM_EXPORT void Jim_FreeLoadHandles(Jim_Interp *interp);
 
 /* jim-aio.c */
 JIM_EXPORT int Jim_AioFilehandle(Jim_Interp *interp, Jim_Obj *command);
+JIM_EXPORT int Jim_AioMakeChannelFromFd(Jim_Interp *interp, int fd, int keepopen);
 
 /* type inspection - avoid where possible */
 JIM_EXPORT int Jim_IsDict(Jim_Obj *objPtr);

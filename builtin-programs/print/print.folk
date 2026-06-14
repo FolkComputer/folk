@@ -1,0 +1,364 @@
+# Configuring printers
+#
+# Start by adding a printer to CUPS. You can do this from the Web UI, or declare it using Folk:
+#
+#     Assert $::thisNode claims printer "printer-name" is a cups printer with url "http://url/ipp/print" driver "everywhere"
+#
+# Lastly, you need to declare a default printer and default paper format:
+# (make sure that the default printer supports the default paper format)
+#
+#     Claim printer my-printer is the default printer
+#     Claim paper format a4 is the default paper format
+
+Claim the paper formats are {
+    letter    {tagInnerSideLength 70 pageSize {612 792}}
+    a4        {tagInnerSideLength 70 pageSize {595 842}}
+    indexcard {tagInnerSideLength 70 pageSize {612 792}}
+}
+
+When libapriltag has been built with config /configCcWithLibapriltag/ &\
+     the image library is /imageLib/ &\
+     the program save directory is /saveDir/ {
+fn configCcWithLibapriltag
+
+set cc [C]
+$cc extend $imageLib
+$cc cflags -Wall -Werror
+configCcWithLibapriltag $cc
+
+$cc code {
+    #include <apriltag.h>
+    #include <tagStandard52h13.h>
+    apriltag_family_t *tf = NULL;
+}
+
+# HACK (osnr): This is used when someone wants to draw an AprilTag
+# (often for calibration/cnc preview purposes); I put it here because
+# we already have a whole AprilTag family and C compiler object setup
+# here. The returned image_t's data needs to be freed by the caller.
+$cc proc tagImageForId {int id} Image {
+    if (tf == NULL) tf = tagStandard52h13_create();
+
+    image_u8_t* image = apriltag_to_image(tf, id);
+    Image ret = {
+        .width = image->width, .height = image->height,
+        .components = 1, .bytesPerRow = image->stride,
+        .data = image->buf
+    };
+    free(image); // doesn't free data
+    return ret;
+}
+
+$cc proc tagPsForId {int id} char* {
+    if (tf == NULL) tf = tagStandard52h13_create();
+
+    image_u8_t* image = apriltag_to_image(tf, id);
+
+    char* ret = malloc(10000);
+#define emit(...) i += sprintf(&ret[i], __VA_ARGS__)
+    int i = 0;
+    emit("gsave\n");
+    emit("0 1 translate\n");
+    emit("%f %f scale\n", 1.0/image->width, -1.0/image->height);
+    for (int row = 0; row < image->height; row++) {
+        for (int col = 0; col < image->width; col++) {
+            uint8_t pixel = image->buf[(row * image->stride) + col];
+            emit("%d setgray ", pixel != 0);
+            emit("newpath ");
+            emit("%d %d moveto ", col, row); // bottom-left
+            emit("%d %d lineto ", col + 1, row); // bottom-right
+            emit("%d %d lineto ", col + 1, row + 1); // top-right
+            emit("%d %d lineto ", col, row + 1); // top-left
+            emit("closepath fill ");
+        }
+        emit("\n");
+    }
+    emit("grestore\n");
+#undef emit
+    ret[i++] = '\0';
+    image_u8_destroy(image);
+    return ret;
+}
+set printLib [$cc compile]
+Claim the print library is $printLib
+
+fn codeToPostScript {id code opts {marginsVar {}}} {
+    # All opts should be passed in as points (1/2834.65 of a meter).
+    lassign $opts(pageSize) PageWidth PageHeight
+    set tagInnerSideLength $opts(tagInnerSideLength)
+    set tagWidth [expr {$tagInnerSideLength * 10.0 / 6}]
+    set tagHeight $tagWidth
+    lassign $opts(margin) marginTop marginRight marginBottom marginLeft
+    set tagInset $opts(tagInset)
+    set lineHeight $opts(lineHeight)
+
+    # The calibration concat [s 0 0 s tx ty] maps our user coords to
+    # the printer's raw PS coords. Anything outside the raw
+    # [0,PageWidth]x[0,PageHeight] is clipped, so the effective
+    # printable area in user coords is smaller than the full page.
+    set calibScale [dict getdef $opts calibratedPrintScale 1.0]
+    lassign [dict getdef $opts calibratedPrintTranslation {0 0}] calibTx calibTy
+    set effTop    [expr {($PageHeight - $calibTy) / $calibScale}]
+    set effBottom [expr {-$calibTy / $calibScale}]
+    set effLeft   [expr {-$calibTx / $calibScale}]
+    set effRight  [expr {($PageWidth - $calibTx) / $calibScale}]
+
+    # Effective margins, measured from the physical paper edge. The
+    # intent of marginTop/etc is "this far from the paper edge". If the
+    # printer's unprintable margin already exceeds that, clamp to the
+    # printable edge (rather than adding the two, which would push
+    # content way inward).
+    if {$marginsVar ne {}} {
+        upvar $marginsVar effMargins
+    } else {
+        set effMargins {}
+    }
+    set effMargins(top)    [::math::max $marginTop [expr {$PageHeight - $effTop}]]
+    set effMargins(bottom) [::math::max $marginBottom $effBottom]
+    set effMargins(left)   [::math::max $marginLeft $effLeft]
+    set effMargins(right)  [::math::max $marginRight [expr {$PageWidth - $effRight}]]
+
+    set maxLines [expr {int(($PageHeight - $effMargins(top) - $effMargins(bottom)) / $lineHeight)}]
+
+    set lineNumbersRight [expr {$effMargins(left) + $opts(advance)*1.5}]
+
+    set lines [split $code "\n"]
+
+    set image [$printLib tagPsForId $id]
+
+    set outPages [list]
+    set lineIdx 0
+    while {[llength $lines] > 0} {
+        set pageLines [lrange $lines 0 $maxLines-1]
+        set lines [lreplace $lines 0 $maxLines-1]
+
+        set pageLineIdx 0
+        # The typesetting here is meant to exactly duplicate the
+        # layout in the editor.
+        lappend outPages [subst {
+            %!PS
+            << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
+
+            \[$calibScale 0 0 $calibScale $calibTx $calibTy\] concat
+
+            /settextcolor {0 setgray} def
+
+            /NeomatrixCode findfont
+            $lineHeight scalefont
+            setfont
+
+            newpath
+            [join [lmap line $pageLines {
+                set line [string map {"\\" "\\\\" ")" "\\)" "(" "\\("} $line]
+                incr lineIdx
+                incr pageLineIdx
+                subst {
+                    $lineNumbersRight [expr {$PageHeight-$effMargins(top)-$pageLineIdx*$lineHeight}] moveto
+                    0.6 setgray ([format "% 3s" $lineIdx])
+                    dup stringwidth pop neg 0 rmoveto
+                    show
+
+                    [+ $lineNumbersRight $opts(advance)] [expr {$PageHeight-$effMargins(top)-$pageLineIdx*$lineHeight}] moveto
+                    settextcolor ($line) show
+                }
+            }] "\n"]
+
+            [expr {[llength $outPages] > 0 ? {} : [subst {
+                gsave
+                [expr {$PageWidth-$effMargins(right)-$tagWidth-$tagInset}] [expr {$PageHeight-$effMargins(top)-$tagHeight-$tagInset}] translate
+                $tagWidth $tagHeight scale
+                $image
+                grestore
+
+                /Helvetica-Narrow findfont
+                7 scalefont
+                setfont
+                newpath
+                [expr {$PageWidth-$effMargins(right)-$tagWidth-$tagInset}] [expr {$PageHeight-$effMargins(top)-$tagHeight-14-$tagInset}] moveto
+                ($id ([clock format [clock seconds] -format "%a, %d %b %Y, %r"])) show
+            }] }]
+
+            showpage
+        }]
+    }
+    return [join $outPages "\n"]
+}
+Claim the codeToPostScript is [fn codeToPostScript]
+
+fn nextId {} {
+    set idResults [Query! the next program id is /id/]
+    if {[llength $idResults] == 0} {
+        set id 0
+    } else {
+        set id [dict get [lindex $idResults 0] id]
+    }
+
+    while {[file exists "$saveDir/$id.folk"]} {
+        incr id
+    }
+
+    # HACK: using old path for backward compatibility.
+    Hold! -save -on builtin-programs/print.folk -key next-id \
+        the next program id is $id
+
+    set id
+}
+When $::thisNode claims printer /name/ is a cups printer with /...options/ {
+    set command [list /usr/sbin/lpadmin -p $name -E]
+    if {[dict exists $options url]} {
+        lappend command -v [dict get $options url]
+    }
+
+    if {[dict exists $options driver]} {
+        lappend command -m [dict get $options driver]
+    }
+
+    if {[dict exists $options extra-args]} {
+        lappend command {*}[dict get $options extra-args]
+    }
+
+    exec {*}$command
+}
+
+Subscribe: print code /code/ {
+    Expect! the paper formats are /formats/
+    set formatName [QueryOne! paper format /./ is the default paper format \
+                       -default letter]
+    set fmt $formats($formatName)
+
+    set mToPt 2834.646
+    set textScale 0.003
+    set margin {0.01 0.005 0.005 0.01}
+    set options [dict merge $fmt [dict create \
+        code $code \
+        lineHeight [* $textScale $mToPt] \
+        advance [* 0.5859375 $textScale $mToPt] \
+        margin [lmap x $margin {* $x $mToPt}]]]
+    Notify: print a new program with {*}$options
+}
+Subscribe: print a new program with /...options/ {
+    if {$::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial"} {
+        # HACK: Forward the print request to folk-hex.
+        exec curl -X POST "http://folk-hex.local:4273/" \
+                -H "Content-Type: text/plain" \
+                -d [list Notify: print a new program with {*}$options];
+        return
+    }
+
+    set id [nextId]
+    Notify: print program $id with {*}$options
+}
+Subscribe: print program /id/ with /...options/ {
+    set code [dict get $options code]
+
+    ForEach! printer /printer/ is a receipt printer &\
+             printer /printer/ is the default printer {
+        Notify: print program $id on receipt printer $printer with code $code
+        return
+    }
+
+    set calibScaleResults [Query! the calibrated print scale is /scale/]
+    if {[llength $calibScaleResults] > 0} {
+        set calibScale [dict get [lindex $calibScaleResults 0] scale]
+        dict set options tagInnerSideLength [expr {70.0 / $calibScale}]
+        dict set options calibratedPrintScale $calibScale
+    }
+
+    set calibTranslationResults [Query! the calibrated print translation is /translation/]
+    if {[llength $calibTranslationResults] > 0} {
+        dict set options calibratedPrintTranslation \
+            [dict get [lindex $calibTranslationResults 0] translation]
+    }
+
+    dict set options tagInset 16
+
+    set printedMargins {}
+    set ps [codeToPostScript $id $code $options printedMargins]
+
+    # save code and ps to disk
+    if {[file exists "$saveDir/$id.folk"]} {
+        error "Program $id already exists on disk. Aborting print."
+    }
+    set fp [open "$saveDir/$id.folk" w]; puts $fp $code; close $fp
+
+    set fp [open "$saveDir/$id.ps" w]; puts $fp $ps; close $fp
+    exec ps2pdf -dPDFSETTINGS=/prepress -sFONTPATH=vendor/fonts \
+        $saveDir/$id.ps $saveDir/$id.pdf
+
+    # Write geometry to meta.folk so the camera system can interpret
+    # this program's quad and map (line, col) -> physical position.
+    # All opts are in calibrated points; 1 calibrated pt = 25.4/72 mm.
+    set ptmm [expr {25.4 / 72.0}]
+    lassign [dict get $options pageSize] PageWidth PageHeight
+    set tagInn [dict get $options tagInnerSideLength]
+    set tagOut [expr {$tagInn * 10.0 / 6}]
+    set lh [dict get $options lineHeight]
+    set adv [dict get $options advance]
+
+    set tagInset [dict get $options tagInset]
+    set border [expr {($tagOut - $tagInn) / 2.0}]
+
+    # Geometry should reflect where the tag actually lands on the
+    # paper, so use printedMargins.
+    set gLeft   [expr {($PageWidth - $tagOut - $printedMargins(right) - $tagInset + $border) * $ptmm}]
+    set gRight  [expr {($printedMargins(right) + $tagInset + $border) * $ptmm}]
+    set gTop    [expr {($printedMargins(top) + $tagInset + $border) * $ptmm}]
+    set gBottom [expr {($PageHeight - $tagOut - $printedMargins(top) - $tagInset + $border) * $ptmm}]
+
+    # If the first page is sparse enough, assume the user will fold the
+    # page in half vertically and shrink the reported bottom geometry.
+    set numLines [llength [split $code "\n"]]
+    set maxLines [expr {int(($PageHeight - $printedMargins(top) - $printedMargins(bottom)) / $lh)}]
+    set firstPageLines [expr {$numLines < $maxLines ? $numLines : $maxLines}]
+    if {$firstPageLines < $maxLines / 2.0} {
+        set tagSize [expr {$tagInn * $ptmm}]
+        set pageHeightMm [expr {$tagSize + $gTop + $gBottom}]
+        set gBottom [expr {$gBottom - $pageHeightMm / 2.0}]
+    }
+
+    set geomStr [format \
+        {tagSize %.4gmm left %.4gmm right %.4gmm top %.4gmm bottom %.4gmm lineHeight %.4gmm advance %.4gmm marginTop %.4gmm marginRight %.4gmm marginBottom %.4gmm marginLeft %.4gmm} \
+        [expr {$tagInn * $ptmm}] $gLeft $gRight $gTop $gBottom \
+        [expr {$lh * $ptmm}] [expr {$adv * $ptmm}] \
+        [expr {$printedMargins(top) * $ptmm}] \
+        [expr {$printedMargins(right) * $ptmm}] \
+        [expr {$printedMargins(bottom) * $ptmm}] \
+        [expr {$printedMargins(left) * $ptmm}]]
+
+    set fp [open "$saveDir/$id.meta.folk" w]
+    puts $fp "Claim tag \$this has geometry \{$geomStr\}"
+    close $fp
+
+    puts "Printing program $id on $::thisNode"
+    Notify: print pdf $saveDir/$id.pdf with {*}$options
+}
+
+}
+
+Subscribe: print pdf /pdfPath/ with /...options/ {
+    if {![info exists options]} { set options {} }
+
+    set args [list]
+
+    if {![dict exists $options printer]} {
+        try {
+            dict set options printer \
+                [QueryOne! printer /./ is the default printer]
+        } on error e {}
+    }
+    if {[dict exists $options printer]} {
+        lappend args -P $options(printer)
+    }
+
+    if {![dict exists $options format]} {
+        try {
+            dict set options format \
+                [QueryOne! paper format /./ is the default paper format]
+        } on error e {}
+    }
+    if {[dict exists $options format]} {
+        lappend args -o media=$options(format)
+    }
+
+    exec lpr {*}$args $pdfPath
+}

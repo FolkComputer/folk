@@ -1,0 +1,95 @@
+When the print library is /printLib/ &\
+     the image library is /imageLib/ &\
+     the program save directory is /saveDir/ {
+
+    fn printProgram {printer id code} {
+        if {[file exists "$saveDir/$id.folk"]} {
+            error "Program $id already exists on disk. Aborting print."
+        }
+        writeFolkFile $id $code
+        writeMetaFile $printer $id
+
+        Expect! $printer is at /address/
+        set printerSocket [socket stream ${address}:9100]
+
+        fconfigure $printerSocket -translation binary -buffering none
+        set template {
+            [init]
+            [tag $id]
+            [feed 1]
+            $id ([clock format [clock seconds] -format "%a, %d %b %Y, %r"])
+            [feed 2]
+            $code
+            [feed 3]
+            [cut]
+        }
+        puts -nonewline $printerSocket [render $template]
+        close $printerSocket
+    }
+
+    fn render {template} {
+        set trimmed [lmap line [split $template "\n"] { string trim $line }]
+        set singleLine [join $trimmed ""]
+        return [uplevel [list subst $singleLine]]
+    }
+
+    fn writeFolkFile {id code} {
+        set folkFile [open "$saveDir/$id.folk" w]
+        puts $folkFile $code
+        close $folkFile
+    }
+
+    fn writeMetaFile {printer id} {
+        Expect! $printer has tag geometry /geometry/
+        set metaFile [open "$saveDir/$id.meta.folk" w]
+        puts $metaFile [subst {Claim tag \$this has geometry {$geometry}}]
+        close $metaFile
+    }
+
+    fn cut {} {
+        return "\x1dV\x0"
+    }
+
+    fn feed n {
+        return [format "\x1b\x64%c" $n]
+    }
+
+    fn init {} {
+        return "\x1b\x40"
+    }
+
+    fn raw number {
+        return [format "%c" $number]
+    }
+
+    fn scaledAprilTag {id scale} {
+        set tagImage [$printLib tagImageForId $id]
+        set tagBits [list]
+        for {set y 0} {$y < 10} {incr y} {
+            for {set i 0 } {$i < $scale} {incr i} {
+                for {set x 0} {$x < 10} {incr x} {
+                    set j [expr {$y * [$imageLib Image_bytesPerRow $tagImage] + $x}]
+                    set bit [expr {[$imageLib Image_data $tagImage $j] != 255}]
+                    lappend tagBits {*}[lrepeat $scale $bit]
+                }
+            }
+        }
+        return $tagBits
+    }
+
+    # scale must be divisible by 4 so width will be divisible by 8
+    fn tag {id {scale 12}} {
+        set tagBits [scaledAprilTag $id $scale]
+
+        set width [expr {10 * $scale}]
+        set xL [expr {$width / 8}]   ;# width in bytes (low byte)
+        set yL [expr {$width % 256}] ;# height in lines (low byte)
+        set yH [expr {$width / 256}] ;# height in lines (high byte)
+
+        return "\x1dv0\x03[raw $xL]\x00[raw $yL][raw $yH][binary format B* [join $tagBits ""]]"
+    }
+
+    Subscribe: print program /id/ on receipt printer /printer/ with code /code/ {
+        printProgram $printer $id $code
+    }
+}

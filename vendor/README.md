@@ -8,3 +8,11 @@ Some of these packages have been modified by us.
 - linalg.tcl is from <https://github.com/tcltk/tcllib/blob/25c98069dbf502ac2c4f948ea735b8a7ed493a38/modules/math/linalg.tcl>
 - c11-queues is from
   <https://github.com/stv0g/c11-queues/tree/b602dcd2df5e835798581c46755487d1aca73e2d>
+- wslay is from <https://github.com/tatsuhiro-t/wslay/tree/0e7d106ff89ad6638090fd811a9b2e4c5dda8d40>
+- `vk_mem_alloc` is from <https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/blob/e722e57c891a8fbe3cc73ca56c19dd76be242759/include/vk_mem_alloc.h>
+- idiomorph is from
+  <https://github.com/bigskysoftware/idiomorph/blob/10224e0841d4b14bead9f6fd9ac2dfa2d030b4c7/dist/idiomorph.js>
+- apriltag is from
+  <https://github.com/AprilRobotics/apriltag/tree/c5a4fc1cc5c6edcb5929dfc3a79f167bf173f7a5>
+- stb_ds.h is from <https://github.com/nothings/stb/blob/28d546d5eb77d4585506a20480f4de2e706dff4c/stb_ds.h>
+- CContour.c is ported from <https://github.com/LingDong-/PContour/tree/6089a0ffbc67c59b976c252e1d0e2626c8bebcae>

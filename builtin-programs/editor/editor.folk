@@ -1,0 +1,408 @@
+# This makes all keyboards create editors automatically. May choose to
+# change later, or exclude keyboards that opt out.
+When /k/ is a keyboard with /...opts/ {
+    Wish tag $k is stabilized
+
+    When $k points up with length 0.3 at /program/ {
+        When /nobody/ claims $program is an editor {
+            Wish tag $program is stabilized
+
+            # Create a synthetic editor on top of the program being edited,.
+            set editor [list $k editor]
+            Claim $editor is an editor
+            Claim editor $editor has selected program $program
+            Wish $editor has a canvas with layer 98
+
+            When $program has resolved geometry /geom/ {
+                Claim $editor has resolved geometry $geom
+            }
+            When $program has quad /q/ { Claim $editor has quad $q }
+            Claim $k has created editor $editor
+            Claim $k is typing into $editor
+        }
+        When $program is an editor {
+            Claim $k is typing into $program
+        }
+    }
+}
+
+When the program save directory is /programDir/ &\
+     the editor utils library is /utils/ {
+
+# TODO: also don't hardcode this?
+set defaults { textScale 0.01 }
+When /someone/ claims /editor/ is an editor {
+    Claim $editor is an editor with {*}$defaults
+    When /nobody/ has created editor $editor &\
+         $editor points up with length 0.3 at /program/ {
+        Wish tag $editor is stabilized
+        Wish tag $program is stabilized
+        Claim editor $editor has selected program $program
+    }
+}
+
+When /editor/ is an editor with /...options/ {
+    # HACK: because we partial match
+    if {![info exists options]} { return }
+
+    set options [dict merge $defaults $options]
+    # CSS order: top, right, bottom, left. If the program's geometry
+    # carries printed-page margins, prefer those so the editor draws
+    # text at the same offsets it was printed at; otherwise fall back
+    # to the default.
+    When $editor has resolved geometry /geom/ {
+        if {[dict exists $geom marginTop]} {
+            Claim editor $editor has margin [list \
+                [dict get $geom marginTop] \
+                [dict get $geom marginRight] \
+                [dict get $geom marginBottom] \
+                [dict get $geom marginLeft]]
+        } else {
+            Claim editor $editor has margin [list 0.01 0.005 0.005 0.01]
+        }
+    }
+
+    # Initial setup
+    # Load initial text settings if not set
+    When editor $editor has selected program /program/ &\
+         /nobody/ claims editor $editor on program /program/ has font options /...anything/ &\
+         the saved holds are loaded {
+        # Wait until all the saved holds are loaded, so we don't accidentally
+        # overwrite a saved setting.
+        set textScale [dict get $options textScale]
+        # If the program's geometry carries a lineHeight (printed-page
+        # metadata), prefer that over the global default so the editor
+        # opens at the same scale the program was printed at.
+        set geomResults [Query! $editor has resolved geometry /geom/]
+        if {[llength $geomResults] > 0} {
+            set geom [dict get [lindex $geomResults 0] geom]
+            if {[dict exists $geom lineHeight]} {
+                set textScale [dict get $geom lineHeight]
+            }
+        }
+        Hold! -save -key font-options-of:$editor:$program \
+            Claim editor $editor on program $program has font options with scale $textScale
+    }
+
+    # We need the editor's resolved geometry to get its size.
+    # We then use its size to figure out how many characters we can fit in it,
+    # width-wise and height-wise.
+    When $editor has resolved geometry /geom/ &\
+         editor $editor has margin /margin/ &\
+         editor $editor has selected program /program/ &\
+         editor $editor on program /program/ has font options with /...options/ {
+        Claim editor $editor has viewport size [$utils editorSizeInCharacters $margin $geom $options]
+    }
+
+    # Load in defaults for the editor if it hasn't been initialized
+    set results [Query! /somebody/ claims editor $editor has cursor /anything/]
+    if {[llength $results] == 0} {
+        Hold! -key editor-state-of:$editor {
+            Claim editor $editor has cursor 0
+            Claim editor $editor has max cursor x 0
+            Claim editor $editor has viewport position [list 0 0]
+            Claim editor $editor has selection anchor ""
+            Claim editor $editor has undo stack {}
+            Claim editor $editor has redo stack {}
+            Claim editor $editor has last edit type ""
+        }
+    }
+
+    set clipResults [Query! /somebody/ claims editor $editor has clipboard /anything/]
+    if {[llength $clipResults] == 0} {
+        Hold! -key clipboard-of:$editor Claim editor $editor has clipboard ""
+    }
+
+    # Load in initial program code (note, this buffer is shared between
+    # all editor instances)
+    When editor $editor has selected program /program/ &\
+         /program/ has program code /programCode/ &\
+         the saved holds are loaded {
+        # Check if the code already exists.
+        set results [Query! editor buffer for $program is /anything/]
+        if {[llength $results] == 0} {
+            Hold! -save -key buffer-for:$program \
+                Claim editor buffer for $program is $programCode
+        }
+    }
+}
+
+Subscribe: keyboard /keyboard/ claims key Control_b is down with /...options/ {
+    Notify: print code "# blank"
+}
+
+When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
+     /keyboard/ is typing into /editor/ &\
+     /editor/ is an editor with /...anything/ &\
+     editor /editor/ has selected program /program/ {
+
+    Subscribe: keyboard $kbPath claims key /key/ is /keyState/ with /...options/ {
+        ForEach! editor $editor has viewport position /vpPos/ &\
+                 editor $editor has viewport size /vpSize/ &\
+                 editor buffer for $program is /code/ &\
+                 editor $editor has max cursor x /maxCursorX/ &\
+                 editor $editor has cursor /cursor/ &\
+                 editor $editor has selection anchor /selAnchor/ &\
+                 editor $editor has clipboard /clipboard/ &\
+                 editor $editor has undo stack /undoStack/ &\
+                 editor $editor has redo stack /redoStack/ &\
+                 editor $editor has last edit type /lastEditType/ &\
+                 editor $editor on program $program has font options with /...textOptions/ {
+            lassign $vpPos vpX vpY
+            lassign $vpSize vpWidth vpHeight
+
+            if {$keyState == "up"} { return }
+
+            # if this is true, the buffer will remove the hold for program code
+            # (triggering a reinitialization)
+            set resetBuffer false
+            set isUndo false
+            set isRedo false
+            set origCode $code
+            set origCursor $cursor
+            set origMaxCursorX $maxCursorX
+
+            set hasShift [dict exists $options shift]
+            set isNavKey [expr {$key eq "Left" || $key eq "Right" || $key eq "Up" || $key eq "Down"}]
+
+            # Handle selection replacement for text-modifying keys
+            set selectionHandled false
+            if {$selAnchor ne ""} {
+                set selStart [min $selAnchor $cursor]
+                set selEnd [max $selAnchor $cursor]
+
+                if {[dict exists $options printable]} {
+                    lassign [$utils replaceRange $code $selStart $selEnd [dict get $options printable]] code cursor maxCursorX
+                    set selAnchor ""
+                    set selectionHandled true
+                } elseif {$key eq "Delete" || $key eq "Remove"} {
+                    lassign [$utils replaceRange $code $selStart $selEnd ""] code cursor maxCursorX
+                    set selAnchor ""
+                    set selectionHandled true
+                } elseif {$key eq "Return"} {
+                    # Delete selection, then fall through to Return handler
+                    lassign [$utils replaceRange $code $selStart $selEnd ""] code cursor maxCursorX
+                    set selAnchor ""
+                }
+            }
+
+            if {!$selectionHandled} {
+                if {$hasShift && $isNavKey} {
+                    # Shift+Arrow: extend selection
+                    if {$selAnchor eq ""} { set selAnchor $cursor }
+                    lassign [$utils handleNavigation $key $code $cursor $maxCursorX] cursor maxCursorX
+                } elseif {[dict exists $options printable]} {
+                    lassign [$utils insertText $code $cursor [dict get $options printable]] code cursor maxCursorX
+                } else {
+                    # Regular navigation clears selection
+                    if {$isNavKey} { set selAnchor "" }
+
+                    # general editor functionality
+                    lassign [$utils handleNavigation $key $code $cursor $maxCursorX] cursor maxCursorX
+                    lassign [$utils handleRemovalAndReturn $key $code $cursor $maxCursorX] code cursor maxCursorX
+
+                    # specific editor functionality
+                    switch $key {
+                        Control_c {
+                            if {$selAnchor ne ""} {
+                                set clipText [$utils getSelectedText $code $selAnchor $cursor]
+                                Hold! -key clipboard-of:$editor Claim editor $editor has clipboard $clipText
+                            }
+                        }
+                        Control_x {
+                            if {$selAnchor ne ""} {
+                                set clipText [$utils getSelectedText $code $selAnchor $cursor]
+                                Hold! -key clipboard-of:$editor Claim editor $editor has clipboard $clipText
+                                set selStart [min $selAnchor $cursor]
+                                set selEnd [max $selAnchor $cursor]
+                                lassign [$utils replaceRange $code $selStart $selEnd ""] code cursor maxCursorX
+                                set selAnchor ""
+                            }
+                        }
+                        Control_v {
+                            if {$clipboard ne ""} {
+                                if {$selAnchor ne ""} {
+                                    set selStart [min $selAnchor $cursor]
+                                    set selEnd [max $selAnchor $cursor]
+                                    lassign [$utils replaceRange $code $selStart $selEnd $clipboard] code cursor maxCursorX
+                                    set selAnchor ""
+                                } else {
+                                    lassign [$utils replaceRange $code $cursor $cursor $clipboard] code cursor maxCursorX
+                                }
+                            }
+                        }
+                        Control_z {
+                            if {[llength $undoStack] > 0} {
+                                lappend redoStack [list $code $cursor $maxCursorX]
+                                lassign [lindex $undoStack end] code cursor maxCursorX
+                                set undoStack [lrange $undoStack 0 end-1]
+                                set selAnchor ""
+                                set isUndo true
+                                set lastEditType ""
+                            }
+                        }
+                        Control_y {
+                            if {[llength $redoStack] > 0} {
+                                lappend undoStack [list $code $cursor $maxCursorX]
+                                lassign [lindex $redoStack end] code cursor maxCursorX
+                                set redoStack [lrange $redoStack 0 end-1]
+                                set selAnchor ""
+                                set isRedo true
+                                set lastEditType ""
+                            }
+                        }
+                        Control_r {
+                            set resetBuffer true
+                        }
+                        Control_s {
+                            Notify: save code on editor $editor
+                        }
+                        Control_p {
+                            Notify: print program from editor $editor
+
+                            # Give the user some feedback
+                            Hold! -key printing-alert:$editor \
+                                Wish $editor is labelled "Printing!"
+                            sleep 0.25
+                            Hold! -key printing-alert:$editor {}
+                        }
+                        Control_underscore {
+                            # ctrl and - (zoom out)
+                            set textScale [dict get $textOptions scale]
+                            set textScale [/ $textScale 1.1]
+
+                            Hold! -save -key font-options-of:$editor:$program \
+                                Claim editor $editor on program $program has font options with scale $textScale
+                        }
+                        equal {
+                            # Dunno why it registers as equal instead of Control_equal? It works regardless, lol
+                            # ctrl and + (zoom in)
+                            set textScale [dict get $textOptions scale]
+                            set textScale [* $textScale 1.1]
+
+                            Hold! -save -key font-options-of:$editor:$program \
+                                Claim editor $editor on program $program has font options with scale $textScale
+                        }
+                    }
+                }
+            }
+
+            # Undo stack management with coalescing
+            if {$code ne $origCode && !$isUndo && !$isRedo} {
+                # Determine edit type for coalescing consecutive same-type edits
+                if {[dict exists $options printable]} {
+                    set editType "insert"
+                } elseif {$key eq "Delete" || $key eq "Remove"} {
+                    set editType "delete"
+                } else {
+                    set editType "other"
+                }
+
+                # Only push when edit type changes or for non-coalescable edits
+                if {$editType ne $lastEditType || $editType eq "other"} {
+                    lappend undoStack [list $origCode $origCursor $origMaxCursorX]
+                    if {[llength $undoStack] > 50} {
+                        set undoStack [lrange $undoStack end-49 end]
+                    }
+                }
+                set lastEditType $editType
+
+                # Any real edit clears the redo stack
+                set redoStack {}
+            } elseif {!$isUndo && !$isRedo} {
+                # Navigation or no-op resets edit type (breaks coalescing)
+                set lastEditType ""
+            }
+
+            if {$resetBuffer} {
+                set cursor 0
+                set maxCursorX 0
+                set selAnchor ""
+                set undoStack {}
+                set redoStack {}
+                set lastEditType ""
+
+                # remove the edited code to restore the program to its original code
+                Hold! -on builtin-programs/programs.folk -key new-code-for:$program {}
+                file delete "$programDir/[regsub {\.folk$} $program {}].folk.edited"
+
+                Hold! -save -key buffer-for:$program {
+                    When $program has program code /originalCode/ {
+                        Claim editor buffer for $program is $originalCode
+                    }
+                }
+            } else {
+                Hold! -save -key buffer-for:$program \
+                    Claim editor buffer for $program is $code
+            }
+
+            lassign [$utils cursorToXy $code $cursor] cursorX cursorY
+            # Be sure to have at least two characters on the left, so we can
+            # see what we're removing.
+            if {[- $cursorX 2] < $vpX} {
+                set vpX [max 0 [- $cursorX 2]]
+            }
+            if {$cursorX >= $vpX + $vpWidth} {
+                set vpX $($cursorX - $vpWidth)
+            }
+            if {$cursorY < $vpY} { set vpY $cursorY }
+            if {$cursorY >= $vpY + $vpHeight - 1} {
+                set vpY $($cursorY - $vpHeight + 1)
+            }
+
+            Hold! -keep 12ms -key editor-state-of:$editor {
+                Claim editor $editor has viewport position [list $vpX $vpY]
+                Claim editor $editor has cursor $cursor
+                Claim editor $editor has max cursor x $maxCursorX
+                Claim editor $editor has selection anchor $selAnchor
+                Claim editor $editor has undo stack $undoStack
+                Claim editor $editor has redo stack $redoStack
+                Claim editor $editor has last edit type $lastEditType
+            }
+        }
+    }
+}
+
+Subscribe: save code on editor /editor/ {
+    ForEach! editor $editor has selected program /program/ &\
+             editor buffer for /program/ is /programCode/ {
+        Hold! -on builtin-programs/programs.folk -key new-code-for:$program \
+            Wish program $program is replaced with \
+            code $programCode editedTime [clock seconds]
+
+        set programBase [regsub {\.folk$} $program ""]
+        set editedPath "$programDir/[set programBase].folk.edited"
+        file mkdir [file dirname $editedPath]
+        set fp [open $editedPath w]
+        puts -nonewline $fp $programCode
+        close $fp
+
+        # Give the user some feedback
+        Hold! -key saved-alert:$editor \
+            Wish $editor is labelled "Saved!"
+        sleep 0.25
+        Hold! -key saved-alert:$editor {}
+    }
+}
+
+# calculate cursor position
+When /editor/ is an editor with /...anything/ &\
+     editor /editor/ has cursor /cursor/ &\
+     editor /editor/ has selected program /program/ &\
+     editor buffer for /program/ is /code/ &\
+     editor /editor/ has viewport position /vpPos/ &\
+     editor /editor/ on program /program/ has font options with /...textOptions/ {
+    lassign $vpPos vpX vpY
+
+    lassign [$utils cursorToXy $code $cursor] cursorX cursorY
+
+    set textScale [dict get $textOptions scale]
+    set advance [$utils getAdvance $textScale]
+
+    set offsetX $(($cursorX - $vpX) * $advance)
+    set offsetY $(($cursorY - $vpY) * $textScale)
+
+    Claim editor $editor has cursor position [list $offsetX $offsetY]
+}
+
+}

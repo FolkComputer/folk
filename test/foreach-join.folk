@@ -1,0 +1,39 @@
+Claim the first step is A
+Claim the second step is B
+Claim the third step is C
+
+ForEach! the first step is /a/ &\
+         the second step is /b/ &\
+         the third step is /c/ {
+    assert {$a eq "A" && $b eq "B" && $c eq "C"}
+}
+
+# Test if ForEach prints a decent-looking error message:
+fn errorTest {} {
+    ForEach! the first step is /a/ {
+        ForEach! the second step is /b/ {
+            error "Error in looking at $a and $b"
+        }
+    }
+}
+try {
+    errorTest
+} on error e {
+    # This was to check that we get errors from inside (with nice
+    # stack traces).
+}
+
+# Test if we can early-return from inside ForEach:
+fn innerFunction {} {
+    ForEach! the first step is /a/ {
+        ForEach! the third step is /c/ {
+            return GOOD
+        }
+        Exit! 2
+    }
+    Exit! 1
+}
+
+assert {[innerFunction] eq "GOOD"}
+
+Exit! 0

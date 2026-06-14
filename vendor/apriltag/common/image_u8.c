@@ -265,6 +265,9 @@ void image_u8_draw_annulus(image_u8_t *im, float x0, float y0, float r0, float r
 void image_u8_draw_line(image_u8_t *im, float x0, float y0, float x1, float y1, int v, int width)
 {
     double dist = sqrtf((y1-y0)*(y1-y0) + (x1-x0)*(x1-x0));
+    if (dist == 0) {
+        return;
+    }
     double delta = 0.5 / dist;
 
     // terrible line drawing code
@@ -318,29 +321,29 @@ void image_u8_convolve_2D(image_u8_t *im, const uint8_t *k, int ksz)
 {
     assert((ksz & 1) == 1); // ksz must be odd.
 
+    uint8_t *x = malloc(sizeof(uint8_t)*im->stride);
     for (int y = 0; y < im->height; y++) {
 
-        uint8_t *x = malloc(sizeof(uint8_t)*im->stride);
         memcpy(x, &im->buf[y*im->stride], im->stride);
 
         convolve(x, &im->buf[y*im->stride], im->width, k, ksz);
-        free(x);
     }
+    free(x);
 
+    uint8_t *xb = malloc(sizeof(uint8_t)*im->height);
+    uint8_t *yb = malloc(sizeof(uint8_t)*im->height);
     for (int x = 0; x < im->width; x++) {
-        uint8_t *xb = malloc(sizeof(uint8_t)*im->height);
-        uint8_t *yb = malloc(sizeof(uint8_t)*im->height);
 
         for (int y = 0; y < im->height; y++)
             xb[y] = im->buf[y*im->stride + x];
 
         convolve(xb, yb, im->height, k, ksz);
-        free(xb);
 
         for (int y = 0; y < im->height; y++)
             im->buf[y*im->stride + x] = yb[y];
-        free(yb);
     }
+    free(xb);
+    free(yb);
 }
 
 void image_u8_gaussian_blur(image_u8_t *im, double sigma, int ksz)

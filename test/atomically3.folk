@@ -1,0 +1,18 @@
+When the clock time is /t/ {
+    sleep 0.5
+    Claim the derived clock time is $t
+}
+
+Hold! the number of clock impulses is 0
+When the derived clock time is /t/ {
+    set n [dict get [QueryOne! the number of clock impulses is /n/] n]
+    Hold! the number of clock impulses is [+ $n 1]
+}
+
+sleep 5
+
+set n [dict get [QueryOne! the number of clock impulses is /n/] n]
+puts $n
+
+assert {$n > 5}
+Exit! 0

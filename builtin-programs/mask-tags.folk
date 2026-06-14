@@ -1,0 +1,22 @@
+When the quad library is /quadLib/ &\
+     the pose library is /poseLib/ &\
+     the quad changer is /quadChange/ &\
+     display /proj/ has width /projWidth/ height /projHeight/ &\
+     display /proj/ has intrinsics /projectorIntrinsics/ {
+        
+    fn quadChange
+
+    When tag /id/ has quad /q/ {
+    When -atomicallyWithKey [list $id quad] {
+        set scaledQuad [$quadLib scale $q 2.1]
+
+        lassign [lmap v [$quadLib vertices [quadChange $scaledQuad "display $proj"]] {
+            $poseLib project $projectorIntrinsics $projWidth $projHeight $v
+        }] p0 p1 p2 p3
+
+        Wish to draw a quad onto $proj with \
+            p0 $p0 p1 $p1 p2 $p2 p3 $p3 \
+            color black layer 100
+    }
+    }
+}

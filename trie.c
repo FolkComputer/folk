@@ -3,8 +3,42 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdarg.h>
 
 #include "trie.h"
+
+extern __thread Jim_Interp* interp;
+
+Jim_Obj* clauseFormat(const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+
+    char* formatted;
+    vasprintf(&formatted, fmt, args);
+    va_end(args);
+
+    Jim_Obj* list = Jim_NewListObj(interp, NULL, 0);
+
+    char* saveptr;
+    char* token = strtok_r(formatted, " ", &saveptr);
+    while (token != NULL) {
+        Jim_ListAppendElement(interp, list,
+                              Jim_NewStringObj(interp, token, -1));
+        token = strtok_r(NULL, " ", &saveptr);
+    }
+
+    free(formatted);
+    return list;
+}
+
+static bool termEq(Jim_Obj* a, Jim_Obj* b) {
+    if (a == b) { return true; }
+    return Jim_StringEqObj(interp, a, b);
+}
+
+static const char* termString(Jim_Obj* term) {
+    return Jim_GetString(interp, term, NULL);
+}
 
 const Trie* trieNew() {
     size_t size = sizeof(Trie);
@@ -16,13 +50,6 @@ const Trie* trieNew() {
         .branchesCount = 0
     };
     return ret;
-}
-
-static char *trieStrdup(void *(*alloc)(size_t), char *s0) {
-    int sz = strlen(s0) + 1;
-    char *s = alloc(sz);
-    memcpy(s, s0, sz);
-    return s;
 }
 
 // This will return the original trie if the clause is already present
@@ -39,22 +66,22 @@ static const Trie* trieAddImpl(const Trie* trie,
         memcpy(newTrie, trie, SIZEOF_TRIE(trie->branchesCount));
         newTrie->value = value;
         newTrie->hasValue = true;
-        retire(trie);
+        retire((void *)trie);
         return newTrie;
     }
-    char* term = terms[0];
+    Jim_Obj* term = terms[0];
 
     // Is there an existing branch that already matches the first
     // term?
     int j;
     for (j = 0; j < trie->branchesCount; j++) {
         const Trie* branch = trie->branches[j];
-        if (branch == NULL) { 
+        if (branch == NULL) {
             fprintf(stderr, "should be unreachable\n");
             abort();
         }
 
-        if (branch->key == term || strcmp(branch->key, term) == 0) {
+        if (termEq(branch->key, term)) {
             break;
         }
     }
@@ -64,7 +91,8 @@ static const Trie* trieAddImpl(const Trie* trie,
     if (j == trie->branchesCount) {
         // Need to add a new branch.
         newBranch = alloc(SIZEOF_TRIE(0));
-        newBranch->key = trieStrdup(alloc, term);
+        newBranch->key = term;
+        Jim_IncrRefCount(term);
         newBranch->value = 0;
         newBranch->hasValue = false;
         newBranch->branchesCount = 0;
@@ -81,6 +109,7 @@ static const Trie* trieAddImpl(const Trie* trie,
         // Subtrie was unchanged by the addition (meaning that the
         // clause is already in the trie). Return the original trie.
         if (newBranch != NULL) {
+            Jim_DecrRefCount(newBranch->key);
             retire(newBranch);
         }
         return trie;
@@ -89,7 +118,7 @@ static const Trie* trieAddImpl(const Trie* trie,
     // We'll need to allocate a new trie -- how many branches should
     // it have?
     int32_t newBranchesCount = trie->branchesCount;
-    if (j == trie->branchesCount) { 
+    if (j == trie->branchesCount) {
         // Need to add a new branch.
         newBranchesCount++;
     }
@@ -98,7 +127,7 @@ static const Trie* trieAddImpl(const Trie* trie,
     memcpy(newTrie, trie, SIZEOF_TRIE(trie->branchesCount));
     newTrie->branchesCount = newBranchesCount;
     newTrie->branches[j] = addedToBranch;
-    retire(trie);
+    retire((void *)trie);
     return newTrie;
 }
 
@@ -106,15 +135,18 @@ static const Trie* trieAddImpl(const Trie* trie,
 // in it.
 const Trie* trieAdd(const Trie* trie,
                     void *(*alloc)(size_t), void (*retire)(void*),
-                    Clause* c, uint64_t value) {
-    /* fprintf(stderr, "trieAdd: (%s)\n", clauseToString(c)); */
-    const Trie* ret = trieAddImpl(trie, alloc, retire,
-                                  c->nTerms, c->terms, value);
-    return ret;
+                    Jim_Obj* c, uint64_t value) {
+    int nTerms = Jim_ListLength(interp, c);
+    Jim_Obj* terms[nTerms];
+    for (int i = 0; i < nTerms; i++) {
+        terms[i] = Jim_ListGetIndex(interp, c, i);
+    }
+    return trieAddImpl(trie, alloc, retire, nTerms, terms, value);
 }
 
 
-bool trieScanVariable(const char* term, char* outVarName, size_t sizeOutVarName) {
+bool trieScanVariable(const char* term,
+                      char* outVarName, size_t sizeOutVarName) {
     if (term[0] != '/') { return false; }
     int i = 1;
     while (true) {
@@ -159,10 +191,12 @@ static void trieLookupAll(const Trie* trie,
 }
 
 static void trieLookupImpl(bool isLiteral,
-                           const Trie* trie, Clause* pattern, int patternIdx,
+                           const Trie* trie,
+                           int patternNTerms, Jim_Obj* patternTerms[],
+                           int patternIdx,
                            uint64_t* results, size_t maxResults,
                            int* resultsIdx) {
-    int wordc = pattern->nTerms - patternIdx;
+    int wordc = patternNTerms - patternIdx;
     if (wordc == 0) {
         if (trie->hasValue) {
             if (*resultsIdx < maxResults) {
@@ -174,10 +208,10 @@ static void trieLookupImpl(bool isLiteral,
         return;
     }
 
-    const char* term = pattern->terms[patternIdx];
+    Jim_Obj* term = patternTerms[patternIdx];
     enum { TERM_TYPE_LITERAL, TERM_TYPE_VARIABLE, TERM_TYPE_REST_VARIABLE } termType;
     char termVarName[100];
-    if (!isLiteral && trieScanVariable(term, termVarName, 100)) {
+    if (!isLiteral && trieScanVariable(termString(term), termVarName, 100)) {
         if (termVarName[0] == '.' && termVarName[1] == '.' && termVarName[2] == '.') {
             termType = TERM_TYPE_REST_VARIABLE;
         } else { termType = TERM_TYPE_VARIABLE; }
@@ -188,7 +222,7 @@ static void trieLookupImpl(bool isLiteral,
             termType == TERM_TYPE_VARIABLE) { // Is the current lookup term a variable?
 
             trieLookupImpl(isLiteral, trie->branches[j],
-                           pattern, patternIdx + 1,
+                           patternNTerms, patternTerms, patternIdx + 1,
                            results, maxResults,
                            resultsIdx);
 
@@ -201,7 +235,8 @@ static void trieLookupImpl(bool isLiteral,
         } else {
             char keyVarName[100];
             // Is the trie node (we're currently walking) a variable?
-            if (!isLiteral && trieScanVariable(trie->branches[j]->key, keyVarName, 100)) {
+            if (!isLiteral && trieScanVariable(termString(trie->branches[j]->key),
+                                               keyVarName, 100)) {
                 // Is the trie node a rest variable?
                 if (keyVarName[0] == '.' && keyVarName[1] == '.' && keyVarName[2] == '.') {
                     trieLookupAll(trie->branches[j],
@@ -210,16 +245,14 @@ static void trieLookupImpl(bool isLiteral,
 
                 } else { // Or is the trie node a normal variable?
                     trieLookupImpl(isLiteral, trie->branches[j],
-                                   pattern, patternIdx + 1,
+                                   patternNTerms, patternTerms, patternIdx + 1,
                                    results, maxResults,
                                    resultsIdx);
                 }
             } else {
-                const char *keyString = trie->branches[j]->key;
-                const char *termString = term;
-                if (strcmp(keyString, termString) == 0) {
+                if (termEq(trie->branches[j]->key, term)) {
                     trieLookupImpl(isLiteral, trie->branches[j],
-                                   pattern, patternIdx + 1,
+                                   patternNTerms, patternTerms, patternIdx + 1,
                                    results, maxResults,
                                    resultsIdx);
                 }
@@ -231,28 +264,29 @@ static void trieLookupImpl(bool isLiteral,
 static const Trie* trieRemoveImpl(bool isLiteral,
                                   const Trie* trie,
                                   void *(*alloc)(size_t), void (*retire)(void*),
-                                  Clause* pattern, int patternIdx,
+                                  int patternNTerms, Jim_Obj* patternTerms[],
+                                  int patternIdx,
                                   uint64_t* results, size_t maxResults,
                                   int* resultsIdx) {
-    int wordc = pattern->nTerms - patternIdx;
+    int wordc = patternNTerms - patternIdx;
     if (wordc == 0) {
         if (trie->hasValue) {
             if (*resultsIdx < maxResults) {
                 results[(*resultsIdx)++] = trie->value;
             }
             if (trie->key != NULL) {
-                retire(trie->key);
+                Jim_DecrRefCount(trie->key);
             }
-            retire(trie);
+            retire((void *)trie);
             return NULL;
         }
         return trie;
     }
 
-    const char* term = pattern->terms[patternIdx];
+    Jim_Obj* term = patternTerms[patternIdx];
     enum { TERM_TYPE_LITERAL, TERM_TYPE_VARIABLE, TERM_TYPE_REST_VARIABLE } termType;
     char termVarName[100];
-    if (!isLiteral && trieScanVariable(term, termVarName, 100)) {
+    if (!isLiteral && trieScanVariable(termString(term), termVarName, 100)) {
         if (termVarName[0] == '.' && termVarName[1] == '.' && termVarName[2] == '.') {
             termType = TERM_TYPE_REST_VARIABLE;
         } else { termType = TERM_TYPE_VARIABLE; }
@@ -270,7 +304,7 @@ static const Trie* trieRemoveImpl(bool isLiteral,
             newBranch = trieRemoveImpl(isLiteral,
                                        trie->branches[j],
                                        alloc, retire,
-                                       pattern, patternIdx + 1,
+                                       patternNTerms, patternTerms, patternIdx + 1,
                                        results, maxResults,
                                        resultsIdx);
 
@@ -284,7 +318,8 @@ static const Trie* trieRemoveImpl(bool isLiteral,
         } else {
             char keyVarName[100];
             // Is the trie node (we're currently walking) a variable?
-            if (!isLiteral && trieScanVariable(trie->branches[j]->key, keyVarName, 100)) {
+            if (!isLiteral && trieScanVariable(termString(trie->branches[j]->key),
+                                               keyVarName, 100)) {
                 // Is the trie node a rest variable?
                 if (keyVarName[0] == '.' && keyVarName[1] == '.' && keyVarName[2] == '.') {
                     trieLookupAll(trie->branches[j],
@@ -296,18 +331,16 @@ static const Trie* trieRemoveImpl(bool isLiteral,
                     newBranch = trieRemoveImpl(isLiteral,
                                                trie->branches[j],
                                                alloc, retire,
-                                               pattern, patternIdx + 1,
+                                               patternNTerms, patternTerms, patternIdx + 1,
                                                results, maxResults,
                                                resultsIdx);
                 }
             } else {
-                const char *keyString = trie->branches[j]->key;
-                const char *termString = term;
-                if (strcmp(keyString, termString) == 0) {
+                if (termEq(trie->branches[j]->key, term)) {
                     newBranch = trieRemoveImpl(isLiteral,
                                                trie->branches[j],
                                                alloc, retire,
-                                               pattern, patternIdx + 1,
+                                               patternNTerms, patternTerms, patternIdx + 1,
                                                results, maxResults,
                                                resultsIdx);
                 } else {
@@ -322,9 +355,9 @@ static const Trie* trieRemoveImpl(bool isLiteral,
     }
     if (newBranchesCount == 0) {
         if (trie->key != NULL) {
-            retire(trie->key);
+            Jim_DecrRefCount(trie->key);
         }
-        retire(trie);
+        retire((void *)trie);
         return NULL;
     }
 
@@ -332,24 +365,33 @@ static const Trie* trieRemoveImpl(bool isLiteral,
     memcpy(newTrie, trie, SIZEOF_TRIE(0));
     newTrie->branchesCount = newBranchesCount;
     memcpy(newTrie->branches, newBranches, newBranchesCount*sizeof(Trie*));
-    retire(trie);
+    retire((void *)trie);
     return newTrie;
 }
 
-int trieLookup(const Trie* trie, Clause* pattern,
+int trieLookup(const Trie* trie, Jim_Obj* pattern,
                uint64_t* results, size_t maxResults) {
     int resultCount = 0;
-    trieLookupImpl(false, trie, pattern, 0,
+    int nTerms = Jim_ListLength(interp, pattern);
+    Jim_Obj* terms[nTerms];
+    for (int i = 0; i < nTerms; i++) {
+        terms[i] = Jim_ListGetIndex(interp, pattern, i);
+    }
+    trieLookupImpl(false, trie, nTerms, terms, 0,
                    results, maxResults,
                    &resultCount);
-    /* fprintf(stderr, "trieLookup: (%s) -> %d\n", clauseToString(pattern), resultCount); */
     return resultCount;
 }
 
-int trieLookupLiteral(const Trie* trie, Clause* pattern,
+int trieLookupLiteral(const Trie* trie, Jim_Obj* pattern,
                       uint64_t* results, size_t maxResults) {
     int resultCount = 0;
-    trieLookupImpl(true, trie, pattern, 0,
+    int nTerms = Jim_ListLength(interp, pattern);
+    Jim_Obj* terms[nTerms];
+    for (int i = 0; i < nTerms; i++) {
+        terms[i] = Jim_ListGetIndex(interp, pattern, i);
+    }
+    trieLookupImpl(true, trie, nTerms, terms, 0,
                    results, maxResults,
                    &resultCount);
     return resultCount;
@@ -358,12 +400,17 @@ int trieLookupLiteral(const Trie* trie, Clause* pattern,
 // Note: does _literal_ matching only, for now.
 const Trie* trieRemove(const Trie* trie,
                        void *(*alloc)(size_t), void (*retire)(void*),
-                       Clause* pattern,
+                       Jim_Obj* pattern,
                        uint64_t* results, size_t maxResults,
                        int* resultCount) {
+    int nTerms = Jim_ListLength(interp, pattern);
+    Jim_Obj* terms[nTerms];
+    for (int i = 0; i < nTerms; i++) {
+        terms[i] = Jim_ListGetIndex(interp, pattern, i);
+    }
     return trieRemoveImpl(true, trie,
                           alloc, retire,
-                          pattern, 0,
+                          nTerms, terms, 0,
                           results, maxResults,
                           resultCount);
 }

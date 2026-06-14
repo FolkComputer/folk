@@ -1,0 +1,108 @@
+When the image library is /imageLib/ {
+set cc [C]
+$cc extend $imageLib
+$cc endcflags -lpng
+$cc include <stdlib.h>
+$cc include <string.h>
+
+$cc code {
+    #undef EXTERN
+    #include <png.h>
+    #include <stdint.h>
+
+void png(FILE* dest, uint8_t* data, uint32_t components, uint32_t bytesPerRow, uint32_t width, uint32_t height) {
+    png_structp png_w = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+    png_infop info_w = png_create_info_struct(png_w);
+
+    if (components == 3)
+        png_set_IHDR(png_w, info_w, width, height, 8, PNG_COLOR_TYPE_RGB,
+            PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
+            PNG_FILTER_TYPE_DEFAULT);
+    else if (components == 1)
+        png_set_IHDR(png_w, info_w, width, height, 8, PNG_COLOR_TYPE_GRAY,
+            PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
+            PNG_FILTER_TYPE_DEFAULT);
+    else FOLK_ERROR("Unsupported number of components");
+
+    png_bytep* row_pointers = (png_bytep *)malloc(sizeof(png_bytep) * height);
+    for (int i = 0; i < height; i++) {
+        row_pointers[i] = data + i * bytesPerRow;
+    }
+
+    png_init_io(png_w, dest);
+    png_set_rows(png_w, info_w, row_pointers);
+    png_write_png(png_w, info_w, PNG_TRANSFORM_IDENTITY, NULL);
+
+    free(row_pointers);
+}
+
+}
+
+$cc proc saveAsPng {Image im char* filename} void {
+    FILE* out = fopen(filename, "wb");
+    FOLK_ENSURE(out != NULL);
+    png(out, im.data, im.components, im.bytesPerRow, im.width, im.height);
+    fclose(out);
+}
+
+$cc proc loadPng {char* filename} Image {
+    FILE* file = fopen(filename, "rb");
+    if (!file) {
+        FOLK_ERROR("Error opening file: %s\n", filename);
+    }
+
+    png_structp png = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+    if (!png) {
+        FOLK_ERROR("Error reading png from file: %s it's not a png\n", filename);
+    }
+
+    png_infop info = png_create_info_struct(png);
+    if(!info) {
+        FOLK_ERROR("Error reading png from file: %s no info?\n", filename);
+    }
+
+    if(setjmp(png_jmpbuf(png))) {
+        FOLK_ERROR("Error reading png from file: %s setjmp error?\n", filename);
+    }
+
+    png_init_io(png, file);
+    png_read_info(png, info);
+
+    Image ret;
+    ret.width = png_get_image_width(png, info);
+    ret.height = png_get_image_height(png, info);
+    int bytes_per_pixel =  png_get_channels(png, info);
+    ret.components = png_get_channels(png, info);
+    ret.bytesPerRow = ret.width * bytes_per_pixel;
+    ret.data = malloc(ret.bytesPerRow * ret.height);
+
+    // Iterate over the rows and read the image data into the buffer.
+    for (int i = 0; i < ret.height; i++) {
+        png_read_row(png, ret.data + (i * ret.bytesPerRow), NULL);
+    }
+
+    // Close the PNG file.
+    png_destroy_read_struct(&png, &info, NULL);
+
+    if (ret.components == 4) {
+        // Transcode from RGBA to RGB (we don't support RGBA yet.)
+        for(int i=0; i < ret.width*ret.height; i++) {
+            int r = ret.data[i*4+0],
+                g = ret.data[i*4+1],
+                b = ret.data[i*4+2],
+                a = ret.data[i*4+3];
+
+            ret.data[i*3+0] = r * a / 255;
+            ret.data[i*3+1] = g * a / 255;
+            ret.data[i*3+2] = b * a / 255;
+        }
+        ret.components = 3;
+        ret.bytesPerRow = ret.width * ret.components;
+    }
+
+    return ret;
+}
+
+set pngLib [$cc compile]
+Claim the png library is $pngLib
+}

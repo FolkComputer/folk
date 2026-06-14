@@ -1,4 +1,4 @@
-**Note: Folk is in a *pre-alpha* state and isn't yet well-documented
+**Note: Folk is in a _pre-alpha_ state and isn't yet well-documented
 or well-exampled.**
 
 **We're making Folk's source code free and available to the public, in
@@ -12,7 +12,7 @@ more about the goals of the project & provide canonical examples/demos
 to show what's possible. If you don't know what this is, then you
 might want to wait for that release.
 
------
+---
 
 # [Folk](https://folk.computer)
 
@@ -23,7 +23,9 @@ objects are physical objects in the real world, and you can program
 them inside the system itself. Folk is [written in a mix of C and
 Tcl](https://github.com/FolkComputer/folk/blob/main/docs/design.md).
 
-## Hardware
+## Installation
+
+### Hardware
 
 You'll need to set up a dedicated PC to run Folk and connect to
 webcam+projector+printer+etc.
@@ -32,99 +34,100 @@ We tend to recommend a Beelink mini-PC (or _maybe_ a Pi 5).
 
 See <https://folk.computer/pilot/>
 
-## Linux tabletop installation using live USB
-
-**Experimental:** If you have an amd64 PC, you can use the live USB
-image which has Folk and all dependencies pre-installed.
-
-**See <https://github.com/FolkComputer/folk/releases> to
-get the Linux live USB image.**
-
-You can update Folk by running `git pull` in the `folk` subfolder of
-the FOLK-LIVE partition once you've flashed the live USB.
-
-## Manual Linux tabletop installation
+### Manual Linux tabletop installation
 
 On an Intel/AMD PC, set up [Ubuntu **Server** 24.04 LTS (Noble
 Numbat)](https://ubuntu.com/download/server#releases).
+
+(if you have an NVIDIA GPU, don't install the drivers in the Ubuntu OS
+installer. we'll install manually later. or if you do, install driver
+version 570 or newer)
 
 (for a Pi 4/5, use Raspberry Pi Imager and get Raspberry Pi OS Lite
 64-bit version [also see [this
 issue](https://github.com/raspberrypi/rpi-imager/issues/466#issuecomment-1207107554)
 if flashing from a Mac] -- Ubuntu doesn't have a good kernel for Pi 5)
 
-1. Install Linux with username `folk`, hostname
-   `folk-SOMETHING`? (check hosts.tcl in this repo to make sure
-   you're not reusing one)
+1.  Install Linux with username `folk`, hostname
+    `folk-SOMETHING`? (check hosts.tcl in this repo to make sure
+    you're not reusing one)
 
-   If no `folk` user, then:
+    If no `folk` user, then:
 
-        sudo useradd -m folk; sudo passwd folk;
-        for group in adm dialout cdrom sudo audio video plugdev games users input tty render netdev lpadmin gpio i2c spi; do sudo usermod -a -G $group folk; done; groups folk
+         sudo useradd -m folk; sudo passwd folk
 
-1. `sudo apt update`
+    Add the `folk` user to groups:
 
-1. Set up OpenSSH server if needed; connect to network. To ssh into
-   `folk@folk-WHATEVER.local` by name, `sudo apt install avahi-daemon`
-   and then on your laptop: `ssh-copy-id folk@folk-WHATEVER.local`
+         for group in adm dialout cdrom sudo audio video plugdev games users input tty render netdev lpadmin gpio i2c spi; do sudo usermod -a -G $group folk; done; groups folk
 
-1. Install dependencies: `sudo apt install rsync tcl-thread tcl8.6-dev
-   git libjpeg-dev libpng-dev libdrm-dev pkg-config v4l-utils
-   mesa-vulkan-drivers vulkan-tools libvulkan-dev libvulkan1 meson
-   libgbm-dev glslc vulkan-validationlayers ghostscript console-data kbd`
+1.  `sudo apt update`
 
-   (When prompted while installing `console-data` for `Policy for handling keymaps` type `3` (meaning `3. Keep kernel keymap`) and press `Enter`)
+1.  Set up OpenSSH server if needed; connect to network. To ssh into
+    `folk@folk-WHATEVER.local` by name, `sudo apt install avahi-daemon`
+    and then on your laptop: `ssh-copy-id folk@folk-WHATEVER.local`
 
-1. Vulkan testing (optional):
-     1. Try `vulkaninfo` and see if it works.
-          1. On a Pi, if vulkaninfo reports "Failed to detect any
-             valid GPUs in the current config", add `dtoverlay=vc4-kms-v3d` to the bottom of
-             `/boot/firmware/config.txt`.
-             (<https://raspberrypi.stackexchange.com/questions/116507/open-dev-dri-card0-no-such-file-or-directory-on-rpi4>)
-     1. Try `vkcube`:
+1.  Install dependencies:
+
+        sudo apt install rsync git cmake libturbojpeg0-dev libpng-dev libdrm-dev pkg-config v4l-utils vulkan-tools libvulkan-dev libvulkan1 meson libgbm-dev glslc vulkan-validationlayers ghostscript console-data kbd psmisc zlib1g-dev libssl-dev automake libtool autoconf-archive
+
+    (When prompted while installing `console-data` for `Policy for
+handling keymaps` type `3` (meaning `3. Keep kernel keymap`) and
+press `Enter`)
+
+    1. on a non-NVIDIA GPU: `sudo apt install mesa-vulkan-drivers`
+    1. on an NVIDIA GPU: run `sudo ubuntu-drivers install nvidia:580`
+    1. for debugging: `elfutils` (provides `eu-stack`), `google-perftools`, `libgoogle-perftools-dev`
+
+1.  Vulkan testing (optional):
+    1.  Try `vulkaninfo` and see if it works.
+        1. On a Pi, if vulkaninfo reports "Failed to detect any
+           valid GPUs in the current config", add `dtoverlay=vc4-kms-v3d` to the bottom of
+           `/boot/firmware/config.txt`.
+           (<https://raspberrypi.stackexchange.com/questions/116507/open-dev-dri-card0-no-such-file-or-directory-on-rpi4>)
+    1.  Try `vkcube`:
 
             git clone https://github.com/krh/vkcube
             cd vkcube
             mkdir build; cd build; meson .. && ninja
             ./vkcube -m khr -k 0:0:0
-      
+
         If vkcube says `Assertion ``vc->image_count > 0' failed`, you
         might be able to still skip vkcube and continue the install
         process. See [this
         bug](https://github.com/FolkComputer/folk/issues/109#issuecomment-1788085237)
-     1. See [notes](https://folk.computer/notes/vulkan) and [Naveen's
+
+    1.  See [notes](https://folk.computer/notes/vulkan) and [Naveen's
         notes](https://gist.github.com/nmichaud/1c08821833449bdd3ac70dcb28486539).
 
-1. `sudo nano /etc/udev/rules.d/99-input.rules`. add
-   `SUBSYSTEM=="input", GROUP="input", MODE="0666"`. `sudo udevadm
-   control --reload-rules && sudo udevadm trigger`
+1.        sudo sh -c 'echo SUBSYSTEM=="input", GROUP="input", MODE="0666" > /etc/udev/rules.d/99-input.rules && udevadm control --reload-rules && udevadm trigger'
 
-1. Get AprilTags: `cd ~ && git clone https://github.com/FolkComputer/apriltag.git && cd apriltag && make libapriltag.so libapriltag.a`
+1.  Add the systemd service so it starts on boot and can be managed
+    when you run it from laptop. On Ubuntu Server or Raspberry Pi OS
+    (as root) ([from
+    here](https://medium.com/@benmorel/creating-a-linux-service-with-systemd-611b5c8b91d6)):
 
-1. Add the systemd service so it starts on boot and can be managed
-   when you run it from laptop. On Ubuntu Server or Raspberry Pi OS
-   (as root) ([from
-   here](https://medium.com/@benmorel/creating-a-linux-service-with-systemd-611b5c8b91d6)):
+        # cat >/etc/systemd/system/folk.service
+        [Unit]
+        Description=Folk service
+        After=network.target
+        StartLimitIntervalSec=0
 
-       # cat >/etc/systemd/system/folk.service
-       [Unit]
-       Description=Folk service
-       After=network.target
-       StartLimitIntervalSec=0
+        [Service]
+        Type=simple
+        Restart=always
+        RestartSec=1
+        User=folk
+        WorkingDirectory=/home/folk/folk
+        ExecStart=make -C /home/folk/folk start
 
-       [Service]
-       Type=simple
-       Restart=always
-       RestartSec=1
-       User=folk
-       WorkingDirectory=/home/folk/folk
-       ExecStart=make && ./folk
+        [Install]
+        WantedBy=multi-user.target
 
-       [Install]
-       WantedBy=multi-user.target
+    Run these commands as root after editing the file above:
 
-       # systemctl start folk
-       # systemctl enable folk
+        # chmod 644 /etc/systemd/system/folk.service
+        # systemctl start folk
+        # systemctl enable folk
 
 Use `visudo` to add `folk ALL=(ALL) NOPASSWD: /usr/bin/systemctl` to
 the bottom of `/etc/sudoers` on the tabletop. (This lets the `make`
@@ -143,6 +146,97 @@ or (if remote machine):
 ```
 $ make remote FOLK_REMOTE_NODE=<your-remote-hostname-here>
 ```
+
+On your laptop Web browser, go to http://your-remote-hostname.local:4273 --
+you should see all active Folk programs. Check out the Statements page
+as well to see all statements in the database.
+
+### Printer support
+
+On the tabletop:
+
+```
+$ sudo apt update
+$ sudo apt install cups cups-bsd
+$ sudo usermod -a -G lpadmin folk
+```
+
+(`cups-bsd` provides the `lpr` command that we use to print)
+
+ssh tunnel to get access to CUPS Web UI: run on your laptop `ssh -L 6310:localhost:631
+folk@folk-WHATEVER.local`, leave it open
+
+Go to http://localhost:6310 on your computer, go to Printers,
+hopefully it shows up there automatically, try printing test page. _I
+could not get that implicitclass:// automatically-added printer in
+CUPS to work for my printer at all_, so I did the below:
+
+If job is paused due to `cups-browsed` issue or otherwise doesn't
+work, try
+https://askubuntu.com/questions/1128164/no-suitable-destination-host-found-by-cups-browsed :
+remove `cups-browsed` `sudo apt-get purge --autoremove cups-browsed`
+then add printer manually via IPP in Add Printer in Administration tab
+of CUPS Web UI (it might automatically show up under Discovered
+Network Printers there using dnssd)
+
+Once printer is working, go to Administration dropdown on printer page
+and Set as Server Default.
+
+Try printing from Folk!
+
+You can also test printing again with `lpr
+~/folk-data/program/SOMETHING.pdf` (you have to print the PDF and
+not the PS for it to work, probably)
+
+### Projector-camera setup and calibration
+
+1. Make sure Folk is running. Go to your Folk server's Web page
+   http://whatever.local:4273/setup . Select your camera and
+   projector, using as high framerate and resolution as you're
+   comfortable with.
+
+1. You should see a live preview of the camera. Reposition your camera
+   to cover your table closely (try not to waste too much of the
+   camera viewport on pixels that the projector won't be able to hit)
+
+1. Select your camera and projector at the bottom and then click
+   Calibrate. Follow the calibration instructions.
+
+After calibrating, on http://whatever.local:4273/ : click New Program,
+hit Save, drag it around. You should see the program move on your
+table as you drag it around on your laptop.
+
+### Connect a keyboard
+
+Follow [the instructions on this Folk wiki page](https://folk.computer/guides/keyboard)
+to connect a new keyboard to your system.
+
+#### Bluetooth keyboards
+
+Install the core packages for bluetooth:
+
+```
+sudo apt update
+sudo apt install bluetooth bluez
+```
+
+Once installed, you can pair a new keyboard with `bluetoothctl`.
+
+Follow [these instructions](https://wiki.archlinux.org/title/bluetooth_keyboard) from the Arch Linux wiki
+to connect your keyboard.
+
+Note down your keyboard's MAC address so you can identify it on the keyboards page at `http://WHATEVER.local:4273/keyboards`.
+
+If your keyboard is connected but does not show up on the keyboard page, follow [this wiki guide](https://folk.computer/guides/udev-rule) to add a udev rule for it.
+
+#### Python support
+
+To use the Python FFI and the builtin recognition programs (CRAFT,
+TrOCR, SAM2), you should [install
+uv](https://docs.astral.sh/uv/getting-started/installation/) such that
+the `uvx` command is available.
+
+## Development tools
 
 ### Address Sanitizer
 
@@ -180,82 +274,14 @@ Run the profiler client on your laptop/other PC and connect to a running Folk:
 $ make run-tracy
 ```
 
-### How to control tabletop Folk from your laptop
-
-On your laptop Web browser, go to http://folk-WHATEVER.local:4273 --
-click New Program, hit Save, drag it around. You should see the
-program move on your table as you drag it around on your laptop.
-
-### Printer support
-
-On the tabletop:
-```
-$ sudo apt update
-$ sudo apt install cups cups-bsd
-$ sudo usermod -a -G lpadmin folk
-```
-
-(`cups-bsd` provides the `lpr` command that we use to print)
-
-ssh tunnel to get access to CUPS Web UI: run on your laptop `ssh -L 6310:localhost:631
-folk@folk-WHATEVER.local`, leave it open
-
-Go to http://localhost:6310 on your computer, go to Printers,
-hopefully it shows up there automatically, try printing test page. _I
-could not get that implicitclass:// automatically-added printer in
-CUPS to work for my printer at all_, so I did the below:
-
-If job is paused due to `cups-browsed` issue or otherwise doesn't
-work, try
-https://askubuntu.com/questions/1128164/no-suitable-destination-host-found-by-cups-browsed :
-remove `cups-browsed` `sudo apt-get purge --autoremove cups-browsed`
-then add printer manually via IPP in Add Printer in Administration tab
-of CUPS Web UI (it might automatically show up under Discovered
-Network Printers there using dnssd)
-
-Once printer is working, go to Administration dropdown on printer page
-and Set as Server Default.
-
-Try printing from Folk!
-
-You can also test printing again with `lpr
-~/folk-printed-programs/SOMETHING.pdf` (you have to print the PDF and
-not the PS for it to work, probably)
-
-### Projector-camera calibration
-
-1. Position the camera. Make sure Folk is running (ssh in, `make &&
-   ./folk`). Go to your Folk server's Web page
-   http://whatever.local:4273/camera-frame to see a preview of what
-   the camera sees. Reposition your camera to cover your table.
-
-1. Go to the Folk calibration page at
-   http://whatever.local:4273/calibrate and follow the instructions
-   (print calibration board & run calibration process).
-
-### Connect a keyboard
-
-Follow [the instructions on this Folk wiki page](https://folk.computer/guides/keyboard)
-to connect a new keyboard to your system.
-
-### Bluetooth keyboards
-
-Install `bluetoothctl`. Follow the instructions in
-https://wiki.archlinux.org/title/bluetooth_keyboard to pair and trust
-and connect.
-
-(FIXME: Write down the Bluetooth MAC address of your keyboard. We'll
-proceed as though it's "f4:73:35:93:7f:9d" (it's important that you
-turn it into lowercase).)
-
 ### Potentially useful
 
 Potentially useful for graphs: `graphviz`
 
-Potentially useful:  `gdb`, `streamer`, `cec-utils`,
-`file`, `strace`
+Potentially useful: `gdb`, `streamer`, `cec-utils`, `file`, `strace`
 
 Potentially useful: add `folk-WHATEVER` shortcut to your laptop `~/.ssh/config`:
+
 ```
 Host folk-WHATEVER
      HostName folk-WHATEVER.local
@@ -267,6 +293,8 @@ Potentially useful: `journalctl -f -u folk` to see log of folk service
 For audio:
 https://askubuntu.com/questions/1349221/which-packages-should-be-installed-to-have-sound-output-working-on-minimal-ubunt
 
+## Troubleshooting
+
 ### HDMI No signal on Pi 4
 
 Edit /boot/cmdline.txt https://github.com/raspberrypi/firmware/issues/1647#issuecomment-971500256
@@ -276,8 +304,6 @@ Edit /boot/cmdline.txt https://github.com/raspberrypi/firmware/issues/1647#issue
 
 https://askubuntu.com/questions/1321443/very-long-startup-time-on-ubuntu-server-network-configuration
 (add `optional: true` to all netplan interfaces)
-
-## Troubleshooting
 
 ### Why is my camera slow (why is tracking janky or laggy, why is camera time high)
 
@@ -313,7 +339,7 @@ created. Therefore, it will eventually be useful for you to know
 [basic](http://antirez.com/articoli/tclmisunderstood.html) [Tcl
 syntax](https://www.ee.columbia.edu/~shane/projects/sensornet/part1.pdf).
 
-These are all implemented in `main.tcl`. For most things, you'll
+These are all implemented in `prelude.tcl` and `folk.c`. For most things, you'll
 probably only need `Wish`, `Claim`, `When`, and maybe `Hold!`.
 
 ### Wish and Claim
@@ -420,14 +446,31 @@ around until you do another `Hold!`. You can use this to create the
 equivalent of 'variables', stateful statements.
 
 ```
-Hold! { Claim $this has a ball at x 100 y 100 }
+Hold! {
+  Claim $this has a ball at x 100 y 100
+}
 
 When $this has a ball at x /x/ y /y/ {
-    puts "ball at $x $y"
-    After 10 milliseconds {
-        Hold! { Claim $this has a ball at x $x y [expr {$y+1}] }
-        if {$y > 115} { set ::done true }
-    }
+  Wish $this is labelled "The ball is at $x $y"
+  sleep 0.5
+  Hold! { Claim $this has a ball at x $x y [expr {$y+1}] }
+}
+```
+
+This could also be written as:
+
+```
+set x 100
+set y 100
+
+When $this has a ball at x /x/ y /y/ {
+  Wish $this is labelled "The ball is at $x $y"
+}
+
+while true {
+  sleep 0.5
+  incr y
+  Hold! Claim $this has a ball at x $x y $y
 }
 ```
 
@@ -444,7 +487,7 @@ If you want multiple state atoms, you can also provide a key -- you
 can be like
 
 ```
-Hold! ball position {
+Hold! -key {ball position} {
   Claim $this has a ball at blahblah
 }
 ```
@@ -453,17 +496,17 @@ and then future holds with that key, `ball position`, will
 overwrite this statement but not override different holds with
 different keys
 
-You can overwrite another program's Hold! with the `on` parameter, like
-`Hold! (on 852) { ... }` (if the Hold! is from page 852) or `Hold! (on
-virtual-programs/example.folk) { ... }` (if the Hold! is from the
-example.folk virtual program)
+You can overwrite another program's Hold! with the `-on` parameter, like
+`Hold! -on 852 { ... }` (if the Hold! is from page 852) or `Hold! -on
+builtin-programs/example.folk { ... }` (if the Hold! is from the
+example.folk builtin program)
 
-### Subscribe:
+### Subscribe: and Notify:
 
-`Subscribe:` works almost like `When`, but it only executes once per `Notify:`
-and cannot support any Claims/Whens/Wishes.
+`Subscribe:` subscribes to notifications. It executes once per
+`Notify:` and cannot support any Claims/Whens/Wishes in its body.
 
-**You can't make Claims, Whens, or Wishes inside an `Subscribe:`
+**You can't make Claims, Whens, or Wishes inside a `Subscribe:`
 block. You can only Hold!.**
 
 Example:
@@ -479,14 +522,6 @@ Subscribe: there is a boop {
 
 Notify: there is a boop
 ```
-
-If you had used `When` here, it wouldn't terminate, since the new
-`$this has seen n+1 boops` hold would cause the `When` to retrigger,
-resulting in a `$this has seen n+2 boops` hold, then another
-retrigger, and so on.
-
-`Subscribe:`, in contrast, will 'only react once' to the boop; nothing
-in its body will run again unless the boop notifies again.
 
 ### Animation
 
@@ -524,13 +559,7 @@ When when /personVar/ is cool /lambda/ with environment /e/ {
 }
 ```
 
-#### On
-
-FIXME: General note: the `On` block is used for weird
-non-reactive behavior. Need to fill this out more.
-
-
-##### On unmatch
+#### On unmatch
 
 You should _not_ use `When`, `Claim`, or `Wish` directly inside an
 `On unmatch` block; those only make sense inside a normal reactive
@@ -543,18 +572,17 @@ On unmatch {
 }
 ```
 
-
 #### Non-capturing
 
 You can disable capturing of lexical context around a When with the
-`(non-capturing)` flag.
+`-noncapturing` flag.
 
 This is mostly to help runtime performance if a When is declared
 somewhere that has a lot of stuff in scope at declaration time.
 
 ```
 set foo 3
-When (non-capturing) /p/ is cool {
+When -noncapturing /p/ is cool {
    Claim $p is awesome
    # can't access $foo from in here
 }
@@ -571,6 +599,7 @@ block. Use `Claim`, `Wish`, and `When` instead.
 ## Tcl for JavaScripters
 
 JS:
+
 ```
 let names = ["64", "GameCube", "Wii", "Switch"];
 names = names.map(name => `Nintendo ${name}`);
@@ -582,6 +611,7 @@ console.log(add(...numbers));
 ```
 
 Tcl:
+
 ```
 set names [list 64 GameCube Wii Switch]
 set names [lmap name $names {expr {"Nintendo $name"}}]
@@ -594,17 +624,17 @@ puts [add {*}$numbers]
 
 ## Style guide
 
-### Tcl code vs. virtual programs vs. printed programs
+### Tcl code vs. builtin programs vs. printed programs
 
 In general, avoid adding new .tcl files to the Git repo. Pure Tcl
 libraries are an antipattern; we should only need them for the hard
 core of the system.
 
 Most new code (both libraries and applications) should be virtual
-programs (which ilve as .folk files in the virtual-programs/
+programs (which ilve as .folk files in the builtin-programs/
 subfolder) or printed programs.
 
-### Folk 
+### Folk
 
 - Use complete sentences when you word your claims and wishes.
 
@@ -660,132 +690,73 @@ create`.
 
 Capitalized namespace, like `Statements`.
 
------
-
-# folk2 notes
-
-## thanks
+## Thanks
 
 - Omar Rizwan: evaluator; display, AprilTag, camera subsystems
 - Andrés Cuervo: keyboard library and code editor, sprites
-- Naveen Michaud-Agrawal: connections, points-at, 
+- Naveen Michaud-Agrawal: connections, points-at,
 - Jacob Haip: web endpoints, tag masking, blob detection
 - Arcade Wise: fonts
 - s-ol bekic: WebSocket library, keyboard locale support
 - terminal subsystem
-- Mason Jones: tag stabilization
-
-## requirements
-
-on Debian bookworm amd64: `psmisc`, `build-essential`, `git`,
-`libssl-dev`, `zlib1g-dev`, `libjpeg-dev`, `glslc`, `libwslay-dev`, `console-data`
-
-for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
-`libgoogle-perftools-dev`
+- Mason Jones: tag stabilization, `Notify:`/`Subscribe:` event system,
+  `-save` statement persistence, new code editor with scrolling & font
+  size & editing of existing programs
 
 ## todo
 
-- event statements?
 - clean up shader reference errors (use trick from main?)
 - **fix camera-rpi corruption**
-- remove live queries from region generation?
 - restore smj cam/display parameters
 - fix remaining display/ primitives
 - rebuild live image
 - why is web endpoints so slow?
 - optimize jpeg decoding
-- vendor wslay?
 - only intern long strings?
-- stack traces don't work inside web handlers
 - accidentally matches prefixes even when not all teh way up to end of statement
 - camera stops working when calibration terminates
-- ~~develop new animation program~~
   - laser-cut or cnc or 3d print a plate with 2 sliders and a slot
     for a program
-- *camera slices blinking*
-  - some kind of new scheduler? priorities? convergence zones?
-  - allocate a fixed texture slot for the camera slice?
 - camera slices cause hop/distortion when pulled off
-- ForEach! stack fix
 
-### perf
-- on folk-live at home, folk2-leakfix: 160ms calibration cycle
-- on folk-live at home, folk2-shared-objects: TODO
+### ideas
 
-### next
-- minor memory leak
-- on old folk2 with term copying:, in tracy 245 microseconds --
-  apriltags.folk:170 (collection)
+- aborted executions shouldn't be too high a percentage of total # of
+  executions of the block? if they are, then we warn on the page that it
+  isn't meeting timing
+- build a settlement-based local fps counter like clock time labeler
+  (how many frames are we dropping?)
+
+### other stuff
+
+- stereo calibration
+- ~~run segmentation model~~
+  - speed up segmentation model
+- ~~rescale camera slice to have correct aspect ratio~~
+- debug memory leaks
+  - are we ever freeing AtomicallyVersion? -- no, but this isn't the
+    main memory leak (not enough allocated)
+  - not destructors
+  - also not camera images
+  - also not jim allocations
+- gadget-platinum outline blink
+- slowdown where sysmon starts taking forever bc of endless chains of
+  destructors/atomicallyversions
+  - warn if sysmon is too slow?
+- ~~make RAM/metrics page to not clutter up stdout~~
+- ~~remove Hold and Atomically limits~~
+- automatically allow optional fields on `with` (or add object pattern-matching?)
+- try to maximize cpu usage
+- folk-convivial way too blinky, slow, _big board stops_
+
+#### calibration
+
+- try keeping a calibration history so we can diff them and see trends
+- add skew parameter?
 - **calibrate render loop blinks out regularly**
 - calibrate doesn't click in afterward, have to restart system (is it
   because of kill refiner?)
-- rename resolved geometry to geometry
-- On unmatch doesn't work if run at start of When block instead of
-  end? -- **it's probably because it gets pinned through descendant
-  statements**
-- fix sprite blinking
-- ~~fix error reporting on table~~ clean up title, clean up points-at
-- "Added tag 1313" pileup (and removal pileup when flipped over)
-- ~~weird extra space in editor on boot~~
-- fix calibration screwing up system state
-- persist transient errors
-- fix error report in web editor
-- ~~fix print message in table editor~~
-
-### ideas
-- aborted executions shouldn't be too high a percentage of total # of
-executions of the block? if they are, then we warn on the page that it
-isn't meeting timing
-- delay the removal of the old hold until downstream statements of the
-old hold have fully converged? but WARN if this happens
-
-### crash: vulkan size=0
-
-```
-Oct 01 18:00:14 folk0 make[70345]: VUID-VkBufferCreateInfo-size-00912(ERROR / SPEC): msgNum: 2085897310 - Validation Error: [ VUID-VkBufferCreateInfo-size-00912 ] | MessageID = 0x7c54445e | vkCreateBuffer(): pCreateInfo->size is zero.
-Oct 01 18:00:14 folk0 make[70345]: The Vulkan spec states: size must be greater than 0 (https://www.khronos.org/registry/vulkan/specs/1.3-extensions/html/vkspec.html#VUID-VkBufferCreateInfo-size-00912)
-Oct 01 18:00:14 folk0 make[70345]: VUID-VkMemoryAllocateInfo-allocationSize-07897(ERROR / SPEC): msgNum: -1452819968 - Validation Error: [ VUID-VkMemoryAllocateInfo-allocationSize-07897 ] | MessageID = 0xa967ba00 | vkAllocateMemory(): pAllocateInfo->allocationSize is 0.
-Oct 01 18:00:14 folk0 make[70345]: The Vulkan spec states: If the parameters do not define an import or export operation, allocationSize must be greater than 0 (https://www.khronos.org/registry/vulkan/specs/1.3-extensions/html/vkspec.html#VUID-VkMemoryAllocateInfo-allocationSize-07897)
-Oct 01 18:00:14 folk0 make[70345]: VUID-VkMemoryAllocateInfo-allocationSize-07899(ERROR / SPEC): msgNum: 1579783047 - Validation Error: [ VUID-VkMemoryAllocateInfo-allocationSize-07899 ] | MessageID = 0x5e299387 | vkAllocateMemory(): pAllocateInfo->allocationSize is 0.
-Oct 01 18:00:14 folk0 make[70345]: The Vulkan spec states: If the parameters define an export operation and the handle type is not VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID , allocationSize must be greater than 0 (https://www.khronos.org/registry/vulkan/specs/1.3-extensions/html/vkspec.html#VUID-VkMemoryAllocateInfo-allocationSize-07899)
-Oct 01 18:00:14 folk0 make[70345]: UNASSIGNED-GeneralParameterError-RequiredHandle(ERROR / SPEC): msgNum: -1881362053 - Validation Error: [ UNASSIGNED-GeneralParameterError-RequiredHandle ] | MessageID = 0x8fdcb17b | vkBindBufferMemory(): memory is VK_NULL_HANDLE.
-Oct 01 18:00:14 folk0 make[70345]: VUID-vkBindBufferMemory-memoryOffset-01031(ERROR / SPEC): msgNum: -143326275 - Validation Error: [ VUID-vkBindBufferMemory-memoryOffset-01031 ] Object 0: handle = 0xfd2fa90000007a9e, type = VK_OBJECT_TYPE_BUFFER; | MessageID = 0xf77503bd | vkBindBufferMemory(): attempting to bind VkDeviceMemory 0x0[] to VkBuffer 0xfd2fa90000007a9e[], memoryOffset (0) must be less than the memory allocation size (0).
-Oct 01 18:00:14 folk0 make[70345]: The Vulkan spec states: memoryOffset must be less than the size of memory (https://www.khronos.org/registry/vulkan/specs/1.3-extensions/html/vkspec.html#VUID-vkBindBufferMemory-memoryOffset-01031)
-Oct 01 18:00:14 folk0 make[70345]:     Objects: 1
-Oct 01 18:00:14 folk0 make[70345]:         [0] 0xfd2fa90000007a9e, type: 9, name: NULL
-Oct 01 18:00:17 folk0 make[70337]: Segmentation fault (core dumped)
-Oct 01 18:00:17 folk0 make[70333]: make: *** [Makefile:138: start] Error 139
-Oct 01 18:00:17 folk0 make[70333]: make: Leaving directory '/home/folk/folk2'
-Oct 01 18:00:17 folk0 systemd[1]: folk.service: Main process exited, code=exited, status=2/INVALIDARGUMENT
-```
-
-### crash: Vulkan crash 2
-
-```
-Oct 01 18:26:59 folk0 make[71943]: Empty input file
-Oct 01 18:26:59 folk0 make[71943]: folk: /home/folk/Vulkan-ValidationLayers/layers/vulkan/generated/command_validation.cpp:1852: bool CoreChecks::ValidateCmd(const vvl::CommandBuffer&, const Location&) const: Assertion `false' failed.
-Oct 01 18:27:03 folk0 make[71935]: Aborted (core dumped)
-Oct 01 18:27:03 folk0 make[71931]: make: *** [Makefile:138: start] Error 134
-Oct 01 18:27:03 folk0 make[71931]: make: Leaving directory '/home/folk/folk2'
-Oct 01 18:27:03 folk0 systemd[1]: folk.service: Main process exited, code=exited, status=2/INVALIDARGUMENT
-```
-
-### crash: Hold overflow
-with animation + editors
-
-```
-Oct 01 18:12:56 folk0 make[70753]:   251. {virtual-programs/tags-to-quads.folk 1335 image}
-Oct 01 18:12:56 folk0 make[70753]:   252. {collect /wisher/ wishes the GPU draws pipeline /name/ onto canvas {1335 canvas} with /...options/}
-Oct 01 18:12:56 folk0 make[70753]:   253. {collect /someone/ claims tag 1336 has geometry /geom/}
-Oct 01 18:12:56 folk0 make[70753]:   254. {virtual-programs/tags-to-quads.folk tag pose 1336}
-Oct 01 18:12:56 folk0 make[70753]:   255. {virtual-programs/tags-to-quads.folk 1336 image}
-Oct 01 18:12:56 folk0 make[70753]: camera 19; bufcount 4
-Oct 01 18:12:56 folk0 make[70753]: camera_start(0): Success
-Oct 01 18:12:56 folk0 make[70753]: camera_start(1): Success
-Oct 01 18:12:56 folk0 make[70753]: camera_start(2): Success
-Oct 01 18:12:56 folk0 make[70753]: camera_start(3): Success
-Oct 01 18:12:56 folk0 make[70753]: Found 1 Vulkan devices
-Oct 01 18:12:56 folk0 make[70753]: Gpu: Found 1 displays
-Oct 01 18:12:56 folk0 make[70741]: make: *** [Makefile:138: start] Error 1
-Oct 01 18:12:56 folk0 make[70741]: make: Leaving directory '/home/folk/folk2'
-```
+- pose estimate
+  - exclude any pose estimate that dips below the table plane
+  - pick the pose estimate that maximizes projected area
+  -

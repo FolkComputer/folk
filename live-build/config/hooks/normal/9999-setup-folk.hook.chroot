@@ -1,8 +1,0 @@
-#!/bin/sh
-
-# This script runs once in the chroot while building the live image,
-# not at boot. It sets up services that will run at boot.
-
-systemctl enable iwd
-systemctl enable folk
-sed -i "s/.*PubkeyAuthentication.*/PubkeyAuthentication yes/g" /etc/ssh/sshd_config

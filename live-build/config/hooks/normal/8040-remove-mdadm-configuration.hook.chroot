@@ -1,7 +1,0 @@
-#!/bin/sh
-
-set -e
-
-# Remove generated files
-
-rm -f /etc/mdadm/mdadm.conf
