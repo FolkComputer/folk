@@ -139,7 +139,7 @@ void dbAtomicallyVersionInflightDecr(Db* db, AtomicallyVersion* atomicallyVersio
 // destructors at will before doing the release.) Returns NULL if no
 // new statement was created.
 Statement* dbInsertOrReuseStatement(Db* db, Jim_Interp* interp,
-                                    Jim_Obj* jimClause, long keepMs,
+                                    Jim_Obj* clause, long keepMs,
                                     AtomicallyVersion* atomicallyVersion,
                                     const char* sourceFileName, int sourceLineNumber,
                                     MatchRef parent,
@@ -171,7 +171,7 @@ void dbRetractStatements(Db* db, Jim_Obj* pattern);
 // new statement was created.
 Statement* dbHoldStatement(Db* db, Jim_Interp* interp,
                            const char* key, double version,
-                           Jim_Obj* jimClause, long keepMs,
+                           Jim_Obj* clause, long keepMs,
                            const char* sourceFileName, int sourceLineNumber,
                            StatementRef* outOldStatement);
 

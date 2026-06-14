@@ -171,7 +171,7 @@ Environment* clauseUnify(Jim_Interp* interp, Jim_Obj* a, Jim_Obj* b) {
 
 // Assert! the time is 3
 static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    Jim_Obj* jimClause = Jim_NewListObj(interp, argv + 1, argc - 1);
+    Jim_Obj* clause = Jim_NewListObj(interp, argv + 1, argc - 1);
 
     Jim_Obj* scriptObj = interp->evalFrame->scriptObj;
     const char* sourceFileName;
@@ -183,13 +183,13 @@ static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
         sourceLineNumber = -1;
     }
 
-    Jim_MakeImmutable(interp, jimClause);
-    Jim_IncrRefCount(jimClause);
+    Jim_MakeImmutable(interp, clause);
+    Jim_IncrRefCount(clause);
 
     appropriateWorkQueuePush((WorkQueueItem) {
        .op = ASSERT,
        .assert = {
-           .clause = jimClause,
+           .clause = clause,
            .sourceFileName = strdup(sourceFileName),
            .sourceLineNumber = sourceLineNumber,
        }
@@ -217,7 +217,7 @@ static void reactToNewStatement(StatementRef ref);
 int64_t _Atomic latestVersion = 0; // TODO: split by key?
 // Note: returns an acquired statement that the caller should release.
 Statement* HoldStatementGloballyAcquiring(const char *key, double version,
-                                          Jim_Obj *jimClause, long keepMs, const char *destructorCode,
+                                          Jim_Obj *clause, long keepMs, const char *destructorCode,
                                           const char *sourceFileName, int sourceLineNumber) {
 /* #ifdef TRACY_ENABLE */
 /*     char *s = clauseToString(clause); */
@@ -227,7 +227,7 @@ Statement* HoldStatementGloballyAcquiring(const char *key, double version,
     StatementRef oldRef; Statement* newStmt;
 
     newStmt = dbHoldStatement(db, interp, key, version,
-                              jimClause, keepMs,
+                              clause, keepMs,
                               sourceFileName, sourceLineNumber,
                               &oldRef);
 
@@ -261,10 +261,10 @@ Statement* HoldStatementGloballyAcquiring(const char *key, double version,
     return newStmt;
 }
 void HoldStatementGlobally(const char *key, double version,
-                           Jim_Obj *jimClause, long keepMs, const char *destructorCode,
+                           Jim_Obj *clause, long keepMs, const char *destructorCode,
                            const char *sourceFileName, int sourceLineNumber) {
     Statement* stmt = HoldStatementGloballyAcquiring(key, version,
-                                                     jimClause, keepMs, destructorCode,
+                                                     clause, keepMs, destructorCode,
                                                      sourceFileName, sourceLineNumber);
     if (stmt != NULL) {
         dbInflightDecr(db, stmt);
@@ -284,7 +284,7 @@ static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *cons
 
     const char *key = Jim_String(interp, argv[1]);
     double version; Jim_GetDouble(interp, argv[2], &version);
-    Jim_Obj *jimClause = argv[3];
+    Jim_Obj *clause = argv[3];
     long keepMs; Jim_GetLong(interp, argv[4], &keepMs);
     int destructorCodeLen;
     const char* destructorCode = Jim_GetString(interp, argv[5], &destructorCodeLen);
@@ -293,14 +293,14 @@ static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *cons
     }
 
     HoldStatementGlobally(key, version,
-                          jimClause, keepMs, destructorCode,
+                          clause, keepMs, destructorCode,
                           sourceFileName, sourceLineNumber);
 
     return (JIM_OK);
 }
 
 
-static StatementRef Say(Jim_Obj* jimClause, long keepMs,
+static StatementRef Say(Jim_Obj* clause, long keepMs,
                         AtomicallyVersion* atomicallyVersion,
                         const char *destructorCode,
                         const char *sourceFileName, int sourceLineNumber) {
@@ -310,12 +310,12 @@ static StatementRef Say(Jim_Obj* jimClause, long keepMs,
 
     } else {
         parent = MATCH_REF_NULL;
-        const char *s = Jim_String(interp, jimClause);
+        const char *s = Jim_String(interp, clause);
         fprintf(stderr, "Warning: Creating unparented Say (%.100s)\n", s);
     }
 
     Statement* stmt;
-    stmt = dbInsertOrReuseStatement(db, interp, jimClause, keepMs,
+    stmt = dbInsertOrReuseStatement(db, interp, clause, keepMs,
                                     atomicallyVersion,
                                     sourceFileName, sourceLineNumber,
                                     parent, NULL);
@@ -349,7 +349,7 @@ static StatementRef Say(Jim_Obj* jimClause, long keepMs,
 
 static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc >= 7);
-    Jim_Obj* jimClause = Jim_NewListObj(interp, argv + 6, argc - 6);
+    Jim_Obj* clause = Jim_NewListObj(interp, argv + 6, argc - 6);
 
     const char* sourceFileName;
     long sourceLineNumber;
@@ -382,7 +382,7 @@ static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         goto err;
     }
 
-    Say(jimClause, keepMs,
+    Say(clause, keepMs,
         atomicallyVersion, destructorCode,
         sourceFileName, (int) sourceLineNumber);
     return JIM_OK;
@@ -1045,14 +1045,14 @@ static void pushRunSubscriptionBlock(StatementRef subscribeRef, Jim_Obj* subscri
 
 // Prepends `/someone/ claims` to `clause`. Returns NULL if `clause`
 // shouldn't be claimized. Returns new Jim_Obj with refCount = 0
-Jim_Obj* claimizeClause(Jim_Obj* jimClause) {
+Jim_Obj* claimizeClause(Jim_Obj* clause) {
     Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
 
-    assert(Jim_IsList(jimClause));
-    int nTerms = Jim_ListLength(interp, jimClause);
+    assert(Jim_IsList(clause));
+    int nTerms = Jim_ListLength(interp, clause);
 
     if (nTerms >= 2) {
-        const char* secondTerm = Jim_String(interp, Jim_ListGetIndex(interp, jimClause, 1));
+        const char* secondTerm = Jim_String(interp, Jim_ListGetIndex(interp, clause, 1));
         if (strcmp(secondTerm, "claims") == 0 ||
             strcmp(secondTerm, "wishes") == 0) {
             Jim_FreeNewObj(ret);
@@ -1065,40 +1065,40 @@ Jim_Obj* claimizeClause(Jim_Obj* jimClause) {
     jimAppendString(interp, ret, "claims");
 
     for (int i = 0; i < nTerms; i++) {
-        Jim_ListAppendElement(interp, ret, Jim_ListGetIndex(interp, jimClause, i));
+        Jim_ListAppendElement(interp, ret, Jim_ListGetIndex(interp, clause, i));
     }
 
     return ret;
 }
 
 // Returns new Jim_Obj with refCount = 0
-static Jim_Obj* unclaimizeClause(Jim_Obj* jimClause) {
+static Jim_Obj* unclaimizeClause(Jim_Obj* clause) {
     Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
 
-    assert(Jim_IsList(jimClause));
-    size_t nTerms = Jim_ListLength(interp, jimClause);
+    assert(Jim_IsList(clause));
+    size_t nTerms = Jim_ListLength(interp, clause);
 
     // Omar claims the time is 3
     //   -> the time is 3
     for (size_t i = 2; i < nTerms; i++) {
-        Jim_ListAppendElement(interp, ret, Jim_ListGetIndex(interp, jimClause, i));
+        Jim_ListAppendElement(interp, ret, Jim_ListGetIndex(interp, clause, i));
     }
 
     return ret;
 }
 
 // Returns new Jim_Obj with refCount = 0
-static Jim_Obj* whenizeClause(Jim_Obj* jimClause) {
+static Jim_Obj* whenizeClause(Jim_Obj* clause) {
     // the time is /t/
     //   -> when the time is /t/ /__lambda/ with environment /__env/
     Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
 
-    assert(Jim_IsList(jimClause));
-    size_t nTerms = Jim_ListLength(interp, jimClause);
+    assert(Jim_IsList(clause));
+    size_t nTerms = Jim_ListLength(interp, clause);
 
     jimAppendString(interp, ret, "when");
     for (int i = 0; i < nTerms; i++) {
-        Jim_ListAppendElement(interp, ret, Jim_ListGetIndex(interp, jimClause, i));
+        Jim_ListAppendElement(interp, ret, Jim_ListGetIndex(interp, clause, i));
     }
     jimAppendString(interp, ret, "/__lambda/");
     jimAppendString(interp, ret, "with");
@@ -1109,16 +1109,16 @@ static Jim_Obj* whenizeClause(Jim_Obj* jimClause) {
 }
 
 // Returns new Jim_Obj with refCount = 0
-static Jim_Obj* unwhenizeClause(Jim_Obj* jimClause) {
+static Jim_Obj* unwhenizeClause(Jim_Obj* clause) {
     // when the time is /t/ /lambda/ with environment /env/
     //   -> the time is /t/
     Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
 
-    assert(Jim_IsList(jimClause));
-    size_t nTerms = Jim_ListLength(interp, jimClause);
+    assert(Jim_IsList(clause));
+    size_t nTerms = Jim_ListLength(interp, clause);
 
     for (int i = 1; i < nTerms - 4; i++) {
-        Jim_ListAppendElement(interp, ret, Jim_ListGetIndex(interp, jimClause, i));
+        Jim_ListAppendElement(interp, ret, Jim_ListGetIndex(interp, clause, i));
     }
 
     return ret;
@@ -1165,10 +1165,10 @@ static void reactToNewStatement(StatementRef ref) {
     // This is just to ensure clause validity.
     Statement* stmt = statementAcquire(db, ref);
     if (stmt == NULL) { return; }
-    Jim_Obj* jimClause = statementClause(stmt);
-    assert(jimClause != NULL);
+    Jim_Obj* clause = statementClause(stmt);
+    assert(clause != NULL);
 
-    Jim_Obj* firstTerm = Jim_ListGetIndex(interp, jimClause, 0);
+    Jim_Obj* firstTerm = Jim_ListGetIndex(interp, clause, 0);
     if (firstTerm != NULL && strcmp(Jim_String(interp, firstTerm), "subscribe") == 0) {
         // nothing to do, as subscribe is handled when events are
         // fired
@@ -1178,7 +1178,7 @@ static void reactToNewStatement(StatementRef ref) {
 
     if (firstTerm != NULL && strcmp(Jim_String(interp, firstTerm), "when") == 0) {
         // Find the query pattern of the when:
-        Jim_Obj* pattern = unwhenizeClause(jimClause);
+        Jim_Obj* pattern = unwhenizeClause(clause);
         Jim_IncrRefCount(pattern);
 
         if (Jim_ListLength(interp, pattern) == 0) {
@@ -1245,7 +1245,7 @@ static void reactToNewStatement(StatementRef ref) {
     {
         // the time is 3
         //   -> when the time is 3 /__lambda/ with environment /__env/
-        Jim_Obj* whenizedClause = whenizeClause(jimClause);
+        Jim_Obj* whenizedClause = whenizeClause(clause);
         ResultSet* existingReactingWhens = dbQuery(db, whenizedClause);
         /* trace("Adding stmt: existing reacting whens (%d)", */
         /*       existingReactingWhens->nResults); */
@@ -1270,13 +1270,13 @@ static void reactToNewStatement(StatementRef ref) {
         Jim_FreeNewObj(whenizedClause);
     }
 
-    Jim_Obj* secondTerm = Jim_ListGetIndex(interp, jimClause, 1);
+    Jim_Obj* secondTerm = Jim_ListGetIndex(interp, clause, 1);
     if (secondTerm != NULL && strcmp(Jim_String(interp, secondTerm), "claims") == 0) {
         // Cut off `/x/ claims` from start of clause:
         //
         // /x/ claims the time is 3
         //   -> when the time is 3 /__lambda/ with environment /__env/
-        Jim_Obj* unclaimizedClause = unclaimizeClause(jimClause);
+        Jim_Obj* unclaimizedClause = unclaimizeClause(clause);
         Jim_Obj* whenizedUnclaimizedClause = whenizeClause(unclaimizedClause);
 
         ResultSet* existingReactingWhens = dbQuery(db, whenizedUnclaimizedClause);

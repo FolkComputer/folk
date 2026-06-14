@@ -15,14 +15,14 @@ $cc include "trie.h"
 $cc include "db.h"
 $cc code {
     extern Db* db;
-    extern Clause* jimClauseToTrieClause(Jim_Interp* interp, Jim_Obj* obj);
+    extern Clause* clauseToTrieClause(Jim_Interp* interp, Jim_Obj* obj);
     extern void HoldStatementGlobally(const char *key, double version,
-                                      Jim_Obj *jimClause, long keepMs, const char *destructorCode,
+                                      Jim_Obj *clause, long keepMs, const char *destructorCode,
                                       const char *sourceFileName, int sourceLineNumber);
     extern Statement* HoldStatementGloballyAcquiring(const char *key, double version,
-                                                     Jim_Obj *jimClause, long keepMs, const char *destructorCode,
+                                                     Jim_Obj *clause, long keepMs, const char *destructorCode,
                                                      const char *sourceFileName, int sourceLineNumber);
-    extern Jim_Obj* claimizeClause(Jim_Obj* jimClause);
+    extern Jim_Obj* claimizeClause(Jim_Obj* clause);
 
     typedef struct EnvironmentBinding {
         char name[100];
@@ -100,14 +100,14 @@ $cc proc Recollect! {Jim_Obj* patternObj bool isAtomically} void {
     if (collectorsSet->nResults == 0) {
         HoldStatementGlobally(collectKey, version++, Jim_NewEmptyStringObj(interp), 0, NULL, NULL, 0);
     } else {
-        Clause* pattern = jimClauseToTrieClause(interp, patternObj);
+        Clause* pattern = clauseToTrieClause(interp, patternObj);
 
         ResultSet* rs = dbQuery(db, pattern);
         size_t unclaimizedNResults = rs->nResults;
 
         Jim_Obj* claimizedPattern = claimizeClause(patternObj);
         if (claimizedPattern != NULL) {
-            Clause* claimizedTriePattern = jimClauseToTrieClause(interp, claimizedPattern);
+            Clause* claimizedTriePattern = clauseToTrieClause(interp, claimizedPattern);
             ResultSet* rs1 = dbQuery(db, claimizedTriePattern);
 
             rs = realloc(rs, SIZEOF_RESULTSET(rs->nResults + rs1->nResults));
