@@ -69,13 +69,14 @@
 #include <atomic>
 
 extern "C" {
-#endif
+#else
+#include <stdatomic.h>
+#endif    
 
 #include <time.h>
 #include <limits.h>
 #include <stdlib.h> /* In order to export the Jim_Free() macro */
 #include <stdarg.h> /* In order to get type va_list */
-#include <stdatomic.h>
 
 /* -----------------------------------------------------------------------------
  * System configuration

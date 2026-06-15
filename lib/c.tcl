@@ -393,7 +393,6 @@ C method struct {type fields} {
     }
 
     $self include <string.h>
-    $self include <stdatomic.h>
     # ptrAndLongRep.value = 1 means the data is owned by
     # the Jim_ObjType and should be freed by this
     # code. value = 0 means the data is owned externally
@@ -646,7 +645,9 @@ C method compile {args} {
             set cid $arg
         }
     }
-    set cfile [file tempfile /tmp/cfileXXXXXX].c
+    if {$cfile eq {}} {
+        set cfile [file tempfile /tmp/cfileXXXXXX].c
+    }
 
     # A universally unique id that can be used as a global proc name
     # in every thread.
@@ -662,6 +663,7 @@ C method compile {args} {
         static std::atomic<const char*> __cInfo(nullptr);
         #define EXPORT extern "C"
         #else
+        #include <stdatomic.h>
         static const char* _Atomic __cInfo = NULL;
         #define EXPORT
         #endif
@@ -862,6 +864,7 @@ C method extend {args} {
 proc ::C++ {} {
     set cpp [C]
     $cpp eval [list set compiler c++]
+    $cpp eval [list set cfile [file tempfile /tmp/cppfileXXXXXX].cpp]
     $cpp cflags -Wno-write-strings
     return $cpp
 }
