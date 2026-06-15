@@ -12,38 +12,12 @@ set trieLib [apply {{} {
         extern void dbUnlockClauseToStatementRef(Db* db);
         extern Trie* dbGetClauseToStatementRef(Db* db);
 
-#ifdef TRACY_ENABLE
-
-#include <string.h>
-void *tmalloc(size_t sz) {
-    void *ptr = malloc(sz);
-    TracyCAllocS(ptr, sz, 4);
-    return ptr;
-}
-void *tcalloc(size_t s1, size_t s2) {
-    void *ptr = calloc(s1, s2);
-    TracyCAllocS(ptr, s1 * s2, 4);
-    return ptr;
-}
-char *tstrdup(const char *s0) {
-    int sz = strlen(s0) + 1;
-    char *s = tmalloc(sz);
-    memcpy(s, s0, sz);
-    return s;
-}
-void tfree(void *ptr) {
-    TracyCFreeS(ptr, 4);
-    free(ptr);
-}
-
-#else
-
-#define tmalloc malloc
-#define tcalloc calloc
-#define tstrdup strdup
-#define tfree free
-
-#endif
+static void decrRefWrapper(Jim_Obj* obj) { Jim_DecrRefCount(obj); }
+static const TrieAllocator allocator = {
+    .alloc = malloc,
+    .retire = free,
+    .retireObj = decrRefWrapper,
+};
     }
     $cc proc tclify {Trie* trie} Jim_Obj* {
         int objc = 3 + trie->branchesCount;
@@ -64,37 +38,15 @@ void tfree(void *ptr) {
         dbUnlockClauseToStatementRef(db);
         return ret;
     }
-    $cc proc jimObjToClause {Jim_Obj* clauseObj} Clause* {
-        int nTerms = Jim_ListLength(interp, clauseObj);
-        Clause* clause = clauseNew(nTerms);
-        for (int i = 0; i < nTerms; i++) {
-            Jim_Obj* termObj = Jim_ListGetIndex(interp, clauseObj, i);
-            int termLen;
-            const char* termStr = Jim_GetString(termObj, &termLen);
-            clause->terms[i] = termNew(termStr, termLen);
-        }
-        return clause;
-    }
-    $cc proc clauseToJimObj {Clause* clause} Jim_Obj* {
-        Jim_Obj* termObjs[clause->nTerms];
-        for (int i = 0; i < clause->nTerms; i++) {
-            termObjs[i] = Jim_NewStringObj(interp, termPtr(clause->terms[i]), 
-                                           termLen(clause->terms[i]));
-        }
-        return Jim_NewListObj(interp, termObjs, clause->nTerms);
-    }
     $cc proc new {} Trie* {
         return (Trie *)trieNew();
     }
     $cc proc add {Trie* trie Jim_Obj* patternObj uint64_t value} Trie* {
-        Clause* pattern = jimObjToClause(patternObj);
-        return (Trie *)trieAdd(trie, tmalloc, tfree, pattern, value);
+        return (Trie *)trieAdd(trie, &allocator, patternObj, value);
     }
     $cc proc lookup {Trie* trie Jim_Obj* patternObj} Jim_Obj* {
         uint64_t results[50];
-        Clause* pattern = jimObjToClause(patternObj);
-        int resultCount = trieLookup(trie, pattern, results, 50);
-        free(pattern);
+        int resultCount = trieLookup(trie, patternObj, results, 50);
 
         Jim_Obj* resultObjs[resultCount];
         for (int i = 0; i < resultCount; i++) {
@@ -105,11 +57,9 @@ void tfree(void *ptr) {
     }
     $cc proc remove_ {Trie* trie Jim_Obj* patternObj} Trie* {
         uint64_t results[50];
-        Clause* pattern = jimObjToClause(patternObj);
         int resultCount;
-        trie = (Trie *)trieRemove(trie, tmalloc, tfree,
-                                  pattern, results, 50, &resultCount);
-        free(pattern);
+        trie = (Trie *)trieRemove(trie, &allocator,
+                                  patternObj, results, 50, &resultCount);
         return trie;
     }
 
