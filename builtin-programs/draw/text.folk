@@ -80,9 +80,9 @@ $cc proc textShape {Jim_Obj* viewport Jim_Obj* surfaceToClip
     // Get the string representations of the shared per-label args once,
     // before the loop, so we don't call Jim_GetString (which may trigger
     // UpdateStringOfDouble for every float) N times per glyph.
-    const char* sc_str    = Jim_GetString(surfaceToClip, NULL);
-    const char* color_str = Jim_GetString(color, NULL);
-    const char* vp_str    = Jim_GetString(viewport, NULL);
+    const char* sc_str    = Jim_GetString(interp, surfaceToClip, NULL);
+    const char* color_str = Jim_GetString(interp, color, NULL);
+    const char* vp_str    = Jim_GetString(interp, viewport, NULL);
     float atlas_w = (float)font->atlasImage.width;
     float atlas_h = (float)font->atlasImage.height;
 

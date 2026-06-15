@@ -76,7 +76,7 @@ $cc code [subst {
 
 $cc argtype DisplayState* {
     DisplayState* $argname;
-    sscanf(Jim_String($obj), "(DisplayState*) %p", &$argname);
+    sscanf(Jim_String(interp, $obj), "(DisplayState*) %p", &$argname);
 }
 $cc rtype DisplayState* {
     char buf[100];

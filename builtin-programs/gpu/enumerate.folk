@@ -80,7 +80,7 @@ $cc proc enumerateDisplays {} Jim_Obj* {
             }
 
             int modesLen;
-            const char *modesStr = Jim_GetString(modesList, &modesLen);
+            const char *modesStr = Jim_GetString(interp, modesList, &modesLen);
             Jim_Obj *displayDict = Jim_ObjPrintf("name {%s} physicalDimensions {%u %u} "
                                                  "physicalResolution {%u %u} modes {%s}",
                 displayProps[i].displayName ? displayProps[i].displayName : "",

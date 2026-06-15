@@ -34,7 +34,7 @@ $gpuc include <pthread.h>
 $gpuc typedef {struct VmaAllocation_T*} VmaAllocation
 $gpuc argtype VmaAllocation {
     VmaAllocation $argname;
-    sscanf(Jim_String($obj), "(VmaAllocation) %p", &$argname);
+    sscanf(Jim_String(interp, $obj), "(VmaAllocation) %p", &$argname);
 }
 $gpuc rtype VmaAllocation {
     char buf[100];
