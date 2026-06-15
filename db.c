@@ -24,6 +24,13 @@
 
 #include "vendor/stb_ds.h"
 
+static void epochDecrRefWrapper(Jim_Obj* obj) { epochDecrRef(obj); }
+static const TrieAllocator epochAllocator = {
+    .alloc = epochAlloc,
+    .retire = epochFree,
+    .retireObj = epochDecrRefWrapper,
+};
+
 typedef struct ListOfEdgeTo {
     size_t capacityEdges;
     size_t nEdges; // This is an upper bound.
@@ -683,7 +690,7 @@ void statementRemoveSelf(Db* db, Statement* stmt, bool doDeindex) {
             oldClauseToStatementRef = db->clauseToStatementRef;
             newClauseToStatementRef =
                 trieRemove(db->clauseToStatementRef,
-                           epochAlloc, epochFree,
+                           &epochAllocator,
                            stmt->clause,
                            (uint64_t*) results, sizeof(results)/sizeof(results[0]),
                            &resultsCount);
@@ -1263,7 +1270,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Jim_Interp* interp,
         epochReset();
         oldClauseToStatementRef = db->clauseToStatementRef;
         newClauseToStatementRef = trieAdd(oldClauseToStatementRef,
-                                          epochAlloc, epochFree,
+                                          &epochAllocator,
                                           clause, ref.val);
 
         if (newClauseToStatementRef == oldClauseToStatementRef) {
@@ -1527,7 +1534,7 @@ Statement* dbHoldStatement(Db* db, Jim_Interp* interp,
                 oldClauseToStatementRef = db->clauseToStatementRef;
                 newClauseToStatementRef =
                     trieRemove(db->clauseToStatementRef,
-                               epochAlloc, epochFree,
+                               &epochAllocator,
                                statementClause(oldStmtPtr),
                                (uint64_t*) results, sizeof(results)/sizeof(results[0]),
                                &resultsCount);

@@ -6,6 +6,7 @@
 #include <stdarg.h>
 
 #include "trie.h"
+#include "epoch.h"
 
 extern __thread Jim_Interp* interp;
 
@@ -55,18 +56,18 @@ const Trie* trieNew() {
 // This will return the original trie if the clause is already present
 // in it.
 static const Trie* trieAddImpl(const Trie* trie,
-                               void *(*alloc)(size_t), void (*retire)(void*),
+                               const TrieAllocator* allocator,
                                int32_t nTerms, Jim_Obj* terms[], uint64_t value) {
     if (nTerms == 0) {
         if (trie->hasValue) {
             // This clause is already present.
             return trie;
         }
-        Trie* newTrie = alloc(SIZEOF_TRIE(trie->branchesCount));
+        Trie* newTrie = allocator->alloc(SIZEOF_TRIE(trie->branchesCount));
         memcpy(newTrie, trie, SIZEOF_TRIE(trie->branchesCount));
         newTrie->value = value;
         newTrie->hasValue = true;
-        retire((void *)trie);
+        allocator->retire((void *)trie);
         return newTrie;
     }
     Jim_Obj* term = terms[0];
@@ -90,7 +91,7 @@ static const Trie* trieAddImpl(const Trie* trie,
     Trie* newBranch = NULL;
     if (j == trie->branchesCount) {
         // Need to add a new branch.
-        newBranch = alloc(SIZEOF_TRIE(0));
+        newBranch = allocator->alloc(SIZEOF_TRIE(0));
         newBranch->key = term;
         Jim_IncrRefCount(term);
         newBranch->value = 0;
@@ -103,14 +104,14 @@ static const Trie* trieAddImpl(const Trie* trie,
 
     const Trie* addedToBranch =
         trieAddImpl(addToBranch,
-                    alloc, retire,
+                    allocator,
                     nTerms - 1, terms + 1, value);
     if (addedToBranch == addToBranch) {
         // Subtrie was unchanged by the addition (meaning that the
         // clause is already in the trie). Return the original trie.
         if (newBranch != NULL) {
             Jim_DecrRefCount(newBranch->key);
-            retire(newBranch);
+            allocator->retire(newBranch);
         }
         return trie;
     }
@@ -123,25 +124,25 @@ static const Trie* trieAddImpl(const Trie* trie,
         newBranchesCount++;
     }
 
-    Trie* newTrie = alloc(SIZEOF_TRIE(newBranchesCount));
+    Trie* newTrie = allocator->alloc(SIZEOF_TRIE(newBranchesCount));
     memcpy(newTrie, trie, SIZEOF_TRIE(trie->branchesCount));
     newTrie->branchesCount = newBranchesCount;
     newTrie->branches[j] = addedToBranch;
-    retire((void *)trie);
+    allocator->retire((void *)trie);
     return newTrie;
 }
 
 // This will return the original trie if the clause is already present
 // in it.
 const Trie* trieAdd(const Trie* trie,
-                    void *(*alloc)(size_t), void (*retire)(void*),
+                    const TrieAllocator* allocator,
                     Jim_Obj* c, uint64_t value) {
     int nTerms = Jim_ListLength(interp, c);
     Jim_Obj* terms[nTerms];
     for (int i = 0; i < nTerms; i++) {
         terms[i] = Jim_ListGetIndex(interp, c, i);
     }
-    return trieAddImpl(trie, alloc, retire, nTerms, terms, value);
+    return trieAddImpl(trie, allocator, nTerms, terms, value);
 }
 
 
@@ -263,7 +264,7 @@ static void trieLookupImpl(bool isLiteral,
 
 static const Trie* trieRemoveImpl(bool isLiteral,
                                   const Trie* trie,
-                                  void *(*alloc)(size_t), void (*retire)(void*),
+                                  const TrieAllocator* allocator,
                                   int patternNTerms, Jim_Obj* patternTerms[],
                                   int patternIdx,
                                   uint64_t* results, size_t maxResults,
@@ -275,9 +276,9 @@ static const Trie* trieRemoveImpl(bool isLiteral,
                 results[(*resultsIdx)++] = trie->value;
             }
             if (trie->key != NULL) {
-                Jim_DecrRefCount(trie->key);
+                allocator->retireObj(trie->key);
             }
-            retire((void *)trie);
+            allocator->retire((void *)trie);
             return NULL;
         }
         return trie;
@@ -303,7 +304,7 @@ static const Trie* trieRemoveImpl(bool isLiteral,
 
             newBranch = trieRemoveImpl(isLiteral,
                                        trie->branches[j],
-                                       alloc, retire,
+                                       allocator,
                                        patternNTerms, patternTerms, patternIdx + 1,
                                        results, maxResults,
                                        resultsIdx);
@@ -330,7 +331,7 @@ static const Trie* trieRemoveImpl(bool isLiteral,
                 } else { // Or is the trie node a normal variable?
                     newBranch = trieRemoveImpl(isLiteral,
                                                trie->branches[j],
-                                               alloc, retire,
+                                               allocator,
                                                patternNTerms, patternTerms, patternIdx + 1,
                                                results, maxResults,
                                                resultsIdx);
@@ -339,7 +340,7 @@ static const Trie* trieRemoveImpl(bool isLiteral,
                 if (termEq(trie->branches[j]->key, term)) {
                     newBranch = trieRemoveImpl(isLiteral,
                                                trie->branches[j],
-                                               alloc, retire,
+                                               allocator,
                                                patternNTerms, patternTerms, patternIdx + 1,
                                                results, maxResults,
                                                resultsIdx);
@@ -355,17 +356,17 @@ static const Trie* trieRemoveImpl(bool isLiteral,
     }
     if (newBranchesCount == 0) {
         if (trie->key != NULL) {
-            Jim_DecrRefCount(trie->key);
+            allocator->retireObj(trie->key);
         }
-        retire((void *)trie);
+        allocator->retire((void *)trie);
         return NULL;
     }
 
-    Trie* newTrie = alloc(SIZEOF_TRIE(newBranchesCount));
+    Trie* newTrie = allocator->alloc(SIZEOF_TRIE(newBranchesCount));
     memcpy(newTrie, trie, SIZEOF_TRIE(0));
     newTrie->branchesCount = newBranchesCount;
     memcpy(newTrie->branches, newBranches, newBranchesCount*sizeof(Trie*));
-    retire((void *)trie);
+    allocator->retire((void *)trie);
     return newTrie;
 }
 
@@ -399,7 +400,7 @@ int trieLookupLiteral(const Trie* trie, Jim_Obj* pattern,
 
 // Note: does _literal_ matching only, for now.
 const Trie* trieRemove(const Trie* trie,
-                       void *(*alloc)(size_t), void (*retire)(void*),
+                       const TrieAllocator* allocator,
                        Jim_Obj* pattern,
                        uint64_t* results, size_t maxResults,
                        int* resultCount) {
@@ -409,7 +410,7 @@ const Trie* trieRemove(const Trie* trie,
         terms[i] = Jim_ListGetIndex(interp, pattern, i);
     }
     return trieRemoveImpl(true, trie,
-                          alloc, retire,
+                          allocator,
                           nTerms, terms, 0,
                           results, maxResults,
                           resultCount);

@@ -3,6 +3,8 @@
 
 #include <stdbool.h>
 
+struct Jim_Obj;
+
 // Call this at startup from each thread that will use epoch-based
 // reclamation.
 void epochThreadInit();
@@ -22,6 +24,11 @@ void *epochAlloc(size_t sz);
 // 'Pseudo-free' a pointer (mark it for potential retirement at the
 // end of the epoch).
 void epochFree(void *ptr);
+// Defer Jim_DecrRefCount on a Jim_Obj until after all concurrent
+// epoch-protected readers have finished. Use this instead of
+// Jim_DecrRefCount when retiring trie nodes whose keys must outlive
+// the epoch-protected window.
+void epochDecrRef(struct Jim_Obj *obj);
 
 // Undo all allocations and frees on this thread since it called
 // epochBegin. You're still in the epoch when this returns.

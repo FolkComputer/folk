@@ -30,30 +30,38 @@ struct Trie {
 
 const Trie* trieNew();
 
-// The `alloc` parameter is called by the trie functions to
-// heap-allocate memory. This is so that you (the caller) can supply a
-// custom allocator that can track & later reverse allocations if you
-// encounter a conflict that requires a retry (i.e., in a CAS loop).
+// Allocator/reclaimer callbacks for trie operations.
 //
-// The `retire` parameter is called to free any nodes that are being
-// replaced when you call `trieAdd` or `trieRemove`. You can pass
-// normal `free` if you have no concurrent access; otherwise, you'll
-// want to wrap the trie access in some memory reclamation scheme and
-// have your `retire` implementation defer reclamation until it's
-// guaranteed that no one else is accessing the old trie.
+// `alloc`: allocate a trie node. Supply a custom allocator to track &
+// reverse allocations on retry (in a CAS loop).
+//
+// `retire`: retire a replaced node. Pass normal `free` for
+// single-threaded use; for concurrent access wrap in a
+// memory-reclamation scheme so reclamation is deferred until no
+// reader can reach the old node.
+//
+// `retireObj`: called when a trie node's key is released (no successor
+// holds a reference to it). Pass a wrapper around `Jim_DecrRefCount`
+// for single-threaded use; in a concurrent context pass a deferred
+// variant so the key outlives any epoch-protected readers.
+typedef struct TrieAllocator {
+    void *(*alloc)(size_t);
+    void  (*retire)(void*);
+    void  (*retireObj)(Jim_Obj*);
+} TrieAllocator;
 
 // Returns a new Trie that is like `trie` with `clause` added. Holds a
 // reference to each term Jim_Obj for as long as the term remains in
 // the trie.
 const Trie* trieAdd(const Trie* trie,
-                    void *(*alloc)(size_t), void (*retire)(void*),
+                    const TrieAllocator* allocator,
                     Jim_Obj* c, uint64_t value);
 
 // Returns a new Trie that is `trie` with all clauses matching
 // `pattern` removed. Fills `results` with the values of all removed
 // clauses.
 const Trie* trieRemove(const Trie* trie,
-                       void *(*alloc)(size_t), void (*retire)(void*),
+                       const TrieAllocator* allocator,
                        Jim_Obj* pattern,
                        uint64_t* results, size_t maxResults,
                        int* resultCount);
