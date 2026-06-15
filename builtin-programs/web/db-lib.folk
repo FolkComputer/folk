@@ -34,15 +34,6 @@ Claim the db library is [apply {{} {
     $cc argtype StatementRef { StatementRef $argname; sscanf(Jim_String(interp, $obj), "s%d:%d", &$argname.idx, &$argname.gen); }
     $cc argtype MatchRef { MatchRef $argname; sscanf(Jim_String(interp, $obj), "m%d:%d", &$argname.idx, &$argname.gen); }
 
-    $cc proc clauseToJimObj {Clause* clause} Jim_Obj* {
-        Jim_Obj* termObjs[clause->nTerms];
-        for (int i = 0; i < clause->nTerms; i++) {
-            termObjs[i] = Jim_NewStringObj(interp, termPtr(clause->terms[i]), 
-                                           termLen(clause->terms[i]));
-        }
-        return Jim_NewListObj(interp, termObjs, clause->nTerms);
-    }
-
     $cc proc statementParentCount {Db* db StatementRef stmtRef} int {
         Statement* stmt = statementAcquire(db, stmtRef);
         if (stmt == NULL) { return -1; }
@@ -61,7 +52,7 @@ Claim the db library is [apply {{} {
     $cc proc clause {Db* db StatementRef stmtRef} Jim_Obj* {
         Statement* stmt = statementAcquire(db, stmtRef);
         if (stmt == NULL) { return Jim_NewStringObj(interp, "(null)", -1); }
-        Jim_Obj* ret = Jim_DuplicateObj(interp, statementJimClause(stmt), JIM_LIVE_LIST);
+        Jim_Obj* ret = Jim_DuplicateObj(interp, statementClause(stmt), JIM_LIVE_LIST);
         statementRelease(db, stmt);
         return ret;
     }
@@ -165,7 +156,7 @@ Claim the db library is [apply {{} {
                 Jim_NewStringObj(interp, hold->key, -1),
                 Jim_NewIntObj(interp, hold->version),
                 Jim_ObjPrintf("s%d:%d", hold->statement.idx, hold->statement.gen),
-                statementJimClause(stmt)
+                statementClause(stmt)
             };
             statementRelease(db, stmt);
 
