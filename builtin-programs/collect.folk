@@ -15,7 +15,6 @@ $cc include "trie.h"
 $cc include "db.h"
 $cc code {
     extern Db* db;
-    extern Clause* clauseToTrieClause(Jim_Interp* interp, Jim_Obj* obj);
     extern void HoldStatementGlobally(const char *key, double version,
                                       Jim_Obj *clause, long keepMs, const char *destructorCode,
                                       const char *sourceFileName, int sourceLineNumber);
@@ -63,12 +62,6 @@ $cc code {
         return collectKey;
     }
 
-    Term* jimObjToTerm(Jim_Obj* obj) {
-        int len; const char* s;
-        s = Jim_GetString(obj, &len);
-        return termNew(s, len);
-    }
-
     int _Atomic version = 0;
 }
 
@@ -82,17 +75,21 @@ $cc proc Recollect! {Jim_Obj* patternObj bool isAtomically} void {
     Jim_ListLength(interp, patternObj); // shimmer to list of not already
 
     // First, query for collect patterns.
-    Clause* collectorPattern = clauseNew(10);
-    collectorPattern->terms[0] = termNew("/someone/", -1);
-    collectorPattern->terms[1] = termNew("wishes", -1);
-    collectorPattern->terms[2] = termNew("to", -1);
-    collectorPattern->terms[3] = termNew("collect", -1);
-    collectorPattern->terms[4] = termNew("results", -1);
-    collectorPattern->terms[5] = termNew("for", -1);
-    collectorPattern->terms[6] = jimObjToTerm(patternObj);
-    collectorPattern->terms[7] = termNew("with", -1);
-    collectorPattern->terms[8] = termNew("settle", -1);
-    collectorPattern->terms[9] = termNew("/settle/", -1);
+    Jim_Obj* collectorTerms[] = {
+        Jim_NewStringObj(interp, "/someone/", -1),
+        Jim_NewStringObj(interp, "wishes", -1),
+        Jim_NewStringObj(interp, "to", -1),
+        Jim_NewStringObj(interp, "collect", -1),
+        Jim_NewStringObj(interp, "results", -1),
+        Jim_NewStringObj(interp, "for", -1),
+        patternObj,
+        Jim_NewStringObj(interp, "with", -1),
+        Jim_NewStringObj(interp, "settle", -1),
+        Jim_NewStringObj(interp, "/settle/", -1)
+    };
+    Jim_Obj* collectorPattern = Jim_NewListObj(
+        interp, collectorTerms, sizeof(collectorTerms)/sizeof(collectorTerms[0])
+    );
 
     char* collectKey = makeCollectKey(patternObj);
 
@@ -100,22 +97,18 @@ $cc proc Recollect! {Jim_Obj* patternObj bool isAtomically} void {
     if (collectorsSet->nResults == 0) {
         HoldStatementGlobally(collectKey, version++, Jim_NewEmptyStringObj(interp), 0, NULL, NULL, 0);
     } else {
-        Clause* pattern = clauseToTrieClause(interp, patternObj);
-
-        ResultSet* rs = dbQuery(db, pattern);
+        ResultSet* rs = dbQuery(db, patternObj);
         size_t unclaimizedNResults = rs->nResults;
 
         Jim_Obj* claimizedPattern = claimizeClause(patternObj);
         if (claimizedPattern != NULL) {
-            Clause* claimizedTriePattern = clauseToTrieClause(interp, claimizedPattern);
-            ResultSet* rs1 = dbQuery(db, claimizedTriePattern);
+            ResultSet* rs1 = dbQuery(db, claimizedPattern);
 
             rs = realloc(rs, SIZEOF_RESULTSET(rs->nResults + rs1->nResults));
             for (size_t i = 0; i < rs1->nResults; i++) {
                 rs->results[rs->nResults + i] = rs1->results[i];
             }
             rs->nResults += rs1->nResults;
-            clauseFree(claimizedTriePattern);
             free(rs1);
         }
 
@@ -145,9 +138,9 @@ $cc proc Recollect! {Jim_Obj* patternObj bool isAtomically} void {
 
             resultStmts[resultStmtsCount++] = result;
 
-            Environment* env = clauseUnify(interp, 
+            Environment* env = clauseUnify(interp,
                                            i >= unclaimizedNResults ? claimizedPattern : patternObj,
-                                           statementJimClause(result));
+                                           statementClause(result));
             Jim_Obj* envDict[env->nBindings * 2];
             for (int j = 0; j < env->nBindings; j++) {
                 envDict[j*2] = Jim_NewStringObj(interp, env->bindings[j].name, -1);
@@ -162,7 +155,6 @@ $cc proc Recollect! {Jim_Obj* patternObj bool isAtomically} void {
         if (claimizedPattern != NULL) {
             Jim_FreeNewObj(claimizedPattern);
         }
-        clauseFree(pattern);
         free(rs);
 
         // Note that at this point, we've still acquired all the
@@ -209,7 +201,6 @@ $cc proc Recollect! {Jim_Obj* patternObj bool isAtomically} void {
     }
 
     free(collectKey);
-    clauseFree(collectorPattern);
     free(collectorsSet);
     Jim_DecrRefCount(patternObj);
 }
