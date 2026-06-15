@@ -13,11 +13,12 @@ When /thing/ has resolved geometry /geom/ {
                 set maxLength $lineLength
             }
         }
-        if {$maxLength == 0} {
-            set scale 0.02
-        } else {
-            set scale [::math::min 0.02 [/ 0.45 $maxLength]]
-        }
+
+        if {$maxLength == 0} { return }
+        set scale [::math::min 0.02 [/ 0.45 $maxLength]]
+
+        # Set default scale based on longest line length.
+        # Scale inversely with length to keep text readable.
         set position [list [expr {$width / 2.0}] [expr {$height / 2.0}]]
         set options [dict create \
             position $position \
