@@ -519,6 +519,37 @@ static int StatementReleaseFunc(Jim_Interp *interp, int argc, Jim_Obj *const *ar
     statementRelease(db, statementUnsafeGet(db, ref));
     return JIM_OK;
 }
+static int __statementOfCurrentMatchSourceInfoFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 1);
+    StatementRef stmtRef = STATEMENT_REF_NULL;
+    mutexLock(&self->currentItemMutex);
+    if (self->currentItem.op == RUN_WHEN) {
+        stmtRef = self->currentItem.runWhen.stmt;
+    }
+    mutexUnlock(&self->currentItemMutex);
+
+    if (statementRefIsNull(stmtRef)) {
+        Jim_SetEmptyResult(interp);
+        return JIM_OK;
+    }
+
+    Statement* stmt = statementAcquire(db, stmtRef);
+    if (stmt == NULL) {
+        Jim_SetEmptyResult(interp);
+        return JIM_OK;
+    }
+
+    const char* fileName = statementSourceFileName(stmt);
+    int lineNumber = statementSourceLineNumber(stmt);
+    Jim_Obj* result[2] = {
+        Jim_NewStringObj(interp, fileName ? fileName : "", -1),
+        Jim_NewIntObj(interp, lineNumber),
+    };
+    Jim_SetResult(interp, Jim_NewListObj(interp, result, 2));
+
+    statementRelease(db, stmt);
+    return JIM_OK;
+}
 
 static int __scanVariableFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
@@ -681,6 +712,7 @@ static void interpBoot() {
 
     Jim_CreateCommand(interp, "StatementAcquire!", StatementAcquireFunc, NULL, NULL);
     Jim_CreateCommand(interp, "StatementRelease!", StatementReleaseFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__statementOfCurrentMatchSourceInfo", __statementOfCurrentMatchSourceInfoFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "__scanVariable", __scanVariableFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__variableNameIsNonCapturing", __variableNameIsNonCapturingFunc, NULL, NULL);
@@ -1360,18 +1392,21 @@ void traceItem(char* buf, size_t bufsz, WorkQueueItem item) {
         snprintf(buf, bufsz, "Retract (%.100s)",
                  clauseToString(item.retract.pattern));
     } else if (item.op == RUN_WHEN) {
-        Statement* when = statementUnsafeGet(db, item.runWhen.when);
-        Statement* stmt = statementUnsafeGet(db, item.runWhen.stmt);
+        Statement* when = statementAcquire(db, item.runWhen.when);
+        Statement* stmt = statementAcquire(db, item.runWhen.stmt);
         snprintf(buf, bufsz, "Run when(%.100s) pattern(%.100s) stmt(%.100s)",
                  when != NULL ? clauseToString(statementClause(when)) : "NULL",
                  clauseToString(item.runWhen.whenPattern),
                  stmt != NULL ? clauseToString(statementClause(stmt)) : "NULL");
+        if (when) statementRelease(db, when);
+        if (stmt) statementRelease(db, stmt);
     } else if (item.op == RUN_SUBSCRIBE) {
-        Statement* subscribe = statementUnsafeGet(db, item.runSubscribe.subscribeRef);
+        Statement* subscribe = statementAcquire(db, item.runSubscribe.subscribeRef);
         snprintf(buf, bufsz, "Run subscribe(%.100s) pattern(%.100s) stmt(%.100s)",
                  subscribe != NULL ? clauseToString(statementClause(subscribe)) : "NULL",
                  clauseToString(item.runSubscribe.subscribePattern),
                  clauseToString(item.runSubscribe.notifyClause));
+        if (subscribe) statementRelease(db, subscribe);
     } else if (item.op == EVAL) {
         snprintf(buf, bufsz, "Eval");
     } else if (item.op == NONE) {
@@ -1473,6 +1508,20 @@ void workerInit(int index) {
 void workerExit() {
     // Need this so that this worker doesn't count as still being
     // alive and count toward the worker cap.
+
+    // Donate any remaining items in our local workQueue to the global
+    // queue. Otherwise they'd be stranded: workerSteal skips workers
+    // whose tid == 0. This matters for self-kill scenarios like a
+    // When body whose Hold!/Say replaces its own match's parent —
+    // reactToNewStatement pushes the follow-up RUN_WHEN onto the
+    // local queue right before SIGUSR1 tears the worker down.
+    if (self->workQueue != NULL) {
+        while (true) {
+            WorkQueueItem item = workQueueTake(self->workQueue);
+            if (item.op == NONE) { break; }
+            globalWorkQueuePush(item);
+        }
+    }
 
     // TODO: Clear everything else out?
     self->tid = 0;

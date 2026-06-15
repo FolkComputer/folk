@@ -40,7 +40,7 @@ folk: workqueue.o db.o trie.o sysmon.o epoch.o folk.o output-redirection.o block
 		dsymutil $@; \
 	fi
 	# Hack for the gadget trigger button.
-	if [ "$$(uname)" = "Linux" ]; then \
+	if [ "$$(uname)" = "Linux" ] && case "$$(hostname)" in gadget-*) true;; *) false;; esac; then \
 		(sudo -n true 2>/dev/null && sudo setcap cap_sys_rawio+ep $@) || true; \
 	fi
 
@@ -115,20 +115,19 @@ kill-folk:
 	fi
 
 FOLK_REMOTE_NODE ?= folk-live
-GIT_DIR := $(shell git rev-parse --git-dir 2>/dev/null || echo .git)
 
 sync:
 	ssh $(FOLK_REMOTE_NODE) -t \
 		'cd ~/folk && git init > /dev/null && git ls-files --exclude-standard -oi --directory' \
-		> $(GIT_DIR)/ignores.tmp || true
-	git ls-files --exclude-standard -oi --directory >> $(GIT_DIR)/ignores.tmp
+		> .git/ignores.tmp || true
+	git ls-files --exclude-standard -oi --directory >> .git/ignores.tmp
 	rsync --timeout=15 -e "ssh -o StrictHostKeyChecking=no" \
 		--archive --delete --itemize-changes \
 		--exclude='/.git' \
 		--exclude='vendor/tracy/public/TracyClient.o' \
 		--include='vendor/tracy/public/***' \
 		--exclude='vendor/tracy/*' \
-		--exclude-from='$(GIT_DIR)/ignores.tmp' \
+		--exclude-from='.git/ignores.tmp' \
 		./ $(FOLK_REMOTE_NODE):~/folk/
 
 remote-setup:
