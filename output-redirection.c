@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <assert.h>
 #include <pthread.h>
 #include <sys/syscall.h>
@@ -147,7 +148,13 @@ static ProgramFds *programFdsTable = NULL;
 static pthread_rwlock_t programFdsLock = PTHREAD_RWLOCK_INITIALIZER;
 static char outputDir[256];
 
-void outputRedirectionInit(void) {
+void outputRedirectionInit(bool doRedirect) {
+    if (!doRedirect) {
+        realStdout = 1;
+        realStderr = 2;
+        return;
+    }
+
     sh_new_arena(programFdsTable);
 
     snprintf(outputDir, sizeof(outputDir), "/var/tmp/folk-%d", (int)getpid());
@@ -173,6 +180,10 @@ void outputRedirectionInit(void) {
 }
 
 void installLocalStdoutAndStderr(int stdoutfd, int stderrfd) {
+    if (programFdsTable == NULL) {
+        return;
+    }
+
     threadLocalStdout = stdoutfd;
     threadLocalStderr = stderrfd;
 }
@@ -250,6 +261,9 @@ static int __installLocalStdoutAndStderrFunc(Jim_Interp *interp, int argc, Jim_O
     return JIM_OK;
 }
 
+static int __doNothingFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    return JIM_OK;
+}
 void outputRedirectionInterpSetup(Jim_Interp *interp) {
     assert(realStdout != -1 && realStderr != -1);
     Jim_AioMakeChannelFromFd(interp, realStdout, 1);
@@ -257,8 +271,15 @@ void outputRedirectionInterpSetup(Jim_Interp *interp) {
     Jim_AioMakeChannelFromFd(interp, realStderr, 1);
     Jim_SetVariableStr(interp, "::realStderr", Jim_GetResult(interp));
 
-    Jim_CreateCommand(interp, "__installLocalStdoutAndStderr",
-                      __installLocalStdoutAndStderrFunc, NULL, NULL);
+    if (programFdsTable == NULL) {
+        // We're running with output redirection disabled, so stub
+        // this.
+        Jim_CreateCommand(interp, "__installLocalStdoutAndStderr",
+                          __doNothingFunc, NULL, NULL);
+    } else {
+        Jim_CreateCommand(interp, "__installLocalStdoutAndStderr",
+                          __installLocalStdoutAndStderrFunc, NULL, NULL);
+    }
 }
 
 #endif // FOLK_INTERPOSE_DYLIB

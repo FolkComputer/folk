@@ -1752,7 +1752,13 @@ int main(int argc, char** argv) {
 
     // Jim_Allocator = webDebugAllocator;
 
-    outputRedirectionInit();
+    if (argc == 1) {
+        // booting normal Folk (no script passed at command line); set
+        // up output redirection.
+        outputRedirectionInit(true);
+    } else {
+        outputRedirectionInit(false);
+    }
 
     // Set up database.
     db = dbNew();
