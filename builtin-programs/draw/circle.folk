@@ -38,7 +38,7 @@ Wish the GPU compiles pipeline "circle" {
             set thickness [dict getdef $options thickness 0]
             set color [dict get $options color]
             set color [dict getdef $colorMap $color $color]
-            set filled [drawTruthy [dict getdef $options filled false]]
+            set filled [dict getdef $options filled false]
             set layer [dict getdef $options layer 0]
 
             if {$filled} {

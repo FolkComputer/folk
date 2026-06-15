@@ -609,6 +609,25 @@ proc makeGpu {gpuLib pipelineLib drawLib} { return [library create gpu {gpuLib p
         # of padding at the end.
         $cc struct mat3 { float data[12]; }
 
+        $cc argtype float {
+            double _$argname;
+            if (Jim_GetDouble(interp, $obj, &_$argname) != JIM_OK) {
+                int _boolVal;
+                __ENSURE_OK(Jim_GetBoolean(interp, $obj, &_boolVal));
+                _$argname = (double)_boolVal;
+            }
+            float $argname = (float)_$argname;
+        }
+        $cc argtype int {
+            long _$argname;
+            if (Jim_GetLong(interp, $obj, &_$argname) != JIM_OK) {
+                int _boolVal;
+                __ENSURE_OK(Jim_GetBoolean(interp, $obj, &_boolVal));
+                _$argname = _boolVal;
+            }
+            int $argname = (int)_$argname;
+        }
+
         $cc argtype vec2 {
             vec2 $argname;
             {

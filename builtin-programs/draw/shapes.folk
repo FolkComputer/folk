@@ -173,7 +173,7 @@ When /someone/ wishes /p/ draws a /shape/ with /...options/ &\
     set shape [drawShapeCanonical $shape $options]
     set center [drawShapePosition $options $geom]
     set color [dict getdef $options color white]
-    set filled [drawTruthy [dict getdef $options filled false]]
+    set filled [dict getdef $options filled false]
     set geomWidth [dict get $geom width]
     set geomHeight [dict get $geom height]
     set thickness [drawShapeLengthOption $options thickness 0.002 \
@@ -275,7 +275,7 @@ When /someone/ wishes /p/ draws a polyline /points/ with /...options/ &\
     set width [drawShapeLengthOption $options width $width \
         $geomWidth $geomHeight min]
     set layer [dict getdef $options layer 1]
-    set dashed [drawTruthy [dict getdef $options dashed false]]
+    set dashed [dict getdef $options dashed false]
 
     if {$dashed} {
         set dashlength [drawShapeLengthOption $options dashlength 0.01 \
@@ -325,7 +325,7 @@ When /someone/ wishes /p/ draws points /points/ with /...options/ &\
     set thickness [drawShapeLengthOption $options thickness 0.001 \
         $geomWidth $geomHeight min]
     set color [dict getdef $options color white]
-    set filled [drawTruthy [dict getdef $options filled true]]
+    set filled [dict getdef $options filled true]
     set layer [dict getdef $options layer 1]
 
     foreach point $points {

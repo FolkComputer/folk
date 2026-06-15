@@ -6,10 +6,6 @@
 set ::PI 3.142
 set ::TAU 6.283
 
-proc drawTruthy {value} {
-    expr {$value in {1 true yes on}}
-}
-
 proc drawPhysicalLength {value} {
     if {[llength $value] != 1} {
         error "draw: expected a scalar physical length, got $value"
