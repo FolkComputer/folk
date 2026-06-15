@@ -225,23 +225,6 @@ When /someone/ wishes /p/ draws a /shape/ {
     Wish $p draws a $shape with color white filled true
 }
 
-When /someone/ wishes /p/ draws an /shape/ {
-    Wish $p draws a $shape
-}
-
-When /someone/ wishes /p/ draws an /shape/ with /...options/ {
-    if {![info exists options]} { return }
-    Wish $p draws a $shape with {*}$options
-}
-
-When /someone/ wishes /p/ draws a rect with width /width/ height /height/ {
-    Wish $p draws a rect with width $width height $height
-}
-
-When /someone/ wishes /p/ draws a /shape/ with radius /radius/ {
-    Wish $p draws a $shape with radius $radius
-} 
-
 When /someone/ wishes /p/ draws text /text/ with /...options/ &\
      /p/ has resolved geometry /geom/ {
     if {![info exists options]} { return }
@@ -302,13 +285,6 @@ When /someone/ wishes /p/ draws a polygon /points/ with /...options/ &\
     set color [dict getdef $options color white]
     set layer [dict getdef $options layer 1]
     Wish to draw a polygon onto $p with points $parsedPoints color $color layer $layer
-}
-
-When /someone/ wishes /p/ draws a polygon with points /points/ /...options/ {
-    # Forgiving syntax for users who write 'draws a polygon with points $points color white'
-    # and use ( ) instead of { } for points. 
-    set cleanPoints [string map {"(" "{" ")" "}"} $points]
-    Wish $p draws a polygon $cleanPoints with {*}$options
 }
 
 When /someone/ wishes /p/ draws a polygon /points/ {
