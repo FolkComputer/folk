@@ -183,7 +183,7 @@ static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
         sourceLineNumber = -1;
     }
 
-    Jim_MakeImmutable(interp, clause);
+    Jim_MakeCrossthread(interp, clause);
     Jim_IncrRefCount(clause);
 
     appropriateWorkQueuePush((WorkQueueItem) {
@@ -201,7 +201,7 @@ static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 static int RetractFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Jim_Obj* pattern = Jim_NewListObj(interp, argv + 1, argc - 1);
 
-    Jim_MakeImmutable(interp, pattern);
+    Jim_MakeCrossthread(interp, pattern);
     Jim_IncrRefCount(pattern);
 
     appropriateWorkQueuePush((WorkQueueItem) {
@@ -996,7 +996,7 @@ static void runSubscribeBlock(StatementRef subscribeRef, Jim_Obj* subscribePatte
 // freed) by the eventual handler of the block.
 static void pushRunWhenBlock(StatementRef whenRef, Jim_Obj* whenPattern, StatementRef stmtRef) {
     // make sure whenPattern is immutable, as it's about to become shared
-    Jim_MakeImmutable(interp, whenPattern);
+    Jim_MakeCrossthread(interp, whenPattern);
     Jim_IncrRefCount(whenPattern);
 
     // TODO: Ideally we wouldn't re-acquire.
@@ -1021,8 +1021,8 @@ static void pushRunWhenBlock(StatementRef whenRef, Jim_Obj* whenPattern, Stateme
 // freed) by the eventual handler of the block.
 static void pushRunSubscriptionBlock(StatementRef subscribeRef, Jim_Obj* subscribePattern,
                               Jim_Obj* notifyClause) {
-    Jim_MakeImmutable(interp, subscribePattern);
-    Jim_MakeImmutable(interp, notifyClause);
+    Jim_MakeCrossthread(interp, subscribePattern);
+    Jim_MakeCrossthread(interp, notifyClause);
     Jim_IncrRefCount(subscribePattern);
     Jim_IncrRefCount(notifyClause);
 

@@ -184,7 +184,7 @@ extern "C" {
 
 /* Jim_Obj flags */
 /* #define JIM_TEMP_LIST  1 */
-#define JIM_IMMUTABLE     2
+#define JIM_CROSSTHREAD     2
 
 #define JIM_LIBPATH "auto_path"
 #define JIM_INTERACTIVE "tcl_interactive"
@@ -314,8 +314,8 @@ typedef struct Jim_Obj {
         _Atomic int atomic;
     } refCount;
 #endif
-    int length; /* number of bytes in 'bytes', not including the null term. */
-    int flags; /* current flags are JIM_IMMUTABLE and JIM_TEMP_LIST */
+    int length; /* number of bytes in 'bytes', not including the null term. Must be -1 when there's no string rep. */
+    int flags; /* current flags are JIM_CROSSTHREAD and JIM_TEMP_LIST */
     /* Internal representation union */
     union {
         /* integer number type */
@@ -386,19 +386,23 @@ typedef struct Jim_Obj {
     } internalRep;
 } Jim_Obj;
 
+#define Jim_Current(writeback) ((writeback).new ? (writeback).new : (writeback).original)
+typedef struct Jim_Shimmerable {
+    Jim_Obj *original;
+    Jim_Obj *new;
+} Jim_Shimmerable;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* these used to be macros, but it's annoying to import
-   stdatomic.h every time you want to call one of these */
+int Jim_CanMutate(Jim_Obj *objPtr);
+int Jim_CanShimmer(Jim_Obj *objPtr);
 void Jim_IncrRefCount(Jim_Obj *objPtr);
 void Jim_DecrRefCount(Jim_Obj *objPtr);
 void Jim_FreeIfZeroRef(Jim_Obj *objPtr);
 void Jim_FreeNewObj(Jim_Obj *objPtr);
 int Jim_GetRefCount(Jim_Obj *objPtr);
-int Jim_IsShared(Jim_Obj *objPtr);
-int Jim_IsImmutable(Jim_Obj *objPtr);
 
 /* Free the internal representation of the object. */
 #define Jim_FreeIntRep(o) \
@@ -433,7 +437,7 @@ typedef void (Jim_DupInternalRepProc)(struct Jim_Interp *interp,
 typedef void (Jim_UpdateStringProc)(struct Jim_Interp *interp,
         struct Jim_Obj *objPtr);
 
-typedef void (Jim_MakeImmutableProc)(struct Jim_Interp *interp,
+typedef void (Jim_MakeCrossthreadProc)(struct Jim_Interp *interp,
         struct Jim_Obj *objPtr);
 
 typedef struct Jim_ObjType {
@@ -441,7 +445,7 @@ typedef struct Jim_ObjType {
     Jim_FreeInternalRepProc *freeIntRepProc;
     Jim_DupInternalRepProc *dupIntRepProc;
     Jim_UpdateStringProc *updateStringProc;
-    Jim_MakeImmutableProc *makeImmutableProc;
+    Jim_MakeCrossthreadProc *makeCrossthreadProc;
     int flags;
 } Jim_ObjType;
 
@@ -773,9 +777,9 @@ JIM_EXPORT Jim_HashEntry * Jim_NextHashEntry
 
 /* objects */
 JIM_EXPORT Jim_Obj * Jim_NewObj (Jim_Interp *interp, int onTempList);
-JIM_EXPORT void Jim_FreeObj (Jim_Obj *objPtr, int latestRefCount);
+JIM_EXPORT void Jim_FreeObj (Jim_Obj *objPtr);
 JIM_EXPORT void Jim_InvalidateStringRep (Jim_Obj *objPtr);
-JIM_EXPORT void Jim_MakeImmutable (Jim_Interp *interp, Jim_Obj *objPtr);
+JIM_EXPORT void Jim_MakeCrossthread (Jim_Interp *interp, Jim_Obj *objPtr);
 JIM_EXPORT Jim_Obj * Jim_DuplicateObj (Jim_Interp *interp,
         Jim_Obj *objPtr, int flags);
 JIM_EXPORT Jim_Obj * Jim_DupIfImmutable (Jim_Interp *interp, Jim_Obj *objPtr, int flags);
@@ -784,6 +788,7 @@ JIM_EXPORT Jim_Obj * Jim_DupIfImmutAndWrongRep (Jim_Interp *interp, Jim_Obj *obj
 JIM_EXPORT const char * Jim_GetString(Jim_Interp *interp, Jim_Obj *objPtr,
         int *lenPtr);
 JIM_EXPORT const char *Jim_String(Jim_Interp *interp, Jim_Obj *objPtr);
+JIM_EXPORT int Jim_SetString(Jim_Obj *objPtr, char *bytes, int length);
 JIM_EXPORT int Jim_Length(Jim_Interp *interp, Jim_Obj *objPtr);
 
 /* string object */

@@ -1227,7 +1227,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Jim_Interp* interp,
     }
 
     Jim_ListLength(interp, clause); // shimmer to list
-    Jim_MakeImmutable(interp, clause);
+    Jim_MakeCrossthread(interp, clause);
 
     Match* parentMatch = NULL;
     if (!matchRefIsNull(parentMatchRef)) {

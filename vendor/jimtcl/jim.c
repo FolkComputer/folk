@@ -2282,8 +2282,9 @@ Jim_Obj *Jim_NewObj(Jim_Interp *interp, int flags)
 /* Free an object. Actually objects are never freed, but
  * just moved to the free objects list, where they will be
  * reused by Jim_NewObj(). */
-void Jim_FreeObj(Jim_Obj *objPtr, int latestRefCount)
+void Jim_FreeObj(Jim_Obj *objPtr)
 {
+    int latestRefCount = atomic_load_explicit(&(objPtr->refCount.atomic), memory_order_relaxed);
     /* Check if the object was already freed, panic. */
     JimPanic((latestRefCount != 0, "!!!Object %p freed with bad refcount %d, type=%s", objPtr,
         latestRefCount, objPtr->typePtr ? objPtr->typePtr->name : "<none>"));
@@ -2303,25 +2304,23 @@ void Jim_FreeObj(Jim_Obj *objPtr, int latestRefCount)
 /* Invalidate the string representation of an object. */
 void Jim_InvalidateStringRep(Jim_Obj *objPtr)
 {
-    JimPanic((Jim_IsImmutable(objPtr), "Cannot invalidate string rep of immutable object"));
+    JimPanic((Jim_IsCrossthread(objPtr), "Cannot invalidate string rep of crossthread object"));
     if (objPtr->bytes != NULL) {
         if (objPtr->bytes != JimEmptyStringRep)
             Jim_Free(objPtr->bytes);
     }
     objPtr->bytes = NULL;
+    objPtr->length = -1;
 }
 
 static int SetStringFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr);
 
 /* Make an object immutable. */
-void Jim_MakeImmutable(Jim_Interp *interp, Jim_Obj *objPtr)
+void Jim_MakeCrossthread(Jim_Interp *interp, Jim_Obj *objPtr)
 {
-    if (Jim_IsImmutable(objPtr)) return;
+    if (Jim_IsCrossthread(objPtr)) return;
 
-    objPtr->flags |= JIM_IMMUTABLE;
-
-    /* Ensure the immutable object has a string representation. */
-    Jim_String(interp, objPtr);
+    objPtr->flags |= JIM_CROSSTHREAD;
 
     /* This next part only applies if the object has a type pointer. */
     if (objPtr->typePtr == NULL) return;
@@ -2342,9 +2341,10 @@ Jim_Obj *Jim_DuplicateObj(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
     Jim_Obj *dupPtr;
 
     dupPtr = Jim_NewObj(interp, flags & JIM_TEMP_LIST);
-    if (objPtr->bytes == NULL) {
+    if (JimGetStringNoGenerate(objPtr->bytes) == NULL) {
         /* Object does not have a valid string representation. */
         dupPtr->bytes = NULL;
+        objPtr->length = -1;
     }
     else if (objPtr->length == 0) {
         /* Zero length, so don't even bother with the type-specific dup,
@@ -2410,6 +2410,23 @@ Jim_Obj *Jim_DupIfImmutAndWrongRep(Jim_Interp *interp, Jim_Obj *objPtr, const Ji
     return objPtr;
 }
 
+const char *JimGetStringNoGenerate(Jim_Obj *objPtr, int *lenPtr) {
+    int length;
+    unsigned char *bytes;
+
+    if (Jim_IsCrossthread(objPtr)) {
+        length = atomic_load_explicit(&objPtr->length, memory_order_acquire);
+        bytes = atomic_load_explicit(&objPtr->bytes, memory_order_relaxed);
+    } else {
+        length = objPtr->length;
+        bytes = objPtr->bytes;
+    }
+
+    if (lenPtr)
+        *lenPtr = length;
+    return bytes;
+}
+
 /* Return the string representation for objPtr. If the object's
  * string representation is invalid, calls the updateStringProc method to create
  * a new one from the internal representation of the object. If the object is
@@ -2417,26 +2434,56 @@ Jim_Obj *Jim_DupIfImmutAndWrongRep(Jim_Interp *interp, Jim_Obj *objPtr, const Ji
  */
 const char *Jim_GetString(Jim_Interp *interp, Jim_Obj *objPtr, int *lenPtr)
 {
-    if (objPtr->bytes == NULL) {
-        /* immutable objects should never hit this condition,
-         * as their string rep should already have been generated */
+    int length;
+    const char *bytes = JimGetStringNoGenerate(objPtr, &length);
 
-        /* Invalid string repr. Generate it. */
-        JimPanic((objPtr->typePtr->updateStringProc == NULL, "UpdateStringProc called against '%s' type.", objPtr->typePtr->name));
-
+    /* Note that we check whether `length` is -1, _not_ whether bytes is NULL. This is
+     * because `length` is the second value set when atomically setting the string. */
+    if (length == -1) {
         objPtr->typePtr->updateStringProc(interp, objPtr);
+
+        /* Reload `bytes` and `length`. */
+        bytes = JimGetStringNoGenerate(objPtr, &length);
+
+        Jim_Panic((length >= 0, "Length should have been initialized"));
+        Jim_Panic((bytes != NULL, "Bytes should have been initialized"));
     }
+
     if (lenPtr)
-        *lenPtr = objPtr->length;
-    return objPtr->bytes;
+        *lenPtr = length;
+    return bytes;
 }
 
-/* Just returns the length (in bytes) of the object's string rep. Will not shimmer if shared */
+/* Returns whether the string was successfully set. */
+int Jim_SetString(Jim_Obj *objPtr, char *bytes, int length)
+{
+    /* If we're able to set the string from NULL to `bytes`, we successfully updated
+     * the string. Once we update the pointer, we need to update the length. Note
+     * that the atomics synchronize over `objPtr->length`, so we establish a
+     * happens-before relation using the `objPtr->length` store. */
+    const char *expected = NULL;
+    int did_set = atomic_compare_exchange_strong_explicit(
+        &objPtr->bytes,
+        &expected,
+        &bytes,
+        memory_order_relaxed,
+        memory_order_relaxed
+    );
+
+    if (did_set) {
+        /* We successfully set `objPtr->bytes`, so we can release the length. */
+        atomic_store_explicit(&objPtr->length, length, memory_order_release);
+    }
+
+    return did_set;
+}
+
+/* Just returns the length (in bytes) of the object's string rep. */
 int Jim_Length(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     int lenPtr = 0;
 
-    if (objPtr->bytes == NULL) {
+    if (JimGetStringNoGenerate(objPtr) == NULL) {
         Jim_GetString(interp, objPtr, &lenPtr);
         return lenPtr;
     } else {
@@ -2447,62 +2494,66 @@ int Jim_Length(Jim_Interp *interp, Jim_Obj *objPtr)
 /* Just returns object's string rep. May be on temp list */
 const char *Jim_String(Jim_Interp *interp, Jim_Obj *objPtr)
 {
-    if (objPtr->bytes == NULL) {
-        /* immutable objects should never hit this condition,
-         * as their string rep should already have been generated */
-
+    if (JimGetStringNoGenerate(objPtr) == NULL) {
         return Jim_GetString(interp, objPtr, NULL);
     } else {
         return objPtr->bytes;
     }
 }
 
-/* Currently never called with shared object */
 static void JimSetStringBytes(Jim_Obj *objPtr, const char *str)
 {
-    objPtr->bytes = Jim_StrDup(str);
-    objPtr->length = strlen(str);
+    const char *newString = Jim_StrDup(str);
+    const int len = strlen(str);
+    Jim_SetString(objPtr, newString, len);
 }
 
-/* these used to be macros, but it's annoying to import
-   stdatomic.h every time you want to call one of these */
-inline int Jim_IsImmutable(Jim_Obj *objPtr) {
-    return (objPtr->flags & JIM_IMMUTABLE) != 0;
+int Jim_IsCrossthread(Jim_Obj *objPtr) {
+    return (objPtr->flags & JIM_CROSSTHREAD) != 0;
 }
 
-void Jim_IncrRefCount(Jim_Obj *objPtr) {
-    if (Jim_IsImmutable(objPtr)) {
+int Jim_CanShimmer(Jim_Obj *objPtr) {
+    return !Jim_IsCrossthread(objPtr);
+}
+
+int Jim_CanMutate(Jim_Obj *objPtr) {
+    return Jim_GetRefCount(objPtr) <= 1 && !Jim_IsCrossthread(objPtr);
+}
+
+void Jim_IncrRefCount(Jim_Obj *objPtr)
+{
+    if (Jim_IsCrossthread(objPtr)) {
         atomic_fetch_add_explicit(&(objPtr->refCount.atomic), 1, memory_order_relaxed);
     } else {
         objPtr->refCount.local++;
     }
 }
 
-
-void Jim_DecrRefCount(Jim_Obj *objPtr) {
-    if (Jim_IsImmutable(objPtr)) {
-        /* immutable version */
+void Jim_DecrRefCount(Jim_Obj *objPtr)
+{
+    if (Jim_IsCrossthread(objPtr)) {
+        /* Use atomics when this is crossthread. */
         int afterSub = -1 + atomic_fetch_sub_explicit(&(objPtr->refCount.atomic), 1, memory_order_release);
 
         if (afterSub <= 0) {
             // make sure object use happens-before subtraction, by linking the
             // above release (potentially from another thread) to this acquire
             // (see rust's Arc::drop implementation for details)
-            int refCount = atomic_load_explicit(&(objPtr->refCount.atomic), memory_order_acquire);
+            atomic_load_explicit(&(objPtr->refCount.atomic), memory_order_acquire);
 
             // if res < 0, Jim_FreeObj will (appropriately) panic
-            Jim_FreeObj(objPtr, refCount);
+            Jim_FreeObj(objPtr);
         }
     } else {
-        /* non-immutable version */
         if (--objPtr->refCount.local <= 0) {
-            Jim_FreeObj(objPtr, objPtr->refCount.local);
+            Jim_FreeObj(objPtr);
         }
     }
 }
 
-void Jim_DecrRefCountNoFree(Jim_Obj *objPtr) {
-    if (Jim_IsImmutable(objPtr)) {
+void Jim_DecrRefCountNoFree(Jim_Obj *objPtr)
+{
+    if (Jim_IsCrossthread(objPtr)) {
         atomic_fetch_sub_explicit(&(objPtr->refCount.atomic), 1, memory_order_relaxed);
     } else {
         objPtr->refCount.local--;
@@ -2516,16 +2567,12 @@ void Jim_DecrRefCountNoFree(Jim_Obj *objPtr) {
  * seems too raw, the object handling may change and we want
  * that Jim_FreeNewObj() can be called only against objects
  * that are believed to have refcount == 0. */
-inline void Jim_FreeNewObj(Jim_Obj *objPtr)
+void Jim_FreeNewObj(Jim_Obj *objPtr)
 {
-    if (Jim_IsImmutable(objPtr)) {
-        Jim_FreeObj(objPtr, atomic_load_explicit(&(objPtr->refCount.atomic), memory_order_acquire));
-    } else {
-        Jim_FreeObj(objPtr, objPtr->refCount.local);
-    }
+    Jim_FreeObj(objPtr);
 }
 
-inline void Jim_FreeIfZeroRef(Jim_Obj *objPtr)
+void Jim_FreeIfZeroRef(Jim_Obj *objPtr)
 {
     Jim_IncrRefCount(objPtr);
     Jim_DecrRefCount(objPtr);
@@ -2533,18 +2580,30 @@ inline void Jim_FreeIfZeroRef(Jim_Obj *objPtr)
 
 int Jim_GetRefCount(Jim_Obj *objPtr)
 {
-    if (Jim_IsImmutable(objPtr)) {
-        return atomic_load_explicit(&(objPtr->refCount.atomic), memory_order_relaxed);
+    if (Jim_IsCrossthread(objPtr)) {
+        return atomic_load_explicit(&objPtr->refCount.atomic, memory_order_relaxed);
     } else {
         return objPtr->refCount.local;
     }
 }
 
-inline int Jim_IsShared(Jim_Obj *objPtr)
+/* Shimmerable helpers. */
+void Jim_EnsureShimmerable(Jim_Interp *interp, Jim_Shimmerable *shimPtr)
 {
-    return Jim_GetRefCount(objPtr) > 1;
-}
+    /* If the current value can shimmer, there's nothing to do. */
+    if (Jim_CanShimmer(Jim_Current(shimPtr))) return;
 
+    if (shimPtr->new) {
+        /* Swap `shimPtr->new` with its duplicate. */
+        Jim_Obj *current = shimPtr->new;
+        shimPtr->new = Jim_DuplicateObj(interp, current, JIM_LIVE_LIST);
+        Jim_DecrRefCount(current);
+    } else {
+        shimPtr->new = Jim_DuplicateObj(interp, shimPtr->original, JIM_LIVE_LIST);
+    }
+
+    Jim_Panic((!Jim_CanShimmer(Jim_Current(shimPtr)), "Shimmerable ended not being shimmerable"));
+}
 
 static void FreeDictSubstInternalRep(Jim_Obj *objPtr);
 static void DupDictSubstInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr);
@@ -2610,25 +2669,27 @@ static void DupStringInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *d
     dupPtr->internalRep.strValue.charLength = srcPtr->internalRep.strValue.charLength;
 }
 
-static int SetStringFromAny(Jim_Interp *interp, Jim_Obj *objPtr)
+static int SetStringFromAny(Jim_Interp *interp, Jim_Shimmerable *shimPtr)
 {
-    JimPanic((Jim_IsImmutable(objPtr), "SetStringFromAny called with immutable object"));
+    if (objPtr->typePtr == &stringObjType) return JIM_OK;
 
-    if (objPtr->typePtr != &stringObjType) {
-        /* Get a fresh string representation. */
-        if (objPtr->bytes == NULL) {
-            /* Invalid string repr. Generate it. */
-            JimPanic((objPtr->typePtr->updateStringProc == NULL, "UpdateStringProc called against '%s' type.", objPtr->typePtr->name));
-            objPtr->typePtr->updateStringProc(interp, objPtr);
-        }
-        /* Free any other internal representation. */
-        Jim_FreeIntRep(objPtr);
-        /* Set it as string, i.e. just set the maxLength field. */
-        objPtr->typePtr = &stringObjType;
-        objPtr->internalRep.strValue.maxLength = objPtr->length;
-        /* Don't know the utf-8 length yet */
-        objPtr->internalRep.strValue.charLength = -1;
+    Jim_EnsureShimmerable(shimPtr);
+    const Jim_Obj *current = Jim_Current(shimPtr);
+
+    /* Get a fresh string representation. */
+    if (JimGetStringNoGenerate(current) == NULL) {
+        /* Invalid string repr. Generate it. */
+        JimPanic((current->typePtr->updateStringProc == NULL, "UpdateStringProc called against '%s' type.", current->typePtr->name));
+        current->typePtr->updateStringProc(interp, current);
     }
+    /* Free any other internal representation. */
+    Jim_FreeIntRep(current);
+    /* Set it as string, i.e. just set the maxLength field. */
+    current->typePtr = &stringObjType;
+    current->internalRep.strValue.maxLength = current->length;
+    /* Don't know the utf-8 length yet */
+    atomic_store_explicit(&current->internalRep.strValue.charLength, -1, memory_order_relaxed);
+
     return JIM_OK;
 }
 
@@ -2637,25 +2698,24 @@ static int SetStringFromAny(Jim_Interp *interp, Jim_Obj *objPtr)
  *
  * These may be different for a utf-8 string.
  */
-int Jim_Utf8Length(Jim_Interp *interp, Jim_Obj *objPtr)
+int Jim_Utf8Length(Jim_Interp *interp, Jim_Shimmerable *shimPtr)
 {
+    const Jim_Obj *current = Jim_Current(shimPtr);
+
 #ifdef JIM_UTF8
-    if (objPtr->typePtr != &stringObjType) {
-        if (Jim_IsImmutable(objPtr)) {
-            objPtr = Jim_DuplicateObj(interp, objPtr, JIM_TEMP_LIST);
-        }
+    SetStringFromAny(interp, shim);
 
-        SetStringFromAny(interp, objPtr);
+    /* This is threadsafe, since it's fine to set the utf8 length twice (it's computed the same
+     * no matter what thread it's set from). */
+    int charLength = atomic_load_explicit(&current->internalRep.strValue.charLength, memory_order_relaxed);
+    if (charLength == -1) {
+        int computedLen = utf8_strlen(current->bytes, current->length);
+        atomic_store_explicit(&current->internalRep.strValue.charLength, computed_len, memory_order_relaxed);
+        charLength = computedLen;
     }
-
-    /* data races for setting this shouldn't be an issue
-     * (setting it twice is fine, there's no tricky invariants either) */
-    if (objPtr->internalRep.strValue.charLength < 0) {
-        objPtr->internalRep.strValue.charLength = utf8_strlen(objPtr->bytes, objPtr->length);
-    }
-    return objPtr->internalRep.strValue.charLength;
+    return charLength;
 #else
-    return Jim_Length(interp, objPtr);
+    return Jim_Length(interp, current);
 #endif
 }
 
@@ -2713,7 +2773,7 @@ Jim_Obj *Jim_NewStringObjNoAlloc(Jim_Interp *interp, char *s, int len)
     return objPtr;
 }
 
-/* Low-level string append. Use it only against unshared objects
+/* Low-level string append. Use it only against mutable objects
  * of type "string". */
 static void StringAppendString(Jim_Obj *objPtr, const char *str, int len)
 {
@@ -2752,12 +2812,17 @@ static void StringAppendString(Jim_Obj *objPtr, const char *str, int len)
  */
 void Jim_AppendString(Jim_Interp *interp, Jim_Obj *objPtr, const char *str, int len)
 {
-    JimPanic((Jim_IsImmutable(objPtr), "Jim_AppendString() called with immutable object"));
-    SetStringFromAny(interp, objPtr);
+    JimPanic((!Jim_CanMutate(objPtr), "Jim_AppendString() called with immutable object"));
+    Jim_Shimmerable stringShimmer = {
+        .original = objPtr,
+        .new = NULL,
+    };
+    SetStringFromAny(&stringShimmer);
+    Jim_Panic((stringShimmer.new == NULL, "Didn't shimmer in place"));
     StringAppendString(objPtr, str, len);
 }
 
-/* objPtr must be non-shared */
+/* `objPtr` must be mutable. */
 void Jim_AppendObj(Jim_Interp *interp, Jim_Obj *objPtr, Jim_Obj *appendObjPtr)
 {
     int len;
@@ -2765,7 +2830,7 @@ void Jim_AppendObj(Jim_Interp *interp, Jim_Obj *objPtr, Jim_Obj *appendObjPtr)
     Jim_AppendString(interp, objPtr, appendStr, len);
 }
 
-/* objPtr must be non-shared */
+/* `objPtr` must be mutable. */
 void Jim_AppendStrings(Jim_Interp *interp, Jim_Obj *objPtr, ...)
 {
     va_list ap;
@@ -2807,12 +2872,12 @@ int Jim_StringMatchObj(Jim_Interp *interp, Jim_Obj *patternObjPtr, Jim_Obj *objP
     return JimGlobMatch(pattern, plen, string, slen, nocase);
 }
 
-int Jim_StringCompareObj(Jim_Interp *interp, Jim_Obj *firstObjPtr, Jim_Obj *secondObjPtr, int nocase)
+int Jim_StringCompareObj(Jim_Interp *interp, Jim_Shimmerable *firstShimPtr, Jim_Shimmerable *secondShimPtr, int nocase)
 {
-    const char *s1 = Jim_String(interp, firstObjPtr);
-    int l1 = Jim_Utf8Length(interp, firstObjPtr);
-    const char *s2 = Jim_String(interp, secondObjPtr);
-    int l2 = Jim_Utf8Length(interp, secondObjPtr);
+    const char *s1 = Jim_String(interp, Jim_Current(firstShimPtr));
+    int l1 = Jim_Utf8Length(interp, firstShimPtr);
+    const char *s2 = Jim_String(interp, Jim_Current(secondObjPtr));
+    int l2 = Jim_Utf8Length(interp, secondShimPtr);
     return JimStringCompareUtf8(s1, l1, s2, l2, nocase);
 }
 
@@ -2860,13 +2925,13 @@ static void JimRelToAbsRange(int len, int *firstPtr, int *lastPtr, int *rangeLen
     *rangeLenPtr = rangeLen;
 }
 
-static int JimStringGetRange(Jim_Interp *interp, Jim_Obj *firstObjPtr, Jim_Obj *lastObjPtr,
+static int JimStringGetRange(Jim_Interp *interp, Jim_Shimmerable *firstShimPtr, Jim_Shimmerable *lastShimPtr,
     int len, int *first, int *last, int *range)
 {
-    if (Jim_GetIndex(interp, firstObjPtr, first) != JIM_OK) {
+    if (Jim_GetIndex(interp, firstShimPtr, first) != JIM_OK) {
         return JIM_ERR;
     }
-    if (Jim_GetIndex(interp, lastObjPtr, last) != JIM_OK) {
+    if (Jim_GetIndex(interp, lastShimPtr, last) != JIM_OK) {
         return JIM_ERR;
     }
     *first = JimRelToAbsIndex(len, *first);
@@ -2876,7 +2941,7 @@ static int JimStringGetRange(Jim_Interp *interp, Jim_Obj *firstObjPtr, Jim_Obj *
 }
 
 Jim_Obj *Jim_StringByteRangeObj(Jim_Interp *interp,
-    Jim_Obj *strObjPtr, Jim_Obj *firstObjPtr, Jim_Obj *lastObjPtr)
+    Jim_Obj *strObjPtr, Jim_Shimmerable *firstShimPtr, Jim_Shimmerable *lastShimPtr)
 {
     int first, last;
     const char *str;
@@ -2885,7 +2950,7 @@ Jim_Obj *Jim_StringByteRangeObj(Jim_Interp *interp,
 
     str = Jim_GetString(interp, strObjPtr, &bytelen);
 
-    if (JimStringGetRange(interp, firstObjPtr, lastObjPtr, bytelen, &first, &last, &rangeLen) != JIM_OK) {
+    if (JimStringGetRange(interp, firstShimPtr, lastShimPtr, bytelen, &first, &last, &rangeLen) != JIM_OK) {
         return NULL;
     }
 
@@ -2895,8 +2960,8 @@ Jim_Obj *Jim_StringByteRangeObj(Jim_Interp *interp,
     return Jim_NewStringObj(interp, str + first, rangeLen);
 }
 
-Jim_Obj *Jim_StringRangeObj(Jim_Interp *interp,
-    Jim_Obj *strObjPtr, Jim_Obj *firstObjPtr, Jim_Obj *lastObjPtr)
+Jim_Obj *Jim_StringRangeObj(Jim_Interp *interp, Jim_Shimmerable *strShimPtr,
+    Jim_Shimmerable *firstShimPtr, Jim_Shimmerable *lastShimPtr)
 {
 #ifdef JIM_UTF8
     int first, last;
@@ -2904,15 +2969,15 @@ Jim_Obj *Jim_StringRangeObj(Jim_Interp *interp,
     int len, rangeLen;
     int bytelen;
 
-    str = Jim_GetString(interp, strObjPtr, &bytelen);
-    len = Jim_Utf8Length(interp, strObjPtr);
+    str = Jim_GetString(interp, Jim_Current(strShimPtr), &bytelen);
+    len = Jim_Utf8Length(interp, strShimPtr);
 
-    if (JimStringGetRange(interp, firstObjPtr, lastObjPtr, len, &first, &last, &rangeLen) != JIM_OK) {
+    if (JimStringGetRange(interp, firstShimPtr, lastShimPtr, len, &first, &last, &rangeLen) != JIM_OK) {
         return NULL;
     }
 
     if (first == 0 && rangeLen == len) {
-        return strObjPtr;
+        return Jim_Current(strShimPtr);
     }
     if (len == bytelen) {
         /* ASCII optimisation */
@@ -2920,21 +2985,21 @@ Jim_Obj *Jim_StringRangeObj(Jim_Interp *interp,
     }
     return Jim_NewStringObjUtf8(interp, str + utf8_index(str, first), rangeLen);
 #else
-    return Jim_StringByteRangeObj(interp, strObjPtr, firstObjPtr, lastObjPtr);
+    return Jim_StringByteRangeObj(interp, Jim_Current(strShimPtr), firstShimPtr, lastShimPtr);
 #endif
 }
 
-Jim_Obj *JimStringReplaceObj(Jim_Interp *interp,
-    Jim_Obj *strObjPtr, Jim_Obj *firstObjPtr, Jim_Obj *lastObjPtr, Jim_Obj *newStrObj)
+Jim_Obj *JimStringReplaceObj(Jim_Interp *interp, Jim_Shimmerable *strShimPtr,
+    Jim_Shimmerable *firstShimPtr, Jim_Shimmerable *lastShimPtr, Jim_Obj *newStrObj)
 {
     int first, last;
     const char *str;
     int len, rangeLen;
     Jim_Obj *objPtr;
 
-    len = Jim_Utf8Length(interp, strObjPtr);
+    len = Jim_Utf8Length(interp, strShimPtr);
 
-    if (JimStringGetRange(interp, firstObjPtr, lastObjPtr, len, &first, &last, &rangeLen) != JIM_OK) {
+    if (JimStringGetRange(interp, firstShimPtr, lastShimPtr, len, &first, &last, &rangeLen) != JIM_OK) {
         return NULL;
     }
 
@@ -2942,7 +3007,7 @@ Jim_Obj *JimStringReplaceObj(Jim_Interp *interp,
         return strObjPtr;
     }
 
-    str = Jim_String(interp, strObjPtr);
+    str = Jim_String(interp, Jim_Current(strObjPtr));
 
     /* Before part */
     objPtr = Jim_NewStringObjUtf8(interp, str, first);
@@ -3203,7 +3268,7 @@ static int jim_isascii(int c)
 }
 #endif
 
-static int JimStringIs(Jim_Interp *interp, Jim_Obj *strObjPtr, Jim_Obj *strClass, int strict)
+static int JimStringIs(Jim_Interp *interp, Jim_Obj *strShimPtr, Jim_Obj *strClass, int strict)
 {
     static const char * const strclassnames[] = {
         "integer", "alpha", "alnum", "ascii", "digit",
@@ -3226,7 +3291,7 @@ static int JimStringIs(Jim_Interp *interp, Jim_Obj *strObjPtr, Jim_Obj *strClass
         return JIM_ERR;
     }
 
-    str = Jim_GetString(interp, strObjPtr, &len);
+    str = Jim_GetString(interp, strShimPtr, &len);
     if (len == 0) {
         Jim_SetResultBool(interp, !strict);
         return JIM_OK;
@@ -3236,21 +3301,21 @@ static int JimStringIs(Jim_Interp *interp, Jim_Obj *strObjPtr, Jim_Obj *strClass
         case STR_IS_INTEGER:
             {
                 jim_wide w;
-                Jim_SetResultBool(interp, JimGetWideNoErr(interp, strObjPtr, &w) == JIM_OK);
+                Jim_SetResultBool(interp, JimGetWideNoErr(interp, strShimPtr, &w) == JIM_OK);
                 return JIM_OK;
             }
 
         case STR_IS_DOUBLE:
             {
                 double d;
-                Jim_SetResultBool(interp, Jim_GetDouble(interp, strObjPtr, &d) == JIM_OK && errno != ERANGE);
+                Jim_SetResultBool(interp, Jim_GetDouble(interp, strShimPtr, &d) == JIM_OK && errno != ERANGE);
                 return JIM_OK;
             }
 
         case STR_IS_BOOLEAN:
             {
                 int b;
-                Jim_SetResultBool(interp, Jim_GetBoolean(interp, strObjPtr, &b) == JIM_OK);
+                Jim_SetResultBool(interp, Jim_GetBoolean(interp, strShimPtr, &b) == JIM_OK);
                 return JIM_OK;
             }
 
@@ -3318,9 +3383,9 @@ int Jim_CompareStringImmediate(Jim_Interp *interp, Jim_Obj *objPtr, const char *
         if (strcmp(str, Jim_String(interp, objPtr)) != 0)
             return 0;
 
-        if (Jim_IsImmutable(objPtr)) {
-            /* We don't want to shimmer an immutable object */
-            return 1;
+        if (!Jim_CanShimmer(objPtr)) {
+            /* We don't want to shimmer a crossthread object. */
+            return 0;
         }
 
         if (objPtr->typePtr != &comparedStringObjType) {
@@ -3362,7 +3427,7 @@ static int qsortCompareStringPointers(const void *a, const void *b)
 
 static void FreeSourceInternalRep(Jim_Obj *objPtr);
 static void DupSourceInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr);
-static void MakeSourceImmutable(Jim_Interp *interp, struct Jim_Obj *objPtr);
+static void MakeSourceCrossthread(Jim_Interp *interp, struct Jim_Obj *objPtr);
 static void UpdateStringOfSource(Jim_Interp *interp, struct Jim_Obj *objPtr);
 
 static const Jim_ObjType sourceObjType = {
@@ -3370,7 +3435,7 @@ static const Jim_ObjType sourceObjType = {
     FreeSourceInternalRep,
     DupSourceInternalRep,
     UpdateStringOfSource,
-    MakeSourceImmutable,
+    MakeSourceCrossthread,
     JIM_TYPE_REFERENCES,
 };
 
@@ -3391,9 +3456,9 @@ void UpdateStringOfSource(Jim_Interp *interp, struct Jim_Obj *objPtr)
     JIM_NOTUSED(objPtr);
 }
 
-static void MakeSourceImmutable(Jim_Interp *interp, struct Jim_Obj *objPtr)
+static void MakeSourceCrossthread(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
-    Jim_MakeImmutable(interp, objPtr->internalRep.sourceValue.fileNameObj);
+    Jim_MakeCrossthread(interp, objPtr->internalRep.sourceValue.fileNameObj);
 }
 
 /* -----------------------------------------------------------------------------
@@ -4151,7 +4216,7 @@ static unsigned int JimObjectHTHashFunction(void *privdata, const void *key)
     const char *string;
 
 #ifdef JIM_OPTIMIZATION
-    if (JimIsWide(keyObj) && keyObj->bytes == NULL) {
+    if (JimIsWide(keyObj) && JimGetStringNoGenerate(keyObj->bytes) == NULL) {
         /* Special case: we can compute the hash of integers numerically. */
         jim_wide objValue = JimWideValue(keyObj);
         if (objValue > INT_MIN && objValue < INT_MAX) {
@@ -6217,6 +6282,7 @@ Jim_Obj *Jim_NewIntObj(Jim_Interp *interp, jim_wide wideValue)
     objPtr = Jim_NewObj(interp, JIM_LIVE_LIST);
     objPtr->typePtr = &intObjType;
     objPtr->bytes = NULL;
+    objPtr->length = -1;
     objPtr->internalRep.wideValue = wideValue;
     return objPtr;
 }
@@ -6375,6 +6441,7 @@ Jim_Obj *Jim_NewDoubleObj(Jim_Interp *interp, double doubleValue)
     objPtr = Jim_NewObj(interp, JIM_LIVE_LIST);
     objPtr->typePtr = &doubleObjType;
     objPtr->bytes = NULL;
+    objPtr->length = -1;
     objPtr->internalRep.doubleValue = doubleValue;
     return objPtr;
 }
@@ -6691,7 +6758,8 @@ static void JimMakeListStringRep(Jim_Interp *interp, Jim_Obj *objPtr, Jim_Obj **
     bufLen++;
 
     /* Generate the string rep. */
-    p = objPtr->bytes = Jim_Alloc(bufLen + 1);
+    char *newBytes = Jim_Alloc(bufLen + 1);
+    p = newBytes;
     realLength = 0;
     for (i = 0; i < objc; i++) {
         int len, qlen;
@@ -6728,7 +6796,8 @@ static void JimMakeListStringRep(Jim_Interp *interp, Jim_Obj *objPtr, Jim_Obj **
         }
     }
     *p = '\0';                  /* nul term. */
-    objPtr->length = realLength;
+
+    Jim_SetString(objPtr, newBytes, realLength);
 
     if (quotingType != staticQuoting) {
         Jim_Free(quotingType);
@@ -6744,7 +6813,7 @@ static void MakeListImmutable(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
     for (int i = 0; i < objPtr->internalRep.listValue.len; i++) {
         Jim_Obj *elemPtr = objPtr->internalRep.listValue.ele[i];
-        Jim_MakeImmutable(interp, elemPtr);
+        Jim_MakeCrossthread(interp, elemPtr);
     }
 }
 
@@ -6763,7 +6832,7 @@ static int SetListFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
     int linenr;
 
     /* Optimise dict -> list for object with no string rep.  */
-    if (Jim_IsDict(objPtr) && objPtr->bytes == NULL) {
+    if (Jim_IsDict(objPtr) && JimGetStringNoGenerate(objPtr->bytes) == NULL) {
         Jim_Dict *dict = objPtr->internalRep.dictValue;
         /* To convert to a list we need to:
          * 1. Take ownership of the table
@@ -6833,6 +6902,7 @@ Jim_Obj *Jim_NewListObj(Jim_Interp *interp, Jim_Obj *const *elements, int len)
     objPtr = Jim_NewObj(interp, JIM_LIVE_LIST);
     objPtr->typePtr = &listObjType;
     objPtr->bytes = NULL;
+    objPtr->length = -1;
     objPtr->internalRep.listValue.ele = NULL;
     objPtr->internalRep.listValue.len = 0;
     objPtr->internalRep.listValue.maxLen = 0;
@@ -7744,7 +7814,7 @@ static void MakeDictImmutable(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
     for (int i = 0; i < objPtr->internalRep.dictValue->len; i++) {
         Jim_Obj *elemPtr = objPtr->internalRep.dictValue->table[i];
-        Jim_MakeImmutable(interp, elemPtr);
+        Jim_MakeCrossthread(interp, elemPtr);
     }
 }
 
@@ -7910,6 +7980,7 @@ Jim_Obj *Jim_NewDictObj(Jim_Interp *interp, Jim_Obj *const *elements, int len)
     objPtr = Jim_NewObj(interp, JIM_LIVE_LIST);
     objPtr->typePtr = &dictObjType;
     objPtr->bytes = NULL;
+    objPtr->length = -1;
 
     objPtr->internalRep.dictValue = JimDictNew(interp, len, len);
     for (i = 0; i < len; i += 2)
@@ -11230,9 +11301,8 @@ static Jim_Obj *JimInterpolateTokens(Jim_Interp *interp, const ScriptToken * tok
         Jim_SetSourceInfo(interp, objPtr, fileNameObj, line, 0);
     }
 
-
-    s = objPtr->bytes = Jim_Alloc(totlen + 1);
-    objPtr->length = totlen;
+    const char *newBytes = Jim_Alloc(totlen + 1);
+    s = newBytes;
     for (i = 0; i < tokens; i++) {
         if (intv[i]) {
             int strLen;
@@ -11243,6 +11313,9 @@ static Jim_Obj *JimInterpolateTokens(Jim_Interp *interp, const ScriptToken * tok
         }
     }
     objPtr->bytes[totlen] = '\0';
+
+    Jim_SetString(objPtr, newBytes, totlen);
+
     /* Free the intv vector if not static. */
     if (intv != sintv) {
         Jim_Free(intv);
@@ -11309,7 +11382,7 @@ int Jim_EvalObj(Jim_Interp *interp, Jim_Obj *scriptObjPtr)
 
     /* If the object is of type "list", with no string rep we can call
      * a specialized version of Jim_EvalObj() */
-    if (Jim_IsList(scriptObjPtr) && scriptObjPtr->bytes == NULL) {
+    if (Jim_IsList(scriptObjPtr) && JimGetStringNoGenerate(scriptObjPtr->bytes) == NULL) {
         retcode = JimEvalObjList(interp, scriptObjPtr);
         goto out;
     }
