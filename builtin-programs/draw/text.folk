@@ -113,8 +113,10 @@ $cc proc textShape {Jim_Obj* viewport Jim_Obj* surfaceToClip
         ch = charOrFallback(font, ch);
         GlyphInfo* glyphInfo = &font->glyphInfos[ch];
         if (ch != ' ') {
-            // Calculate the absolute glyph position.
-            float lineOffsetX = -(lineAnchorX * lineWidth) - blockOffsetX;
+            // Calculate the absolute glyph position. The block anchor places the
+            // text block relative to the requested position; the line anchor then
+            // aligns each individual line inside that block.
+            float lineOffsetX = lineAnchorX * (extent.x - lineWidth);
             // `lineOffsetY` doesn't exist, since it's already included in the `blockOffsetY` calculation.
             vec2f rotatedLineOffset = vec2f_rotate((vec2f) { lineOffsetX, 0 }, radians);
             vec2f combinedOffset = vec2f_add(blockStart, rotatedLineOffset);
