@@ -683,6 +683,14 @@ void rewindSysmonInterp() {
     Jim_RewindTempList(interp);
 }
 
+void __attribute__((noinline)) __attribute__((used)) magic_trace_stop_indicator() {
+    asm volatile("" ::: "memory");
+}
+static int __magicTraceStopIndicatorFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    magic_trace_stop_indicator();
+    return JIM_OK;
+}
+
 static void interpBoot() {
     interp = Jim_CreateInterp();
     Jim_RegisterCoreCommands(interp);
@@ -721,6 +729,7 @@ static void interpBoot() {
 
     Jim_CreateCommand(interp, "__setFreshAtomicallyVersionOnKey", __setFreshAtomicallyVersionOnKeyFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__currentAtomicallyVersion", __currentAtomicallyVersionFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__magicTraceStopIndicator", __magicTraceStopIndicatorFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "setpgrp", setpgrpFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Exit!", exitFunc, NULL, NULL);

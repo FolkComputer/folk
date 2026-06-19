@@ -45,7 +45,7 @@ folk: workqueue.o db.o trie.o sysmon.o epoch.o folk.o output-redirection.o block
 	fi
 
 %.o: %.c trie.h workqueue.h CFLAGS
-	cc -c -O2 -g -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) -o$@  \
+	cc -c -O2 -g -fno-optimize-sibling-calls -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) -o$@  \
 		-D_GNU_SOURCE -U_FORTIFY_SOURCE $(CFLAGS) $(BUILTIN_CFLAGS) \
 		$< -I./vendor/jimtcl -I./vendor/tracy/public
 
@@ -100,7 +100,7 @@ remote-distclean: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make distclean'
 deps:
 	if [ ! -f vendor/jimtcl/Makefile ]; then \
-		cd vendor/jimtcl && ./configure CFLAGS='-g -fno-omit-frame-pointer'; \
+		cd vendor/jimtcl && ./configure CFLAGS='-g -fno-omit-frame-pointer -O2 -fno-optimize-sibling-calls'; \
 	fi
 	make -C vendor/jimtcl
 
