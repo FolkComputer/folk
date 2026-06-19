@@ -39,7 +39,8 @@ When /nobody/ claims a calibration from camera /cam/ to display /disp/ is /anyth
     }
 }
 
-When a calibration from camera /camera/ to display /display/ is /calibration/ {
+When a calibration from camera /camera/ to display /display/ is /calibration/ &\
+     /nobody/ claims camera /camera/ is a secondary camera {
     puts "\n\n====NEW CALIBRATION ([string range $calibration 0 100])=====\n\n"
 
     # Backfill p1/p2 for calibrations saved before tangential
