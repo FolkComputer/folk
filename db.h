@@ -56,6 +56,7 @@ Clause* statementClause(Statement* stmt);
 AtomicallyVersion* statementAtomicallyVersion(Statement* stmt);
 char* statementSourceFileName(Statement* stmt);
 int statementSourceLineNumber(Statement* stmt);
+char* statementCausalityFileName(Statement* stmt);
 
 int statementIncompleteChildMatchesCount(Db* db, Statement* stmt);
 
@@ -142,6 +143,10 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
                                     const char* sourceFileName, int sourceLineNumber,
                                     MatchRef parent,
                                     StatementRef* outReusedStatementRef);
+
+// Returns a comma-separated list of unique files in the causal trace.
+// The caller is responsible for freeing the returned string.
+char* dbGetCausalTrace(Db* db, MatchRef startMatchRef);
 
 // Call when you're about to begin a match (i.e., evaluating the body
 // of a When) -- creates the Match object that you'll attach any
