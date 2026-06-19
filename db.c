@@ -208,6 +208,9 @@ typedef struct Statement {
     // The program that caused the chain of matches leading to this statement.
     char causalityFileName[100];
 
+    // The match that created this statement, if any.
+    MatchRef parentMatch;
+
     // Mutable statement properties:
     // -----
 
@@ -232,6 +235,9 @@ typedef struct Match {
     // Immutable match properties:
     // -----
     int workerThreadIndex;
+
+    int nParentStatements;
+    StatementRef* parentStatements;
 
     // Mutable match properties:
     // -----
@@ -473,7 +479,8 @@ static StatementRef statementNew(Db* db, Clause* clause,
                                  long keepMs, AtomicallyVersion* atomicallyVersion,
                                  const char* sourceFileName,
                                  int sourceLineNumber,
-                                 const char* causalityFileName) {
+                                 const char* causalityFileName,
+                                 MatchRef parentMatch) {
     StatementRef ret;
     Statement* stmt = NULL;
 
@@ -511,6 +518,7 @@ static StatementRef statementNew(Db* db, Clause* clause,
         stmt->atomicallyVersion = NULL;
     }
     stmt->parentCount = 1;
+    stmt->parentMatch = parentMatch;
 
     destructorSetInit(&stmt->destructorSet);
     pthread_mutex_init(&stmt->destructorSetMutex, NULL);
@@ -744,6 +752,7 @@ Match* matchAcquire(Db* db, MatchRef ref) {
         return NULL;
     }
 }
+
 static void matchDestroy(Match* match);
 void matchRelease(Db* db, Match* match) {
     if (genRcRelease(&match->genRc)) {
@@ -767,9 +776,15 @@ MatchRef matchRef(Db* db, Match* match) {
 
 static MatchRef matchNew(Db* db,
                          AtomicallyVersion* atomicallyVersion,
-                         int workerThreadIndex) {
+                         int workerThreadIndex,
+                         int nParents, StatementRef* parents) {
     MatchRef ret;
     Match* match = NULL;
+
+    StatementRef* parentStatementsRefCopy = malloc(nParents * sizeof(StatementRef));
+    for (int i = 0; i < nParents; i++) {
+        parentStatementsRefCopy[i] = parents[i];
+    }
 
     // Look for a free match slot to use:
     while (1) {
@@ -792,8 +807,13 @@ static MatchRef matchNew(Db* db,
 
     // We should have exclusive access to match right now.
 
-    atomic_store_explicit(&match->childStatements, listOfEdgeToNew(8), memory_order_relaxed);
     match->parentWasRemoved = false;
+    match->isCompleted = false;
+
+    match->nParentStatements = nParents;
+    match->parentStatements = parentStatementsRefCopy;
+
+    atomic_store_explicit(&match->childStatements, listOfEdgeToNew(8), memory_order_relaxed);
 
     pthread_mutexattr_t mta;
     pthread_mutexattr_init(&mta);
@@ -816,6 +836,11 @@ static MatchRef matchNew(Db* db,
 static void matchDestroy(Match* match) {
     assert(atomic_load_explicit(&match->childStatements, memory_order_relaxed)
            == CHILD_STATEMENTS_REMOVING);
+
+    if (match->parentStatements != NULL) {
+        free(match->parentStatements);
+        match->parentStatements = NULL;
+    }
 
     // Fire any destructors.
     pthread_mutex_lock(&match->destructorSetMutex);
@@ -1255,10 +1280,10 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
     // We'll provisionally create a new statement to add.
     // 
     // Also transfers ownership of `clause` to the DB.
-    StatementRef ref = statementNew(db, clause,
-                                    keepMs, atomicallyVersion,
-                                    sourceFileName, sourceLineNumber,
-                                    parentMatch ? parentMatch->causalityFileName : sourceFileName);
+    StatementRef ref = statementNew(db, clause, keepMs, atomicallyVersion,
+                                   sourceFileName, sourceLineNumber,
+                                   parentMatch ? parentMatch->causalityFileName : sourceFileName,
+                                   parentMatchRef);
 
     // Now try to add to the trie: the trieAdd operation will
     // atomically detect if the clause is already present.
@@ -1376,7 +1401,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
 Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
                      AtomicallyVersion* atomicallyVersion,
                      int workerThreadIndex) {
-    MatchRef ref = matchNew(db, atomicallyVersion, workerThreadIndex);
+    MatchRef ref = matchNew(db, atomicallyVersion, workerThreadIndex, nParents, parents);
     Match* match = matchAcquire(db, ref);
     assert(match != NULL);
 
@@ -1568,4 +1593,48 @@ Statement* dbHoldStatement(Db* db,
         clauseFree(clause);
         return NULL;
     }
+}
+
+// Returns a comma-separated list of unique files in the causal trace.
+char* dbGetCausalTrace(Db* db, MatchRef startMatchRef) {
+    char* trace = malloc(4096);
+    trace[0] = '\0';
+    
+    // Simple BFS queue
+    MatchRef queue[1024];
+    int head = 0, tail = 0;
+    
+    queue[tail++] = startMatchRef;
+    
+    while (head < tail && head < 1024) {
+        MatchRef mref = queue[head++];
+        Match* m = matchAcquire(db, mref);
+        if (!m) continue;
+        
+        for (int i = 0; i < m->nParentStatements; i++) {
+            Statement* stmt = statementAcquire(db, m->parentStatements[i]);
+            if (!stmt) continue;
+            
+            const char* fname = stmt->sourceFileName;
+            // add to trace if unique
+            if (fname && strlen(fname) > 0 && strcmp(fname, "(null)") != 0) {
+                // Check if already in trace
+                if (!strstr(trace, fname)) {
+                    if (strlen(trace) > 0) strcat(trace, ",");
+                    strcat(trace, fname);
+                }
+            }
+            
+            if (!matchRefIsNull(stmt->parentMatch)) {
+                if (tail < 1024) {
+                    queue[tail++] = stmt->parentMatch;
+                }
+            }
+            
+            statementRelease(db, stmt);
+        }
+        matchRelease(db, m);
+    }
+    
+    return trace;
 }

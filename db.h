@@ -144,6 +144,10 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
                                     MatchRef parent,
                                     StatementRef* outReusedStatementRef);
 
+// Returns a comma-separated list of unique files in the causal trace.
+// The caller is responsible for freeing the returned string.
+char* dbGetCausalTrace(Db* db, MatchRef startMatchRef);
+
 // Call when you're about to begin a match (i.e., evaluating the body
 // of a When) -- creates the Match object that you'll attach any
 // emitted Statements to. The worker thread is stored with the Match

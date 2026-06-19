@@ -933,26 +933,63 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     statementRelease(db, when);
     if (stmt != NULL) { statementRelease(db, stmt); }
 
-    matchCompleted(self->currentMatch);
-    matchRelease(db, self->currentMatch);
-    self->currentMatch = NULL;
-
     if (error == JIM_ERR) {
         Jim_MakeErrorMessage(interp);
-        const char *errorMessage = Jim_GetString(Jim_GetResult(interp), NULL);
+        const char *errorMessageRaw = Jim_GetString(Jim_GetResult(interp), NULL);
+        char *errorMessage = strdup(errorMessageRaw ? errorMessageRaw : "Unknown error");
+        if (strlen(errorMessage) == 0) {
+            free(errorMessage);
+            errorMessage = strdup("Unknown error");
+        }
         int bodyLen = termLen(body);
         if (bodyLen > 100) bodyLen = 100;
         fprintf(stderr, "Uncaught error running When (%.*s):\n  %s\n",
                 bodyLen, termPtr(body), errorMessage);
-        /* Jim_FreeInterp(interp); */
-        /* exit(EXIT_FAILURE); */
 
+        char* trace = dbGetCausalTrace(db, matchRef(db, self->currentMatch));
+        char* tok = strtok(trace, ",");
+        while (tok) {
+            while (*tok == ' ') tok++;
+            if (strlen(tok) > 0) {
+                Jim_Obj *errorInfoStr = interp->stackTrace;
+                if (errorInfoStr == NULL) {
+                    errorInfoStr = Jim_NewStringObj(interp, "", 0);
+                }
+                Jim_Obj *errorInfoObj = Jim_NewDictObj(interp, NULL, 0);
+                Jim_DictAddElement(interp, errorInfoObj,
+                                   Jim_NewStringObj(interp, "-errorinfo", -1),
+                                   errorInfoStr);
+                Jim_Obj *cmd[] = {
+                    Jim_NewStringObj(interp, "SayWithSource", -1),
+                    Jim_NewStringObj(interp, tok, -1), /* sourceFileName */
+                    Jim_NewIntObj(interp, 1),          /* sourceLineNumber */
+                    Jim_NewIntObj(interp, 0),          /* keepMs */
+                    Jim_NewStringObj(interp, "", 0),   /* atomicallyVersion */
+                    Jim_NewStringObj(interp, "", 0),   /* destructorCode */
+                    Jim_NewStringObj(interp, tok, -1),
+                    Jim_NewStringObj(interp, "has", -1),
+                    Jim_NewStringObj(interp, "error", -1),
+                    Jim_NewStringObj(interp, errorMessage, -1),
+                    Jim_NewStringObj(interp, "with", -1),
+                    Jim_NewStringObj(interp, "info", -1),
+                    errorInfoObj
+                };
+                Jim_EvalObjVector(interp, 13, cmd);
+            }
+            tok = strtok(NULL, ",");
+        }
+        free(errorMessage);
+        free(trace);
     } else if (error == JIM_SIGNAL) {
         // FIXME: I think this is the only signal handler path that
         // actually runs mostly.
         interp->sigmask = 0;
         workerExit();
     }
+
+    matchCompleted(self->currentMatch);
+    matchRelease(db, self->currentMatch);
+    self->currentMatch = NULL;
 }
 
 // Caller is responsible for freeing passed in clauses
