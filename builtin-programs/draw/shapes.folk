@@ -169,7 +169,6 @@ fn drawShapePathPoints {points geom options} {
 
 When /wisher/ wishes /p/ draws a /shape/ with /...options/ &\
      /p/ has resolved geometry /geom/ {
-    try {
         if {![info exists options]} { return }
         set shape [drawShapeCanonical $shape $options]
         set center [drawShapePosition $options $geom]
@@ -220,9 +219,6 @@ When /wisher/ wishes /p/ draws a /shape/ with /...options/ &\
             Wish to draw a line onto $p with \
                 points $points width $thickness color $color layer $layer
         }
-    } on error {err opts} {
-        Say $wisher has error $err with info $opts
-    }
 }
 
 When /wisher/ wishes /p/ draws a /shape/ {
@@ -231,7 +227,6 @@ When /wisher/ wishes /p/ draws a /shape/ {
 
 When /wisher/ wishes /p/ draws text /text/ with /...options/ &\
      /p/ has resolved geometry /geom/ {
-    try {
         if {![info exists options]} { return }
         set position [drawShapePosition $options $geom]
         set color [dict getdef $options color white]
@@ -245,9 +240,6 @@ When /wisher/ wishes /p/ draws text /text/ with /...options/ &\
         Wish to draw text onto $p with \
             position $position scale $scale text $text \
             color $color radians $radians anchor $anchor font $font layer $layer
-    } on error {err opts} {
-        Say $wisher has error $err with info $opts
-    }
 }
 
 When /wisher/ wishes /p/ draws text /text/ {
@@ -256,7 +248,6 @@ When /wisher/ wishes /p/ draws text /text/ {
 
 When /wisher/ wishes /p/ draws a polyline /points/ with /...options/ &\
      /p/ has resolved geometry /geom/ {
-    try {
         if {![info exists options]} { return }
         set points [drawShapePathPoints $points $geom $options]
         set color [dict getdef $options color white]
@@ -281,9 +272,6 @@ When /wisher/ wishes /p/ draws a polyline /points/ with /...options/ &\
             Wish to draw a line onto $p with \
                 points $points width $width color $color layer $layer
         }
-    } on error {err opts} {
-        Say $wisher has error $err with info $opts
-    }
 }
 
 When /wisher/ wishes /p/ draws a polyline /points/ {
@@ -292,15 +280,11 @@ When /wisher/ wishes /p/ draws a polyline /points/ {
 
 When /wisher/ wishes /p/ draws a polygon /points/ with /...options/ &\
      /p/ has resolved geometry /geom/ {
-    try {
         if {![info exists options]} { return }
         set parsedPoints [drawShapePathPoints $points $geom $options]
         set color [dict getdef $options color white]
         set layer [dict getdef $options layer 1]
         Wish to draw a polygon onto $p with points $parsedPoints color $color layer $layer
-    } on error {err opts} {
-        Say $wisher has error $err with info $opts
-    }
 }
 
 When /wisher/ wishes /p/ draws a polygon /points/ {
@@ -309,7 +293,6 @@ When /wisher/ wishes /p/ draws a polygon /points/ {
 
 When /wisher/ wishes /p/ draws points /points/ with /...options/ &\
      /p/ has resolved geometry /geom/ {
-    try {
         if {![info exists options]} { return }
         set points [drawShapePathPoints $points $geom $options]
         set geomWidth [dict get $geom width]
@@ -326,9 +309,6 @@ When /wisher/ wishes /p/ draws points /points/ with /...options/ &\
                 center $point radius $radius thickness $thickness \
                 color $color filled $filled layer $layer
         }
-    } on error {err opts} {
-        Say $wisher has error $err with info $opts
-    }
 }
 
 When /wisher/ wishes /p/ draws points /points/ {
