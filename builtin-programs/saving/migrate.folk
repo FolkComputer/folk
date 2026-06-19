@@ -64,9 +64,13 @@ When the hold save directory is /holdDirectory/ &\
     set calibrationPoses [tryReadFile "$::env(HOME)/folk-live/folk-calibration-poses.txt"]
     set calibration [tryReadFile "$::env(HOME)/folk-live/folk-calibration-output.txt"]
     if {$calibrationPoses != "" && $calibration != ""} {
-        Hold! -save -on calibration -key calibration \
+        Hold! -save -on calibration -key [list calibration \
+                                              [dict get $calibration camera name] \
+                                              [dict get $calibration projector name]] \
             Claim the calibration is $calibration
-        Hold! -save -on calibration -key poses \
+        Hold! -save -on calibration -key [list poses \
+                                              [dict get $calibration camera name] \
+                                              [dict get $calibration projector name]] \
             Claim the calibration poses are $calibrationPoses
     }
 

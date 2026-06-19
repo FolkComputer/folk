@@ -1,6 +1,7 @@
 When the jpeg library is /jpegLib/ {
     Wish the web server handles route {/apriltag-frame} with handler {
-        set frames [Query! camera /cam/ has frame /im/ at timestamp /ts/]
+        set camera [dict getdef $QUERY camera /any/]
+        set frames [Query! camera $camera has frame /im/ at timestamp /ts/]
         set frame [lindex $frames end]
         dict with frame {
             StatementAcquire! $__ref
@@ -13,7 +14,7 @@ When the jpeg library is /jpegLib/ {
             set imageData [read $fd $fsize]
             close $fd
 
-            set tags [Query! tag /id/ has detection /det/ on camera $cam \
+            set tags [Query! tag /id/ has detection /det/ on camera $camera \
                           at timestamp $ts]
             puts "Tags: $tags"
 
