@@ -86,7 +86,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
     # The poses to use for actual calibration at the end. We'll want
     # at least 10 poses to do ultimate calibration+refinement.
-    Hold! -on calibration -key poses \
+    Hold! -on calibration -key [list poses $camera $display] \
         Claim the calibration poses from camera $camera to display $display are [list]
 
     Hold! -key cycle-time \
@@ -385,7 +385,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # OK, let's save this calibration pose.
         lappend calibrationPoses $pose
         puts "calibrate: APPENDED CALIBRATION TO POSES ([llength $calibrationPoses] poses collected)"
-        Hold! -on calibration -key poses \
+        Hold! -on calibration -key [list poses $camera $display] \
             -version $nextModelFrameTimestamp \
             Claim the calibration poses from camera $camera to display $display are $calibrationPoses
 
@@ -400,10 +400,14 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             Hold! -save -on calibration -key calibration-measurements \
                 Claim the calibration measurements are $measurements
 
-            Hold! -save -on calibration -key poses \
+            # Wipe any old-key (unscoped) calibration data.
+            Hold! -save -on calibration -key poses {}
+            Hold! -save -on calibration -key calibration {}
+
+            Hold! -save -on calibration -key [list poses $camera $display] \
                 Claim the calibration poses from camera $camera to display $display are $calibrationPoses
             # Destroy the old calibration and trigger a new one.
-            Hold! -save -on calibration -key calibration {}
+            Hold! -save -on calibration -key [list calibration $camera $display] {}
 
             Hold! -key {start calibration} {}
         }
@@ -718,6 +722,6 @@ When the calibration model library is /modelLib/ &\
     puts $calibration
     puts "."
 
-    Hold! -save -on calibration -key calibration \
+    Hold! -save -on calibration -key [list calibration $camera $display] \
         Claim a calibration from camera $camera to display $display is $calibration
 }

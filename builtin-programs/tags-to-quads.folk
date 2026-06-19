@@ -736,7 +736,13 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             add [matmul $R $v] $t
         }]
         set quad [$quadLib create $camera $vertices]
-        Claim tag $tag has quad $quad
+
+        set isSecondary [Query! camera $camera is a secondary camera]
+        if {[llength $isSecondary] == 0} {
+            Claim tag $tag has quad $quad
+        } else {
+            Claim tag $tag has secondary quad $quad
+        }
     }
 }
 
