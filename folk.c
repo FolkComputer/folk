@@ -539,7 +539,7 @@ static int __statementOfCurrentMatchSourceInfoFunc(Jim_Interp *interp, int argc,
         return JIM_OK;
     }
 
-    const char* fileName = statementSourceFileName(stmt);
+    const char* fileName = statementCausalityFileName(stmt);
     int lineNumber = statementSourceLineNumber(stmt);
     Jim_Obj* result[2] = {
         Jim_NewStringObj(interp, fileName ? fileName : "", -1),

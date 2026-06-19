@@ -205,6 +205,9 @@ typedef struct Statement {
     char sourceFileName[100];
     int sourceLineNumber;
 
+    // The program that caused the chain of matches leading to this statement.
+    char causalityFileName[100];
+
     // Mutable statement properties:
     // -----
 
@@ -245,6 +248,8 @@ typedef struct Match {
     // workerThread is subject to termination signal (SIGUSR1) if the
     // match is removed.
     _Atomic bool isCompleted;
+
+    char causalityFileName[100];
 
     DestructorSet destructorSet;
     pthread_mutex_t destructorSetMutex;
@@ -467,7 +472,8 @@ StatementRef statementRef(Db* db, Statement* stmt) {
 static StatementRef statementNew(Db* db, Clause* clause,
                                  long keepMs, AtomicallyVersion* atomicallyVersion,
                                  const char* sourceFileName,
-                                 int sourceLineNumber) {
+                                 int sourceLineNumber,
+                                 const char* causalityFileName) {
     StatementRef ret;
     Statement* stmt = NULL;
 
@@ -521,6 +527,14 @@ static StatementRef statementNew(Db* db, Clause* clause,
              "%s", sourceFileName);
     stmt->sourceLineNumber = sourceLineNumber;
 
+    if (causalityFileName != NULL) {
+        snprintf(stmt->causalityFileName, sizeof(stmt->causalityFileName),
+                 "%s", causalityFileName);
+    } else {
+        snprintf(stmt->causalityFileName, sizeof(stmt->causalityFileName),
+                 "%s", sourceFileName);
+    }
+
     return ret;
 }
 
@@ -556,6 +570,10 @@ char* statementSourceFileName(Statement* stmt) {
 }
 int statementSourceLineNumber(Statement* stmt) {
     return stmt->sourceLineNumber;
+}
+
+char* statementCausalityFileName(Statement* stmt) {
+    return stmt->causalityFileName;
 }
 
 int statementIncompleteChildMatchesCount(Db* db, Statement* stmt) {
@@ -786,6 +804,8 @@ static MatchRef matchNew(Db* db,
     match->atomicallyVersion = atomicallyVersion;
     match->workerThreadIndex = workerThreadIndex;
     match->isCompleted = false;
+
+    memset(match->causalityFileName, 0, sizeof(match->causalityFileName));
 
     destructorSetInit(&match->destructorSet);
     pthread_mutex_init(&match->destructorSetMutex, NULL);
@@ -1237,7 +1257,8 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
     // Also transfers ownership of `clause` to the DB.
     StatementRef ref = statementNew(db, clause,
                                     keepMs, atomicallyVersion,
-                                    sourceFileName, sourceLineNumber);
+                                    sourceFileName, sourceLineNumber,
+                                    parentMatch ? parentMatch->causalityFileName : sourceFileName);
 
     // Now try to add to the trie: the trieAdd operation will
     // atomically detect if the clause is already present.
@@ -1392,6 +1413,12 @@ Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
                              &parentStatements[i]->destructorSet);
         pthread_mutex_unlock(&match->destructorSetMutex);
         pthread_mutex_unlock(&parentStatements[i]->destructorSetMutex);
+        
+        // Inherit causality from the last parent (usually the triggering statement).
+        if (i == nParents - 1) {
+            snprintf(match->causalityFileName, sizeof(match->causalityFileName),
+                     "%s", parentStatements[i]->causalityFileName);
+        }
     }
 
 done:

@@ -56,6 +56,7 @@ Clause* statementClause(Statement* stmt);
 AtomicallyVersion* statementAtomicallyVersion(Statement* stmt);
 char* statementSourceFileName(Statement* stmt);
 int statementSourceLineNumber(Statement* stmt);
+char* statementCausalityFileName(Statement* stmt);
 
 int statementIncompleteChildMatchesCount(Db* db, Statement* stmt);
 
