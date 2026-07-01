@@ -8,45 +8,60 @@ When /someone/ wishes to load the SAM2 segmenter &\
 
     set py [Uvx --with pillow --with torch --with numpy \
                 --with huggingface_hub \
-                --with "git+https://github.com/facebookresearch/sam2.git"]
+                --with "git+https://github.com/osnr/segment-anything-2-real-time.git"]
 
     defineImageArgtype $py
 
     $py exec {
-        print(f"sam2: Boot", file=sys.stderr)
+        import os
+        import sys
+        print(f"sam2: Boot (PID={os.getpid()})", file=sys.stderr)
 
         import torch
         import numpy as np
         import threading
-        from sam2.sam2_image_predictor import SAM2ImagePredictor
-        import sys
+        from huggingface_hub import hf_hub_download
+        from sam2.build_sam import build_sam2_camera_predictor
 
-        if torch.cuda.is_available():
-            device = "cuda"
-        elif torch.backends.mps.is_available():
-            device = "mps"
-        else:
-            device = "cpu"
+        if not torch.cuda.is_available():
+            raise RuntimeError("sam2: segment-anything-2-real-time requires CUDA for camera tracking")
 
-        print(f"sam2: Loading.", file=sys.stderr)
-        predictor = SAM2ImagePredictor.from_pretrained("facebook/sam2.1-hiera-small", device=device)
+        device = "cuda"
+        model_cfg = "configs/sam2.1/sam2.1_hiera_s.yaml"
+        checkpoint = hf_hub_download(
+            repo_id="facebook/sam2.1-hiera-small",
+            filename="sam2.1_hiera_small.pt",
+        )
+
+        print(f"sam2: Loading camera predictor.", file=sys.stderr)
+        predictor = build_sam2_camera_predictor(model_cfg, checkpoint, device=device)
+        predictor_initialized = False
         predictor_lock = threading.Lock()
         print(f"sam2: Using device: {device}", file=sys.stderr, flush=True)
     }
 
     $py def segment {Image image {list list num} pointCoords {list num} pointLabels} {
+        global predictor_initialized
         image_np = np.array(image.convert("RGB"))
-        with predictor_lock, torch.inference_mode():
-            predictor.set_image(image_np)
-            masks, scores, _ = predictor.predict(
-                point_coords=pointCoords,
-                point_labels=pointLabels,
-                multimask_output=True,
-            )
-        best = int(scores.argmax())
+        with predictor_lock, torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
+            if not predictor_initialized:
+                predictor.load_first_frame(image_np)
+                predictor_initialized = True
+                _, out_obj_ids, out_mask_logits = predictor.add_new_prompt(
+                    frame_idx=0,
+                    obj_id=1,
+                    points=pointCoords,
+                    labels=pointLabels,
+                )
+            else:
+                out_obj_ids, out_mask_logits = predictor.track(image_np)
+        if len(out_obj_ids) == 0:
+            return {"objIds": [], "masks": []}
+        masks = (out_mask_logits[:, 0] > 0).detach().cpu().numpy()
+        obj_ids = [int(obj_id) for obj_id in out_obj_ids]
         # Note: we spend 10-20ms just on serialization/deserialization
-        # of the mask (it's basically a whole image).
-        return {"mask": masks[best].tolist(), "score": float(scores[best])}
+        # of each mask (it's basically a whole image).
+        return {"objIds": obj_ids, "masks": masks.astype(int).tolist()}
     }
 
     fn SAM2 args { return [$py segment {*}$args] }
@@ -101,4 +116,3 @@ When /someone/ wishes to load the SAM2 segmenter &\
         Claim the SAM2 mask-to-image library is $maskToImageLib
     }
 }
-
