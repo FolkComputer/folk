@@ -96,6 +96,8 @@ When /someone/ wishes to load the SAM2 segmenter &\
                 Jim_Obj *firstRow = Jim_ListGetIndex(interp, mask, 0);
                 width = Jim_ListLength(interp, firstRow);
             }
+            FOLK_ENSURE(width == im.width);
+            FOLK_ENSURE(height == im.height);
 
             Image result = imageNew(im.width, im.height, im.components, im.uniq);
             for (int y = 0; y < height; y++) {
