@@ -1,6 +1,6 @@
 When the jpeg library is /jpegLib/ {
-    Wish the web server handles route {/camera-slice/(.+)$} with handler {
-        set id $1
+    Wish the web server handles route {/camera-slice/([^/]+)$} with handler {
+        set id [string map [list %20 " "] $1]
         Hold! -key [list camera-slice $id] Wish $id has camera slice
 
         set filename "/tmp/web-camera-slice-$id.jpg"
