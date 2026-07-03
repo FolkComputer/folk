@@ -27,6 +27,13 @@ When /someone/ wishes to load the SAM2 segmenter &\
         from omegaconf import OmegaConf
         from sam2.build_sam import _load_checkpoint
 
+        if torch.cuda.is_available():
+            device = "cuda"
+        elif torch.backends.mps.is_available():
+            device = "mps"
+        else:
+            device = "cpu"
+
         vendored_predictor_path = os.path.abspath("vendor/sam2_camera_predictor.py")
         vendored_predictor_module = "folk_sam2_camera_predictor"
         spec = importlib.util.spec_from_file_location(
@@ -42,7 +49,6 @@ When /someone/ wishes to load the SAM2 segmenter &\
         def build_sam2_camera_predictor(
             config_file,
             ckpt_path=None,
-            device="cuda",
             mode="eval",
             hydra_overrides_extra=[],
             apply_postprocessing=True,
@@ -77,10 +83,6 @@ When /someone/ wishes to load the SAM2 segmenter &\
                 model.eval()
             return model
 
-        if not torch.cuda.is_available():
-            raise RuntimeError("sam2: segment-anything-2-real-time requires CUDA for camera tracking")
-
-        device = "cuda"
         model_cfg = "configs/sam2.1/sam2.1_hiera_s.yaml"
         checkpoint = hf_hub_download(
             repo_id="facebook/sam2.1-hiera-small",
@@ -88,7 +90,7 @@ When /someone/ wishes to load the SAM2 segmenter &\
         )
 
         print(f"sam2: Loading camera predictor.", file=sys.stderr)
-        predictor = build_sam2_camera_predictor(model_cfg, checkpoint, device=device)
+        predictor = build_sam2_camera_predictor(model_cfg, checkpoint)
         predictor_initialized = False
         predictor_lock = threading.Lock()
         print(f"sam2: Using device: {device}", file=sys.stderr, flush=True)
