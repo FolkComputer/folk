@@ -16,6 +16,7 @@ When /someone/ wishes to load the SAM2 segmenter &\
         import os
         import sys
         import importlib.util
+        import struct
         print(f"sam2: Boot (PID={os.getpid()})", file=sys.stderr)
 
         import torch
@@ -111,57 +112,86 @@ When /someone/ wishes to load the SAM2 segmenter &\
                 )
             else:
                 out_obj_ids, out_mask_logits = predictor.track(image_np)
-        if len(out_obj_ids) == 0:
-            return {"objIds": [], "masks": []}
+
         masks = (out_mask_logits[:, 0] > 0).detach().cpu().numpy()
-        obj_ids = [int(obj_id) for obj_id in out_obj_ids]
-        # Note: we spend 10-20ms just on serialization/deserialization
-        # of each mask (it's basically a whole image).
-        return {"objIds": obj_ids, "masks": masks.astype(int).tolist()}
+        assert len(masks) == len(out_obj_ids), (
+            f"sam2: got {len(masks)} masks for {len(out_obj_ids)} object ids"
+        )
+
+        ret = bytearray()
+        ret.extend(struct.pack("<I", len(out_obj_ids)))
+
+        for idx, obj_id in enumerate(out_obj_ids):
+            mask = np.ascontiguousarray(masks[idx].astype(np.uint8) * 255)
+            mask_bytes = mask.tobytes()
+            ret.extend(struct.pack("<qI", int(obj_id), len(mask_bytes)))
+            ret.extend(mask_bytes)
+
+        return ret
     }
 
-    fn SAM2 args { return [$py segment {*}$args] }
+    fn SAM2 args {
+        set bytes [$py segment {*}$args]
+        set offset 0
+
+        if {[binary scan $bytes @${offset}i count] != 1} {
+            error "SAM2: could not decode object count"
+        }
+        incr offset 4
+
+        set ret {}
+        for {set i 0} {$i < $count} {incr i} {
+            if {[binary scan $bytes @${offset}q objId] != 1} {
+                error "SAM2: could not decode object id $i"
+            }
+            set objId [expr {int($objId)}]
+            incr offset 8
+
+            if {[binary scan $bytes @${offset}i maskLen] != 1} {
+                error "SAM2: could not decode mask length $i"
+            }
+            incr offset 4
+
+            set maskEnd [expr {$offset + $maskLen - 1}]
+            set maskBytes [string range $bytes $offset $maskEnd]
+            if {[string length $maskBytes] != $maskLen} {
+                error "SAM2: short mask payload $i"
+            }
+            incr offset $maskLen
+
+            lappend ret [list $objId $maskBytes]
+        }
+
+        if {$offset != [string length $bytes]} {
+            error "SAM2: trailing bytes after decode"
+        }
+        return $ret
+    }
     Claim the SAM2 segmenter is [fn SAM2]
 
     When the image library is /imageLib/ {
         set cc [C]
         $cc extend $imageLib
-        $cc proc maskToBinaryImage {Jim_Obj* mask} Image {
-            int height = Jim_ListLength(interp, mask);
-            int width = 0;
-            if (height > 0) {
-                Jim_Obj *firstRow = Jim_ListGetIndex(interp, mask, 0);
-                width = Jim_ListLength(interp, firstRow);
-            }
-
+        $cc proc maskToBinaryImage {int width int height Jim_Obj* mask} Image {
+            int maskLen = 0;
+            const uint8_t *maskData = (const uint8_t *)Jim_GetString(mask, &maskLen);
+            FOLK_ENSURE(maskLen == width * height);
             Image result = imageNew(width, height, 1, 0);
             for (int y = 0; y < height; y++) {
-                Jim_Obj *row = Jim_ListGetIndex(interp, mask, y);
                 for (int x = 0; x < width; x++) {
-                    Jim_Obj *elem = Jim_ListGetIndex(interp, row, x);
-                    double val; Jim_GetDouble(interp, elem, &val);
-                    result.data[y * result.bytesPerRow + x] = val > 0.5 ? 255 : 0;
+                    result.data[y * result.bytesPerRow + x] = maskData[y * width + x];
                 }
             }
             return result;
         }
         $cc proc applyMaskToImage {Image im Jim_Obj* mask} Image {
-            int height = Jim_ListLength(interp, mask);
-            int width = 0;
-            if (height > 0) {
-                Jim_Obj *firstRow = Jim_ListGetIndex(interp, mask, 0);
-                width = Jim_ListLength(interp, firstRow);
-            }
-            FOLK_ENSURE(width == im.width);
-            FOLK_ENSURE(height == im.height);
-
+            int maskLen = 0;
+            const uint8_t *maskData = (const uint8_t *)Jim_GetString(mask, &maskLen);
+            FOLK_ENSURE(maskLen == im.width * im.height);
             Image result = imageNew(im.width, im.height, im.components, im.uniq);
-            for (int y = 0; y < height; y++) {
-                Jim_Obj *row = Jim_ListGetIndex(interp, mask, y);
-                for (int x = 0; x < width; x++) {
-                    Jim_Obj *elem = Jim_ListGetIndex(interp, row, x);
-                    double val; Jim_GetDouble(interp, elem, &val);
-                    uint8_t m = val > 0.5 ? 255 : 0;
+            for (int y = 0; y < im.height; y++) {
+                for (int x = 0; x < im.width; x++) {
+                    uint8_t m = maskData[y * im.width + x];
                     for (int c = 0; c < im.components; c++) {
                         result.data[y * result.bytesPerRow + x * im.components + c] =
                             m ? im.data[y * im.bytesPerRow + x * im.components + c] : 0;

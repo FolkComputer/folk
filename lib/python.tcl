@@ -265,8 +265,12 @@ def handle_conn(conn):
                     parsed_args.append(arg.decode('utf-8'))
 
             result = func(*parsed_args)
-            send_frame(conn, b"ok")
-            send_frame(conn, json.dumps(result).encode('utf-8'))
+            if isinstance(result, (bytes, bytearray)):
+                send_frame(conn, b"okb")
+                send_frame(conn, result)
+            else:
+                send_frame(conn, b"ok")
+                send_frame(conn, json.dumps(result).encode('utf-8'))
             send_frame(conn, b"")
 
         except Exception as e:
@@ -360,6 +364,7 @@ proc unknown {fnName args} {
 
     lassign $response status value
     if {$status eq "error"} { error $value }
+    if {$status eq "okb"} { return $value }
     return [json::decode $value]
 }
 proc exec {code} {
