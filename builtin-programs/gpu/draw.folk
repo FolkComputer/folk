@@ -14,12 +14,18 @@ When the GPU library is /gpuLib/ &\
      the GPU Vulkan handle type definer is /defineVulkanHandleType/ &\
      the GPU texture library is /gpuTextureLib/ &\
      the GPU pipeline library is /pipelineLib/ &\
-     the GPU pipeline compiler library is /pipelineCompilerLib/ {
+     the GPU pipeline compiler library is /pipelineCompilerLib/ &\
+     the collected results for [list /someone/ wishes $::thisNode uses display /display/ with /...displayOpts/] \
+         are /useDisplays/ {
 
 fn defineVulkanHandleType
 
-# On macOS we always use GLFW; on Linux we use direct Vulkan display.
-set useGlfw [expr {$::tcl_platform(os) eq "darwin"}]
+set useGlfw false
+foreach result $useDisplays {
+    if {$result(display) eq "glfw"} {
+        set useGlfw true
+    }
+}
 
 set cc [C]
 $cc cflags -I./vendor
@@ -645,7 +651,7 @@ while true {
     }
 
     # Query active displays; init new ones on first sight.
-    foreach result [Query! /someone/ wishes $::thisNode uses display /display/ with /...displayOpts/] {
+    foreach result $useDisplays {
         set display [dict get $result display]
         set displayOpts [dict get $result displayOpts]
 
