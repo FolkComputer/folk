@@ -14,9 +14,13 @@ When the GPU library is /gpuLib/ &\
      the GPU Vulkan handle type definer is /defineVulkanHandleType/ &\
      the GPU texture library is /gpuTextureLib/ &\
      the GPU pipeline library is /pipelineLib/ &\
-     the GPU pipeline compiler library is /pipelineCompilerLib/ &\
-     the collected results for [list /someone/ wishes $::thisNode uses display /display/ with /...displayOpts/] \
-         are /useDisplays/ {
+     the GPU pipeline compiler library is /pipelineCompilerLib/ {
+
+# HACK: This isn't reactive because 1. we can't really rerun this
+# block because all the weird GPU initialization stuff, and 2. on
+# macOS, the reactivity is fake and wouldn't work.
+sleep 1
+set useDisplays [Query! /someone/ wishes $::thisNode uses display /display/ with /...displayOpts/]
 
 fn defineVulkanHandleType
 
