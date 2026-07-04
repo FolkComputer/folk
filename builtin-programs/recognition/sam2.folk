@@ -111,8 +111,10 @@ When /someone/ wishes to load the SAM2 segmenter &\
                     labels=pointLabels,
                 )
             else:
+                # takes ~25ms on folk-hex
                 out_obj_ids, out_mask_logits = predictor.track(image_np)
 
+        # takes ~40ms on folk-hex
         masks = (out_mask_logits[:, 0] > 0).detach().cpu().numpy()
         assert len(masks) == len(out_obj_ids), (
             f"sam2: got {len(masks)} masks for {len(out_obj_ids)} object ids"
