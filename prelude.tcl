@@ -912,11 +912,6 @@ signal handle SIGUSR1
 
 source "lib/python.tcl"
 
-# For backward-compatibility:
-proc Assert {args} {
-    puts stderr "Warning: Assert with no ! is deprecated: trying to [list Assert {*}$args]"
-    uplevel Assert! {*}$args
-}
 set ::isLaptop [expr {$::tcl_platform(os) eq "darwin" ||
                       ([info exists ::env(XDG_SESSION_TYPE)] &&
                        $::env(XDG_SESSION_TYPE) ne "tty")}]
