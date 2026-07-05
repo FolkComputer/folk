@@ -1,0 +1,20 @@
+# FIXME: how to define track target(s)
+
+set cc [C]
+$cc proc findMaskContours {Mask im} Jim_Obj* {
+    
+
+    Contour *contours = findContours(F, w, h);
+    free(F);
+}
+set sam2ContoursLib [$cc compile]
+
+When the SAM2 segmenter is /sam2/ &\
+     /someone/ wishes /p/ has SAM2 contours {
+
+    When -serially $p has camera slice /sl/ {
+        # Call sam2 on sl
+        # Get mask, convert to contours
+        # Claim out contours
+    }
+}
