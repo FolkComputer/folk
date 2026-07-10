@@ -42,7 +42,7 @@ When the codeToPostScript is /codeToPostScript/ &\
                          height [/ [lindex $fmt(pageSize) 1] $mToPt]]
     Claim $preview has resolved geometry $previewGeom
     When the quad library is /quadLib/ & $editor has quad /q/ {
-        Claim $preview has quad [$quadLib alignGeometry \
+        Claim $preview has quad [$quadLib createFromGeometry \
                                      [$quadLib move $q right 100%] \
                                      $previewGeom]
     }
