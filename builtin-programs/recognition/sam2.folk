@@ -286,13 +286,12 @@ When /someone/ wishes /page/ has a SAM2 object tracker &\
      the quad library is /quadLib/ {
     fn sam2Track
 
-    package require linalg
-    namespace import \
-        ::math::linearalgebra::sub \
-        ::math::linearalgebra::dotproduct
+    fn sam2PromptBbox {quadLib pageQuad geom slice prompt} {
+        package require linalg
+        namespace import \
+            ::math::linearalgebra::sub \
+            ::math::linearalgebra::dotproduct
 
-    fn sam2PromptBbox {quadLib quadChange pageQuad geom slice prompt} {
-        set prompt [{*}$quadChange $prompt [$quadLib space $pageQuad]]
         lassign [$quadLib vertices $pageQuad] topLeft topRight bottomRight bottomLeft
 
         set xAxis [sub $topRight $topLeft]
@@ -313,10 +312,10 @@ When /someone/ wishes /page/ has a SAM2 object tracker &\
                 set minY $y; set maxY $y
                 set first 0
             } else {
-                set minX [expr {min($minX, $x)}]
-                set maxX [expr {max($maxX, $x)}]
-                set minY [expr {min($minY, $y)}]
-                set maxY [expr {max($maxY, $y)}]
+                if {$x < $minX} { set minX $x }
+                if {$x > $maxX} { set maxX $x }
+                if {$y < $minY} { set minY $y }
+                if {$y > $maxY} { set maxY $y }
             }
         }
 
@@ -343,13 +342,13 @@ When /someone/ wishes /page/ has a SAM2 object tracker &\
         set sam2Ids {}
         set bboxes {}
         set idBySam2Id [dict create]
-        set sam2Id 1
+        set sam2Id 0
         set ids [lsort [dict keys $promptsById]]
         foreach id $ids {
             lappend sam2Ids $sam2Id
+            set prompt [quadChange [dict get $promptsById $id] [$quadLib space $pageQuad]]
             lappend bboxes [sam2PromptBbox \
-                $quadLib [fn quadChange] $pageQuad $geom $slice \
-                [dict get $promptsById $id]]
+                $quadLib $pageQuad $geom $slice $prompt]
             dict set idBySam2Id $sam2Id $id
             incr sam2Id
         }
@@ -360,14 +359,12 @@ When /someone/ wishes /page/ has a SAM2 object tracker &\
 
         foreach object $objects {
             lassign $object sam2Id mask
-            if {![dict exists $idBySam2Id $sam2Id]} { continue }
             set id [dict get $idBySam2Id $sam2Id]
 
             set contours [$sam2ContoursLib findMaskContours \
                 $slice(width) $slice(height) $mask \
                 1.0 $scaleX $scaleY]
 
-            puts stderr "Contour found for $id"
             Hold! -key [list sam2 track contours $page $id] \
                 Claim $id has contours $contours in $page
         }
