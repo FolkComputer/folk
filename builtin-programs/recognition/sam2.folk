@@ -1,8 +1,8 @@
 When when the SAM2 segmenter is /any/ /any/ with environment /any/ {
-    Wish -keep 500ms to load the SAM2 segmenter
+    Wish -keep 500ms to load SAM2
 }
 
-When /someone/ wishes to load the SAM2 segmenter &\
+When /someone/ wishes to load SAM2 &\
      the image uvx argtype definer is /defineImageArgtype/ {
     fn defineImageArgtype
 
@@ -93,6 +93,7 @@ When /someone/ wishes to load the SAM2 segmenter &\
         print(f"sam2: Loading camera predictor.", file=sys.stderr)
         predictor = build_sam2_camera_predictor(model_cfg, checkpoint)
         predictor_initialized = False
+        predictor_prompt_bboxes = []
         predictor_lock = threading.Lock()
         print(f"sam2: Using device: {device}", file=sys.stderr, flush=True)
     }
@@ -132,8 +133,65 @@ When /someone/ wishes to load the SAM2 segmenter &\
         return ret
     }
 
-    fn SAM2 args {
-        set bytes [$py segment {*}$args]
+    $py def trackObjects {Image image {list num} objIds {list list num} promptBboxes} {
+        global predictor_initialized
+        global predictor_prompt_bboxes
+        image_np = np.array(image.convert("RGB"))
+
+        if len(objIds) != len(promptBboxes):
+            raise ValueError(
+                f"sam2: got {len(objIds)} object ids and {len(promptBboxes)} prompts"
+            )
+
+        objIds = [int(obj_id) for obj_id in objIds]
+        promptBboxes = [list(map(float, bbox)) for bbox in promptBboxes]
+
+        with predictor_lock, torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
+            existing_obj_ids = []
+            if predictor_initialized:
+                existing_obj_ids = list(predictor.condition_state.get("obj_ids", []))
+
+            # The vendored camera predictor cannot add a new target after tracking
+            # has started. Restart the tracking state whenever the requested object
+            # set changes; callers keep object identity through objIds.
+            if (
+                (not predictor_initialized)
+                or existing_obj_ids != objIds
+                or predictor_prompt_bboxes != promptBboxes
+            ):
+                predictor.load_first_frame(image_np)
+                predictor_initialized = True
+                predictor_prompt_bboxes = promptBboxes
+
+                out_obj_ids = []
+                out_mask_logits = []
+                for obj_id, bbox in zip(objIds, promptBboxes):
+                    _, out_obj_ids, out_mask_logits = predictor.add_new_prompt(
+                        frame_idx=0,
+                        obj_id=obj_id,
+                        bbox=bbox,
+                    )
+            else:
+                out_obj_ids, out_mask_logits = predictor.track(image_np)
+
+        masks = (out_mask_logits[:, 0] > 0).detach().cpu().numpy()
+        assert len(masks) == len(out_obj_ids), (
+            f"sam2: got {len(masks)} masks for {len(out_obj_ids)} object ids"
+        )
+
+        ret = bytearray()
+        ret.extend(struct.pack("<I", len(out_obj_ids)))
+
+        for idx, obj_id in enumerate(out_obj_ids):
+            mask = np.ascontiguousarray(masks[idx].astype(np.uint8) * 255)
+            mask_bytes = mask.tobytes()
+            ret.extend(struct.pack("<qI", int(obj_id), len(mask_bytes)))
+            ret.extend(mask_bytes)
+
+        return ret
+    }
+
+    fn decodeSAM2Masks {bytes} {
         set offset 0
 
         if {[binary scan $bytes @${offset}i count] != 1} {
@@ -169,7 +227,17 @@ When /someone/ wishes to load the SAM2 segmenter &\
         }
         return $ret
     }
+
+    fn decodeSAM2Masks
+
+    fn SAM2 args {
+        decodeSAM2Masks [$py segment {*}$args]
+    }
+    fn SAM2Track args {
+        decodeSAM2Masks [$py trackObjects {*}$args]
+    }
     Claim the SAM2 segmenter is [fn SAM2]
+    Claim the SAM2 object tracker is [fn SAM2Track]
 
     When the image library is /imageLib/ {
         set cc [C]
@@ -204,5 +272,104 @@ When /someone/ wishes to load the SAM2 segmenter &\
         }
         set maskToImageLib [$cc compile]
         Claim the SAM2 mask-to-image library is $maskToImageLib
+    }
+}
+
+When /anyone/ wishes /page/ tracks object /id/ with prompt /prompt/ {
+    Wish -keep 400ms $page has a SAM2 object tracker
+    Wish -keep 400ms to load SAM2
+}
+
+When /someone/ wishes /page/ has a SAM2 object tracker &\
+     the SAM2 object tracker is /sam2Track/ &\
+     the SAM2 contours library is /sam2ContoursLib/ &\
+     the quad library is /quadLib/ {
+    fn sam2Track
+
+    package require linalg
+    namespace import \
+        ::math::linearalgebra::sub \
+        ::math::linearalgebra::dotproduct
+
+    fn sam2PromptBbox {quadLib quadChange pageQuad geom slice prompt} {
+        set prompt [{*}$quadChange $prompt [$quadLib space $pageQuad]]
+        lassign [$quadLib vertices $pageQuad] topLeft topRight bottomRight bottomLeft
+
+        set xAxis [sub $topRight $topLeft]
+        set yAxis [sub $bottomLeft $topLeft]
+        set xDen [dotproduct $xAxis $xAxis]
+        set yDen [dotproduct $yAxis $yAxis]
+
+        set first 1
+        foreach v [$quadLib vertices $prompt] {
+            set delta [sub $v $topLeft]
+            set pageX [expr {[dotproduct $delta $xAxis] / $xDen * $geom(width)}]
+            set pageY [expr {[dotproduct $delta $yAxis] / $yDen * $geom(height)}]
+            set x [expr {$pageX / $geom(width) * $slice(width)}]
+            set y [expr {$pageY / $geom(height) * $slice(height)}]
+
+            if {$first} {
+                set minX $x; set maxX $x
+                set minY $y; set maxY $y
+                set first 0
+            } else {
+                set minX [expr {min($minX, $x)}]
+                set maxX [expr {max($maxX, $x)}]
+                set minY [expr {min($minY, $y)}]
+                set maxY [expr {max($maxY, $y)}]
+            }
+        }
+
+        return [list $minX $minY $maxX $maxY]
+    }
+
+    When $page has resolved geometry /geom/ &\
+         the quad changer is /quadChange/ &\
+         -serially $page has camera slice /slice/ {
+        fn quadChange
+
+        set promptResults [Query! /anyone/ wishes $page tracks object /id/ with prompt /prompt/]
+        if {[llength $promptResults] == 0} { return }
+
+        Require! $page has quad /pageQuad/
+
+        set promptsById [dict create]
+        foreach result $promptResults {
+            dict with result {
+                dict set promptsById $id $prompt
+            }
+        }
+
+        set sam2Ids {}
+        set bboxes {}
+        set idBySam2Id [dict create]
+        set sam2Id 1
+        set ids [lsort [dict keys $promptsById]]
+        foreach id $ids {
+            lappend sam2Ids $sam2Id
+            lappend bboxes [sam2PromptBbox \
+                $quadLib [fn quadChange] $pageQuad $geom $slice \
+                [dict get $promptsById $id]]
+            dict set idBySam2Id $sam2Id $id
+            incr sam2Id
+        }
+
+        set objects [sam2Track $slice $sam2Ids $bboxes]
+        set scaleX [expr {double($geom(width)) / double($slice(width))}]
+        set scaleY [expr {double($geom(height)) / double($slice(height))}]
+
+        foreach object $objects {
+            lassign $object sam2Id mask
+            if {![dict exists $idBySam2Id $sam2Id]} { continue }
+            set id [dict get $idBySam2Id $sam2Id]
+
+            set contours [$sam2ContoursLib findMaskContours \
+                $slice(width) $slice(height) $mask \
+                1.0 $scaleX $scaleY]
+
+            puts stderr "Contour found for $id"
+            Hold! -key [list sam2 track contours $page $id] \
+                Claim $id has contours $contours in $page
+        }
     }
 }
