@@ -335,7 +335,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                       rmse $poseRmse \
                       tags [dict merge $printedTags $projectedTags]]
 
-        Expect! the calibration last-seen poses are /seenPoses/
+        Require! the calibration last-seen poses are /seenPoses/
         lappend seenPoses $pose
         if {[llength $seenPoses] > $SEEN_POSES_MAX} {
             set seenPoses [lreplace $seenPoses 0 0]
@@ -367,7 +367,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # If the corners have _not_ moved a lot since last _saved_
         # calibration pose, this isn't different enough to be a good
         # calibration pose to save.
-        Expect! the calibration poses from camera $camera to display $display are /calibrationPoses/
+        Require! the calibration poses from camera $camera to display $display are /calibrationPoses/
         if {[llength $calibrationPoses] > 0} {
             set prevCalibrationPose [lindex $calibrationPoses end]
             if {[$modelLib meanTagsDifference $pose(tags) $prevCalibrationPose(tags)] < 50} {

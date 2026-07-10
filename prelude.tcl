@@ -727,7 +727,7 @@ proc QueryOne! {args} {
         }
     }
 
-    set results [Query! {*}$args]
+    set results [Query! {*}$pattern]
     if {[llength $results] == 0 && [info exists default]} {
         return $default
     }
@@ -735,20 +735,41 @@ proc QueryOne! {args} {
         error "QueryOne! of ($args) had [llength $results] results. Should be one result!"
     }
 
-    if {{/./} in $args} {
+    if {{/./} in $pattern} {
         return [dict get [lindex $results 0] .]
     }
     return [lindex $results 0]
 }
 
-# Like QueryOne!, but introduces the bindings directly into caller
-# scope.
+# Sort of like QueryOne!, but introduces the bindings directly into
+# caller scope. Unlike Expect!, this samples the db once and errors
+# unless there is exactly one result.
+proc Require! {args} {
+    dict for {k v} [QueryOne! {*}$args] {
+        uplevel [list set $k $v]
+    }
+}
+
+# Sort of like QueryOne!, but introduces the bindings directly into
+# caller scope.
 #
 #     Expect! the dog is /val/
 #     puts $val ;# -> cool
 #
+# Also polls and retries if there are 0 results.
 proc Expect! {args} {
-    dict for {k v} [QueryOne! {*}$args] {
+    set results [list]
+    while {[llength $results] != 1} {
+        set results [Query! {*}$args]
+        if {[llength $results] > 1} {
+            error "Expect!: More than 1 result for ($args)"
+        }
+        if {[llength $results] == 0} {
+            sleep 0.1
+        }
+    }
+
+    dict for {k v} [lindex $results 0] {
         uplevel [list set $k $v]
     }
 }
