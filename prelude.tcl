@@ -750,8 +750,8 @@ proc Require! {args} {
     }
 }
 
-# Sort of like QueryOne!, but introduces the bindings directly into
-# caller scope.
+# Sort of like QueryOne!, but picks an arbitrary result if >1 result,
+# and introduces the bindings directly into caller scope.
 #
 #     Expect! the dog is /val/
 #     puts $val ;# -> cool
@@ -759,11 +759,8 @@ proc Require! {args} {
 # Also polls and retries if there are 0 results.
 proc Expect! {args} {
     set results [list]
-    while {[llength $results] != 1} {
+    while {[llength $results] == 0} {
         set results [Query! {*}$args]
-        if {[llength $results] > 1} {
-            error "Expect!: More than 1 result for ($args)"
-        }
         if {[llength $results] == 0} {
             sleep 0.1
         }
