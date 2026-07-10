@@ -235,10 +235,21 @@ set quadLib [library create quadLib {} {
     # the drawing APIs, etc).
     proc pointToXY {q xyz} {
         lassign [vertices $q] topLeft topRight bottomRight bottomLeft
+        set width [norm [sub $topRight $topLeft]]
+        set height [norm [sub $bottomLeft $topLeft]]
         set xAxis [unitLengthVector [sub $topRight $topLeft]]
         set yAxis [unitLengthVector [sub $bottomLeft $topLeft]]
         set delta [sub $xyz $topLeft]
-        return [list [dotproduct $delta $xAxis] [dotproduct $delta $yAxis]]
+        set x [dotproduct $delta $xAxis]
+        set y [dotproduct $delta $yAxis]
+
+        set eps 0.000001
+        if {$x < -$eps || $x > $width + $eps ||
+            $y < -$eps || $y > $height + $eps} {
+            error "quad pointToXY: point $xyz projects outside quad bounds as {$x $y}; bounds are {0 0} {$width $height}"
+        }
+
+        return [list $x $y]
     }
 }]
 Claim the quad library is $quadLib
