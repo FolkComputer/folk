@@ -127,7 +127,7 @@ When /someone/ wishes to load SAM2 &\
         for idx, obj_id in enumerate(out_obj_ids):
             mask = np.ascontiguousarray(masks[idx].astype(np.uint8) * 255)
             mask_bytes = mask.tobytes()
-            ret.extend(struct.pack("<qI", int(obj_id), len(mask_bytes)))
+            ret.extend(struct.pack("<iI", int(obj_id), len(mask_bytes)))
             ret.extend(mask_bytes)
 
         return ret
@@ -173,6 +173,20 @@ When /someone/ wishes to load SAM2 &\
                         points=[point],
                         labels=[1],
                     )
+
+                # add_new_prompt returns a useful preview for the prompt just added,
+                # but for multi-object initialization we need the consolidated mask
+                # batch after every prompt has been registered.
+                consolidated_out = predictor._consolidate_temp_output_across_obj(
+                    frame_idx=0,
+                    is_cond=True,
+                    run_mem_encoder=False,
+                    consolidate_at_video_res=True,
+                )
+                _, out_mask_logits = predictor._get_orig_video_res_output(
+                    consolidated_out["pred_masks_video_res"]
+                )
+                out_obj_ids = list(predictor.condition_state["obj_ids"])
             else:
                 out_obj_ids, out_mask_logits = predictor.track(image_np)
 
@@ -187,7 +201,7 @@ When /someone/ wishes to load SAM2 &\
         for idx, obj_id in enumerate(out_obj_ids):
             mask = np.ascontiguousarray(masks[idx].astype(np.uint8) * 255)
             mask_bytes = mask.tobytes()
-            ret.extend(struct.pack("<qI", int(obj_id), len(mask_bytes)))
+            ret.extend(struct.pack("<iI", int(obj_id), len(mask_bytes)))
             ret.extend(mask_bytes)
 
         return ret
@@ -203,11 +217,11 @@ When /someone/ wishes to load SAM2 &\
 
         set ret {}
         for {set i 0} {$i < $count} {incr i} {
-            if {[binary scan $bytes @${offset}q objId] != 1} {
+            if {[binary scan $bytes @${offset}i objId] != 1} {
                 error "SAM2: could not decode object id $i"
             }
             set objId [expr {int($objId)}]
-            incr offset 8
+            incr offset 4
 
             if {[binary scan $bytes @${offset}i maskLen] != 1} {
                 error "SAM2: could not decode mask length $i"
