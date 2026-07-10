@@ -196,6 +196,13 @@ import time
 folk_pid = $folkPid
 uvx_parent_pid = os.getppid()
 
+def process_is_zombie(pid):
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            return f.read().split()[2] == "Z"
+    except OSError:
+        return False
+
 def exit_when_parent_is_gone():
     while True:
         time.sleep(1)
@@ -204,6 +211,8 @@ def exit_when_parent_is_gone():
         try:
             os.kill(folk_pid, 0)
         except OSError:
+            os._exit(0)
+        if process_is_zombie(folk_pid):
             os._exit(0)
 
 threading.Thread(target=exit_when_parent_is_gone, daemon=True).start()
