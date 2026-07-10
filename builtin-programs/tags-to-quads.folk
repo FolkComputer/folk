@@ -410,6 +410,7 @@ set quadLib [library create quadLib {} {
         ::math::linearalgebra::matmul \
         ::math::linearalgebra::sub \
         ::math::linearalgebra::norm \
+        ::math::linearalgebra::dotproduct \
         ::math::linearalgebra::unitLengthVector \
         ::math::linearalgebra::scale
     rename scale scaleVector
@@ -417,6 +418,14 @@ set quadLib [library create quadLib {} {
     proc create {space vertices} { list $space $vertices }
     proc space {q} { lindex $q 0 }
     proc vertices {q} { lindex $q 1 }
+
+    # Returns an {x y z} point in the space of the quad.
+    proc centroid {q} {
+        lassign [vertices $q] topLeft topRight bottomRight bottomLeft
+        return [::math::linearalgebra::scale 0.25 \
+                    [add [add $topLeft $bottomRight] \
+                         [add $topRight $bottomLeft]]]
+    }
 
     # Scales about the centroid of the quad, along the width and height
     # directions of the quad. You can scale by a percentage or set a specific length
@@ -461,11 +470,8 @@ set quadLib [library create quadLib {} {
             }
         }
 
-        # Calculate the centroid
-        set c [::math::linearalgebra::scale 0.25 \
-                   [add [add $topLeft $bottomRight] \
-                        [add $topRight $bottomLeft]]]
-        
+        set c [centroid $q]
+
         # Calculate width and height vectors from the quad's actual orientation
         # Width goes from left to right (topLeft -> topRight, bottomLeft -> bottomRight)  
         # Height goes from top to bottom (topLeft -> bottomLeft, topRight -> bottomRight)
@@ -616,9 +622,9 @@ set quadLib [library create quadLib {} {
         return [create [space $q] [list $topLeft $topRight $bottomRight $bottomLeft]]
     }
 
-    # Move an existing geometry geom (object with width and height
-    # keys) to align onto the plane & the top edge & left edge of the
-    # existing quad q.
+    # Creates a new quad from an existing geometry geom (object with
+    # width and height keys) by aligning geom onto the plane & the top
+    # edge & left edge of the existing quad q.
     proc alignGeometry {q geom} {
         lassign [vertices $q] topLeft topRight bottomRight bottomLeft
         set topDisp [scaleVector $geom(width) [unitLengthVector [sub $topRight $topLeft]]]
@@ -627,6 +633,17 @@ set quadLib [library create quadLib {} {
         set bottomRight [add $topRight $leftDisp]
         set bottomLeft [add $topLeft $leftDisp]
         return [create [space $q] [list $topLeft $topRight $bottomRight $bottomLeft]]
+    }
+
+    # Take a {x y z} point in the same space as the quad and project
+    # it down onto a {top left} point on the quad (that can be used in
+    # the drawing APIs, etc).
+    proc pointToXY {q xyz} {
+        lassign [vertices $q] topLeft topRight bottomRight bottomLeft
+        set xAxis [unitLengthVector [sub $topRight $topLeft]]
+        set yAxis [unitLengthVector [sub $bottomLeft $topLeft]]
+        set delta [sub $xyz $topLeft]
+        list [dotproduct $delta $xAxis] [dotproduct $delta $yAxis]
     }
 }]
 Claim the quad library is $quadLib
