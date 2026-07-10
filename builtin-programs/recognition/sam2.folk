@@ -93,7 +93,7 @@ When /someone/ wishes to load SAM2 &\
         print(f"sam2: Loading camera predictor.", file=sys.stderr)
         predictor = build_sam2_camera_predictor(model_cfg, checkpoint)
         predictor_initialized = False
-        predictor_prompt_points = []
+        predictor_prompt_points = {}
         predictor_lock = threading.Lock()
         print(f"sam2: Using device: {device}", file=sys.stderr, flush=True)
     }
@@ -151,18 +151,12 @@ When /someone/ wishes to load SAM2 &\
             if predictor_initialized:
                 existing_obj_ids = list(predictor.condition_state.get("obj_ids", []))
 
-            # The vendored camera predictor cannot add a new target after tracking
-            # has started. Restart the tracking state whenever the requested object
-            # set changes; callers keep object identity through objIds.
-            if (
-                (not predictor_initialized)
-                or existing_obj_ids != objIds
-                or predictor_prompt_points != promptPoints
-            ):
+            removed_obj_ids = set(existing_obj_ids) - set(objIds)
+            if (not predictor_initialized) or removed_obj_ids:
                 print("======= RESTART =========")
                 predictor.load_first_frame(image_np)
                 predictor_initialized = True
-                predictor_prompt_points = promptPoints
+                predictor_prompt_points = {}
 
                 out_obj_ids = []
                 out_mask_logits = []
@@ -173,6 +167,7 @@ When /someone/ wishes to load SAM2 &\
                         points=[point],
                         labels=[1],
                     )
+                    predictor_prompt_points[obj_id] = point
 
                 # add_new_prompt returns a useful preview for the prompt just added,
                 # but for multi-object initialization we need the consolidated mask
@@ -188,7 +183,24 @@ When /someone/ wishes to load SAM2 &\
                 )
                 out_obj_ids = list(predictor.condition_state["obj_ids"])
             else:
-                out_obj_ids, out_mask_logits = predictor.track(image_np)
+                prompt_updates = [
+                    (obj_id, point)
+                    for obj_id, point in zip(objIds, promptPoints)
+                    if predictor_prompt_points.get(obj_id) != point
+                ]
+                if prompt_updates:
+                    frame_idx = predictor.load_prompt_frame(image_np)
+                    for obj_id, point in prompt_updates:
+                        predictor.add_new_prompt(
+                            frame_idx=frame_idx,
+                            obj_id=obj_id,
+                            points=[point],
+                            labels=[1],
+                        )
+                        predictor_prompt_points[obj_id] = point
+                    out_obj_ids, out_mask_logits = predictor.track_current_frame()
+                else:
+                    out_obj_ids, out_mask_logits = predictor.track(image_np)
 
         masks = (out_mask_logits[:, 0] > 0).detach().cpu().numpy()
         assert len(masks) == len(out_obj_ids), (
@@ -343,6 +355,7 @@ When /someone/ wishes /page/ has a SAM2 object tracker &\
         set scaleX [expr {double($geom(width)) / double($slice(width))}]
         set scaleY [expr {double($geom(height)) / double($slice(height))}]
         Expect! the SAM2 mask-to-image library is /mtiLib/
+        Expect! the image library is /imageLib/
 
         foreach object $objects {
             lassign $object sam2Id mask
@@ -358,7 +371,7 @@ When /someone/ wishes /page/ has a SAM2 object tracker &\
             set maskedIm [$mtiLib applyMaskToImage $slice $mask]
             Hold! -key [list sam2 track masked-image $page $id] \
                 Claim $id has SAM2 masked image $maskedIm in $page \
-                    -destructor [list $mtiLib imageFree $maskedIm]
+                    -destructor [list $imageLib imageFree $maskedIm]
         }
     }
 
