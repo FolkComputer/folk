@@ -93,7 +93,7 @@ When /someone/ wishes to load SAM2 &\
         print(f"sam2: Loading camera predictor.", file=sys.stderr)
         predictor = build_sam2_camera_predictor(model_cfg, checkpoint)
         predictor_initialized = False
-        predictor_prompt_bboxes = []
+        predictor_prompt_points = []
         predictor_lock = threading.Lock()
         print(f"sam2: Using device: {device}", file=sys.stderr, flush=True)
     }
@@ -133,18 +133,18 @@ When /someone/ wishes to load SAM2 &\
         return ret
     }
 
-    $py def trackObjects {Image image {list num} objIds {list list num} promptBboxes} {
+    $py def trackObjects {Image image {list num} objIds {list list num} promptPoints} {
         global predictor_initialized
-        global predictor_prompt_bboxes
+        global predictor_prompt_points
         image_np = np.array(image.convert("RGB"))
 
-        if len(objIds) != len(promptBboxes):
+        if len(objIds) != len(promptPoints):
             raise ValueError(
-                f"sam2: got {len(objIds)} object ids and {len(promptBboxes)} prompts"
+                f"sam2: got {len(objIds)} object ids and {len(promptPoints)} prompts"
             )
 
         objIds = [int(obj_id) for obj_id in objIds]
-        promptBboxes = [list(map(float, bbox)) for bbox in promptBboxes]
+        promptPoints = [list(map(float, point)) for point in promptPoints]
 
         with predictor_lock, torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
             existing_obj_ids = []
@@ -157,19 +157,21 @@ When /someone/ wishes to load SAM2 &\
             if (
                 (not predictor_initialized)
                 or existing_obj_ids != objIds
-                or predictor_prompt_bboxes != promptBboxes
+                or predictor_prompt_points != promptPoints
             ):
+                print("======= RESTART =========")
                 predictor.load_first_frame(image_np)
                 predictor_initialized = True
-                predictor_prompt_bboxes = promptBboxes
+                predictor_prompt_points = promptPoints
 
                 out_obj_ids = []
                 out_mask_logits = []
-                for obj_id, bbox in zip(objIds, promptBboxes):
+                for obj_id, point in zip(objIds, promptPoints):
                     _, out_obj_ids, out_mask_logits = predictor.add_new_prompt(
                         frame_idx=0,
                         obj_id=obj_id,
-                        bbox=bbox,
+                        points=[point],
+                        labels=[1],
                     )
             else:
                 out_obj_ids, out_mask_logits = predictor.track(image_np)
@@ -275,6 +277,13 @@ When /someone/ wishes to load SAM2 &\
     }
 }
 
+When /x/ wishes /page/ tracks object /id/ with prompt /any/ {
+    When $id has contours /any/ in $page {
+        Wish $x is outlined green
+    }
+}
+
+
 When /anyone/ wishes /page/ tracks object /id/ with prompt /prompt/ {
     Wish -keep 400ms $page has a SAM2 object tracker
     Wish -keep 400ms to load SAM2
@@ -282,55 +291,19 @@ When /anyone/ wishes /page/ tracks object /id/ with prompt /prompt/ {
 
 When /someone/ wishes /page/ has a SAM2 object tracker &\
      the SAM2 object tracker is /sam2Track/ &\
-     the SAM2 contours library is /sam2ContoursLib/ &\
-     the quad library is /quadLib/ {
+     the SAM2 contours library is /sam2ContoursLib/ {
     fn sam2Track
 
-    fn sam2PromptBbox {quadLib pageQuad geom slice prompt} {
-        package require linalg
-        namespace import \
-            ::math::linearalgebra::sub \
-            ::math::linearalgebra::dotproduct
-
-        lassign [$quadLib vertices $pageQuad] topLeft topRight bottomRight bottomLeft
-
-        set xAxis [sub $topRight $topLeft]
-        set yAxis [sub $bottomLeft $topLeft]
-        set xDen [dotproduct $xAxis $xAxis]
-        set yDen [dotproduct $yAxis $yAxis]
-
-        set first 1
-        foreach v [$quadLib vertices $prompt] {
-            set delta [sub $v $topLeft]
-            set pageX [expr {[dotproduct $delta $xAxis] / $xDen * $geom(width)}]
-            set pageY [expr {[dotproduct $delta $yAxis] / $yDen * $geom(height)}]
-            set x [expr {$pageX / $geom(width) * $slice(width)}]
-            set y [expr {$pageY / $geom(height) * $slice(height)}]
-
-            if {$first} {
-                set minX $x; set maxX $x
-                set minY $y; set maxY $y
-                set first 0
-            } else {
-                if {$x < $minX} { set minX $x }
-                if {$x > $maxX} { set maxX $x }
-                if {$y < $minY} { set minY $y }
-                if {$y > $maxY} { set maxY $y }
-            }
-        }
-
-        return [list $minX $minY $maxX $maxY]
+    fn sam2PromptPoint {geom slice prompt} {
+        set x [expr {[lindex $prompt 0] / $geom(width) * $slice(width)}]
+        set y [expr {[lindex $prompt 1] / $geom(height) * $slice(height)}]
+        return [list $x $y]
     }
 
     When $page has resolved geometry /geom/ &\
-         the quad changer is /quadChange/ &\
          -serially $page has camera slice /slice/ {
-        fn quadChange
-
         set promptResults [Query! /anyone/ wishes $page tracks object /id/ with prompt /prompt/]
         if {[llength $promptResults] == 0} { return }
-
-        Require! $page has quad /pageQuad/
 
         set promptsById [dict create]
         foreach result $promptResults {
@@ -340,22 +313,22 @@ When /someone/ wishes /page/ has a SAM2 object tracker &\
         }
 
         set sam2Ids {}
-        set bboxes {}
+        set points {}
         set idBySam2Id [dict create]
         set sam2Id 0
         set ids [lsort [dict keys $promptsById]]
         foreach id $ids {
             lappend sam2Ids $sam2Id
-            set prompt [quadChange [dict get $promptsById $id] [$quadLib space $pageQuad]]
-            lappend bboxes [sam2PromptBbox \
-                $quadLib $pageQuad $geom $slice $prompt]
+            lappend points [sam2PromptPoint \
+                $geom $slice [dict get $promptsById $id]]
             dict set idBySam2Id $sam2Id $id
             incr sam2Id
         }
 
-        set objects [sam2Track $slice $sam2Ids $bboxes]
+        set objects [sam2Track $slice $sam2Ids $points]
         set scaleX [expr {double($geom(width)) / double($slice(width))}]
         set scaleY [expr {double($geom(height)) / double($slice(height))}]
+        Expect! the SAM2 mask-to-image library is /mtiLib/
 
         foreach object $objects {
             lassign $object sam2Id mask
@@ -367,6 +340,76 @@ When /someone/ wishes /page/ has a SAM2 object tracker &\
 
             Hold! -key [list sam2 track contours $page $id] \
                 Claim $id has contours $contours in $page
+
+            set maskedIm [$mtiLib applyMaskToImage $slice $mask]
+            Hold! -key [list sam2 track masked-image $page $id] \
+                Claim $id has SAM2 masked image $maskedIm in $page \
+                    -destructor [list $mtiLib imageFree $maskedIm]
         }
+    }
+
+    When the SAM2 mask-to-image library is /mtiLib/ &\
+         the png library is /pngLib/ {
+        Wish the web server handles route [format {/sam2/%s$} $page] \
+            with hidden true handler [list apply {{page pngLib} {
+                set promptResults [Query! /anyone/ wishes $page tracks object /id/ with prompt /prompt/]
+                set ids [lsort -unique [lmap result $promptResults {
+                    dict get $result id
+                }]]
+
+                set entries [list]
+                foreach id $ids {
+                    set imageResults [Query! $id has SAM2 masked image /im/ in $page]
+                    set body {<div class="missing">waiting for mask</div>}
+
+                    if {[llength $imageResults] > 0} {
+                        set imageResult [lindex $imageResults end]
+                        dict with imageResult {
+                            StatementAcquire! $__ref
+
+                            set filename [format "/tmp/sam2-%s-%s.png" \
+                                [string map {/ _ { } _} $page] \
+                                [string map {/ _ { } _} $id]]
+                            $pngLib saveAsPng $im $filename
+
+                            set fsize [file size $filename]
+                            set fd [open $filename r]
+                            fconfigure $fd -translation binary
+                            set imageData [read $fd $fsize]
+                            close $fd
+
+                            StatementRelease! $__ref
+                        }
+
+                        set b64 [binary encode base64 $imageData]
+                        set body [format {<img src="data:image/png;base64,%s">} $b64]
+                    }
+
+                    lappend entries [format {<section><h2>%s</h2>%s</section>} \
+                        $id $body]
+                }
+
+                html [subst {
+                    <html>
+                    <head>
+                        <title>SAM2 $page</title>
+                        <style>
+                            body { font-family: sans-serif; margin: 24px; }
+                            main { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+                            section { border: 1px solid #ddd; padding: 12px; }
+                            h2 { font-size: 14px; margin: 0 0 8px; word-break: break-word; }
+                            img { max-width: 100%; background: #111; }
+                            .missing { color: #777; font-size: 14px; }
+                        </style>
+                    </head>
+                    <body>
+                        <h1>SAM2 $page</h1>
+                        <main>
+                            [join $entries "\n"]
+                        </main>
+                    </body>
+                    </html>
+                }]
+            }} $page $pngLib]
     }
 }
