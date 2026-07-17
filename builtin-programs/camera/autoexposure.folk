@@ -1,0 +1,140 @@
+# Folk-level autoexposure. This is different from the camera's
+# built-in V4L2-addressable autoexposure. We scan the area around each
+# AprilTag and adjust exposure such that the tag's white areas aren't
+# too bright or too dark. Helps with response latency.
+
+When the image library is /imageLib/ {
+set aecc [C]
+$aecc extend $imageLib
+$aecc include <stdint.h>
+
+$aecc proc autoExposureStats {Image gray double[4][2] corners} Jim_Obj* {
+    FOLK_ENSURE(gray.components == 1);
+
+    uint32_t histogram[256] = {0};
+    uint32_t n = 0;
+
+    // Sample in tag-local coordinates to stay inside the detected quad and
+    // avoid background around rotated tags.
+    const int samples = 64;
+    for (int sy = 0; sy < samples; sy++) {
+        double v = (sy + 0.5) / samples;
+        for (int sx = 0; sx < samples; sx++) {
+            double u = (sx + 0.5) / samples;
+
+            double topX = corners[0][0] + u * (corners[1][0] - corners[0][0]);
+            double topY = corners[0][1] + u * (corners[1][1] - corners[0][1]);
+            double botX = corners[3][0] + u * (corners[2][0] - corners[3][0]);
+            double botY = corners[3][1] + u * (corners[2][1] - corners[3][1]);
+            int x = (int)(topX + v * (botX - topX) + 0.5);
+            int y = (int)(topY + v * (botY - topY) + 0.5);
+
+            if (x < 0 || y < 0 || x >= (int)gray.width || y >= (int)gray.height) {
+                continue;
+            }
+
+            histogram[gray.data[y * gray.bytesPerRow + x]]++;
+            n++;
+        }
+    }
+
+    if (n == 0) {
+        return Jim_ObjPrintf("count 0 black 0 white 0");
+    }
+
+    uint32_t target = n / 4;
+    if (target == 0) target = 1;
+
+    uint32_t blackCount = 0, whiteCount = 0;
+    uint64_t blackSum = 0, whiteSum = 0;
+
+    
+    for (int i = 0; i < 256 && blackCount < target; i++) {
+        uint32_t take = histogram[i];
+        if (take > target - blackCount) take = target - blackCount;
+        blackSum += (uint64_t)i * take;
+        blackCount += take;
+    }
+
+    for (int i = 255; i >= 0 && whiteCount < target; i--) {
+        uint32_t take = histogram[i];
+        if (take > target - whiteCount) take = target - whiteCount;
+        whiteSum += (uint64_t)i * take;
+        whiteCount += take;
+    }
+
+    double black = blackCount == 0 ? 0 : (double)blackSum / blackCount;
+    double white = whiteCount == 0 ? 0 : (double)whiteSum / whiteCount;
+
+    return Jim_ObjPrintf("count %u black %f white %f", n, black, white);
+}
+
+set autoExposureLib [$aecc compile]
+
+When /someone/ wishes camera /camera/ uses AprilTag-based autoexposure {
+    set exposureCamera [lindex $camera 0]
+    set currentExposureUs 3000
+
+    When -atomically camera /camera/ has gray frame /frame/ at timestamp /frameTs/ &\
+         /detector/ detects tags /tags/ on camera $camera /...any/ {
+        if {[lindex $detector 1] ne "entire-frame"} { return }
+
+        if {[llength $tags] == 0} {
+            sleep 5
+            return
+        }
+
+        set currentExposureUs \
+            [QueryOne! /someone/ wishes camera $exposureCamera \
+                 uses exposure time /./ us -default 3000]
+
+        set blackSum 0.0
+        set whiteSum 0.0
+        set statsCount 0
+        foreach tag $tags {
+            set stats [$autoExposureLib autoExposureStats $frame [dict get $tag p]]
+            if {[dict get $stats count] == 0} { continue }
+
+            set blackSum [+ $blackSum [dict get $stats black]]
+            set whiteSum [+ $whiteSum [dict get $stats white]]
+            incr statsCount
+        }
+
+        if {$statsCount == 0} {
+            sleep 5
+            return
+        }
+
+        set avgBlack [/ $blackSum $statsCount]
+        set avgWhite [/ $whiteSum $statsCount]
+        set nextExposureUs $currentExposureUs
+
+        if {$avgWhite < 180} {
+            set denom $avgWhite
+            if {$denom < 1} { set denom 1 }
+            set nextExposureUs [expr {int($currentExposureUs * 210.0 / $denom)}]
+            if {$nextExposureUs < [+ $currentExposureUs 100]} {
+                set nextExposureUs [+ $currentExposureUs 100]
+            }
+            if {$nextExposureUs > 10000} { set nextExposureUs 10000 }
+        } elseif {$avgWhite > 240} {
+            set nextExposureUs [expr {int($currentExposureUs * 220.0 / $avgWhite)}]
+            if {$nextExposureUs > [- $currentExposureUs 100]} {
+                set nextExposureUs [- $currentExposureUs 100]
+            }
+            if {$nextExposureUs < 1000} { set nextExposureUs 1000 }
+        } elseif {$avgBlack > 80 && $currentExposureUs > 1000} {
+            set nextExposureUs [expr {int($currentExposureUs * 0.9)}]
+            if {$nextExposureUs < 1000} { set nextExposureUs 1000 }
+        }
+
+        if {$nextExposureUs != $currentExposureUs} {
+            set currentExposureUs $nextExposureUs
+            Hold! -on builtin-programs/web/setup.folk -key "exposure $exposureCamera" -save \
+                Wish camera $exposureCamera uses exposure time $currentExposureUs us
+        }
+
+        sleep 5
+    }
+}
+}
