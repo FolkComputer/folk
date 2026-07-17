@@ -28,6 +28,7 @@ Wish the web server handles route {/camera} with handler {
 <html>
   <body style="margin: 0 0">
     <script src="/lib/folk.js"></script>
+    <script src="/vendor/idiomorph.js"></script>
 
     <canvas id="cameraCanvas" style="max-width: 100%; max-height: 80%"></canvas>
 
