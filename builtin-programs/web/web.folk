@@ -162,15 +162,51 @@ fn HtmlWhen args {
         <div style="display: contents;">[join $htmls \n]</div>
         <script>
         (function() {
-          const el = document.currentScript.previousElementSibling;
+          if (!window.HtmlWhenObserver) {
+            // Runs on first run of an HtmlWhen on the page.
+            window.HtmlWhenSubscriptions = new Map();
+            const stopHtmlWhenSubscription = (script) => {
+              const subscription = window.HtmlWhenSubscriptions.get(script);
+              if (!subscription) return;
+
+              window.HtmlWhenSubscriptions.delete(script);
+              Promise.resolve(subscription).then(subscription => subscription.stop());
+            };
+            window.HtmlWhenObserver = new MutationObserver((mutations) => {
+              for (const mutation of mutations) {
+                for (const node of mutation.removedNodes) {
+                  if (node.nodeType !== Node.ELEMENT_NODE) continue;
+
+                  if (node.tagName === 'SCRIPT') {
+                    stopHtmlWhenSubscription(node);
+                  }
+
+                  for (const script of node.querySelectorAll('script')) {
+                    stopHtmlWhenSubscription(script);
+                  }
+                }
+              }
+            });
+            window.HtmlWhenObserver.observe(document.documentElement,
+                                            {childList: true, subtree: true});
+
+            if (!window.Idiomorph) {
+              console.log('web.folk: Warning: DOM elements will not be preserved without Idiomorph');
+            }
+          }
+
+          const script = document.currentScript;
+          const el = script.previousElementSibling;
           const callbacks = {$callbacksJs};
-          folk.subscribe(`the html for {$pattern} is /html/`, ({html}) => {
+          const subscription = folk.subscribe(`the html for {$pattern} is /html/`, ({html}) => {
             if (window.Idiomorph) {
               Idiomorph.morph(el, html, {morphStyle:'innerHTML', callbacks:callbacks});
             } else {
               el.innerHTML = html;
             }
           });
+
+          window.HtmlWhenSubscriptions.set(script, subscription);
         })();
         </script>
     }]
