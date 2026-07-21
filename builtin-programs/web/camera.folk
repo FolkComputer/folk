@@ -30,7 +30,7 @@ Wish the web server handles route {/camera} with handler {
     <script src="/lib/folk.js"></script>
     <script src="/vendor/idiomorph.js"></script>
 
-    <canvas id="cameraCanvas" style="max-width: 100%; max-height: 80%"></canvas>
+    <canvas id="cameraCanvas" style="max-width: 100%; max-height: 80vh"></canvas>
 
     <div style="padding: 8px">
       <span id="statusSpan">Status</span>
