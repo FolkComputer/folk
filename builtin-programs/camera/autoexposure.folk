@@ -75,8 +75,11 @@ When /someone/ wishes camera /camera/ uses AprilTag-based autoexposure {
     set exposureCamera [lindex $camera 0]
     set currentExposureUs 3000
 
-    When -atomically camera /camera/ has gray frame /frame/ at timestamp /frameTs/ &\
-         /detector/ detects tags /tags/ on camera $camera /...any/ {
+    # TODO: Make -serially apply to the whole join. Today & desugars into
+    # nested Whens, so serializing the first clause does not serialize runs
+    # triggered by the later clauses.
+    When -serially /detector/ detects tags /tags/ on camera $camera \
+         at timestamp /frameTs/ in time /...any/ {
         if {[lindex $detector 1] ne "entire-frame"} { return }
 
         if {[llength $tags] == 0} {
@@ -84,54 +87,56 @@ When /someone/ wishes camera /camera/ uses AprilTag-based autoexposure {
             return
         }
 
-        set currentExposureUs \
-            [QueryOne! /someone/ wishes camera $exposureCamera \
-                 uses exposure time /./ us -default 3000]
+        ForEach! camera $camera has gray frame /frame/ at timestamp $frameTs {
+            set currentExposureUs \
+                [QueryOne! /someone/ wishes camera $exposureCamera \
+                     uses exposure time /./ us -default 3000]
 
-        set blackSum 0.0
-        set whiteSum 0.0
-        set statsCount 0
-        foreach tag $tags {
-            set stats [$autoExposureLib autoExposureStats $frame [dict get $tag p]]
-            if {[dict get $stats count] == 0} { continue }
+            set blackSum 0.0
+            set whiteSum 0.0
+            set statsCount 0
+            foreach tag $tags {
+                set stats [$autoExposureLib autoExposureStats $frame [dict get $tag p]]
+                if {[dict get $stats count] == 0} { continue }
 
-            set blackSum [+ $blackSum [dict get $stats black]]
-            set whiteSum [+ $whiteSum [dict get $stats white]]
-            incr statsCount
-        }
-
-        if {$statsCount == 0} {
-            sleep 5
-            return
-        }
-
-        set avgBlack [/ $blackSum $statsCount]
-        set avgWhite [/ $whiteSum $statsCount]
-        set nextExposureUs $currentExposureUs
-
-        if {$avgWhite < 180} {
-            set denom $avgWhite
-            if {$denom < 1} { set denom 1 }
-            set nextExposureUs [expr {int($currentExposureUs * 210.0 / $denom)}]
-            if {$nextExposureUs < [+ $currentExposureUs 100]} {
-                set nextExposureUs [+ $currentExposureUs 100]
+                set blackSum [+ $blackSum [dict get $stats black]]
+                set whiteSum [+ $whiteSum [dict get $stats white]]
+                incr statsCount
             }
-            if {$nextExposureUs > 10000} { set nextExposureUs 10000 }
-        } elseif {$avgWhite > 240} {
-            set nextExposureUs [expr {int($currentExposureUs * 220.0 / $avgWhite)}]
-            if {$nextExposureUs > [- $currentExposureUs 100]} {
-                set nextExposureUs [- $currentExposureUs 100]
-            }
-            if {$nextExposureUs < 1000} { set nextExposureUs 1000 }
-        } elseif {$avgBlack > 80 && $currentExposureUs > 1000} {
-            set nextExposureUs [expr {int($currentExposureUs * 0.9)}]
-            if {$nextExposureUs < 1000} { set nextExposureUs 1000 }
-        }
 
-        if {$nextExposureUs != $currentExposureUs} {
-            set currentExposureUs $nextExposureUs
-            Hold! -on builtin-programs/web/setup.folk -key "exposure $exposureCamera" -save \
-                Wish camera $exposureCamera uses exposure time $currentExposureUs us
+            if {$statsCount == 0} {
+                sleep 5
+                return
+            }
+
+            set avgBlack [/ $blackSum $statsCount]
+            set avgWhite [/ $whiteSum $statsCount]
+            set nextExposureUs $currentExposureUs
+
+            if {$avgWhite < 180} {
+                set denom $avgWhite
+                if {$denom < 1} { set denom 1 }
+                set nextExposureUs [expr {int($currentExposureUs * 210.0 / $denom)}]
+                if {$nextExposureUs < [+ $currentExposureUs 100]} {
+                    set nextExposureUs [+ $currentExposureUs 100]
+                }
+                if {$nextExposureUs > 10000} { set nextExposureUs 10000 }
+            } elseif {$avgWhite > 240} {
+                set nextExposureUs [expr {int($currentExposureUs * 220.0 / $avgWhite)}]
+                if {$nextExposureUs > [- $currentExposureUs 100]} {
+                    set nextExposureUs [- $currentExposureUs 100]
+                }
+                if {$nextExposureUs < 1000} { set nextExposureUs 1000 }
+            } elseif {$avgBlack > 80 && $currentExposureUs > 1000} {
+                set nextExposureUs [expr {int($currentExposureUs * 0.9)}]
+                if {$nextExposureUs < 1000} { set nextExposureUs 1000 }
+            }
+
+            if {$nextExposureUs != $currentExposureUs} {
+                set currentExposureUs $nextExposureUs
+                Hold! -on builtin-programs/web/setup.folk -key "exposure $exposureCamera" -save \
+                    Wish camera $exposureCamera uses exposure time $currentExposureUs us
+            }
         }
 
         sleep 5
