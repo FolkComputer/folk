@@ -46,7 +46,7 @@ proc unknown {cmdName args} {
                 # environment (probably passed through a statement)
                 # and can just be applied to args.
                 set fnObj [lindex $fn 0]
-                uplevel [list local proc $cmdName \
+                uplevel 1 [list local proc $cmdName \
                              args [list [list fnObj $fnObj]] \
                              { tailcall {*}$fnObj {*}$args }]
                 tailcall $cmdName {*}$args
@@ -80,8 +80,8 @@ proc unknown {cmdName args} {
 
             set envPairs [list]
             dict for {k v} $env { lappend envPairs [list $k $v] }
-            uplevel [list local proc $cmdName \
-                         $argNames $envPairs $body]
+            uplevel 1 [list local proc $cmdName \
+                           $argNames $envPairs $body]
 
             tailcall $cmdName {*}$args
         }
@@ -99,7 +99,7 @@ proc captureEnvStack {} {
     # Get all changed variables and serialize them, to fake lexical
     # scope.
     set env [dict create]
-    set upNames [uplevel {list {*}[info statics] {*}[info locals]}]
+    set upNames [uplevel 1 {list {*}[info statics] {*}[info locals]}]
     foreach name $upNames {
         if {[string match "__*" $name]} { continue }
 
@@ -111,7 +111,7 @@ proc captureEnvStack {} {
         }
     }
 
-    return [list {*}[uplevel set __envStack] $env]
+    return [list {*}[uplevel 1 set __envStack] $env]
 }
 
 $::realStdout buffering line
@@ -211,7 +211,7 @@ proc fn {args} {
             # it can be inherited by child scopes, and in
             # callable-function namespace) and then return.
 
-            uplevel [list set ^$fnName [list $fnObj]]
+            uplevel 1 [list set ^$fnName [list $fnObj]]
             proc $fnName args {fnObj} { tailcall {*}$fnObj {*}$args }
             return
         }
@@ -256,7 +256,7 @@ proc fn {args} {
     # function! we don't expect people to pass it around really), so
     # the caller of this function will just rehydrate that enclosing
     # environment.
-    uplevel [list set ^$fnName [list $argNames $body [info source $body]]]
+    uplevel 1 [list set ^$fnName [list $argNames $body [info source $body]]]
 
     # In case they actually want to call the fn in the same context,
     # we make a proc immediately also:
@@ -268,7 +268,7 @@ proc fn {args} {
 }
 
 proc assert condition {
-    if {![uplevel [list expr $condition]]} {
+    if {![uplevel 1 [list expr $condition]]} {
         return -code error "assertion failed: $condition"
     }
 }
@@ -306,10 +306,10 @@ namespace eval ::library {
     namespace ensemble create
 }
 
-proc baretime body { string map {" microseconds per iteration" ""} [uplevel [list time $body]] }
+proc baretime body { string map {" microseconds per iteration" ""} [uplevel 1 [list time $body]] }
 
 proc Hold! {args} {
-    set this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
+    set this [uplevel 1 {expr {[info exists this] ? $this : "<unknown>"}}]
 
     set on $this
     set key [list]
@@ -749,7 +749,7 @@ proc QueryOne! {args} {
 #
 proc Expect! {args} {
     dict for {k v} [QueryOne! {*}$args] {
-        uplevel [list set $k $v]
+        uplevel 1 [list set $k $v]
     }
 }
 proc ForEach! {args} {
