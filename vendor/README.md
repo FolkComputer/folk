@@ -16,3 +16,4 @@ Some of these packages have been modified by us.
   <https://github.com/AprilRobotics/apriltag/tree/c5a4fc1cc5c6edcb5929dfc3a79f167bf173f7a5>
 - stb_ds.h is from <https://github.com/nothings/stb/blob/28d546d5eb77d4585506a20480f4de2e706dff4c/stb_ds.h>
 - CContour.c is ported from <https://github.com/LingDong-/PContour/tree/6089a0ffbc67c59b976c252e1d0e2626c8bebcae>
+- sam2_camera_predictor.py is from <https://github.com/osnr/segment-anything-2-real-time/tree/2718f25076d82677e20f1b4cdcca6ec3b30e62f0>

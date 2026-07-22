@@ -16,10 +16,20 @@ When the GPU library is /gpuLib/ &\
      the GPU pipeline library is /pipelineLib/ &\
      the GPU pipeline compiler library is /pipelineCompilerLib/ {
 
+# HACK: This isn't reactive because 1. we can't really rerun this
+# block because all the weird GPU initialization stuff, and 2. on
+# macOS, the reactivity is fake and wouldn't work.
+sleep 1
+set useDisplays [Query! /someone/ wishes $::thisNode uses display /display/ with /...displayOpts/]
+
 fn defineVulkanHandleType
 
-# On macOS we always use GLFW; on Linux we use direct Vulkan display.
-set useGlfw [expr {$::tcl_platform(os) eq "darwin"}]
+set useGlfw false
+foreach result $useDisplays {
+    if {$result(display) eq "glfw"} {
+        set useGlfw true
+    }
+}
 
 set cc [C]
 $cc cflags -I./vendor
@@ -645,7 +655,7 @@ while true {
     }
 
     # Query active displays; init new ones on first sight.
-    foreach result [Query! /someone/ wishes $::thisNode uses display /display/ with /...displayOpts/] {
+    foreach result $useDisplays {
         set display [dict get $result display]
         set displayOpts [dict get $result displayOpts]
 

@@ -675,10 +675,10 @@ static int exitFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return JIM_OK;
 }
 
+
 void initSysmonInterp() {
     interp = Jim_CreateInterp();
 }
-
 void rewindSysmonInterp() {
     Jim_RewindTempList(interp);
 }

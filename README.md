@@ -274,6 +274,21 @@ Run the profiler client on your laptop/other PC and connect to a running Folk:
 $ make run-tracy
 ```
 
+### magic-trace
+
+To use magic-trace, add a magic-trace annotation
+`__magicTraceStopIndicator` somewhere in a Folk program.
+
+Then invoke magic-trace while Folk is running. Look at /threads and
+find a worker thread TID that is likely to run your task (here,
+262987), then run:
+
+```
+$ magic-trace attach -pid 262987 -trigger . -snapshot-size 8M -o out.fxt.gz
+```
+
+Then open out.fxt.gz on magic-trace.org.
+
 ### Potentially useful
 
 Potentially useful for graphs: `graphviz`
