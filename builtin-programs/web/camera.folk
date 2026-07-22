@@ -46,21 +46,20 @@ Wish the web server handles route {/camera} with handler {
         set disabled $($isUsingAutoexposure ? "disabled" : "")
         set opacity $($isUsingAutoexposure ? 0.5 : 1)
         subst {
-      <label><input type="checkbox" onchange="autoexposureChange.call(this, event)" $checked>Auto-exposure</label>
-
-      [HtmlWhen /someone/ wishes camera $baseCameraToControl uses exposure time /exposureTime/ us {
-        set exposureSliderForControls [expr {int($exposureTime / 100)}]
-        subst {
-      <div style="display: inline-block; opacity: $opacity">
-        Manual exposure:
-        <input style="max-width: 100px" type="range" min="10" max="48" value="$exposureSliderForControls" class="slider" id="cameraExposureSlider" oninput="exposureSliderInput.call(this, event)" $disabled>
-        <input type="number" min="1000" max="320000" step="100" value="$exposureTime" id="cameraExposureNumber" oninput="exposureNumberInput.call(this, event)" $disabled>μs
-      </div>
+          <label><input type="checkbox" onchange="autoexposureChange.call(this, event)" $checked>Auto-exposure</label>
+          [HtmlWhen /someone/ wishes camera $baseCameraToControl uses exposure time /exposureTime/ us {
+            puts stderr "got new ex: $exposureTime"
+            set exposureSliderForControls [expr {int($exposureTime / 100)}]
+            subst {
+              <div style="display: inline-block; opacity: $opacity">
+                Manual exposure:
+                <input style="max-width: 100px" type="range" min="10" max="48" value="$exposureSliderForControls" class="slider" id="cameraExposureSlider" oninput="exposureSliderInput.call(this, event)" $disabled>
+                <input type="number" min="1000" max="320000" step="100" value="$exposureTime" id="cameraExposureNumber" oninput="exposureNumberInput.call(this, event)" $disabled>μs
+              </div>
+            }
+          }]
         }
       }]
-        }
-      }]
-
       [HtmlWhen camera $baseCameraToControl has average AprilTag white /avgWhite/ {
         subst {<span>Avg tag white: [format "%.1f" $avgWhite]</span>}
       }]

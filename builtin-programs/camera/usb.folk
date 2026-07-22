@@ -278,16 +278,14 @@ When camera /cameraPath/ has width /decompWidth/ height /decompHeight/ {
         set grayImage [$jpegLib jpegDecompressGray $jpeg \
                            $decompWidth $decompHeight \
                            [expr {int($ts * 1000)}]]
-        Hold! -key [list camera $cameraPath gray-frame] \
-            Claim camera $cameraPath has gray frame $grayImage at timestamp $ts \
+        Claim camera $cameraPath has gray frame $grayImage at timestamp $ts \
             -destructor [list $imageLib imageFree $grayImage]
     }
     When camera $cameraPath has jpeg frame /jpeg/ at timestamp /ts/ {
         set frameImage [$jpegLib jpegDecompressRGB $jpeg \
                             $decompWidth $decompHeight \
                             [expr {int($ts * 1000)}]]
-        Hold! -key [list camera $cameraPath frame] \
-            Claim camera $cameraPath has frame $frameImage at timestamp $ts \
+        Claim camera $cameraPath has frame $frameImage at timestamp $ts \
             -destructor [list $imageLib imageFree $frameImage]
     }
 }
