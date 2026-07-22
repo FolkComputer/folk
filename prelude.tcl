@@ -192,7 +192,7 @@ proc evaluateBlock {whenBody envStack} {
             # (TODO: might be a better way?)
             Hold! -key $this-error -on $this $this has error $err with info $opts
         } else {
-            Say $this has error $err with info $opts
+            Say -nonatomically $this has error $err with info $opts
         }
     }
 }
