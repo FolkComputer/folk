@@ -48,23 +48,21 @@ Wish the web server handles route {/camera} with handler {
         subst {
       <label><input type="checkbox" onchange="autoexposureChange.call(this, event)" $checked>Auto-exposure</label>
 
-      [HtmlWhen the collected results for \
-                [list /someone/ wishes camera $baseCameraToControl uses exposure time /exposureTime/ us] \
-                are /exposureResults/ {
-        set exposureForControls 1500
-        if {[llength $exposureResults] == 1} {
-            set exposureForControls [dict get [lindex $exposureResults 0] exposureTime]
-        }
-        set exposureSliderForControls [expr {int($exposureForControls / 100)}]
+      [HtmlWhen /someone/ wishes camera $baseCameraToControl uses exposure time /exposureTime/ us {
+        set exposureSliderForControls [expr {int($exposureTime / 100)}]
         subst {
       <div style="display: inline-block; opacity: $opacity">
         Manual exposure:
         <input style="max-width: 100px" type="range" min="10" max="48" value="$exposureSliderForControls" class="slider" id="cameraExposureSlider" oninput="exposureSliderInput.call(this, event)" $disabled>
-        <input type="number" min="1000" max="320000" step="100" value="$exposureForControls" id="cameraExposureNumber" oninput="exposureNumberInput.call(this, event)" $disabled>μs
+        <input type="number" min="1000" max="320000" step="100" value="$exposureTime" id="cameraExposureNumber" oninput="exposureNumberInput.call(this, event)" $disabled>μs
       </div>
         }
       }]
         }
+      }]
+
+      [HtmlWhen camera $baseCameraToControl has average AprilTag white /avgWhite/ {
+        subst {<span>Avg tag white: [format "%.1f" $avgWhite]</span>}
       }]
     </div>
     <script>
