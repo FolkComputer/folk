@@ -192,7 +192,9 @@ proc evaluateBlock {whenBody envStack} {
             # (TODO: might be a better way?)
             Hold! -key $this-error -on $this $this has error $err with info $opts
         } else {
-            Say $this has error $err with info $opts
+            # Throw the error up to C so runWhenBlock can walk the causal graph
+            # and bubble the error to all trigger programs automatically.
+            return -code error -errorinfo $errorInfo $err
         }
     }
 }
