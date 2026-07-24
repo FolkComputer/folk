@@ -746,7 +746,7 @@ proc QueryOne! {args} {
 # unless there is exactly one result.
 proc Require! {args} {
     dict for {k v} [QueryOne! {*}$args] {
-        uplevel [list set $k $v]
+        uplevel 1 [list set $k $v]
     }
 }
 
