@@ -260,7 +260,77 @@ fn cameraPrincipalPointInQuad {ql qInCamera} {
         return {}
     }
 
-    return [$ql pointToXY $qInCamera [scale $t $rayDir] false]
+    return [pointToXYInQuad $ql $qInCamera [scale $t $rayDir]]
+}
+
+fn pointInQuad {ql q xy} {
+    package require linalg
+    namespace import \
+        ::math::linearalgebra::add \
+        ::math::linearalgebra::sub \
+        ::math::linearalgebra::scale \
+        ::math::linearalgebra::unitLengthVector
+
+    lassign [$ql vertices $q] topLeft topRight bottomRight bottomLeft
+    set xAxis [unitLengthVector [sub $topRight $topLeft]]
+    set yAxis [unitLengthVector [sub $bottomLeft $topLeft]]
+    lassign $xy x y
+    return [add $topLeft [add [scale $x $xAxis] [scale $y $yAxis]]]
+}
+
+fn pointToXYInQuad {ql q xyz} {
+    package require linalg
+    namespace import \
+        ::math::linearalgebra::sub \
+        ::math::linearalgebra::norm \
+        ::math::linearalgebra::dotproduct \
+        ::math::linearalgebra::unitLengthVector
+
+    lassign [$ql vertices $q] topLeft topRight bottomRight bottomLeft
+    set xAxis [unitLengthVector [sub $topRight $topLeft]]
+    set yAxis [unitLengthVector [sub $bottomLeft $topLeft]]
+    set delta [sub $xyz $topLeft]
+    return [list [dotproduct $delta $xAxis] [dotproduct $delta $yAxis]]
+}
+
+fn downprojectContourToPlane {ql qInCamera contour heightM} {
+    if {$heightM <= 0 || [llength $contour] == 0} {
+        return $contour
+    }
+
+    package require linalg
+    namespace import \
+        ::math::linearalgebra::add \
+        ::math::linearalgebra::sub \
+        ::math::linearalgebra::scale \
+        ::math::linearalgebra::dotproduct \
+        ::math::linearalgebra::crossproduct \
+        ::math::linearalgebra::unitLengthVector
+
+    lassign [$ql vertices $qInCamera] a b c d
+    set n [unitLengthVector [crossproduct [sub $b $a] [sub $d $a]]]
+    if {[dotproduct $n [scale -1 $a]] < 0} {
+        set n [scale -1 $n]
+    }
+
+    set planeD [dotproduct $n $a]
+    if {abs($planeD) < 0.000001} {
+        return $contour
+    }
+
+    set corrected [list]
+    foreach xy $contour {
+        set planeHit [pointInQuad $ql $qInCamera $xy]
+        set rayScale [expr {($planeD + $heightM) / $planeD}]
+        set elevatedPoint [scale $rayScale $planeHit]
+        set footPoint [sub $elevatedPoint [scale $heightM $n]]
+        lappend corrected [pointToXYInQuad $ql $qInCamera $footPoint]
+    }
+    return $corrected
+}
+
+When /someone/ claims /obj/ has object height /heightCm/ cm in /v/ {
+    Wish $obj has foot contour in $v
 }
 
 When the quad library is /ql/ &\
@@ -288,6 +358,20 @@ When the quad library is /ql/ &\
     set scaleY [expr {double($geom(height)) / double($scaleHeight)}]
     set footContourParts [$footContourLib maskFootContourParts \
                               $width $height $mask $pp $scaleX $scaleY]
+
+    set objectHeightCm 0
+    set heightResults [Query! $obj has object height /heightCm/ cm in $v]
+    if {[llength $heightResults] > 0} {
+        set objectHeightCm [dict get [lindex $heightResults end] heightCm]
+    }
+    set objectHeightM [expr {double($objectHeightCm) / 100.0}]
+
+    foreach key {footContour visibleArc mirrorLine} {
+        dict set footContourParts $key \
+            [downprojectContourToPlane $ql $vqCamera \
+                 [dict getdef $footContourParts $key {}] \
+                 $objectHeightM]
+    }
     set footContour [dict get $footContourParts footContour]
 
     if {[llength $footContour] >= 2} {
@@ -328,6 +412,20 @@ When the png library is /pngLib/ &\
                 set partsResults [Query! $id has SAM2 foot contour parts /parts/ in $page]
                 set maskResults [Query! $id has mask /mask/ in $page with /...maskOpts/]
                 set geomResults [Query! $page has resolved geometry /geom/]
+                set heightResults [Query! $id has object height /heightCm/ cm in $page]
+                set heightCm ""
+                if {[llength $heightResults] > 0} {
+                    set heightCm [dict get [lindex $heightResults end] heightCm]
+                }
+                set heightControl [subst {
+                    <label class="height-control">
+                        <span>height</span>
+                        <input class="height-cm" type="number" step="0.1" min="0"
+                               value="[htmlEscape $heightCm]"
+                               data-object-id="[htmlEscape $id]">
+                        <span>cm</span>
+                    </label>
+                }]
                 set body {<div class="missing">waiting for mask and foot contour</div>}
 
                 if {[llength $imageResults] > 0 &&
@@ -382,7 +480,7 @@ When the png library is /pngLib/ &\
                 }
 
                 lappend entries [format {<section><h2>%s</h2>%s</section>} \
-                    $id $body]
+                    $id "$body\n$heightControl"]
             }
 
             html [subst {
@@ -396,6 +494,8 @@ When the png library is /pngLib/ &\
                         section { border: 1px solid #ddd; padding: 12px; }
                         h2 { font-size: 14px; margin: 0 0 8px; word-break: break-word; }
                         .overlay { position: relative; display: inline-block; max-width: 100%; background: #111; cursor: crosshair; }
+                        .height-control { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: #555; font-size: 13px; }
+                        .height-control input { width: 80px; font: inherit; padding: 3px 5px; }
                         img { display: block; max-width: 100%; }
                         svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
                         polyline { fill: none; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
@@ -429,6 +529,19 @@ When the png library is /pngLib/ &\
                                 const statement = antiprompt
                                     ? 'Wish ' + dump(page) + ' tracks object ' + dump(objectId) + ' with antiprompt ' + dump(\[x, y])
                                     : 'Wish ' + dump(page) + ' tracks object ' + dump(objectId) + ' with prompt ' + dump(\[x, y]);
+                                folk.hold(key, statement, 'sam2-foot-contour');
+                            });
+                        });
+                        document.querySelectorAll('.height-cm').forEach((input) => {
+                            input.addEventListener('input', () => {
+                                const objectId = input.dataset.objectId;
+                                const key = 'sam2-foot-contour height ' + page + ' ' + objectId;
+                                const heightCm = Number(input.value);
+                                if (!Number.isFinite(heightCm) || heightCm < 0 || input.value === '') {
+                                    folk.hold(key, '', 'sam2-foot-contour');
+                                    return;
+                                }
+                                const statement = 'Claim ' + dump(objectId) + ' has object height ' + dump(heightCm) + ' cm in ' + dump(page);
                                 folk.hold(key, statement, 'sam2-foot-contour');
                             });
                         });
