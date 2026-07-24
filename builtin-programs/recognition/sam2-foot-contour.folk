@@ -1,0 +1,219 @@
+set cc [C]
+$cc cflags -I.
+$cc include <stdbool.h>
+$cc include <stdlib.h>
+$cc include "vendor/stb_ds.h"
+
+$cc code {
+    typedef struct {
+        int x;
+        int y;
+    } HullPoint;
+
+    static int hullPointCmp(const void *a, const void *b) {
+        const HullPoint *pa = (const HullPoint *)a;
+        const HullPoint *pb = (const HullPoint *)b;
+        if (pa->x != pb->x) return pa->x - pb->x;
+        return pa->y - pb->y;
+    }
+
+    static long long hullCross(HullPoint o, HullPoint a, HullPoint b) {
+        return (long long)(a.x - o.x) * (b.y - o.y)
+             - (long long)(a.y - o.y) * (b.x - o.x);
+    }
+
+    static double hullCrossD(double ox, double oy,
+                             double ax, double ay,
+                             double bx, double by) {
+        return (ax - ox) * (by - oy) - (ay - oy) * (bx - ox);
+    }
+
+    static bool maskPixel(const uint8_t *mask, int w, int h, int x, int y) {
+        return x >= 0 && x < w && y >= 0 && y < h && mask[y * w + x] != 0;
+    }
+
+    static void appendPointObj(Jim_Interp *interp, Jim_Obj *list,
+                               HullPoint p, double scaleX, double scaleY) {
+        Jim_Obj *xy[2] = {
+            Jim_NewDoubleObj(interp, p.x * scaleX),
+            Jim_NewDoubleObj(interp, p.y * scaleY),
+        };
+        Jim_ListAppendElement(interp, list, Jim_NewListObj(interp, xy, 2));
+    }
+}
+
+# Returns the convex hull arc of a SAM2 mask that faces pp, where pp is the
+# camera optical axis projected into the viewport's local {x y} meter space.
+$cc proc maskFootContour {int width int height Jim_Obj* mask
+                          double[2] pp double scaleX double scaleY} Jim_Obj* {
+    int w = width;
+    int h = height;
+    if (w < 3 || h < 3) return Jim_NewListObj(interp, NULL, 0);
+
+    int maskLen = 0;
+    const uint8_t *maskData = (const uint8_t *)Jim_GetString(mask, &maskLen);
+    FOLK_ENSURE(maskLen == w * h);
+
+    HullPoint *pts = NULL;
+    for (int y = 1; y < h - 1; y++) {
+        for (int x = 1; x < w - 1; x++) {
+            if (!maskPixel(maskData, w, h, x, y)) continue;
+            if (!maskPixel(maskData, w, h, x - 1, y) ||
+                !maskPixel(maskData, w, h, x + 1, y) ||
+                !maskPixel(maskData, w, h, x, y - 1) ||
+                !maskPixel(maskData, w, h, x, y + 1)) {
+                arrput(pts, ((HullPoint){x, y}));
+            }
+        }
+    }
+
+    ptrdiff_t n = arrlen(pts);
+    if (n < 3) {
+        Jim_Obj *ret = Jim_NewListObj(interp, NULL, 0);
+        for (ptrdiff_t i = 0; i < n; i++) {
+            appendPointObj(interp, ret, pts[i], scaleX, scaleY);
+        }
+        arrfree(pts);
+        return ret;
+    }
+
+    qsort(pts, (size_t)n, sizeof(HullPoint), hullPointCmp);
+
+    HullPoint *unique = NULL;
+    for (ptrdiff_t i = 0; i < n; i++) {
+        if (i == 0 || pts[i].x != pts[i - 1].x || pts[i].y != pts[i - 1].y) {
+            arrput(unique, pts[i]);
+        }
+    }
+    arrfree(pts);
+    pts = unique;
+    n = arrlen(pts);
+
+    HullPoint *hull = NULL;
+    for (ptrdiff_t i = 0; i < n; i++) {
+        while (arrlen(hull) >= 2 &&
+               hullCross(hull[arrlen(hull) - 2], hull[arrlen(hull) - 1], pts[i]) <= 0) {
+            arrpop(hull);
+        }
+        arrput(hull, pts[i]);
+    }
+    ptrdiff_t lowerLen = arrlen(hull);
+    for (ptrdiff_t i = n - 2; i >= 0; i--) {
+        while (arrlen(hull) > lowerLen &&
+               hullCross(hull[arrlen(hull) - 2], hull[arrlen(hull) - 1], pts[i]) <= 0) {
+            arrpop(hull);
+        }
+        arrput(hull, pts[i]);
+        if (i == 0) break;
+    }
+    if (arrlen(hull) > 1) arrpop(hull);
+    arrfree(pts);
+
+    ptrdiff_t hn = arrlen(hull);
+    Jim_Obj *ret = Jim_NewListObj(interp, NULL, 0);
+    if (hn < 3) {
+        for (ptrdiff_t i = 0; i < hn; i++) {
+            appendPointObj(interp, ret, hull[i], scaleX, scaleY);
+        }
+        arrfree(hull);
+        return ret;
+    }
+
+    bool *visible = calloc((size_t)hn, sizeof(bool));
+    ptrdiff_t visibleCount = 0;
+    for (ptrdiff_t i = 0; i < hn; i++) {
+        ptrdiff_t j = (i + 1) % hn;
+        double ax = hull[i].x * scaleX;
+        double ay = hull[i].y * scaleY;
+        double bx = hull[j].x * scaleX;
+        double by = hull[j].y * scaleY;
+        if (hullCrossD(ax, ay, bx, by, pp[0], pp[1]) < 0) {
+            visible[i] = true;
+            visibleCount++;
+        }
+    }
+
+    if (visibleCount == 0 || visibleCount == hn) {
+        for (ptrdiff_t i = 0; i < hn; i++) {
+            appendPointObj(interp, ret, hull[i], scaleX, scaleY);
+        }
+        free(visible);
+        arrfree(hull);
+        return ret;
+    }
+
+    ptrdiff_t edge = 0;
+    while (edge < hn && !visible[edge]) edge++;
+    while (visible[(edge - 1 + hn) % hn]) {
+        edge = (edge - 1 + hn) % hn;
+    }
+
+    appendPointObj(interp, ret, hull[edge], scaleX, scaleY);
+    for (;;) {
+        ptrdiff_t next = (edge + 1) % hn;
+        appendPointObj(interp, ret, hull[next], scaleX, scaleY);
+        edge = next;
+        if (!visible[edge]) break;
+    }
+
+    free(visible);
+    arrfree(hull);
+    return ret;
+}
+
+set sam2FootContourLib [$cc compile]
+Claim the SAM2 foot contour library is $sam2FootContourLib
+
+fn cameraPrincipalPointInQuad {ql qInCamera} {
+    package require linalg
+    namespace import \
+        ::math::linearalgebra::add \
+        ::math::linearalgebra::sub \
+        ::math::linearalgebra::scale \
+        ::math::linearalgebra::dotproduct \
+        ::math::linearalgebra::crossproduct
+
+    lassign [$ql vertices $qInCamera] a b c d
+    set n [crossproduct [sub $b $a] [sub $d $a]]
+    set rayDir {0 0 1}
+    set denom [dotproduct $n $rayDir]
+    if {abs($denom) < 0.000001} {
+        return {}
+    }
+
+    set t [expr {[dotproduct $n $a] / $denom}]
+    if {$t <= 0} {
+        return {}
+    }
+
+    return [$ql pointToXY $qInCamera [scale $t $rayDir] false]
+}
+
+When the quad library is /ql/ &\
+     the quad changer is /quadChange/ &\
+     the SAM2 foot contour library is /footContourLib/ &\
+     a calibration from camera /camera/ to display /display/ is /calibration/ &\
+     /v/ has resolved geometry /geom/ &\
+     /someone/ wishes /obj/ has foot contour in /v/ &\
+     /obj/ has mask /mask/ in /v/ with /...maskOpts/ &\
+     /v/ has quad /vq/ {
+
+    fn quadChange
+
+    set vqCamera [quadChange $vq $camera]
+    set pp [cameraPrincipalPointInQuad $ql $vqCamera]
+    if {$pp eq {}} {
+        return
+    }
+
+    set width [dict get $maskOpts width]
+    set height [dict get $maskOpts height]
+    set scaleX [expr {double($geom(width)) / double($width)}]
+    set scaleY [expr {double($geom(height)) / double($height)}]
+    set footContour [$footContourLib maskFootContour \
+                         $width $height $mask $pp $scaleX $scaleY]
+
+    if {[llength $footContour] >= 2} {
+        Claim $obj has foot contour $footContour in $v
+    }
+}

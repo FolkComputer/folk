@@ -268,6 +268,8 @@ When /someone/ wishes to load SAM2 &\
             return result;
         }
         $cc proc applyMaskToImage {Image im Jim_Obj* mask} Image {
+            FOLK_ENSURE(im.components == 3); // hack for now.
+
             int maskLen = 0;
             const uint8_t *maskData = (const uint8_t *)Jim_GetString(mask, &maskLen);
             FOLK_ENSURE(maskLen == im.width * im.height);
@@ -275,10 +277,11 @@ When /someone/ wishes to load SAM2 &\
             for (int y = 0; y < im.height; y++) {
                 for (int x = 0; x < im.width; x++) {
                     uint8_t m = maskData[y * im.width + x];
-                    for (int c = 0; c < im.components; c++) {
-                        result.data[y * result.bytesPerRow + x * im.components + c] =
-                            m ? im.data[y * im.bytesPerRow + x * im.components + c] : 0;
-                    }
+
+                    int idx = y * result.bytesPerRow + x * im.components;
+                    result.data[idx + 0] = m ? im.data[idx + 0] : 255;
+                    result.data[idx + 1] = m ? im.data[idx + 1] : 0;
+                    result.data[idx + 2] = m ? im.data[idx + 2] : 255;
                 }
             }
             return result;
@@ -287,13 +290,6 @@ When /someone/ wishes to load SAM2 &\
         Claim the SAM2 mask-to-image library is $maskToImageLib
     }
 }
-
-When /x/ wishes /page/ tracks object /id/ with prompt /any/ {
-    When $id has contours /any/ in $page {
-        Wish $x is outlined green
-    }
-}
-
 
 When /anyone/ wishes /page/ tracks object /id/ with prompt /prompt/ {
     Wish -keep 400ms $page has a SAM2 object tracker
@@ -304,8 +300,7 @@ When /anyone/ wishes /page/ tracks object /id/ with prompt /prompt/ {
 When /someone/ wishes /page/ has a SAM2 object tracker &\
      /page/ has resolved geometry /geom/ &\
      the SAM2 object tracker is /sam2Track/ &\
-     the SAM2 prompt adder is /sam2AddPrompt/ &\
-     the SAM2 contours library is /sam2ContoursLib/ {
+     the SAM2 prompt adder is /sam2AddPrompt/ {
     fn sam2Track
     fn sam2AddPrompt
 
@@ -331,7 +326,6 @@ When /someone/ wishes /page/ has a SAM2 object tracker &\
 
     When the SAM2 mask-to-image library is /mtiLib/ &\
          the image library is /imageLib/ &\
-         $page has resolved geometry /geom/ &\
          -serially $page has camera slice /slice/ {
 
         set promptResults [Query! /anyone/ wishes $page tracks object /id/ with prompt /prompt/]
@@ -346,8 +340,6 @@ When /someone/ wishes /page/ has a SAM2 object tracker &\
         if {[dict size $activeObjectIdsBySam2Id] == 0} { return }
 
         set objects [sam2Track $slice]
-        set scaleX [expr {double($geom(width)) / double($slice(width))}]
-        set scaleY [expr {double($geom(height)) / double($slice(height))}]
 
         foreach object $objects {
             lassign $object sam2Id mask
@@ -356,12 +348,9 @@ When /someone/ wishes /page/ has a SAM2 object tracker &\
             }
             set id [dict get $activeObjectIdsBySam2Id $sam2Id]
 
-            set contours [$sam2ContoursLib findMaskContours \
-                $slice(width) $slice(height) $mask \
-                1.0 $scaleX $scaleY]
-
-            Hold! -on $page -key [list sam2 track contours $id] \
-                Claim $id has contours $contours in $page
+            Hold! -on $page -key [list sam2 track mask $id] \
+                Claim $id has mask $mask in $page \
+                    with width $slice(width) height $slice(height)
 
             set maskedIm [$mtiLib applyMaskToImage $slice $mask]
             Hold! -on $page -key [list sam2 track masked-image $id] \
