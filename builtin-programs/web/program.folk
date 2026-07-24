@@ -1,6 +1,6 @@
 Wish the web server handles route {/program/(.*)$} with handler {
     set programName $1
-    Expect! $1 has program code /programCode/
+    Require! $1 has program code /programCode/
 
     html [subst {
         <html>

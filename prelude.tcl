@@ -192,7 +192,7 @@ proc evaluateBlock {whenBody envStack} {
             # (TODO: might be a better way?)
             Hold! -key $this-error -on $this $this has error $err with info $opts
         } else {
-            Say $this has error $err with info $opts
+            Say -nonatomically $this has error $err with info $opts
         }
     }
 }
@@ -727,7 +727,7 @@ proc QueryOne! {args} {
         }
     }
 
-    set results [Query! {*}$args]
+    set results [Query! {*}$pattern]
     if {[llength $results] == 0 && [info exists default]} {
         return $default
     }
@@ -735,20 +735,38 @@ proc QueryOne! {args} {
         error "QueryOne! of ($args) had [llength $results] results. Should be one result!"
     }
 
-    if {{/./} in $args} {
+    if {{/./} in $pattern} {
         return [dict get [lindex $results 0] .]
     }
     return [lindex $results 0]
 }
 
-# Like QueryOne!, but introduces the bindings directly into caller
-# scope.
+# Sort of like QueryOne!, but introduces the bindings directly into
+# caller scope. Unlike Expect!, this samples the db once and errors
+# unless there is exactly one result.
+proc Require! {args} {
+    dict for {k v} [QueryOne! {*}$args] {
+        uplevel [list set $k $v]
+    }
+}
+
+# Sort of like QueryOne!, but picks an arbitrary result if >1 result,
+# and introduces the bindings directly into caller scope.
 #
 #     Expect! the dog is /val/
 #     puts $val ;# -> cool
 #
+# Also polls and retries if there are 0 results.
 proc Expect! {args} {
-    dict for {k v} [QueryOne! {*}$args] {
+    set results [list]
+    while {[llength $results] == 0} {
+        set results [Query! {*}$args]
+        if {[llength $results] == 0} {
+            sleep 0.1
+        }
+    }
+
+    dict for {k v} [lindex $results 0] {
         uplevel 1 [list set $k $v]
     }
 }

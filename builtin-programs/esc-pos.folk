@@ -9,7 +9,7 @@ When the print library is /printLib/ &\
         writeFolkFile $id $code
         writeMetaFile $printer $id
 
-        Expect! $printer is at /address/
+        Require! $printer is at /address/
         set printerSocket [socket stream ${address}:9100]
 
         fconfigure $printerSocket -translation binary -buffering none
@@ -40,7 +40,7 @@ When the print library is /printLib/ &\
     }
 
     fn writeMetaFile {printer id} {
-        Expect! $printer has tag geometry /geometry/
+        Require! $printer has tag geometry /geometry/
         set metaFile [open "$saveDir/$id.meta.folk" w]
         puts $metaFile [subst {Claim tag \$this has geometry {$geometry}}]
         close $metaFile

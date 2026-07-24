@@ -1,12 +1,12 @@
 fn editorToPrintOptions {editor} {
-    Expect! editor $editor has selected program /program/
-    Expect! editor buffer for $program is /code/
+    Require! editor $editor has selected program /program/
+    Require! editor buffer for $program is /code/
 
-    Expect! editor $editor on program $program has font options with /...fontOptions/
+    Require! editor $editor on program $program has font options with /...fontOptions/
     set textScale $fontOptions(scale)
-    Expect! editor $editor has margin /margin/
+    Require! editor $editor has margin /margin/
 
-    Expect! the paper formats are /formats/
+    Require! the paper formats are /formats/
     set formatName [QueryOne! paper format /./ is the default paper format \
                        -default letter]
     set fmt $formats($formatName)
@@ -32,7 +32,7 @@ When the codeToPostScript is /codeToPostScript/ &\
     set preview [list $editor preview]
     Wish $preview has a canvas
 
-    Expect! the paper formats are /formats/
+    Require! the paper formats are /formats/
     set formatName [QueryOne! paper format /./ is the default paper format \
                        -default letter]
     set fmt $formats($formatName)
@@ -42,7 +42,7 @@ When the codeToPostScript is /codeToPostScript/ &\
                          height [/ [lindex $fmt(pageSize) 1] $mToPt]]
     Claim $preview has resolved geometry $previewGeom
     When the quad library is /quadLib/ & $editor has quad /q/ {
-        Claim $preview has quad [$quadLib alignGeometry \
+        Claim $preview has quad [$quadLib createFromGeometry \
                                      [$quadLib move $q right 100%] \
                                      $previewGeom]
     }

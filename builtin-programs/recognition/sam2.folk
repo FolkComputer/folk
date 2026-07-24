@@ -1,8 +1,8 @@
 When when the SAM2 segmenter is /any/ /any/ with environment /any/ {
-    Wish -keep 500ms to load the SAM2 segmenter
+    Wish -keep 500ms to load SAM2
 }
 
-When /someone/ wishes to load the SAM2 segmenter &\
+When /someone/ wishes to load SAM2 &\
      the image uvx argtype definer is /defineImageArgtype/ {
     fn defineImageArgtype
 
@@ -126,14 +126,81 @@ When /someone/ wishes to load the SAM2 segmenter &\
         for idx, obj_id in enumerate(out_obj_ids):
             mask = np.ascontiguousarray(masks[idx].astype(np.uint8) * 255)
             mask_bytes = mask.tobytes()
-            ret.extend(struct.pack("<qI", int(obj_id), len(mask_bytes)))
+            ret.extend(struct.pack("<iI", int(obj_id), len(mask_bytes)))
             ret.extend(mask_bytes)
 
         return ret
     }
 
-    fn SAM2 args {
-        set bytes [$py segment {*}$args]
+    $py def addPrompt {Image image num objId {list num} point} {
+        global predictor_initialized
+        image_np = np.array(image.convert("RGB"))
+        objId = int(objId)
+        point = list(map(float, point))
+
+        with predictor_lock, torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
+            if not predictor_initialized:
+                predictor.load_first_frame(image_np)
+                predictor_initialized = True
+                frame_idx = 0
+            else:
+                frame_idx = predictor.load_prompt_frame(image_np)
+
+            predictor.add_new_prompt(
+                frame_idx=frame_idx,
+                obj_id=objId,
+                points=[point],
+                labels=[1],
+            )
+            out_obj_ids, out_mask_logits = predictor.track_current_frame()
+
+        masks = (out_mask_logits[:, 0] > 0).detach().cpu().numpy()
+        assert len(masks) == len(out_obj_ids), (
+            f"sam2: got {len(masks)} masks for {len(out_obj_ids)} object ids"
+        )
+
+        ret = bytearray()
+        ret.extend(struct.pack("<I", len(out_obj_ids)))
+
+        for idx, obj_id in enumerate(out_obj_ids):
+            mask = np.ascontiguousarray(masks[idx].astype(np.uint8) * 255)
+            mask_bytes = mask.tobytes()
+            ret.extend(struct.pack("<iI", int(obj_id), len(mask_bytes)))
+            ret.extend(mask_bytes)
+
+        return ret
+    }
+
+    $py def trackObjects {Image image} {
+        global predictor_initialized
+        image_np = np.array(image.convert("RGB"))
+
+        with predictor_lock, torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
+            if not predictor_initialized:
+                ret = bytearray()
+                ret.extend(struct.pack("<I", 0))
+                return ret
+
+            out_obj_ids, out_mask_logits = predictor.track(image_np)
+
+        masks = (out_mask_logits[:, 0] > 0).detach().cpu().numpy()
+        assert len(masks) == len(out_obj_ids), (
+            f"sam2: got {len(masks)} masks for {len(out_obj_ids)} object ids"
+        )
+
+        ret = bytearray()
+        ret.extend(struct.pack("<I", len(out_obj_ids)))
+
+        for idx, obj_id in enumerate(out_obj_ids):
+            mask = np.ascontiguousarray(masks[idx].astype(np.uint8) * 255)
+            mask_bytes = mask.tobytes()
+            ret.extend(struct.pack("<iI", int(obj_id), len(mask_bytes)))
+            ret.extend(mask_bytes)
+
+        return ret
+    }
+
+    fn decodeSAM2Masks {bytes} {
         set offset 0
 
         if {[binary scan $bytes @${offset}i count] != 1} {
@@ -143,11 +210,11 @@ When /someone/ wishes to load the SAM2 segmenter &\
 
         set ret {}
         for {set i 0} {$i < $count} {incr i} {
-            if {[binary scan $bytes @${offset}q objId] != 1} {
+            if {[binary scan $bytes @${offset}i objId] != 1} {
                 error "SAM2: could not decode object id $i"
             }
             set objId [expr {int($objId)}]
-            incr offset 8
+            incr offset 4
 
             if {[binary scan $bytes @${offset}i maskLen] != 1} {
                 error "SAM2: could not decode mask length $i"
@@ -169,7 +236,21 @@ When /someone/ wishes to load the SAM2 segmenter &\
         }
         return $ret
     }
+
+    fn decodeSAM2Masks
+
+    fn SAM2 args {
+        decodeSAM2Masks [$py segment {*}$args]
+    }
+    fn SAM2Track args {
+        decodeSAM2Masks [$py trackObjects {*}$args]
+    }
+    fn SAM2AddPrompt args {
+        decodeSAM2Masks [$py addPrompt {*}$args]
+    }
     Claim the SAM2 segmenter is [fn SAM2]
+    Claim the SAM2 object tracker is [fn SAM2Track]
+    Claim the SAM2 prompt adder is [fn SAM2AddPrompt]
 
     When the image library is /imageLib/ {
         set cc [C]
@@ -204,5 +285,153 @@ When /someone/ wishes to load the SAM2 segmenter &\
         }
         set maskToImageLib [$cc compile]
         Claim the SAM2 mask-to-image library is $maskToImageLib
+    }
+}
+
+When /x/ wishes /page/ tracks object /id/ with prompt /any/ {
+    When $id has contours /any/ in $page {
+        Wish $x is outlined green
+    }
+}
+
+
+When /anyone/ wishes /page/ tracks object /id/ with prompt /prompt/ {
+    Wish -keep 400ms $page has a SAM2 object tracker
+    Wish -keep 400ms $page has camera slice
+    Wish -keep 400ms to load SAM2
+}
+
+When /someone/ wishes /page/ has a SAM2 object tracker &\
+     /page/ has resolved geometry /geom/ &\
+     the SAM2 object tracker is /sam2Track/ &\
+     the SAM2 prompt adder is /sam2AddPrompt/ &\
+     the SAM2 contours library is /sam2ContoursLib/ {
+    fn sam2Track
+    fn sam2AddPrompt
+
+    fn sam2ObjectId {id} {
+        set hash 0
+        for {set i 0} {$i < [string length $id]} {incr i} {
+            scan [string index $id $i] %c code
+            set hash [expr {(($hash * 131) + $code) & 0x7fffffff}]
+        }
+        return $hash
+    }
+
+    When /anyone/ wishes $page tracks object /id/ with prompt /prompt/ {
+        set sam2Id [sam2ObjectId $id]
+
+        Wish $page has camera slice
+        Expect! $page has camera slice /slice/
+
+        set x [expr {[lindex $prompt 0] / $geom(width) * $slice(width)}]
+        set y [expr {[lindex $prompt 1] / $geom(height) * $slice(height)}]
+        sam2AddPrompt $slice $sam2Id [list $x $y]
+    }
+
+    When the SAM2 mask-to-image library is /mtiLib/ &\
+         the image library is /imageLib/ &\
+         $page has resolved geometry /geom/ &\
+         -serially $page has camera slice /slice/ {
+
+        set promptResults [Query! /anyone/ wishes $page tracks object /id/ with prompt /prompt/]
+        if {[llength $promptResults] == 0} { return }
+
+        set activeObjectIdsBySam2Id {}
+        foreach result $promptResults {
+            dict with result {
+                dict set activeObjectIdsBySam2Id [sam2ObjectId $id] $id
+            }
+        }
+        if {[dict size $activeObjectIdsBySam2Id] == 0} { return }
+
+        set objects [sam2Track $slice]
+        set scaleX [expr {double($geom(width)) / double($slice(width))}]
+        set scaleY [expr {double($geom(height)) / double($slice(height))}]
+
+        foreach object $objects {
+            lassign $object sam2Id mask
+            if {![dict exists $activeObjectIdsBySam2Id $sam2Id]} {
+                continue
+            }
+            set id [dict get $activeObjectIdsBySam2Id $sam2Id]
+
+            set contours [$sam2ContoursLib findMaskContours \
+                $slice(width) $slice(height) $mask \
+                1.0 $scaleX $scaleY]
+
+            Hold! -on $page -key [list sam2 track contours $id] \
+                Claim $id has contours $contours in $page
+
+            set maskedIm [$mtiLib applyMaskToImage $slice $mask]
+            Hold! -on $page -key [list sam2 track masked-image $id] \
+                Claim $id has SAM2 masked image $maskedIm in $page \
+                    -destructor [list $imageLib imageFree $maskedIm]
+        }
+    }
+
+    When the SAM2 mask-to-image library is /mtiLib/ &\
+         the png library is /pngLib/ {
+        Wish the web server handles route [format {/sam2/%s$} $page] \
+            with hidden true handler [list apply {{page pngLib} {
+                set promptResults [Query! /anyone/ wishes $page tracks object /id/ with prompt /prompt/]
+                set ids [lsort -unique [lmap result $promptResults {
+                    dict get $result id
+                }]]
+
+                set entries [list]
+                foreach id $ids {
+                    set imageResults [Query! $id has SAM2 masked image /im/ in $page]
+                    set body {<div class="missing">waiting for mask</div>}
+
+                    if {[llength $imageResults] > 0} {
+                        set imageResult [lindex $imageResults end]
+                        dict with imageResult {
+                            StatementAcquire! $__ref
+
+                            set filename [format "/tmp/sam2-%s-%s.png" \
+                                [string map {/ _ { } _} $page] \
+                                [string map {/ _ { } _} $id]]
+                            $pngLib saveAsPng $im $filename
+
+                            set fsize [file size $filename]
+                            set fd [open $filename r]
+                            fconfigure $fd -translation binary
+                            set imageData [read $fd $fsize]
+                            close $fd
+
+                            StatementRelease! $__ref
+                        }
+
+                        set b64 [binary encode base64 $imageData]
+                        set body [format {<img src="data:image/png;base64,%s">} $b64]
+                    }
+
+                    lappend entries [format {<section><h2>%s</h2>%s</section>} \
+                        $id $body]
+                }
+
+                html [subst {
+                    <html>
+                    <head>
+                        <title>SAM2 $page</title>
+                        <style>
+                            body { font-family: sans-serif; margin: 24px; }
+                            main { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+                            section { border: 1px solid #ddd; padding: 12px; }
+                            h2 { font-size: 14px; margin: 0 0 8px; word-break: break-word; }
+                            img { max-width: 100%; background: #111; }
+                            .missing { color: #777; font-size: 14px; }
+                        </style>
+                    </head>
+                    <body>
+                        <h1>SAM2 $page</h1>
+                        <main>
+                            [join $entries "\n"]
+                        </main>
+                    </body>
+                    </html>
+                }]
+            }} $page $pngLib]
     }
 }
