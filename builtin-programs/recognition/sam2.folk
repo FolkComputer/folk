@@ -132,12 +132,13 @@ When /someone/ wishes to load SAM2 &\
         return ret
     }
 
-    $py def addPrompt {Image image num objId {list list num} points {list num} labels} {
+    $py def addPrompt {Image image num objId {list list num} points {list num} labels num clearOldPoints} {
         global predictor_initialized
         image_np = np.array(image.convert("RGB"))
         objId = int(objId)
         points = [list(map(float, point)) for point in points]
         labels = list(map(int, labels))
+        clearOldPoints = bool(clearOldPoints)
 
         with predictor_lock, torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
             if not predictor_initialized:
@@ -150,7 +151,7 @@ When /someone/ wishes to load SAM2 &\
                 obj_id=objId,
                 point=points,
                 labels=labels,
-                clear_old_points=True,
+                clear_old_points=clearOldPoints,
             )
 
         masks = (out_mask_logits[:, 0] > 0).detach().cpu().numpy()
@@ -290,12 +291,7 @@ When /someone/ wishes to load SAM2 &\
     }
 }
 
-When /anyone/ wishes /page/ tracks object /id/ with prompt /prompt/ {
-    Wish -keep 400ms $page has a SAM2 object tracker
-    Wish -keep 400ms $page has camera slice
-    Wish -keep 400ms to load SAM2
-}
-When /anyone/ wishes /page/ tracks object /id/ with antiprompt /prompt/ {
+When /anyone/ wishes /page/ tracks object /id/ using /...any/ {
     Wish -keep 400ms $page has a SAM2 object tracker
     Wish -keep 400ms $page has camera slice
     Wish -keep 400ms to load SAM2
@@ -317,19 +313,19 @@ When /someone/ wishes /page/ has a SAM2 object tracker &\
         return $hash
     }
 
-    fn addSAM2Prompts {slice id} {
+    fn addSAM2PromptsInFrame {slice id} {
         set sam2Id [sam2ObjectId $id]
 
         set points [list]
         set labels [list]
-        foreach result [Query! /anyone/ wishes $page tracks object $id with prompt /prompt/] {
+        foreach result [Query! /anyone/ wishes $page tracks object $id using prompt /prompt/ in frame $slice] {
             set prompt [dict get $result prompt]
             set x [expr {[lindex $prompt 0] / $geom(width) * $slice(width)}]
             set y [expr {[lindex $prompt 1] / $geom(height) * $slice(height)}]
             lappend points [list $x $y]
             lappend labels 1
         }
-        foreach result [Query! /anyone/ wishes $page tracks object $id with antiprompt /prompt/] {
+        foreach result [Query! /anyone/ wishes $page tracks object $id using antiprompt /prompt/ in frame $slice] {
             set prompt [dict get $result prompt]
             set x [expr {[lindex $prompt 0] / $geom(width) * $slice(width)}]
             set y [expr {[lindex $prompt 1] / $geom(height) * $slice(height)}]
@@ -340,27 +336,22 @@ When /someone/ wishes /page/ has a SAM2 object tracker &\
         if {[lsearch -exact $labels 1] < 0} {
             return
         }
-        sam2AddPrompt $slice $sam2Id $points $labels
+        sam2AddPrompt $slice $sam2Id $points $labels 0
     }
 
-    When /anyone/ wishes $page tracks object /id/ with prompt /prompt/ {
-        Wish $page has camera slice
-        Expect! $page has camera slice /slice/
-        addSAM2Prompts $slice $id
+    When /anyone/ wishes $page tracks object /id/ using prompt /prompt/ in frame /slice/ {
+        addSAM2PromptsInFrame $slice $id
     }
-
-    When /anyone/ wishes $page tracks object /id/ with antiprompt /prompt/ {
-        Wish $page has camera slice
-        Expect! $page has camera slice /slice/
-        addSAM2Prompts $slice $id
+    When /anyone/ wishes $page tracks object /id/ using antiprompt /prompt/ in frame /slice/ {
+        addSAM2PromptsInFrame $slice $id
     }
 
     When the SAM2 mask-to-image library is /mtiLib/ &\
          the image library is /imageLib/ &\
          -serially $page has camera slice /slice/ {
 
-        set promptResults [Query! /anyone/ wishes $page tracks object /id/ with prompt /prompt/]
-        lappend promptResults {*}[Query! /anyone/ wishes $page tracks object /id/ with antiprompt /prompt/]
+        set promptResults [Query! /anyone/ wishes $page tracks object /id/ using prompt /prompt/ in frame /frame/]
+        lappend promptResults {*}[Query! /anyone/ wishes $page tracks object /id/ using antiprompt /prompt/ in frame /frame/]
         if {[llength $promptResults] == 0} { return }
 
         set activeObjectIdsBySam2Id {}
@@ -395,8 +386,8 @@ When /someone/ wishes /page/ has a SAM2 object tracker &\
          the png library is /pngLib/ {
         Wish the web server handles route [format {/sam2/%s$} $page] \
             with hidden true handler [list apply {{page pngLib} {
-                set promptResults [Query! /anyone/ wishes $page tracks object /id/ with prompt /prompt/]
-                lappend promptResults {*}[Query! /anyone/ wishes $page tracks object /id/ with antiprompt /prompt/]
+                set promptResults [Query! /anyone/ wishes $page tracks object /id/ using prompt /prompt/ in frame /frame/]
+                lappend promptResults {*}[Query! /anyone/ wishes $page tracks object /id/ using antiprompt /prompt/ in frame /frame/]
                 set ids [lsort -unique [lmap result $promptResults {
                     dict get $result id
                 }]]
