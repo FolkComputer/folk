@@ -310,8 +310,12 @@ When the png library is /pngLib/ &\
                 }
                 return [join $points " "]
             }
+            local proc jsString {s} {
+                return "\"[string map [list "\\" "\\\\" "\"" "\\\"" "\n" "\\n" "\r" "\\r" "\t" "\\t"] $s]\""
+            }
 
             set promptResults [Query! /anyone/ wishes $page tracks object /id/ with prompt /prompt/]
+            lappend promptResults {*}[Query! /anyone/ wishes $page tracks object /id/ with antiprompt /prompt/]
             set ids [lsort -unique [lmap result $promptResults {
                 dict get $result id
             }]]
@@ -364,7 +368,9 @@ When the png library is /pngLib/ &\
 
                     set b64 [binary encode base64 $imageData]
                     set body [subst {
-                        <div class="overlay">
+                        <div class="overlay" data-object-id="[htmlEscape $id]"
+                             data-width="$width" data-height="$height"
+                             data-geom-width="$geom(width)" data-geom-height="$geom(height)">
                             <img src="data:image/png;base64,$b64">
                             <svg viewBox="0 0 $width $height" preserveAspectRatio="none">
                                 <polyline class="visible" points="$visiblePoints"></polyline>
@@ -383,12 +389,13 @@ When the png library is /pngLib/ &\
                 <html>
                 <head>
                     <title>SAM2 foot contour $page</title>
+                    <script src="/lib/folk.js"></script>
                     <style>
                         body { font-family: sans-serif; margin: 24px; }
                         main { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
                         section { border: 1px solid #ddd; padding: 12px; }
                         h2 { font-size: 14px; margin: 0 0 8px; word-break: break-word; }
-                        .overlay { position: relative; display: inline-block; max-width: 100%; background: #111; }
+                        .overlay { position: relative; display: inline-block; max-width: 100%; background: #111; cursor: crosshair; }
                         img { display: block; max-width: 100%; }
                         svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
                         polyline { fill: none; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
@@ -403,6 +410,29 @@ When the png library is /pngLib/ &\
                     <main>
                         [join $entries "\n"]
                     </main>
+                    <script>
+                        const folk = new FolkWS();
+                        const page = [jsString $page];
+                        let promptSeq = 0;
+                        document.querySelectorAll('.overlay').forEach((overlay) => {
+                            overlay.addEventListener('click', (event) => {
+                                event.preventDefault();
+
+                                const rect = overlay.getBoundingClientRect();
+                                const px = (event.clientX - rect.left) / rect.width * Number(overlay.dataset.width);
+                                const py = (event.clientY - rect.top) / rect.height * Number(overlay.dataset.height);
+                                const x = px / Number(overlay.dataset.width) * Number(overlay.dataset.geomWidth);
+                                const y = py / Number(overlay.dataset.height) * Number(overlay.dataset.geomHeight);
+                                const objectId = overlay.dataset.objectId;
+                                const antiprompt = event.altKey;
+                                const key = 'sam2-foot-contour prompt ' + page + ' ' + objectId + ' ' + Date.now() + '-' + promptSeq++;
+                                const statement = antiprompt
+                                    ? 'Wish ' + dump(page) + ' tracks object ' + dump(objectId) + ' with antiprompt ' + dump(\[x, y])
+                                    : 'Wish ' + dump(page) + ' tracks object ' + dump(objectId) + ' with prompt ' + dump(\[x, y]);
+                                folk.hold(key, statement, 'sam2-foot-contour');
+                            });
+                        });
+                    </script>
                 </body>
                 </html>
             }]
