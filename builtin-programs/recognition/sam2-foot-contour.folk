@@ -49,26 +49,6 @@ $cc code {
         Jim_ListAppendElement(interp, list, Jim_NewListObj(interp, xy, 2));
     }
 
-    static void reflectAcrossLine(double x, double y,
-                                  double ax, double ay,
-                                  double bx, double by,
-                                  double *rx, double *ry) {
-        double dx = bx - ax;
-        double dy = by - ay;
-        double lenSq = dx * dx + dy * dy;
-        if (lenSq <= 1e-12) {
-            *rx = x;
-            *ry = y;
-            return;
-        }
-
-        double t = ((x - ax) * dx + (y - ay) * dy) / lenSq;
-        double px = ax + t * dx;
-        double py = ay + t * dy;
-        *rx = 2 * px - x;
-        *ry = 2 * py - y;
-    }
-
     static Jim_Obj *makeFootPartsObj(Jim_Interp *interp,
                                      Jim_Obj *footContour,
                                      Jim_Obj *visibleArc,
@@ -91,10 +71,8 @@ $cc code {
     }
 }
 
-# Returns a foot contour made by taking the convex hull arc of a SAM2 mask
-# that faces pp, then mirroring that arc across its tangent-point chord.
-# pp is the camera optical axis projected into the viewport's local {x y}
-# meter space.
+# Returns the convex hull arc of a SAM2 mask that faces pp, where pp is the
+# camera optical axis projected into the viewport's local {x y} meter space.
 $cc proc maskFootContourParts {int width int height Jim_Obj* mask
                                double[2] pp double scaleX double scaleY} Jim_Obj* {
     int w = width;
@@ -249,14 +227,6 @@ $cc proc maskFootContourParts {int width int height Jim_Obj* mask
         double by = arc[arcLen - 1].y * scaleY;
         appendXYObj(interp, mirrorLine, ax, ay);
         appendXYObj(interp, mirrorLine, bx, by);
-        for (ptrdiff_t i = arcLen - 2; i > 0; i--) {
-            double x = arc[i].x * scaleX;
-            double y = arc[i].y * scaleY;
-            double rx, ry;
-            reflectAcrossLine(x, y, ax, ay, bx, by, &rx, &ry);
-            appendXYObj(interp, ret, rx, ry);
-            appendXYObj(interp, reflectedArc, rx, ry);
-        }
     }
 
     arrfree(arc);
