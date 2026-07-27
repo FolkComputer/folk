@@ -64,7 +64,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
     set tagSideLength 1.0
     set tagOuterLength [expr {$tagSideLength * 10/6}]
-    set pad $tagSideLength
+    set pad [expr {$tagSideLength / 3}]
 
     # Unit model's 2D coordinates have inner tag side length of 1.0:
     # scale it to real-world coordinates.
@@ -111,16 +111,26 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     fn HoldDefaultModel! {scale} {
         # Default model: just makes the tags fill most of the middle
         # of the projector area.
-        set tagSideLengthPixels [::math::min $($displayWidth/($COLS * ($tagOuterLength + $pad))) \
-                                     $($displayHeight/($ROWS * ($tagOuterLength + $pad)))]
+
+        # This has been adjusted with a scaling factor
+        # to account for the inclusion of labels on each side.
+        set tagSideLengthPixels [::math::min $(($displayWidth * 0.75)/($COLS * ($tagOuterLength + $pad))) \
+                                     $(($displayHeight * 0.75)/($ROWS * ($tagOuterLength + $pad)))]
         set tagSideLengthPixels [expr {$tagSideLengthPixels * $scale}]
 
-        # TODO: Center this on the projector area.
+        # Calculate offsets to center calibration tags in the projection area.
+        set projWidthPixels [expr {$COLS * ($tagSideLengthPixels * 10/6 + $pad)}]
+        set projWidthPixels [expr {$projWidthPixels * 1.1}]
+        set projHeightPixels [expr {$ROWS * ($tagSideLengthPixels * 10/6 + $pad)}]
+        set projHeightPixels [expr {$projHeightPixels * 1.1}]
+        set xOffset [expr {round(($displayWidth - $projWidthPixels) / 2)}]
+        set yOffset [expr {round(($displayHeight - $projHeightPixels) / 2)}]
+
         set H_modelToDisplay [$matLib estimateHomography [subst {
-            {$printedSideLengthM $printedSideLengthM $tagSideLengthPixels $tagSideLengthPixels}
-            {$printedSideLengthM 0 $tagSideLengthPixels 0}
-            {0 $printedSideLengthM 0 $tagSideLengthPixels}
-            {0 0 0 0}
+            {$printedSideLengthM $printedSideLengthM [expr {$tagSideLengthPixels + $xOffset}] [expr {$tagSideLengthPixels + $yOffset}]}
+            {$printedSideLengthM 0 [expr {$tagSideLengthPixels + $xOffset}] $yOffset}
+            {0 $printedSideLengthM $xOffset [expr {$tagSideLengthPixels + $yOffset}]}
+            {0 0 $xOffset $yOffset}
         }]]
         Hold! -key H_modelToDisplay {
             # Default model and version: nothing rotated.
