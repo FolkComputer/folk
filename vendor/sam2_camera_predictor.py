@@ -111,6 +111,9 @@ class SAM2CameraPredictor(SAM2Base):
         img, width, height = self.perpare_data(img, image_size=self.image_size)
         self.condition_state["video_height"] = height
         self.condition_state["video_width"] = width
+        while len(self.condition_state["images"]) <= self.frame_idx:
+            self.condition_state["images"].append(None)
+        self.condition_state["images"][self.frame_idx] = img
         image = img.to(self.device).float().unsqueeze(0)
         backbone_out = self.forward_image(image)
         self.condition_state["cached_features"] = {

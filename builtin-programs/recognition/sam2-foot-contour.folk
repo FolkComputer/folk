@@ -1,0 +1,482 @@
+set cc [C]
+$cc cflags -I.
+$cc include <stdbool.h>
+$cc include <stdlib.h>
+$cc include "vendor/stb_ds.h"
+
+$cc code {
+    typedef struct {
+        int x;
+        int y;
+    } HullPoint;
+
+    static int hullPointCmp(const void *a, const void *b) {
+        const HullPoint *pa = (const HullPoint *)a;
+        const HullPoint *pb = (const HullPoint *)b;
+        if (pa->x != pb->x) return pa->x - pb->x;
+        return pa->y - pb->y;
+    }
+
+    static long long hullCross(HullPoint o, HullPoint a, HullPoint b) {
+        return (long long)(a.x - o.x) * (b.y - o.y)
+             - (long long)(a.y - o.y) * (b.x - o.x);
+    }
+
+    static double hullCrossD(double ox, double oy,
+                             double ax, double ay,
+                             double bx, double by) {
+        return (ax - ox) * (by - oy) - (ay - oy) * (bx - ox);
+    }
+
+    static bool maskPixel(const uint8_t *mask, int w, int h, int x, int y) {
+        return x >= 0 && x < w && y >= 0 && y < h && mask[y * w + x] != 0;
+    }
+
+    static void appendXYObj(Jim_Interp *interp, Jim_Obj *list,
+                            double x, double y);
+
+    static void appendPointObj(Jim_Interp *interp, Jim_Obj *list,
+                               HullPoint p, double scaleX, double scaleY) {
+        appendXYObj(interp, list, p.x * scaleX, p.y * scaleY);
+    }
+
+    static void appendXYObj(Jim_Interp *interp, Jim_Obj *list,
+                            double x, double y) {
+        Jim_Obj *xy[2] = {
+            Jim_NewDoubleObj(interp, x),
+            Jim_NewDoubleObj(interp, y),
+        };
+        Jim_ListAppendElement(interp, list, Jim_NewListObj(interp, xy, 2));
+    }
+
+}
+
+# Returns the convex hull arc of a SAM2 mask that faces pp, where pp is the
+# camera optical axis projected into the viewport's local {x y} meter space.
+$cc proc maskFootContour {int width int height Jim_Obj* mask
+                          double[2] pp double scaleX double scaleY} Jim_Obj* {
+    int w = width;
+    int h = height;
+    if (w < 3 || h < 3) {
+        return Jim_NewListObj(interp, NULL, 0);
+    }
+
+    int maskLen = 0;
+    const uint8_t *maskData = (const uint8_t *)Jim_GetString(mask, &maskLen);
+    FOLK_ENSURE(maskLen == w * h);
+
+    HullPoint *pts = NULL;
+    for (int y = 1; y < h - 1; y++) {
+        for (int x = 1; x < w - 1; x++) {
+            if (!maskPixel(maskData, w, h, x, y)) continue;
+            if (!maskPixel(maskData, w, h, x - 1, y) ||
+                !maskPixel(maskData, w, h, x + 1, y) ||
+                !maskPixel(maskData, w, h, x, y - 1) ||
+                !maskPixel(maskData, w, h, x, y + 1)) {
+                arrput(pts, ((HullPoint){x, y}));
+            }
+        }
+    }
+
+    ptrdiff_t n = arrlen(pts);
+    if (n < 3) {
+        Jim_Obj *ret = Jim_NewListObj(interp, NULL, 0);
+        for (ptrdiff_t i = 0; i < n; i++) {
+            appendPointObj(interp, ret, pts[i], scaleX, scaleY);
+        }
+        arrfree(pts);
+        return ret;
+    }
+
+    qsort(pts, (size_t)n, sizeof(HullPoint), hullPointCmp);
+
+    HullPoint *unique = NULL;
+    for (ptrdiff_t i = 0; i < n; i++) {
+        if (i == 0 || pts[i].x != pts[i - 1].x || pts[i].y != pts[i - 1].y) {
+            arrput(unique, pts[i]);
+        }
+    }
+    arrfree(pts);
+    pts = unique;
+    n = arrlen(pts);
+
+    HullPoint *hull = NULL;
+    for (ptrdiff_t i = 0; i < n; i++) {
+        while (arrlen(hull) >= 2 &&
+               hullCross(hull[arrlen(hull) - 2], hull[arrlen(hull) - 1], pts[i]) <= 0) {
+            arrpop(hull);
+        }
+        arrput(hull, pts[i]);
+    }
+    ptrdiff_t lowerLen = arrlen(hull);
+    for (ptrdiff_t i = n - 2; i >= 0; i--) {
+        while (arrlen(hull) > lowerLen &&
+               hullCross(hull[arrlen(hull) - 2], hull[arrlen(hull) - 1], pts[i]) <= 0) {
+            arrpop(hull);
+        }
+        arrput(hull, pts[i]);
+        if (i == 0) break;
+    }
+    if (arrlen(hull) > 1) arrpop(hull);
+    arrfree(pts);
+
+    ptrdiff_t hn = arrlen(hull);
+    Jim_Obj *ret = Jim_NewListObj(interp, NULL, 0);
+    if (hn < 3) {
+        for (ptrdiff_t i = 0; i < hn; i++) {
+            appendPointObj(interp, ret, hull[i], scaleX, scaleY);
+        }
+        arrfree(hull);
+        return ret;
+    }
+
+    bool *visible = calloc((size_t)hn, sizeof(bool));
+    ptrdiff_t visibleCount = 0;
+    for (ptrdiff_t i = 0; i < hn; i++) {
+        ptrdiff_t j = (i + 1) % hn;
+        double ax = hull[i].x * scaleX;
+        double ay = hull[i].y * scaleY;
+        double bx = hull[j].x * scaleX;
+        double by = hull[j].y * scaleY;
+        if (hullCrossD(ax, ay, bx, by, pp[0], pp[1]) < 0) {
+            visible[i] = true;
+            visibleCount++;
+        }
+    }
+
+    if (visibleCount == 0 || visibleCount == hn) {
+        for (ptrdiff_t i = 0; i < hn; i++) {
+            appendPointObj(interp, ret, hull[i], scaleX, scaleY);
+        }
+        free(visible);
+        arrfree(hull);
+        return ret;
+    }
+
+    ptrdiff_t edge = 0;
+    while (edge < hn && !visible[edge]) edge++;
+    while (visible[(edge - 1 + hn) % hn]) {
+        edge = (edge - 1 + hn) % hn;
+    }
+
+    HullPoint *arc = NULL;
+    arrput(arc, hull[edge]);
+    for (;;) {
+        ptrdiff_t next = (edge + 1) % hn;
+        arrput(arc, hull[next]);
+        edge = next;
+        if (!visible[edge]) break;
+    }
+
+    ptrdiff_t arcLen = arrlen(arc);
+    for (ptrdiff_t i = 0; i < arcLen; i++) {
+        appendPointObj(interp, ret, arc[i], scaleX, scaleY);
+    }
+
+    arrfree(arc);
+    free(visible);
+    arrfree(hull);
+    return ret;
+}
+
+set sam2FootContourLib [$cc compile]
+Claim the SAM2 foot contour library is $sam2FootContourLib
+
+fn cameraPrincipalPointInQuad {ql qInCamera} {
+    package require linalg
+    namespace import \
+        ::math::linearalgebra::add \
+        ::math::linearalgebra::sub \
+        ::math::linearalgebra::scale \
+        ::math::linearalgebra::dotproduct \
+        ::math::linearalgebra::crossproduct
+
+    lassign [$ql vertices $qInCamera] a b c d
+    set n [crossproduct [sub $b $a] [sub $d $a]]
+    set rayDir {0 0 1}
+    set denom [dotproduct $n $rayDir]
+    if {abs($denom) < 0.000001} {
+        return {}
+    }
+
+    set t [expr {[dotproduct $n $a] / $denom}]
+    if {$t <= 0} {
+        return {}
+    }
+
+    return [pointToXYInQuad $ql $qInCamera [scale $t $rayDir]]
+}
+
+fn pointInQuad {ql q xy} {
+    package require linalg
+    namespace import \
+        ::math::linearalgebra::add \
+        ::math::linearalgebra::sub \
+        ::math::linearalgebra::scale \
+        ::math::linearalgebra::unitLengthVector
+
+    lassign [$ql vertices $q] topLeft topRight bottomRight bottomLeft
+    set xAxis [unitLengthVector [sub $topRight $topLeft]]
+    set yAxis [unitLengthVector [sub $bottomLeft $topLeft]]
+    lassign $xy x y
+    return [add $topLeft [add [scale $x $xAxis] [scale $y $yAxis]]]
+}
+
+fn pointToXYInQuad {ql q xyz} {
+    package require linalg
+    namespace import \
+        ::math::linearalgebra::sub \
+        ::math::linearalgebra::norm \
+        ::math::linearalgebra::dotproduct \
+        ::math::linearalgebra::unitLengthVector
+
+    lassign [$ql vertices $q] topLeft topRight bottomRight bottomLeft
+    set xAxis [unitLengthVector [sub $topRight $topLeft]]
+    set yAxis [unitLengthVector [sub $bottomLeft $topLeft]]
+    set delta [sub $xyz $topLeft]
+    return [list [dotproduct $delta $xAxis] [dotproduct $delta $yAxis]]
+}
+
+fn downprojectContourToPlane {ql qInCamera contour heightM} {
+    if {$heightM <= 0 || [llength $contour] == 0} {
+        return $contour
+    }
+
+    package require linalg
+    namespace import \
+        ::math::linearalgebra::add \
+        ::math::linearalgebra::sub \
+        ::math::linearalgebra::scale \
+        ::math::linearalgebra::dotproduct \
+        ::math::linearalgebra::crossproduct \
+        ::math::linearalgebra::unitLengthVector
+
+    lassign [$ql vertices $qInCamera] a b c d
+    set n [unitLengthVector [crossproduct [sub $b $a] [sub $d $a]]]
+    if {[dotproduct $n [scale -1 $a]] < 0} {
+        set n [scale -1 $n]
+    }
+
+    set planeD [dotproduct $n $a]
+    if {abs($planeD) < 0.000001} {
+        return $contour
+    }
+
+    set corrected [list]
+    foreach xy $contour {
+        set planeHit [pointInQuad $ql $qInCamera $xy]
+        set rayScale [expr {($planeD + $heightM) / $planeD}]
+        set elevatedPoint [scale $rayScale $planeHit]
+        set footPoint [sub $elevatedPoint [scale $heightM $n]]
+        lappend corrected [pointToXYInQuad $ql $qInCamera $footPoint]
+    }
+    return $corrected
+}
+
+When /someone/ claims /obj/ has object height /heightCm/ cm in /v/ {
+    Wish $obj has foot contour in $v
+}
+
+When the quad library is /ql/ &\
+     the quad changer is /quadChange/ &\
+     the SAM2 foot contour library is /footContourLib/ &\
+     a calibration from camera /camera/ to display /display/ is /calibration/ &\
+     /v/ has resolved geometry /geom/ &\
+     /someone/ wishes /obj/ has foot contour in /v/ &\
+     /obj/ has mask /mask/ in /v/ with /...maskOpts/ &\
+     /v/ has quad /vq/ {
+
+    fn quadChange
+
+    set vqCamera [quadChange $vq $camera]
+    set pp [cameraPrincipalPointInQuad $ql $vqCamera]
+    if {$pp eq {}} {
+        return
+    }
+
+    set width [dict get $maskOpts width]
+    set height [dict get $maskOpts height]
+    set scaleWidth [expr {$width > 1 ? $width - 1 : 1}]
+    set scaleHeight [expr {$height > 1 ? $height - 1 : 1}]
+    set scaleX [expr {double($geom(width)) / double($scaleWidth)}]
+    set scaleY [expr {double($geom(height)) / double($scaleHeight)}]
+    set footContour [$footContourLib maskFootContour \
+                         $width $height $mask $pp $scaleX $scaleY]
+
+    set objectHeightCm 0
+    set heightResults [Query! $obj has object height /heightCm/ cm in $v]
+    if {[llength $heightResults] > 0} {
+        set objectHeightCm [dict get [lindex $heightResults end] heightCm]
+    }
+    set objectHeightM [expr {double($objectHeightCm) / 100.0}]
+
+    set footContour [downprojectContourToPlane $ql $vqCamera \
+                         $footContour $objectHeightM]
+
+    if {[llength $footContour] >= 2} {
+        Claim $obj has foot contour $footContour in $v
+    }
+}
+
+When the png library is /pngLib/ &\
+     /v/ is a viewport {
+    Wish the web server handles route [format {/sam2-foot-contour/%s$} $v] \
+        with hidden true handler [list apply {{page pngLib} {
+            local proc svgPoints {contour geom width height} {
+                set points [list]
+                foreach p $contour {
+                    lassign $p x y
+                    lappend points [format "%.3f,%.3f" \
+                                        [expr {$x / $geom(width) * $width}] \
+                                        [expr {$y / $geom(height) * $height}]]
+                }
+                return [join $points " "]
+            }
+            local proc jsString {s} {
+                return "\"[string map [list "\\" "\\\\" "\"" "\\\"" "\n" "\\n" "\r" "\\r" "\t" "\\t"] $s]\""
+            }
+
+            set promptResults [Query! /anyone/ wishes $page tracks object /id/ with prompt /prompt/]
+            lappend promptResults {*}[Query! /anyone/ wishes $page tracks object /id/ with antiprompt /prompt/]
+            set ids [lsort -unique [lmap result $promptResults {
+                dict get $result id
+            }]]
+
+            set entries [list]
+            foreach id $ids {
+                Wish $id has foot contour in $page
+
+                set imageResults [Query! $id has SAM2 masked image /im/ in $page]
+                set contourResults [Query! $id has foot contour /footContour/ in $page]
+                set maskResults [Query! $id has mask /mask/ in $page with /...maskOpts/]
+                set geomResults [Query! $page has resolved geometry /geom/]
+                set heightResults [Query! $id has object height /heightCm/ cm in $page]
+                set heightCm ""
+                if {[llength $heightResults] > 0} {
+                    set heightCm [dict get [lindex $heightResults end] heightCm]
+                }
+                set heightControl [subst {
+                    <label class="height-control">
+                        <span>height</span>
+                        <input class="height-cm" type="number" step="0.1" min="0"
+                               value="[htmlEscape $heightCm]"
+                               data-object-id="[htmlEscape $id]">
+                        <span>cm</span>
+                    </label>
+                }]
+                set body {<div class="missing">waiting for mask and foot contour</div>}
+
+                if {[llength $imageResults] > 0 &&
+                    [llength $contourResults] > 0 &&
+                    [llength $maskResults] > 0 &&
+                    [llength $geomResults] > 0} {
+
+                    set imageResult [lindex $imageResults end]
+                    dict with imageResult {
+                        StatementAcquire! $__ref
+
+                        set filename [format "/tmp/sam2-foot-contour-%s-%s.png" \
+                            [string map {/ _ { } _} $page] \
+                            [string map {/ _ { } _} $id]]
+                        $pngLib saveAsPng $im $filename
+
+                        set fsize [file size $filename]
+                        set fd [open $filename r]
+                        fconfigure $fd -translation binary
+                        set imageData [read $fd $fsize]
+                        close $fd
+
+                        StatementRelease! $__ref
+                    }
+
+                    set footContour [dict get [lindex $contourResults end] footContour]
+                    set maskOpts [dict get [lindex $maskResults end] maskOpts]
+                    set geom [dict get [lindex $geomResults end] geom]
+                    set width [dict get $maskOpts width]
+                    set height [dict get $maskOpts height]
+
+                    set contourPoints [svgPoints $footContour $geom $width $height]
+
+                    set b64 [binary encode base64 $imageData]
+                    set body [subst {
+                        <div class="overlay" data-object-id="[htmlEscape $id]"
+                             data-width="$width" data-height="$height"
+                             data-geom-width="$geom(width)" data-geom-height="$geom(height)">
+                            <img src="data:image/png;base64,$b64">
+                            <svg viewBox="0 0 $width $height" preserveAspectRatio="none">
+                                <polyline class="foot-contour" points="$contourPoints"></polyline>
+                            </svg>
+                        </div>
+                    }]
+                }
+
+                lappend entries [format {<section><h2>%s</h2>%s</section>} \
+                    $id "$body\n$heightControl"]
+            }
+
+            html [subst {
+                <html>
+                <head>
+                    <title>SAM2 foot contour $page</title>
+                    <script src="/lib/folk.js"></script>
+                    <style>
+                        body { font-family: sans-serif; margin: 24px; }
+                        main { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+                        section { border: 1px solid #ddd; padding: 12px; }
+                        h2 { font-size: 14px; margin: 0 0 8px; word-break: break-word; }
+                        .overlay { position: relative; display: inline-block; max-width: 100%; background: #111; cursor: crosshair; }
+                        .height-control { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: #555; font-size: 13px; }
+                        .height-control input { width: 80px; font: inherit; padding: 3px 5px; }
+                        img { display: block; max-width: 100%; }
+                        svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+                        polyline { fill: none; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+                        .foot-contour { stroke: #00ff4a; stroke-width: 3; }
+                        .missing { color: #777; font-size: 14px; }
+                    </style>
+                </head>
+                <body>
+                    <h1>SAM2 foot contour $page</h1>
+                    <main>
+                        [join $entries "\n"]
+                    </main>
+                    <script>
+                        const folk = new FolkWS();
+                        const page = [jsString $page];
+                        let promptSeq = 0;
+                        document.querySelectorAll('.overlay').forEach((overlay) => {
+                            overlay.addEventListener('click', (event) => {
+                                event.preventDefault();
+
+                                const rect = overlay.getBoundingClientRect();
+                                const px = (event.clientX - rect.left) / rect.width * Number(overlay.dataset.width);
+                                const py = (event.clientY - rect.top) / rect.height * Number(overlay.dataset.height);
+                                const x = px / Number(overlay.dataset.width) * Number(overlay.dataset.geomWidth);
+                                const y = py / Number(overlay.dataset.height) * Number(overlay.dataset.geomHeight);
+                                const objectId = overlay.dataset.objectId;
+                                const antiprompt = event.altKey;
+                                const key = 'sam2-foot-contour prompt ' + page + ' ' + objectId + ' ' + Date.now() + '-' + promptSeq++;
+                                const statement = antiprompt
+                                    ? 'Wish ' + dump(page) + ' tracks object ' + dump(objectId) + ' with antiprompt ' + dump(\[x, y])
+                                    : 'Wish ' + dump(page) + ' tracks object ' + dump(objectId) + ' with prompt ' + dump(\[x, y]);
+                                folk.hold(key, statement, 'sam2-foot-contour');
+                            });
+                        });
+                        document.querySelectorAll('.height-cm').forEach((input) => {
+                            input.addEventListener('input', () => {
+                                const objectId = input.dataset.objectId;
+                                const key = 'sam2-foot-contour height ' + page + ' ' + objectId;
+                                const heightCm = Number(input.value);
+                                if (!Number.isFinite(heightCm) || heightCm < 0 || input.value === '') {
+                                    folk.hold(key, '', 'sam2-foot-contour');
+                                    return;
+                                }
+                                const statement = 'Claim ' + dump(objectId) + ' has object height ' + dump(heightCm) + ' cm in ' + dump(page);
+                                folk.hold(key, statement, 'sam2-foot-contour');
+                            });
+                        });
+                    </script>
+                </body>
+                </html>
+            }]
+        }} $v $pngLib]
+}

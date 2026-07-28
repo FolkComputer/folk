@@ -233,7 +233,7 @@ set quadLib [library create quadLib {} {
     # Take a {x y z} point in the same space as the quad and project
     # it down onto a {top left} point on the quad (that can be used in
     # the drawing APIs, etc).
-    proc pointToXY {q xyz} {
+    proc pointToXY {q xyz {checkBounds true}} {
         lassign [vertices $q] topLeft topRight bottomRight bottomLeft
         set width [norm [sub $topRight $topLeft]]
         set height [norm [sub $bottomLeft $topLeft]]
@@ -246,7 +246,9 @@ set quadLib [library create quadLib {} {
         set eps 0.000001
         if {$x < -$eps || $x > $width + $eps ||
             $y < -$eps || $y > $height + $eps} {
-            error "quad pointToXY: point $xyz projects outside quad bounds as {$x $y}; bounds are {0 0} {$width $height}"
+            if {$checkBounds} {
+                error "quad pointToXY: point $xyz projects outside quad bounds as {$x $y}; bounds are {0 0} {$width $height}"
+            }
         }
 
         return [list $x $y]

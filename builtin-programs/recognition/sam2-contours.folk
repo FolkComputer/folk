@@ -53,13 +53,19 @@ $cc proc findMaskContours {int width int height Jim_Obj* mask
 }
 Claim the SAM2 contours library is [$cc compile]
 
-# FIXME: how to define track target(s)
-# When the SAM2 segmenter is /sam2/ &\
-#      /someone/ wishes /p/ has SAM2 contours {
+When /someone/ wishes /obj/ has contours in /v/ &\
+     /obj/ has mask /mask/ in /v/ with /...maskOpts/ &\
+     /v/ has resolved geometry /geom/ &\
+     the SAM2 contours library is /sam2ContoursLib/ {
 
-#     When -serially $p has camera slice /sl/ {
-#         # Call sam2 on sl
-#         # Get mask, convert to contours
-#         # Claim out contours
-#     }
-# }
+    set width [dict get $maskOpts width]
+    set height [dict get $maskOpts height]
+    set scaleX [expr {double($geom(width)) / double($width)}]
+    set scaleY [expr {double($geom(height)) / double($height)}]
+    set epsilon 1.0
+
+    Claim $obj has contours \
+        [$sam2ContoursLib findMaskContours $width $height $mask \
+             $epsilon $scaleX $scaleY] \
+        in $v
+}
