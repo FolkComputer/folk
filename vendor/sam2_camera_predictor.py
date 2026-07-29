@@ -121,6 +121,26 @@ class SAM2CameraPredictor(SAM2Base):
         }
         return self.frame_idx
 
+    def _raw_image_frames_to_keep(self):
+        keep_frames = {self.frame_idx}
+        for per_obj in self.condition_state.get("temp_output_dict_per_obj", {}).values():
+            for output_dict in per_obj.values():
+                for frame_idx, out in output_dict.items():
+                    if out.get("maskmem_features") is None:
+                        keep_frames.add(frame_idx)
+        return keep_frames
+
+    def _prune_stale_raw_images(self):
+        """Drop raw camera-frame tensors once tracking memory has been encoded."""
+        images = self.condition_state.get("images")
+        if not images:
+            return
+
+        keep_frames = self._raw_image_frames_to_keep()
+        for frame_idx in range(len(images)):
+            if frame_idx not in keep_frames:
+                images[frame_idx] = None
+
     ###
     def _init_state(
         self,
@@ -747,6 +767,8 @@ class SAM2CameraPredictor(SAM2Base):
             for frame_idx in obj_output_dict["cond_frame_outputs"]:
                 obj_output_dict["non_cond_frame_outputs"].pop(frame_idx, None)
 
+        self._prune_stale_raw_images()
+
     def add_new_prompt_during_track(
         self,
         point=None,
@@ -835,6 +857,7 @@ class SAM2CameraPredictor(SAM2Base):
         else:
             all_pred_masks = pred_masks_per_obj[0]
         _, video_res_masks = self._get_orig_video_res_output(all_pred_masks)
+        self._prune_stale_raw_images()
         return obj_ids, video_res_masks
 
     ###
