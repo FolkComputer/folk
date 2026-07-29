@@ -11,12 +11,17 @@ fn editorToPrintOptions {editor} {
                        -default letter]
     set fmt $formats($formatName)
     set mToPt 2834.646
+
+    set mixins [Query! /someone/ wishes $program prints with mixin /mixin/]
+    set mixins [lmap m $mixins {dict get $m mixin}]
+
     return [dict merge $fmt \
                 [dict create \
                      code $code \
                      lineHeight [* $textScale $mToPt] \
                      advance [* 0.5859375 $textScale $mToPt] \
-                     margin [lmap x $margin {* $x $mToPt}]]]
+                     margin [lmap x $margin {* $x $mToPt}] \
+                     mixins $mixins]]
 }
 
 Subscribe: print program from editor /editor/ {

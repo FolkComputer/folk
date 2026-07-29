@@ -251,7 +251,11 @@ Wish the web server handles route "/new" with nav "<button>New program</button>"
   function handlePrint() {
     const code = document.getElementById("code").value;
     const jobid = String(Math.random());
-    ws.send(tcl`Notify: print code ${code}`);
+    ws.send(tcl`
+set mixins [Query! /someone/ wishes ${program} prints with mixin /mixin/]
+set mixins [lmap m $mixins {dict get $m mixin}]
+Notify: print code ${code} with mixins $mixins
+    `);
     let printBtn = document.getElementById("printBtn")
     printBtn.innerText = "Printing";
     printBtn.disabled = true;

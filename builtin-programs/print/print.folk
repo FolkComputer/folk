@@ -92,6 +92,10 @@ fn codeToPostScript {id code opts {marginsVar {}}} {
     set tagInset $opts(tagInset)
     set lineHeight $opts(lineHeight)
 
+    # Mixins will be drawn with coordinate system in points from the
+    # bottom-left corner of the page. X is rightward, Y is upward.
+    set mixins [dict getdef $opts mixins {}]
+
     # The calibration concat [s 0 0 s tx ty] maps our user coords to
     # the printer's raw PS coords. Anything outside the raw
     # [0,PageWidth]x[0,PageHeight] is clipped, so the effective
@@ -163,6 +167,7 @@ fn codeToPostScript {id code opts {marginsVar {}}} {
                 }
             }] "\n"]
 
+            % Draw tag and mixins only on first page.
             [expr {[llength $outPages] > 0 ? {} : [subst {
                 gsave
                 [expr {$PageWidth-$effMargins(right)-$tagWidth-$tagInset}] [expr {$PageHeight-$effMargins(top)-$tagHeight-$tagInset}] translate
@@ -176,6 +181,8 @@ fn codeToPostScript {id code opts {marginsVar {}}} {
                 newpath
                 [expr {$PageWidth-$effMargins(right)-$tagWidth-$tagInset}] [expr {$PageHeight-$effMargins(top)-$tagHeight-14-$tagInset}] moveto
                 ($id ([clock format [clock seconds] -format "%a, %d %b %Y, %r"])) show
+
+                [join $mixins \n]
             }] }]
 
             showpage
@@ -220,7 +227,8 @@ When $::thisNode claims printer /name/ is a cups printer with /...options/ {
     exec {*}$command
 }
 
-Subscribe: print code /code/ {
+# Print with 'default' typesetting (meant to be used from Web editor).
+Subscribe: print code /code/ with mixins /mixins/ {
     Require! the paper formats are /formats/
     set formatName [QueryOne! paper format /./ is the default paper format \
                        -default letter]
@@ -233,9 +241,14 @@ Subscribe: print code /code/ {
         code $code \
         lineHeight [* $textScale $mToPt] \
         advance [* 0.5859375 $textScale $mToPt] \
-        margin [lmap x $margin {* $x $mToPt}]]]
+        margin [lmap x $margin {* $x $mToPt}] \
+        mixins $mixins]]
     Notify: print a new program with {*}$options
 }
+Subscribe: print code /code/ {
+    Notify: print code $code with mixins {}
+}
+
 Subscribe: print a new program with /...options/ {
     if {$::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial"} {
         # HACK: Forward the print request to folk-hex.
