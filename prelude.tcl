@@ -487,6 +487,56 @@ proc desugarWhen {pattern body} {
             $varNamesWillBeBound]
     }
 }
+# Expands an alternation group written inside a literal pattern term:
+# `labe(l)led` -> {labelled labeled}, `cent(er|re)` -> {center centre}.
+# A group with no `|` marks an optional letter, and must sit in the
+# middle of a word so that ordinary parenthesized terms like `f(x)`
+# are left alone. Any term that isn't a plain word with a group is
+# returned as-is.
+proc __unpackTerm {term} {
+    if {![regexp {^([A-Za-z]*)\(([A-Za-z|]*)\)([A-Za-z()|]*)$} $term -> pre alts post]} {
+        return [list $term]
+    }
+    if {[string first "|" $alts] < 0 && ($pre eq "" || $post eq "")} {
+        return [list $term]
+    }
+    set alternatives [split $alts "|"]
+    if {[llength $alternatives] < 2} { lappend alternatives "" }
+    set expansions [list]
+    foreach alt $alternatives {
+        foreach rest [__unpackTerm $post] {
+            lappend expansions "$pre$alt$rest"
+        }
+    }
+    return $expansions
+}
+# Returns every pattern that `pattern` unpacks into -- the cartesian
+# product of its terms' expansions (just {$pattern} when no term has
+# an alternation group). Terms after a join `&` are passed through
+# untouched; the nested When that desugarWhen builds for the join will
+# unpack them itself.
+proc __unpackPattern {pattern} {
+    set expansions [list {}]
+    for {set i 0} {$i < [llength $pattern]} {incr i} {
+        set term [lindex $pattern $i]
+        if {$term eq "&"} {
+            set rest [lrange $pattern $i end]
+            set withRest [list]
+            foreach expansion $expansions {
+                lappend withRest [list {*}$expansion {*}$rest]
+            }
+            return $withRest
+        }
+        set nextExpansions [list]
+        foreach expansion $expansions {
+            foreach choice [__unpackTerm $term] {
+                lappend nextExpansions [list {*}$expansion $choice]
+            }
+        }
+        set expansions $nextExpansions
+    }
+    return $expansions
+}
 proc When {args} {
     set body [lindex $args end]
     set sourceInfo [info source $body]
@@ -581,12 +631,25 @@ proc When {args} {
         set atomicallyVersion {}
     }
 
-    lassign [desugarWhen $pattern $body] statement boundVars
-    lappend statement $envStack
+    set expansions [__unpackPattern $pattern]
+    if {[llength $expansions] == 1} {
+        lassign [desugarWhen $pattern $body] statement boundVars
+        lappend statement $envStack
 
-    tailcall SayWithSource {*}$sourceInfo \
-        0 $atomicallyVersion {} \
-        {*}$statement
+        tailcall SayWithSource {*}$sourceInfo \
+            0 $atomicallyVersion {} \
+            {*}$statement
+    }
+    # The pattern unpacks into multiple patterns: register one when
+    # statement per expansion, all sharing the same body and captured
+    # environment.
+    foreach expandedPattern $expansions {
+        lassign [desugarWhen $expandedPattern $body] statement boundVars
+        lappend statement $envStack
+        SayWithSource {*}$sourceInfo \
+            0 $atomicallyVersion {} \
+            {*}$statement
+    }
 }
 proc Subscribe: {args} {
     set pattern [lrange $args 0 end-1]

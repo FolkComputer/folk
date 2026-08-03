@@ -1,0 +1,83 @@
+# Rule unpacking: an alternation group in a When pattern term expands
+# the When into one registered when statement per spelling, so e.g.
+# `labe(l)led` matches both `labelled` and `labeled`.
+
+Assert! test claims the sign is labelled hello
+Assert! test claims the sign is labeled goodbye
+
+Assert! test claims the theatre is at the centre
+Assert! test claims the theater is at the center
+
+Assert! test claims Omar has honours
+Assert! test claims Yusuf has honor
+
+Assert! test claims f(x) is 7
+
+Assert! test claims A is labelled same
+Assert! test claims B is labeled same
+
+Assert! when test claims we are set up {
+    set marker shared
+
+    # Optional-letter group, plus the captured environment is shared
+    # across both expansions.
+    When /someone/ claims the sign is labe(l)led /text/ {
+        Claim saw label $text marker $marker
+    }
+
+    # Explicit alternation group.
+    When /someone/ claims the /building/ is at the cent(er|re) {
+        Claim saw building $building
+    }
+
+    # Two groups in one term: hono(u)r(s|) covers all four spellings.
+    When /person/ has hono(u)r(s|) {
+        Claim saw honorific $person
+    }
+
+    # A parenthesized term that isn't a mid-word optional letter or an
+    # alternation stays literal.
+    When /someone/ claims f(x) is /y/ {
+        Claim saw fx $y
+    }
+
+    # Groups on both sides of a join unpack too.
+    When /p/ is labe(l)led /t/ & /q/ is labe(l)led /t/ {
+        Claim saw pair $p and $q
+    }
+} with environment {}
+Assert! test claims we are set up
+
+sleep 1
+
+set labels [list]
+foreach result [Query! /someone/ claims saw label /text/ marker shared] {
+    lappend labels [dict get $result text]
+}
+assert {[lsort $labels] eq [list goodbye hello]}
+
+set buildings [list]
+foreach result [Query! /someone/ claims saw building /b/] {
+    lappend buildings [dict get $result b]
+}
+assert {[lsort $buildings] eq [list theater theatre]}
+
+set honorifics [list]
+foreach result [Query! /someone/ claims saw honorific /p/] {
+    lappend honorifics [dict get $result p]
+}
+assert {[lsort $honorifics] eq [list Omar Yusuf]}
+
+set fxs [list]
+foreach result [Query! /someone/ claims saw fx /y/] {
+    lappend fxs [dict get $result y]
+}
+assert {$fxs eq [list 7]}
+
+set pairs [list]
+foreach result [Query! /someone/ claims saw pair /p/ and /q/] {
+    lappend pairs [list [dict get $result p] [dict get $result q]]
+}
+assert {[lsort $pairs] eq [list {A A} {A B} {B A} {B B}]}
+
+Exit! 0
