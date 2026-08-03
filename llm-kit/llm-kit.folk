@@ -1,0 +1,64 @@
+# llm-kit: call LLMs from any Folk program.
+#
+# Setup: put your Gemini API key in ~/folk-data/llm/gemini.json:
+#
+#   { "api_key": "YOUR-API-KEY" }
+#
+# (optionally add "model": "gemini-2.5-pro" to override the default model)
+#
+# Then, on any program:
+#
+#   When the Gemini responder is /gemini/ {
+#       fn gemini
+#       Wish $this is labelled [gemini "How's the weather in McCarren Park rn?"]
+#   }
+
+Claim $this has keys from "$::env(HOME)/folk-data/llm"
+
+fn llmConfig {provider} {
+    set path "$::env(HOME)/folk-data/llm/$provider.json"
+    if {![file exists $path]} {
+        error "llm-kit: missing key file $path"
+    }
+    set fd [open $path r]
+    set config [json::decode [read $fd]]
+    close $fd
+    if {![dict exists $config api_key]} {
+        error "llm-kit: no \"api_key\" field in $path"
+    }
+    return $config
+}
+
+fn gemini {prompt} {
+    # Responses are cached so that reloading a program that asked a
+    # question doesn't re-ask it.
+    if {[info exists ::llmKitCache] && [dict exists $::llmKitCache gemini $prompt]} {
+        return [dict get $::llmKitCache gemini $prompt]
+    }
+
+    set config [llmConfig gemini]
+    set model "gemini-2.5-flash"
+    if {[dict exists $config model]} { set model [dict get $config model] }
+
+    set request [json::encode \
+        [dict create contents [list [dict create parts [list [dict create text $prompt]]]]] \
+        {obj contents {list obj parts {list obj text str}}}]
+
+    set response [json::decode \
+        [exec curl --silent --max-time 60 \
+             "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent" \
+             -H "x-goog-api-key: [dict get $config api_key]" \
+             -H "Content-Type: application/json" \
+             -d $request]]
+
+    if {[dict exists $response error]} {
+        error "llm-kit: Gemini: [dict get $response error message]"
+    }
+    set candidate [lindex [dict get $response candidates] 0]
+    set text [string trim [dict get [lindex [dict get $candidate content parts] 0] text]]
+
+    dict set ::llmKitCache gemini $prompt $text
+    return $text
+}
+
+Claim the Gemini responder is [fn gemini]
