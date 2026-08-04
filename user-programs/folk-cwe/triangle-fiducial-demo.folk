@@ -1,0 +1,169 @@
+# triangle-fiducial-demo.folk --
+#
+#     Renders the proposed TriTag triangle fiducial family (see
+#     docs/triangle-fiducials.md) straight onto the display, plus a
+#     simulated detection overlay showing what the detector would
+#     recover: corners, orientation bearing, and id.
+#
+#     Marker frame: y points down, centroid at the origin, apex at
+#     (0, -1.05), base corners at (±0.68, 0.55). All coordinates get
+#     scaled by the marker size and rotated by theta before drawing.
+
+Claim $this has a display saver ;# suppress the default welcome screen
+
+# Rigid transform from marker frame to display pixels.
+fn tf:xform {cx cy s theta p} {
+    lassign $p px py
+    set c [expr {cos($theta)}]; set sn [expr {sin($theta)}]
+    list [expr {$cx + $s*($c*$px - $sn*$py)}] \
+         [expr {$cy + $s*($sn*$px + $c*$py)}]
+}
+
+# Scale a marker-frame point about the marker centroid (the origin).
+fn tf:scalePt {k p} {
+    lassign $p px py
+    list [expr {$k*$px}] [expr {$k*$py}]
+}
+
+# Illustrative stand-in for the tri9h3 codebook: 9 payload bits per id.
+# (The real family would come from a generated codebook with min
+# Hamming distance 3; see the spec.)
+fn tf:codeword {id} {
+    expr {(($id * 279) ^ ($id >> 2) ^ 0x155) & 0x1FF}
+}
+
+# The 9 code cells: a side-3 triangular subdivision of the code
+# triangle. Returns a list of 9 cells, each a list of 3 marker-frame
+# points. Order: the 6 upward cells row-major from the apex, then the
+# 3 downward cells.
+fn tf:codeCells {} {
+    set A {0 -0.426}; set B {0.354 0.406}; set C {-0.354 0.406}
+    set n 3
+    fn P {i j} {
+        lassign $A ax ay; lassign $B bx by; lassign $C cx cy
+        list [expr {$ax + ($i/3.0)*($bx-$ax) + ($j/3.0)*($cx-$ax)}] \
+             [expr {$ay + ($i/3.0)*($by-$ay) + ($j/3.0)*($cy-$ay)}]
+    }
+    set cells [list]
+    for {set i 0} {$i < $n} {incr i} {
+        for {set j 0} {$j < $n - $i} {incr j} {
+            lappend cells [list [P $i $j] [P [+ $i 1] $j] [P $i [+ $j 1]]]
+        }
+    }
+    for {set i 0} {$i < $n - 1} {incr i} {
+        for {set j 0} {$j < $n - 1 - $i} {incr j} {
+            lappend cells [list [P [+ $i 1] $j] [P [+ $i 1] [+ $j 1]] [P $i [+ $j 1]]]
+        }
+    }
+    return $cells
+}
+
+# Draw one TriTag marker as it would appear when printed.
+fn tf:drawMarker {disp id cx cy s theta} {
+    set A {0 -1.05}; set B {0.68 0.55}; set C {-0.68 0.55}
+    set outer [list $A $B $C]
+
+    # White "paper" plate behind the marker:
+    Wish to draw a polygon onto $disp with points [lmap p $outer {
+        tf:xform $cx $cy $s $theta [tf:scalePt 1.26 $p]
+    }] color white layer 1
+
+    # Black border triangle (the detected silhouette):
+    Wish to draw a polygon onto $disp with points [lmap p $outer {
+        tf:xform $cx $cy $s $theta $p
+    }] color black layer 2
+
+    # White interior:
+    Wish to draw a polygon onto $disp with points [lmap p $outer {
+        tf:xform $cx $cy $s $theta [tf:scalePt 0.70 $p]
+    }] color white layer 3
+
+    # Keystone dot (4th correspondence point, toward the apex):
+    Wish to draw a circle onto $disp with \
+        center [tf:xform $cx $cy $s $theta {0 -0.60}] \
+        radius [expr {0.10 * $s}] thickness 1 \
+        color black filled true layer 4
+
+    # Code cells: bit k set -> cell k painted black.
+    set code [tf:codeword $id]
+    set k 0
+    foreach cell [tf:codeCells] {
+        if {($code >> $k) & 1} {
+            Wish to draw a polygon onto $disp with points [lmap p $cell {
+                tf:xform $cx $cy $s $theta $p
+            }] color black layer 4
+        }
+        incr k
+    }
+}
+
+# Draw what the detector would report for a marker at a known pose.
+fn tf:drawOverlay {disp id cx cy s theta} {
+    set A {0 -1.05}; set B {0.68 0.55}; set C {-0.68 0.55}
+
+    # Detected silhouette outline:
+    set loop [lmap p [list $A $B $C $A] { tf:xform $cx $cy $s $theta $p }]
+    Wish to draw a line onto $disp with points $loop width 3 color lime layer 5
+
+    # Corners: apex in crimson (it alone fixes orientation), base in gold.
+    Wish to draw a circle onto $disp with \
+        center [tf:xform $cx $cy $s $theta $A] radius 8 thickness 3 \
+        color crimson filled false layer 6
+    foreach p [list $B $C] {
+        Wish to draw a circle onto $disp with \
+            center [tf:xform $cx $cy $s $theta $p] radius 6 thickness 3 \
+            color gold filled false layer 6
+    }
+
+    # Orientation bearing: centroid -> out past the apex.
+    set tip [tf:xform $cx $cy $s $theta {0 -1.55}]
+    Wish to draw a line onto $disp with \
+        points [list [list $cx $cy] $tip] width 3 color deepskyblue layer 6
+    foreach wing {{-0.16 -1.28} {0.16 -1.28}} {
+        Wish to draw a line onto $disp with \
+            points [list $tip [tf:xform $cx $cy $s $theta $wing]] \
+            width 3 color deepskyblue layer 6
+    }
+
+    # Decoded report (pinned below the marker, not rotated with it):
+    set deg [expr {round(fmod($theta * 180.0 / 3.14159265, 360.0))}]
+    Wish to draw text onto $disp with \
+        position [list $cx [expr {$cy + 1.45 * $s}]] \
+        text "id $id  bearing $deg deg" color lime scale 16 layer 6
+}
+
+When display /disp/ has width /displayWidth/ height /displayHeight/ {
+    # Header:
+    set cx [/ $displayWidth 2.0]
+    Wish to draw text onto $disp with x $cx y 46 scale 38 color white \
+        text "TriTag - triangle fiducial system"
+    Wish to draw text onto $disp with x $cx y 88 scale 17 color lightgray \
+        text "$::thisNode - Vulkan renderer (Mesa lavapipe) - GLFW display under Xvfb"
+
+    # Row 1: family samples.
+    Wish to draw text onto $disp with x $cx y 138 scale 19 color skyblue \
+        text "marker family tri9h3 - printed form"
+    set ids {0 1 7 23 42}
+    set k 0
+    foreach id $ids {
+        set mx [expr {160 + $k * 240}]
+        tf:drawMarker $disp $id $mx 270 92 [expr {$k * 0.3}]
+        Wish to draw text onto $disp with x $mx y 415 scale 15 color white \
+            text "id $id"
+        incr k
+    }
+
+    # Row 2: simulated detections.
+    Wish to draw text onto $disp with x $cx y 458 scale 19 color skyblue \
+        text "simulated detection - corners, orientation bearing, decoded id"
+    foreach {id mx theta} {7 280 5.8  23 640 2.4  42 1000 3.9} {
+        tf:drawMarker $disp $id $mx 590 78 $theta
+        tf:drawOverlay $disp $id $mx 590 78 $theta
+    }
+
+    # Frame:
+    set border [list [list 0 0] [list $displayWidth 0] \
+                    [list $displayWidth $displayHeight] \
+                    [list 0 $displayHeight] [list 0 0]]
+    Wish to draw a line onto $disp with points $border width 5 color white
+}

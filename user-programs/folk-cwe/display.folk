@@ -1,0 +1,20 @@
+# folk-cwe: headless development VM (Claude Code remote environment).
+# There is no physical projector here, so use the GLFW windowed
+# display; the VM runs it under Xvfb with Mesa lavapipe (software
+# Vulkan), which exercises the whole real render path.
+Wish $::thisNode uses display "glfw" with width 1280 height 720 refreshRate -1
+
+# There is no camera/projector pair to calibrate on this VM, so the
+# builtin load-calibration program would just paint its big red
+# "hasn't been calibrated" warning over everything. Suppress it and
+# reproduce its uncalibrated-fallback claims (minus the warning):
+Wish program "builtin-programs/calibrate/load-calibration.folk" does not run
+
+When display /disp/ has width /displayWidth/ height /displayHeight/ {
+    Claim display $disp has intrinsics [dict create \
+        width $displayWidth height $displayHeight \
+        fx $displayWidth fy $displayWidth \
+        cx [/ $displayWidth 2.0] cy [/ $displayHeight 2.0] \
+        s 0 k1 0 k2 0 p1 0 p2 0]
+}
+Claim the default program geometry is {tagSize 30mm top 28mm right 28mm left 157mm bottom 80mm}
