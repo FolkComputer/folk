@@ -12,6 +12,16 @@ When folkcomputer@icloud.com has new messages /m/ {
 i.e., put a page on the table and it shows you your new mail; take it
 off (or read the mail) and the label goes away.
 
+The working form this proposal lands on differs from the target in
+one word — the label wish takes text, not a dict (see the `is
+labelled with` wrinkle below):
+
+```tcl
+When folkcomputer@icloud.com has new messages /m/ {
+    Wish $this is labelled "[dict get $m from]:\n[dict get $m subject]"
+}
+```
+
 This document works out what that snippet should *mean*, what
 statement vocabulary a mail provider should emit so that the snippet
 works with **zero changes to the language core**, and sketches the
@@ -116,7 +126,9 @@ is:
 
 so `Wish $this is labelled with $m` puts the literal word `with` in
 the `/text/` slot and `$m` in the options slot — it won't render.
-Either the example becomes:
+
+Fix (KISS): don't touch the label vocabulary at all. Drop the `with`
+and format the dict with the tools Tcl already has:
 
 ```tcl
 When folkcomputer@icloud.com has new messages /m/ {
@@ -124,17 +136,11 @@ When folkcomputer@icloud.com has new messages /m/ {
 }
 ```
 
-or, if the `labelled with <dict>` phrasing is worth keeping, the
-provider ships a tiny sugar page:
-
-```tcl
-When /someone/ wishes /thing/ is labelled with /m/ {
-    Wish $thing is labelled "[dict get $m from]: [dict get $m subject]"
-}
-```
-
-which is cheap, purely additive, and keeps the user-facing snippet
-verbatim.
+This is the working form of the target snippet: one existing
+vocabulary, no sugar page, no new matching rules. Anything fancier
+(a `labelled with <dict>` sugar statement) can be added later if the
+phrasing turns out to matter, but the default is: labels take text,
+so give them text.
 
 ## The provider: `mail.folk`
 
