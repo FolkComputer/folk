@@ -1,0 +1,59 @@
+== Exp 1: single-frame 6DOF pose accuracy (marker at 0.25,0.15, yaw 40deg)
+   720p TriTag  span    58px | lateral  1.90 mm  depth   4.15 mm  rot  0.82 deg  bearing 0.258 deg
+   720p square  span    52px | lateral  2.14 mm  depth   4.67 mm  rot  0.84 deg  bearing 0.239 deg
+  1080p TriTag  span    87px | lateral  1.62 mm  depth   3.55 mm  rot  0.68 deg  bearing 0.215 deg
+  1080p square  span    78px | lateral  1.72 mm  depth   3.77 mm  rot  0.72 deg  bearing 0.202 deg
+  1440p TriTag  span   115px | lateral  1.31 mm  depth   2.85 mm  rot  0.58 deg  bearing 0.185 deg
+  1440p square  span   104px | lateral  1.50 mm  depth   3.27 mm  rot  0.62 deg  bearing 0.178 deg
+     4K TriTag  span   173px | lateral  1.01 mm  depth   2.22 mm  rot  0.48 deg  bearing 0.154 deg
+     4K square  span   155px | lateral  1.38 mm  depth   3.02 mm  rot  0.53 deg  bearing 0.155 deg
+== Exp 2: fallback guess vs TriTag self-calibration
+   720p guess: fx +41.1%  table  122.8 mm  lifted@10cm  123.2 mm  depth  484.6 mm
+         3 refs +  0 page views: fx +41.14%  table 122.81 mm  lifted 123.22 mm  depth 483.2 mm  (refused 4/4)
+         3 refs +  2 page views: fx +41.14%  table 122.81 mm  lifted 123.22 mm  depth 483.1 mm  (refused 4/4)
+         3 refs +  5 page views: fx  +4.67%  table  47.63 mm  lifted  46.24 mm  depth  54.3 mm  (refused 0/4)
+         3 refs + 10 page views: fx  +2.65%  table  36.81 mm  lifted  36.52 mm  depth  39.6 mm  (refused 0/4)
+         3 refs + 20 page views: fx  -0.90%  table  22.13 mm  lifted  22.02 mm  depth  21.1 mm  (refused 0/4)
+  1080p guess: fx +41.1%  table  122.8 mm  lifted@10cm  123.2 mm  depth  483.2 mm
+         3 refs +  0 page views: fx +41.14%  table 122.81 mm  lifted 123.22 mm  depth 483.0 mm  (refused 4/4)
+         3 refs +  2 page views: fx +41.14%  table 122.81 mm  lifted 123.22 mm  depth 483.4 mm  (refused 4/4)
+         3 refs +  5 page views: fx  +0.85%  table  36.76 mm  lifted  34.21 mm  depth  15.4 mm  (refused 0/4)
+         3 refs + 10 page views: fx  +0.20%  table  49.18 mm  lifted  47.69 mm  depth  18.8 mm  (refused 1/4)
+         3 refs + 20 page views: fx  +0.15%  table  19.52 mm  lifted  18.72 mm  depth   8.1 mm  (refused 0/4)
+         [degenerate: 10 single-tag (4-pt) page views: fx +41.14%  lifted 123.22 mm — minimal views underdetermine the bundle]
+  1440p guess: fx +41.1%  table  122.8 mm  lifted@10cm  123.2 mm  depth  483.1 mm
+         3 refs +  0 page views: fx +41.14%  table 122.81 mm  lifted 123.22 mm  depth 483.0 mm  (refused 4/4)
+         3 refs +  2 page views: fx +41.14%  table 122.81 mm  lifted 123.22 mm  depth 483.7 mm  (refused 4/4)
+         3 refs +  5 page views: fx  +0.05%  table  50.30 mm  lifted  47.83 mm  depth  18.4 mm  (refused 1/4)
+         3 refs + 10 page views: fx  +1.95%  table  40.02 mm  lifted  39.72 mm  depth  31.1 mm  (refused 0/4)
+         3 refs + 20 page views: fx  +0.60%  table  15.32 mm  lifted  15.58 mm  depth  10.2 mm  (refused 0/4)
+     4K guess: fx +41.1%  table  122.8 mm  lifted@10cm  123.2 mm  depth  484.2 mm
+         3 refs +  0 page views: fx +41.14%  table 122.81 mm  lifted 123.22 mm  depth 482.7 mm  (refused 4/4)
+         3 refs +  2 page views: fx +41.14%  table 122.81 mm  lifted 123.22 mm  depth 483.5 mm  (refused 4/4)
+         3 refs +  5 page views: fx  +2.74%  table  38.16 mm  lifted  38.65 mm  depth  29.3 mm  (refused 0/4)
+         3 refs + 10 page views: fx  -0.20%  table  17.40 mm  lifted  17.05 mm  depth   9.1 mm  (refused 0/4)
+         3 refs + 20 page views: fx  -0.76%  table  11.97 mm  lifted  11.88 mm  depth   8.6 mm  (refused 0/4)
+== Exp 3: temporal — background refinement + jitter (1080p)
+   15 fps (checkpoint): fx<2% after  18.0 s | moving-page depth err   431 -> 11.0 mm | static jitter 3.283 mm raw, 1.307 mm w/ 100ms EMA
+   30 fps (checkpoint): fx<2% after  12.0 s | moving-page depth err   430 -> 21.4 mm | static jitter 3.046 mm raw, 0.652 mm w/ 100ms EMA
+   60 fps (checkpoint): fx<2% after   nan s | moving-page depth err   426 -> 31.5 mm | static jitter 3.357 mm raw, 0.390 mm w/ 100ms EMA
+  120 fps: fx<2% after   nan s | moving-page depth err   422 -> 29.9 mm | static jitter 3.603 mm raw, 0.204 mm w/ 100ms EMA
+== Exp 4: low-band structured-light budget (TR2007-109 style)
+  1920x1080 @ 30Hz, 1 pattern per  1 frames: 24 patterns -> full Gray sweep    0.8 s
+  1920x1080 @ 30Hz, 1 pattern per  8 frames: 24 patterns -> full Gray sweep    6.4 s
+  1920x1080 @ 30Hz, 1 pattern per 30 frames: 24 patterns -> full Gray sweep   24.0 s
+  1920x1080 @ 60Hz, 1 pattern per  1 frames: 24 patterns -> full Gray sweep    0.4 s
+  1920x1080 @ 60Hz, 1 pattern per  8 frames: 24 patterns -> full Gray sweep    3.2 s
+  1920x1080 @ 60Hz, 1 pattern per 30 frames: 24 patterns -> full Gray sweep   12.0 s
+  1920x1080 @120Hz, 1 pattern per  1 frames: 24 patterns -> full Gray sweep    0.2 s
+  1920x1080 @120Hz, 1 pattern per  8 frames: 24 patterns -> full Gray sweep    1.6 s
+  1920x1080 @120Hz, 1 pattern per 30 frames: 24 patterns -> full Gray sweep    6.0 s
+  3840x2160 @ 30Hz, 1 pattern per  1 frames: 26 patterns -> full Gray sweep    0.9 s
+  3840x2160 @ 30Hz, 1 pattern per  8 frames: 26 patterns -> full Gray sweep    6.9 s
+  3840x2160 @ 30Hz, 1 pattern per 30 frames: 26 patterns -> full Gray sweep   26.0 s
+  3840x2160 @ 60Hz, 1 pattern per  1 frames: 26 patterns -> full Gray sweep    0.4 s
+  3840x2160 @ 60Hz, 1 pattern per  8 frames: 26 patterns -> full Gray sweep    3.5 s
+  3840x2160 @ 60Hz, 1 pattern per 30 frames: 26 patterns -> full Gray sweep   13.0 s
+  3840x2160 @120Hz, 1 pattern per  1 frames: 26 patterns -> full Gray sweep    0.2 s
+  3840x2160 @120Hz, 1 pattern per  8 frames: 26 patterns -> full Gray sweep    1.7 s
+  3840x2160 @120Hz, 1 pattern per 30 frames: 26 patterns -> full Gray sweep    6.5 s

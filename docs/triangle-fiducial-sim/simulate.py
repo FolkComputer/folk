@@ -430,6 +430,23 @@ def exp3(fps_list=(15, 30, 60, 120), dur=40.0, res=(1920, 1080)):
     intr_t = true_intrinsics(w, h); sig = noise_sigma(w)
     results = {}
     for fps in fps_list:
+        ckpt = f"{OUT}/exp3_{fps}.npz"
+        if os.path.exists(ckpt):        # resume from checkpoint
+            z = np.load(ckpt, allow_pickle=True)
+            tc = float(z["t_conv"])
+            results[fps] = dict(curve=[tuple(r) for r in z["curve"]],
+                                t_conv=None if math.isnan(tc) else tc,
+                                jitter_raw=float(z["jitter_raw"]),
+                                jitter_ema=float(z["jitter_ema"]),
+                                depth_before=float(z["depth_before"]),
+                                depth_after=float(z["depth_after"]))
+            r = results[fps]
+            print(f"  {fps:3d} fps (checkpoint): fx<2% after "
+                  f"{r['t_conv'] if r['t_conv'] is not None else float('nan'):5.1f} s"
+                  f" | moving-page depth err {r['depth_before']:5.0f} -> "
+                  f"{r['depth_after']:4.1f} mm | static jitter "
+                  f"{r['jitter_raw']:5.3f} mm raw, {r['jitter_ema']:5.3f} mm w/ 100ms EMA")
+            continue
         n = int(dur * fps); dt = 1.0 / fps
         intr_e = guess_intrinsics(w, h)
         bank, fx_curve, depth_curve, t_conv = [], [], [], None
@@ -489,6 +506,10 @@ def exp3(fps_list=(15, 30, 60, 120), dur=40.0, res=(1920, 1080)):
         results[fps] = dict(curve=fx_curve, t_conv=t_conv,
                             jitter_raw=jit_raw, jitter_ema=jit_f,
                             depth_before=d_before, depth_after=d_after)
+        np.savez(ckpt, curve=np.array(fx_curve),
+                 t_conv=float('nan') if t_conv is None else t_conv,
+                 jitter_raw=jit_raw, jitter_ema=jit_f,
+                 depth_before=d_before, depth_after=d_after)
         print(f"  {fps:3d} fps: fx<2% after {t_conv if t_conv else float('nan'):5.1f} s"
               f" | moving-page depth err {d_before:5.0f} -> {d_after:4.1f} mm"
               f" | static jitter {jit_raw:5.3f} mm raw, {jit_f:5.3f} mm w/ 100ms EMA")

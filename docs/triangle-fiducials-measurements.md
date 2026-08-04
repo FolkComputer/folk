@@ -99,20 +99,22 @@ TR2007-109 Fig. 1) while the refiner banks tilted views and re-solves
 every ~3 s, starting from the fallback guess; damped (50%) installs
 (fig3_temporal.png; final numbers in `results.txt`):
 
-- **Convergence is view-diversity-limited, not fps-limited.** All frame
-  rates converge in a few tens of seconds of casual motion; higher fps
-  reaches the banked-view quota sooner but 15 fps is entirely usable for
-  the *background* loop. Moving-page absolute depth error falls from
-  ~430 mm (guess) to tens of mm as the model converges, while the
-  tracker keeps running in real time throughout — refinement never
-  blocks the frame loop (bundles are ~0.5–2 s of off-thread work every
-  few seconds).
+- **Convergence is view-diversity-limited, not fps-limited.** Every
+  frame rate walks fx from +41% to ~1–2.5% within 10–30 s of casual
+  motion (the staircase in the figure is the damped installs), and the
+  ordering across fps is stochastic — 15 fps converged as well as
+  120 fps, because what matters is collecting ~15 well-spread tilted
+  views, not how many frames arrive per second. Moving-page absolute
+  depth error falls from ~430 mm (guess) to 11–32 mm as the model
+  converges, while the tracker keeps running in real time throughout —
+  refinement is ~0.5–2 s of off-thread bundle work every few seconds
+  and never blocks the frame loop.
 - **Jitter is where temporal resolution pays.** Raw static pose jitter
-  (~3–4 mm frame-to-frame for a lone 64 mm tag at 1080p) is per-frame-
-  noise-limited and roughly fps-independent, but a fixed 100 ms EMA
-  window averages more frames at higher fps: ~1.4 mm at 15 fps → ~0.9 mm
-  at 30 → ~0.4 mm at 60 → ~0.2 mm at 120, at constant latency. High fps
-  buys smoothness for *tracking*; it buys little for *calibration*.
+  (~3–3.6 mm frame-to-frame for a lone 64 mm tag at 1080p) is per-frame-
+  noise-limited and fps-independent, but a fixed 100 ms EMA window
+  averages more frames at higher fps: 1.31 mm at 15 fps → 0.65 at 30 →
+  0.39 at 60 → 0.20 at 120, at constant latency. High fps buys
+  smoothness for *tracking*; it buys almost nothing for *calibration*.
 
 ## Exp 4 — low-band visible/IR structured light (the MERL connection)
 
