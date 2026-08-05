@@ -21,6 +21,7 @@ struct Trie {
     int32_t branchesCount;
     const Trie* branches[];
 };
+#define SIZEOF_TRIE(CAPACITY_BRANCHES) (sizeof(Trie) + (CAPACITY_BRANCHES)*sizeof(Trie*))
 
 const Trie* trieNew();
 
@@ -61,13 +62,13 @@ const Trie* trieRemove(const Trie* trie,
                        int* resultCount);
 
 // Fills `results` with the values of all clauses matching `pattern`.
-int trieLookup(const Trie* trie, const Zicl_List* pattern,
+int trieLookup(const Trie* trie, Zicl_List* pattern,
                uint64_t* results, size_t maxResults);
 
 // Only looks for literal matches of `literal` in the trie (does not
 // treat /variable/ as a variable). Used to check for an
 // already-existing statement whenever a statement is inserted.
-int trieLookupLiteral(const Trie* trie, const Zicl_List* literal,
+int trieLookupLiteral(const Trie* trie, Zicl_List* literal,
                       uint64_t* results, size_t maxResults);
 
 bool trieScanVariable(const char* term,

@@ -18,13 +18,13 @@
 
 #include <jim.h>
 #include <libzicl.h>
-#include "folk-zicl.h"
 
 #define STB_DS_IMPLEMENTATION
 #include "vendor/stb_ds.h"
 
 #include "vendor/c11-queues/mpmc_queue.h"
 
+#include "folk-zicl.h"
 #include "epoch.h"
 #include "db.h"
 #include "common.h"
@@ -120,36 +120,43 @@ typedef struct Environment {
 // Clause/matching logic lives) because it operates at the Tcl level,
 // building up a mapping of strings to Tcl objects. Caller must free
 // the returned Environment*.
-Environment* clauseUnify(Clause* a, Clause* b) {
-    Environment* env = malloc(sizeof(Environment) + sizeof(EnvironmentBinding)*a->nTerms);
+// "a" and "b" must have a list internal representation.
+Environment* clauseUnify(Jim_Interp* interp, Zicl_List* a, Zicl_List* b) {
+    int aLen = Zicl_ListLength(a);
+    int bLen = Zicl_ListLength(b);
+
+    Zicl_Value* aTerms = Zicl_ListItems(a);
+    Zicl_Value* bTerms = Zicl_ListItems(b);
+
+    Environment* env = malloc(sizeof(Environment) + sizeof(EnvironmentBinding)*aLen);
     env->nBindings = 0;
 
-    for (int i = 0; i < a->nTerms && i < b->nTerms; i++) {
+    for (int i = 0; i < aLen && i < bLen; i++) {
         char aVarName[100] = {0}; char bVarName[100] = {0};
-        if (trieScanVariable(a->terms[i], aVarName, sizeof(aVarName))) {
+        if (trieScanVariable(ziclString(aTerms[i]), aVarName, sizeof(aVarName))) {
             if (aVarName[0] == '.' && aVarName[1] == '.' && aVarName[2] == '.') {
                 EnvironmentBinding* binding = &env->bindings[env->nBindings++];
                 memcpy(binding->name, aVarName + 3, sizeof(binding->name) - 3);
-                binding->value = termsToZiclObj(b->nTerms - i, &b->terms[i]);
+                binding->value = Zicl_BoxList(ziclNewList(bTerms + i, bLen - i));
             } else if (!trieVariableNameIsNonCapturing(aVarName)) {
                 EnvironmentBinding* binding = &env->bindings[env->nBindings++];
                 memcpy(binding->name, aVarName, sizeof(binding->name));
-                binding->value = termToZiclObj(b->terms[i]);
+                binding->value = Zicl_IncrRefCount(bTerms[i]);
             }
-        } else if (trieScanVariable(b->terms[i], bVarName, sizeof(bVarName))) {
+        } else if (trieScanVariable(ziclString(bTerms[i]), bVarName, sizeof(bVarName))) {
             if (bVarName[0] == '.' && bVarName[1] == '.' && bVarName[2] == '.') {
                 EnvironmentBinding* binding = &env->bindings[env->nBindings++];
                 memcpy(binding->name, bVarName + 3, sizeof(binding->name) - 3);
-                binding->value = termsToZiclObj(a->nTerms - i, &a->terms[i]);
+                binding->value = Zicl_BoxList(ziclNewList(aTerms + i, aLen - i));
             } else if (!trieVariableNameIsNonCapturing(bVarName)) {
                 EnvironmentBinding* binding = &env->bindings[env->nBindings++];
                 memcpy(binding->name, bVarName, sizeof(binding->name));
-                binding->value = termToZiclObj(a->terms[i]);
+                binding->value = Zicl_IncrRefCount(aTerms[i]);
             }
-        } else if (!termEq(a->terms[i], b->terms[i])) {
+        } else if (!ziclEquals(aTerms[i], bTerms[i])) {
             free(env);
-            fprintf(stderr, "clauseUnify: Warning: Unification of (%s) (%s) failed.\n",
-                    clauseToString(a), clauseToString(b));
+            fprintf(stderr, "clauseUnify: Unification of (%s) (%s) failed\n",
+                    ziclString(Zicl_BoxList(a)), ziclString(Zicl_BoxList(b)));
             return NULL;
         }
     }
@@ -157,28 +164,40 @@ Environment* clauseUnify(Clause* a, Clause* b) {
 }
 
 // Assert! the time is 3
-static int AssertFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
-    Clause* clause = ziclObjsToClause(argc - 1, argv + 1);
+static int AssertFunc(Jim_Interp *interp, int argc, Zicl_Shimmerable *argv) {
+    Zicl_List* clause = ziclNewListFromShimmerables(argv + 1, argc - 1);
 
-    Zicl_Value scriptObj = Zicl_GetScriptBeingEvaluated(interp);
-    const char* sourceFileName = Zicl_SourceGetFilename(scriptObj);
-    if (!sourceFileName) sourceFileName = "<unknown>";
-    int sourceLineNumber = Zicl_SourceGetLine(scriptObj);
+    Zicl_Value scriptObj = Zicl_EvalFrameScript(interp, Zicl_CurrentEvalFrameIdx(interp));
+    const char* sourceFileName = "<unknown>";
+    int sourceLineNumber = -1;
+    Zicl_Source *asSource = Zicl_AsSource(scriptObj);
+    if (asSource) {
+        if (Zicl_IsSome(asSource->file_name)) {
+            sourceFileName = ziclString(Zicl_Unwrap(asSource->file_name));
+        }
+        sourceLineNumber = asSource->line_no;
+    }
+
+    Jim_MakeCrossthread(interp, Zicl_BoxList(clause));
+    Zicl_IncrRefCount(Zicl_BoxList(clause));
 
     appropriateWorkQueuePush((WorkQueueItem) {
-       .op = ASSERT,
-       .assert = {
-           .clause = clause,
-           .sourceFileName = strdup(sourceFileName),
-           .sourceLineNumber = sourceLineNumber,
-       }
+        .op = ASSERT,
+        .assert = {
+            .clause = clause,
+            .sourceFileName = strdup(sourceFileName),
+            .sourceLineNumber = sourceLineNumber,
+        }
     });
 
     return (JIM_OK);
 }
 // Retract! the time is /t/
-static int RetractFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
-    Clause* pattern = ziclObjsToClause(argc - 1, argv + 1);
+static int RetractFunc(Jim_Interp *interp, int argc, Zicl_Shimmerable *argv) {
+    Zicl_List* pattern = ziclNewListFromShimmerables(argv + 1, argc - 1);
+
+    Jim_MakeCrossthread(interp, Zicl_BoxList(pattern));
+    Zicl_IncrRefCount(Zicl_BoxList(pattern));
 
     appropriateWorkQueuePush((WorkQueueItem) {
        .op = RETRACT,
@@ -193,7 +212,7 @@ static void reactToNewStatement(StatementRef ref);
 int64_t _Atomic latestVersion = 0; // TODO: split by key?
 // Note: returns an acquired statement that the caller should release.
 Statement* HoldStatementGloballyAcquiring(const char *key, double version,
-                                          Clause *clause, long keepMs, const char *destructorCode,
+                                          Jim_Obj *clause, long keepMs, const char *destructorCode,
                                           const char *sourceFileName, int sourceLineNumber) {
 /* #ifdef TRACY_ENABLE */
 /*     char *s = clauseToString(clause); */
@@ -237,7 +256,7 @@ Statement* HoldStatementGloballyAcquiring(const char *key, double version,
     return newStmt;
 }
 void HoldStatementGlobally(const char *key, double version,
-                           Clause *clause, long keepMs, const char *destructorCode,
+                           Zicl_List *clause, long keepMs, const char *destructorCode,
                            const char *sourceFileName, int sourceLineNumber) {
     Statement* stmt = HoldStatementGloballyAcquiring(key, version,
                                                      clause, keepMs, destructorCode,
@@ -247,24 +266,19 @@ void HoldStatementGlobally(const char *key, double version,
         statementRelease(db, stmt);
     }
 }
-static int HoldStatementGloballyFunc(Zicl_Interp *interp, int argc, Zicl_Value *argv) {
+static int HoldStatementGloballyFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv) {
+    int rc = 0;
     assert(argc == 8);
 
-    const char* sourceFileName;
-    long sourceLineNumber;
-    sourceFileName = Zicl_String(argv[6]);
-    if (sourceFileName == NULL) { return ZICL_ERR; }
-    if (Zicl_GetLong(interp, &argv[7], &sourceLineNumber) != ZICL_OK) { return ZICL_ERR; }
-
-    const char *key = Zicl_GetString(argv[1], NULL);
-    double version; assert(Zicl_GetDouble(interp, &argv[2], &version) == ZICL_OK);
-    Clause *clause = ziclObjToClause(interp, &argv[3]);
-    long keepMs; assert(Zicl_GetLong(interp, &argv[4], &keepMs) == ZICL_OK);
+    const char* sourceFileName = ziclShimString(&argv[6]);
+    long sourceLineNumber; ZICL_TRY(Zicl_GetLong(interp, &argv[7], &sourceLineNumber), rc);
+    const char *key = ziclShimString(&argv[1]);
+    double version; ZICL_TRY(Zicl_GetDouble(interp, &argv[2], &version), rc);
+    Zicl_List *clause; ZICL_TRY(Zicl_ListShimmer(interp, &argv[3], &clause), rc);
+    long keepMs; ZICL_TRY(Jim_GetLong(interp, &argv[4], &keepMs), rc);
     int destructorCodeLen;
-    const char* destructorCode = Zicl_GetString(argv[5], &destructorCodeLen);
-    if (destructorCodeLen == 0) {
-        destructorCode = NULL;
-    }
+    const char* destructorCode = ziclShimGetString(&argv[5], &destructorCodeLen);
+    if (destructorCodeLen == 0) destructorCode = NULL;
 
     HoldStatementGlobally(key, version,
                           clause, keepMs, destructorCode,
@@ -274,7 +288,7 @@ static int HoldStatementGloballyFunc(Zicl_Interp *interp, int argc, Zicl_Value *
 }
 
 
-static StatementRef Say(Clause* clause, long keepMs,
+static StatementRef Say(Zicl_List* clause, long keepMs,
                         AtomicallyVersion* atomicallyVersion,
                         const char *destructorCode,
                         const char *sourceFileName, int sourceLineNumber) {
@@ -284,15 +298,13 @@ static StatementRef Say(Clause* clause, long keepMs,
 
     } else {
         parent = MATCH_REF_NULL;
-        char *s = clauseToString(clause);
-        fprintf(stderr, "Warning: Creating Say without parent match (%.100s)\n",
-                s);
-        free(s);
+        const char *s = ziclString(Zicl_BoxList(clause));
+        fprintf(stderr, "Warning: Creating unparented Say (%.100s)\n", s);
     }
 
     Statement* stmt;
-    stmt = dbInsertOrReuseStatement(db, clause,
-                                    keepMs, atomicallyVersion,
+    stmt = dbInsertOrReuseStatement(db, clause, keepMs,
+                                    atomicallyVersion,
                                     sourceFileName, sourceLineNumber,
                                     parent, NULL);
 
@@ -323,78 +335,72 @@ static StatementRef Say(Clause* clause, long keepMs,
     }
 }
 
-static int SayWithSourceFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int SayWithSourceFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv) {
     assert(argc >= 7);
-    Clause* clause = ziclObjsToClause(argc - 6, argv + 6);
+    Jim_Obj* clause = ziclNewListFromShimmerables(argv + 6, argc - 6);
 
     const char* sourceFileName;
-    long sourceLineNumber;
-    sourceFileName = Zicl_String(argv[1]);
-    if (sourceFileName == NULL) { goto err; }
-    if (Zicl_GetLong(interp, &argv[2], &sourceLineNumber) != ZICL_OK) {
-        goto err;
-    }
+    sourceFileName = ziclShimString(&argv[1]);
+    if (sourceFileName == NULL) { return JIM_ERR; }
 
-    long keepMs;
-    if (Zicl_GetLong(interp, &argv[3], &keepMs) != ZICL_OK) {
-        goto err;
-    }
+    int rc = ZICL_OK;
+    long sourceLineNumber; if ((rc = Jim_GetLong(interp, &argv[2], &sourceLineNumber)) != ZICL_OK) goto err;
+
+    long keepMs; if ((rc = Jim_GetLong(interp, &argv[3], &keepMs)) != ZICL_OK) goto err;
 
     AtomicallyVersion* atomicallyVersion = NULL;
-    const char* atomicallyVersionStr = Zicl_String(argv[4]);
+    const char* atomicallyVersionStr = ziclShimString(&argv[4]);
     if (atomicallyVersionStr && strlen(atomicallyVersionStr) > 0) {
         sscanf(atomicallyVersionStr, "(AtomicallyVersion*) %p", &atomicallyVersion);
     }
 
     int destructorCodeLen;
-    const char* destructorCode = Zicl_GetString(argv[5], &destructorCodeLen);
+    const char* destructorCode = ziclShimGetString(&argv[5], &destructorCodeLen);
     if (destructorCodeLen == 0) {
         destructorCode = NULL;
     }
 
     if (self->inSubscription) {
         Zicl_SetResultString(interp, "Cannot call Say within Subscribe", -1);
+        rc = ZICL_ERR;
         goto err;
     }
 
-    Say(clause, keepMs, atomicallyVersion,
-        destructorCode,
+    Say(clause, keepMs,
+        atomicallyVersion, destructorCode,
         sourceFileName, (int) sourceLineNumber);
-    return JIM_OK;
+    return ZICL_OK;
 
  err:
-    clauseFree(clause);
-    return JIM_ERR;
+    return rc;
 }
 
-static int DestructorFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int DestructorFunc(Jim_Interp *interp, int argc, Zicl_Shimmerable *argv) {
     assert(argc == 2);
     if (self->inSubscription) {
         Zicl_SetResultString(interp, "Cannot create destructor in a subscribe block", -1);
-        return JIM_ERR;
+        return ZICL_ERR;
     }
 
-    Destructor* d = destructorNew(destructorHelper, strdup(Zicl_String(argv[1])));
+    Destructor* d = destructorNew(destructorHelper,
+                                  strdup(ziclShimString(&argv[1])));
     matchAddDestructor(self->currentMatch, d);
-    return JIM_OK;
+    return ZICL_OK;
 }
 
-static void Notify(Clause* toNotify);
-static int NotifyFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static void Notify(Jim_Obj* toNotify);
+static int NotifyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc >= 2);
 
-    Clause* toNotify = ziclObjsToClause(argc - 1, argv + 1);
-    Notify(toNotify);
-
-    clauseFree(toNotify);
+    Notify(Jim_NewListObj(interp, argv + 1, argc - 1));
     return JIM_OK;
 }
 
 extern int statementParentCount(Statement* stmt);
-Zicl_Value QuerySimple(Zicl_Interp *interp, bool isAtomically, Clause* pattern) {
+Zicl_List* QuerySimple(bool isAtomically, Zicl_List* pattern) {
     ResultSet* rs = dbQuery(db, pattern);
 
-    Zicl_Value ret = ziclNewList(NULL, 0);
+    Zicl_List* ret = ziclNewList(NULL, 0);
     for (size_t i = 0; i < rs->nResults; i++) {
         Statement* result = statementAcquire(db, rs->results[i]);
         if (result == NULL) { continue; }
@@ -412,26 +418,25 @@ Zicl_Value QuerySimple(Zicl_Interp *interp, bool isAtomically, Clause* pattern) 
             continue;
         }
 
-        Environment* env = clauseUnify(pattern, statementClause(result));
+        Environment* env = clauseUnify(interp, pattern, statementClause(result));
         if (env == NULL) {
             statementRelease(db, result);
             continue;
         }
 
-        Zicl_Value envDict[(env->nBindings + 1) * 2];
-        envDict[0] = ziclNewString("__ref", -1);
+        Zicl_Dict* envDict = ziclNewDict(NULL, 0);
+        defer { Zicl_DecrRefCount(Zicl_BoxDict(envDict)); }
         char buf[100]; snprintf(buf, 100,  "s%d:%d", rs->results[i].idx, rs->results[i].gen);
-        envDict[1] = ziclNewString(buf, -1);
+        ziclDictPut(envDict, ziclNewString("__ref", -1), ziclNewString(buf, -1));
 
         for (int j = 0; j < env->nBindings; j++) {
-            envDict[(j+1)*2] = ziclNewString(env->bindings[j].name, -1);
-            envDict[(j+1)*2+1] = env->bindings[j].value;
+            ziclDictPut(envDict, ziclNewString(env->bindings[j].name, -1), env->bindings[j].value);
         }
+
+        ziclListAppend(ret, Zicl_BoxDict(envDict));
+        Jim_ListAppendElement(interp, ret, resultObj);
+
         statementRelease(db, result);
-
-        Zicl_Value resultObj = ziclNewDict(envDict, (env->nBindings + 1) * 2);
-        Zicl_ListAppend(interp, &ret, resultObj);
-
         free(env);
     }
 
@@ -439,99 +444,122 @@ Zicl_Value QuerySimple(Zicl_Interp *interp, bool isAtomically, Clause* pattern) 
     return ret;
 }
 
-static int QuerySimpleFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int QuerySimpleFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc >= 3);
 
     int isAtomically;
-    if (Zicl_GetBoolean(interp, &argv[1], &isAtomically) != ZICL_OK) {
-        return ZICL_ERR;
+    if (Jim_GetBoolean(interp, argv[1], &isAtomically) != JIM_OK) {
+        return JIM_ERR;
     }
 
-    Clause* pattern = ziclObjsToClause(argc - 2, argv + 2);
-/* #ifdef TRACY_ENABLE */
-/*     char *s = clauseToString(pattern); */
-/*     TracyCMessageFmt("query: %.200s", s); free(s); */
-/* #endif */
+    Jim_Obj* pattern = Jim_NewListObj(interp, argv + 2, argc - 2);
 
-    Zicl_Value retObj = QuerySimple(interp, isAtomically, pattern);
-    clauseFree(pattern);
-
-    Zicl_SetResult(interp, retObj);
-    return ZICL_OK;
+    Jim_Obj *retObj = QuerySimple(isAtomically, pattern);
+    Jim_FreeNewObj(pattern);
+    
+    Jim_SetResult(interp, retObj);
+    return JIM_OK;
 }
 
-static int StatementAcquireFunc(Zicl_Interp *interp, int argc, Zicl_Value *argv) {
+static int StatementAcquireFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
 
     StatementRef ref;
-    assert(sscanf(Zicl_String(argv[1]), "s%d:%d", &ref.idx, &ref.gen) == 2);
+    assert(sscanf(Jim_String(interp, argv[1]), "s%d:%d", &ref.idx, &ref.gen) == 2);
 
     if (statementAcquire(db, ref) == NULL) {
-        Zicl_SetResultString(interp, "Unable to acquire statement.", -1);
+        Jim_SetResultString(interp, "Unable to acquire statement.", -1);
         return JIM_ERR;
     }
     return JIM_OK;
 }
-static int StatementReleaseFunc(Zicl_Interp *interp, int argc, Zicl_Value *argv) {
+static int StatementReleaseFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
 
     StatementRef ref;
-    assert(sscanf(Zicl_String(argv[1]), "s%d:%d", &ref.idx, &ref.gen) == 2);
+    assert(sscanf(Jim_String(interp, argv[1]), "s%d:%d", &ref.idx, &ref.gen) == 2);
 
     statementRelease(db, statementUnsafeGet(db, ref));
     return JIM_OK;
 }
-
-static int __scanVariableFunc(Zicl_Interp *interp, int argc, Zicl_Value *argv) {
-    assert(argc == 2);
-    char varName[100];
-    int len; const char* s = Zicl_GetString(argv[1], &len);
-    Term* potentialVarTerm = termNew(s, len);
-    if (trieScanVariable(potentialVarTerm, varName, 100)) {
-        Zicl_SetResultString(interp, varName, strlen(varName));
-    } else {
-        Zicl_SetResultBool(interp, false);
+static int __statementOfCurrentMatchSourceInfoFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 1);
+    StatementRef stmtRef = STATEMENT_REF_NULL;
+    mutexLock(&self->currentItemMutex);
+    if (self->currentItem.op == RUN_WHEN) {
+        stmtRef = self->currentItem.runWhen.stmt;
     }
-    free(potentialVarTerm);
+    mutexUnlock(&self->currentItemMutex);
+
+    if (statementRefIsNull(stmtRef)) {
+        Jim_SetEmptyResult(interp);
+        return JIM_OK;
+    }
+
+    Statement* stmt = statementAcquire(db, stmtRef);
+    if (stmt == NULL) {
+        Jim_SetEmptyResult(interp);
+        return JIM_OK;
+    }
+
+    const char* fileName = statementSourceFileName(stmt);
+    int lineNumber = statementSourceLineNumber(stmt);
+    Jim_Obj* result[2] = {
+        Jim_NewStringObj(interp, fileName ? fileName : "", -1),
+        Jim_NewIntObj(interp, lineNumber),
+    };
+    Jim_SetResult(interp, Jim_NewListObj(interp, result, 2));
+
+    statementRelease(db, stmt);
     return JIM_OK;
 }
-static int __variableNameIsNonCapturingFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+
+static int __scanVariableFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
-    Zicl_SetResultBool(interp, trieVariableNameIsNonCapturing(Zicl_String(argv[1])));
-    return ZICL_OK;
+    char varName[100];
+    if (trieScanVariable(Jim_String(interp, argv[1]), varName, 100)) {
+        Jim_SetResultString(interp, varName, strlen(varName));
+    } else {
+        Jim_SetResultBool(interp, false);
+    }
+    return JIM_OK;
 }
-static int __startsWithDollarSignFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int __variableNameIsNonCapturingFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
-    Zicl_SetResultBool(interp, Zicl_String(argv[1])[0] == '$');
-    return ZICL_OK;
+    Jim_SetResultBool(interp, trieVariableNameIsNonCapturing(Jim_String(interp, argv[1])));
+    return JIM_OK;
 }
-static int __currentMatchRefFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int __startsWithDollarSignFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 2);
+    Jim_SetResultBool(interp, Jim_String(interp, argv[1])[0] == '$');
+    return JIM_OK;
+}
+static int __currentMatchRefFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 1);
     if (self->currentMatch == NULL) {
-        Zicl_SetResultString(interp, "", 0);
-        return ZICL_OK;
+        Jim_SetEmptyResult(interp);
+        return JIM_OK;
     }
 
     MatchRef ref = matchRef(db, self->currentMatch);
     char ret[100]; snprintf(ret, 100, "m%u:%u", ref.idx, ref.gen);
-    Zicl_SetResultString(interp, ret, strlen(ret));
-    return ZICL_OK;
+    Jim_SetResultString(interp, ret, strlen(ret));
+    return JIM_OK;
 }
-
-static int __statementIncompleteChildMatchesCountFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int __statementIncompleteChildMatchesCountFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
     StatementRef ref;
-    assert(sscanf(Zicl_String(argv[1]), "s%d:%d", &ref.idx, &ref.gen) == 2);
+    assert(sscanf(Jim_String(interp, argv[1]), "s%d:%d", &ref.idx, &ref.gen) == 2);
     Statement* stmt = statementAcquire(db, ref);
     if (stmt == NULL) {
-        Zicl_SetResultInt(interp, 0);
-        return ZICL_OK;
+        Jim_SetResultInt(interp, 0);
+        return JIM_OK;
     }
-    Zicl_SetResultInt(interp, statementIncompleteChildMatchesCount(db, stmt));
+    Jim_SetResultInt(interp, statementIncompleteChildMatchesCount(db, stmt));
     statementRelease(db, stmt);
-    return ZICL_OK;
+    return JIM_OK;
 }
-static int __whenOfCurrentMatchIncompleteChildMatchesCountFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int __whenOfCurrentMatchIncompleteChildMatchesCountFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 1);
     StatementRef whenRef = STATEMENT_REF_NULL;
     mutexLock(&self->currentItemMutex);
@@ -540,76 +568,76 @@ static int __whenOfCurrentMatchIncompleteChildMatchesCountFunc(Zicl_Interp *inte
     }
     mutexUnlock(&self->currentItemMutex);
 
-    if (statementRefIsNull(whenRef)) { return ZICL_ERR; }
+    if (statementRefIsNull(whenRef)) { return JIM_ERR; }
 
     Statement* when = statementAcquire(db, whenRef);
     if (when == NULL) {
         // This shouldn't happen?
-        Zicl_SetResultBool(interp, false);
-        return ZICL_OK;
+        Jim_SetResultBool(interp, false);
+        return JIM_OK;
     }
 
-    Zicl_SetResultInt(interp, statementIncompleteChildMatchesCount(db, when));
+    Jim_SetResultInt(interp, statementIncompleteChildMatchesCount(db, when));
 
     statementRelease(db, when);
-    return ZICL_OK;
+    return JIM_OK;
 }
-static int __isInSubscriptionFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
-    Zicl_SetResultBool(interp, self->inSubscription);
-    return ZICL_OK;
+static int __isInSubscriptionFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    Jim_SetResultBool(interp, self->inSubscription);
+    return JIM_OK;
 }
-static int __isTracyEnabledFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int __isTracyEnabledFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 #ifdef TRACY_ENABLE
-    Zicl_SetResultBool(interp, true);
+    Jim_SetResultBool(interp, true);
 #else
-    Zicl_SetResultBool(interp, false);
+    Jim_SetResultBool(interp, false);
 #endif
-    return ZICL_OK;
+    return JIM_OK;
 }
-static int __dbFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int __dbFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     char ret[100]; snprintf(ret, 100, "(Db*) %p", db);
-    Zicl_SetResultString(interp, ret, strlen(ret));
-    return ZICL_OK;
+    Jim_SetResultString(interp, ret, strlen(ret));
+    return JIM_OK;
 }
-static int __threadIdFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
-    Zicl_SetResultInt(interp, self->index);
-    return ZICL_OK;
+static int __threadIdFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    Jim_SetResultInt(interp, self->index);
+    return JIM_OK;
 }
 
-static int __setFreshAtomicallyVersionOnKeyFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int __setFreshAtomicallyVersionOnKeyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
-    const char* key = Zicl_String(argv[1]);
+    const char* key = Jim_String(interp, argv[1]);
     self->currentAtomicallyVersion =
         dbFreshAtomicallyVersionOnKey(db, key,
                                       matchRef(db, self->currentMatch));
     matchSetAtomicallyVersion(self->currentMatch, self->currentAtomicallyVersion);
-    return ZICL_OK;
+    return JIM_OK;
 }
-static int __currentAtomicallyVersionFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int __currentAtomicallyVersionFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 1);
     if (self->currentAtomicallyVersion == NULL) {
-        Zicl_SetResultString(interp, "", -1);
+        Jim_SetResultString(interp, "", -1);
     } else {
         char ret[100];
         snprintf(ret, 100, "(AtomicallyVersion*) %p",
                  self->currentAtomicallyVersion);
-        Zicl_SetResultString(interp, ret, strlen(ret));
+        Jim_SetResultString(interp, ret, strlen(ret));
     }
-    return ZICL_OK;
+    return JIM_OK;
 }
 
-static int setpgrpFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int setpgrpFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     int ret = setpgrp();
     if (ret != -1) {
-        return ZICL_OK;
+        return JIM_OK;
     } else {
-        Zicl_SetResultString(interp, strerror(errno), -1);
-        return ZICL_ERR;
+        Jim_SetResultString(interp, strerror(errno), -1);
+        return JIM_ERR;
     }
 }
-static int exitFunc(Zicl_Interp *interp, int argc, Zicl_Value *argv) {
+static int exitFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
-    long exitCode; Zicl_GetLong(interp, &argv[1], &exitCode);
+    long exitCode; Jim_GetLong(interp, argv[1], &exitCode);
 
     // Use _exit to skip atexit handlers and avoid crashing threads
     // that are in non-cancellation-safe code (like dlopen).
@@ -624,77 +652,69 @@ static int exitFunc(Zicl_Interp *interp, int argc, Zicl_Value *argv) {
     return JIM_OK;
 }
 
+void initSysmonInterp() {
+    interp = Jim_CreateInterp();
+}
+
+void rewindSysmonInterp() {
+    Jim_RewindTempList(interp);
+}
+
 static void interpBoot() {
-    interp = Zicl_CreateInterp();
+    interp = Jim_CreateInterp();
+    Jim_RegisterCoreCommands(interp);
+    Jim_InitStaticExtensions(interp);
 
-    // outputRedirectionInterpSetup(interp);
+    outputRedirectionInterpSetup(interp);
 
-    Zicl_CreateCommand(interp, "Assert!", AssertFunc);
-    Zicl_CreateCommand(interp, "Retract!", RetractFunc);
-    Zicl_CreateCommand(interp, "HoldStatementGlobally!", HoldStatementGloballyFunc);
+    Jim_CreateCommand(interp, "Assert!", AssertFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "Retract!", RetractFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "HoldStatementGlobally!", HoldStatementGloballyFunc, NULL, NULL);
 
-    Zicl_CreateCommand(interp, "NotifyImpl", NotifyFunc);
+    Jim_CreateCommand(interp, "NotifyImpl", NotifyFunc, NULL, NULL);
 
-    Zicl_CreateCommand(interp, "SayWithSource", SayWithSourceFunc);
-    Zicl_CreateCommand(interp, "Destructor", DestructorFunc);
+    Jim_CreateCommand(interp, "SayWithSource", SayWithSourceFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "Destructor", DestructorFunc, NULL, NULL);
 
-    Zicl_CreateCommand(interp, "QuerySimple!", QuerySimpleFunc);
+    Jim_CreateCommand(interp, "QuerySimple!", QuerySimpleFunc, NULL, NULL);
 
-    Zicl_CreateCommand(interp, "StatementAcquire!", StatementAcquireFunc);
-    Zicl_CreateCommand(interp, "StatementRelease!", StatementReleaseFunc);
+    Jim_CreateCommand(interp, "StatementAcquire!", StatementAcquireFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "StatementRelease!", StatementReleaseFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__statementOfCurrentMatchSourceInfo", __statementOfCurrentMatchSourceInfoFunc, NULL, NULL);
 
-    Zicl_CreateCommand(interp, "__scanVariable", __scanVariableFunc);
-    Zicl_CreateCommand(interp, "__variableNameIsNonCapturing", __variableNameIsNonCapturingFunc);
-    Zicl_CreateCommand(interp, "__startsWithDollarSign", __startsWithDollarSignFunc);
-    Zicl_CreateCommand(interp, "__currentMatchRef", __currentMatchRefFunc);
-    Zicl_CreateCommand(interp, "__statementIncompleteChildMatchesCount", __statementIncompleteChildMatchesCountFunc);
-    Zicl_CreateCommand(interp, "__whenOfCurrentMatchIncompleteChildMatchesCount", __whenOfCurrentMatchIncompleteChildMatchesCountFunc);
-    Zicl_CreateCommand(interp, "__isInSubscription", __isInSubscriptionFunc);
+    Jim_CreateCommand(interp, "__scanVariable", __scanVariableFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__variableNameIsNonCapturing", __variableNameIsNonCapturingFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__startsWithDollarSign", __startsWithDollarSignFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__currentMatchRef", __currentMatchRefFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__statementIncompleteChildMatchesCount", __statementIncompleteChildMatchesCountFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__whenOfCurrentMatchIncompleteChildMatchesCount", __whenOfCurrentMatchIncompleteChildMatchesCountFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__isInSubscription", __isInSubscriptionFunc, NULL, NULL);
 
-    Zicl_CreateCommand(interp, "__isTracyEnabled", __isTracyEnabledFunc);
-    Zicl_CreateCommand(interp, "__blockRuntimeStats", __blockRuntimeStatsFunc);
+    Jim_CreateCommand(interp, "__isTracyEnabled", __isTracyEnabledFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__blockRuntimeStats", __blockRuntimeStatsFunc, NULL, NULL);
 
-    Zicl_CreateCommand(interp, "__db", __dbFunc);
-    Zicl_CreateCommand(interp, "__threadId", __threadIdFunc);
+    Jim_CreateCommand(interp, "__db", __dbFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__threadId", __threadIdFunc, NULL, NULL);
 
-    Zicl_CreateCommand(interp, "__setFreshAtomicallyVersionOnKey", __setFreshAtomicallyVersionOnKeyFunc);
-    Zicl_CreateCommand(interp, "__currentAtomicallyVersion", __currentAtomicallyVersionFunc);
+    Jim_CreateCommand(interp, "__setFreshAtomicallyVersionOnKey", __setFreshAtomicallyVersionOnKeyFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__currentAtomicallyVersion", __currentAtomicallyVersionFunc, NULL, NULL);
 
-    Zicl_CreateCommand(interp, "setpgrp", setpgrpFunc);
-    Zicl_CreateCommand(interp, "Exit!", exitFunc);
+    Jim_CreateCommand(interp, "setpgrp", setpgrpFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "Exit!", exitFunc, NULL, NULL);
 
-    {
-        extern char **environ;
-        int n_env = 0;
-        while (environ[n_env] != NULL) n_env++;
-
-        Zicl_Value env_dict = ziclNewDict(NULL, 0);
-        for (int i = 0; i < n_env; i++) {
-            char *eq = strchr(environ[i], '=');
-            if (eq == NULL) continue;
-
-            Zicl_Value key = ziclNewString(environ[i], eq - environ[i]);
-            Zicl_Value val = ziclNewString(eq + 1, -1);
-            Zicl_DictPut(interp, &env_dict, key, val);
-        }
-
-        Zicl_Value env_name = ziclNewString("env", -1);
-        Zicl_SetVariable(interp, &env_name, env_dict);
-    }
-
-    if (Zicl_EvalFile(interp, "prelude.tcl") != ZICL_OK) {
-        Zicl_MakeErrorMessage(interp);
-        FATAL("prelude: %s\n", Zicl_String(Zicl_GetResult(interp)));
+    if (Jim_EvalFile(interp, "prelude.tcl") == JIM_ERR) {
+        Jim_MakeErrorMessage(interp);
+        FATAL("prelude: %s\n", Jim_String(interp, Jim_GetResult(interp)));
     }
 }
 void eval(const char* code) {
     if (interp == NULL) { interpBoot(); }
 
-    int error = Zicl_EvalObject(interp, ziclNewString(code, -1));
-    if (error == ZICL_ERR) {
-        Zicl_MakeErrorMessage(interp);
-        fprintf(stderr, "eval: %s\n", Zicl_String(Zicl_GetResult(interp)));
-        Zicl_InterpDestroy(interp);
+    int error = Jim_Eval(interp, code);
+    if (error == JIM_ERR) {
+        Jim_MakeErrorMessage(interp);
+        fprintf(stderr, "eval: (%s) -> (%s)\n", code, Jim_String(interp, Jim_GetResult(interp)));
+        Jim_FreeInterp(interp);
         exit(EXIT_FAILURE);
     }
 }
@@ -705,44 +725,66 @@ void eval(const char* code) {
 
 void workerExit();
 
-static int runBlock(Clause* bodyPattern, Clause* toUnifyWith, const Term* body,
+// Caller is responsible for ref counting all provided objects
+static int runBlock(Jim_Obj* bodyPattern, Jim_Obj* toUnifyWith, Jim_Obj* bodyObj,
                     const char *sourceFileName, int sourceLineNumber,
-                    Zicl_Value envStackObj) {
-    Zicl_Value bodyObj = termToZiclObj(body);
-    // Replaces bodyObj with a copy carrying the location; a source location is
-    // fixed when the value is built, so it cannot be attached after the fact.
-    Zicl_AttachSource(&bodyObj, sourceFileName, sourceLineNumber);
+                    Jim_Obj *envStackObj) {
+    Jim_Obj* combinedEnvStack = Jim_NewListObj(interp, NULL, 0);
+    Jim_IncrRefCount(combinedEnvStack);
+
+    // Set the source info for the bodyObj:
+    const char *unusedPtr;
+    if (Jim_ScriptGetSourceFileName(interp, bodyObj, &unusedPtr) == JIM_ERR) {
+        // apparently Jim_SetSourceInfo is happy to not check whether the object 
+        // has a usable string before setting it to a source value
+        Jim_String(interp, bodyObj);
+
+        assert(!Jim_IsShared(bodyObj));
+
+        // HACK: We only set the source info if it's not already
+        // there, because setting the source info destroys the
+        // internal script representation and forces the code to be
+        // reparsed (why??).
+        Jim_SetSourceInfo(interp, bodyObj,
+                          Jim_NewStringObj(interp, sourceFileName, -1),
+                          sourceLineNumber, 0);
+    }
 
     {
-        // Figure out all the bound match variables by unifying when & stmt.
-        Environment* env = clauseUnify(bodyPattern, toUnifyWith);
+        // Figure out all the bound match variables by unifying when &
+        // stmt:
+        Environment* env = clauseUnify(interp, bodyPattern, toUnifyWith);
         if (env == NULL) {
-            Zicl_DecrRefCount(bodyObj);
-            return ZICL_OK;
+            // Unification failed.
+            Jim_DecrRefCount(bodyObj);
+            return JIM_OK;
         }
 
         if (env->nBindings > 50) {
             fprintf(stderr, "runBlock: Too many bindings in env: %d\n",
                     env->nBindings);
-            Zicl_DecrRefCount(bodyObj);
+            Jim_DecrRefCount(bodyObj);
             free(env);
-            return ZICL_ERR;
+            return JIM_ERR;
         }
 
-        Zicl_Value objs[env->nBindings*2];
+        Jim_Obj *objs[env->nBindings*2];
         for (int i = 0; i < env->nBindings; i++) {
-            objs[i*2] = ziclNewString(env->bindings[i].name, -1);
+            objs[i*2] = Jim_NewStringObj(interp, env->bindings[i].name, -1);
             objs[i*2 + 1] = env->bindings[i].value;
         }
 
-        Zicl_Value boundEnvObj = ziclNewDict(objs, env->nBindings*2);
-        Zicl_ListAppend(interp, &envStackObj, boundEnvObj);
+        Jim_Obj* boundEnvObj = Jim_NewDictObj(interp, objs, env->nBindings*2);
+
+        Jim_ListAppendList(interp, combinedEnvStack, envStackObj);
+        Jim_ListAppendElement(interp, combinedEnvStack, boundEnvObj);
 
         free(env);
     }
 
-    // Rule: you should never be holding a lock while doing a Tcl evaluation.
-    Zicl_IncrSignalDepth(interp);
+    // Rule: you should never be holding a lock while doing a Tcl
+    // evaluation.
+    interp->signal_level++;
     int error;
     {
 #ifdef TRACY_ENABLE
@@ -756,14 +798,14 @@ static int runBlock(Clause* bodyPattern, Clause* toUnifyWith, const Term* body,
         TracyCZoneCtx ctx = ___tracy_emit_zone_begin_alloc(srcloc, 1);
 #endif
 
-        // Build a one-command list {evaluateBlock body envStack} and eval it.
-        Zicl_Value objv[] = {
-            ziclNewString("evaluateBlock", -1),
+        Jim_Obj *objv[] = {
+            // TODO: pool this string?
+            Jim_NewStringObj(interp, "evaluateBlock", -1),
             bodyObj,
-            envStackObj
+            combinedEnvStack
         };
         int64_t t0 = timestamp_get(CLOCK_MONOTONIC);
-        error = Zicl_EvalObject(interp, ziclNewList(objv, 3));
+        error = Jim_EvalObjVector(interp, sizeof(objv)/sizeof(objv[0]), objv);
         blockStatsUpdate(sourceFileName, sourceLineNumber,
                          timestamp_get(CLOCK_MONOTONIC) - t0);
 
@@ -771,19 +813,20 @@ static int runBlock(Clause* bodyPattern, Clause* toUnifyWith, const Term* body,
         ___tracy_emit_zone_end(ctx);
 #endif
     }
-    Zicl_DecrSignalDepth(interp);
+    interp->signal_level--;
 
+    Jim_DecrRefCount(combinedEnvStack);
     return error;
 }
 
-static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef stmtRef) {
+static void runWhenBlock(StatementRef whenRef, Jim_Obj* whenPattern, StatementRef stmtRef) {
     // Dereference refs. if any fail, then skip this work item.
     // Exception: stmtRef can be a null ref if and only if whenPattern
     // is {}.
     Statement* when = NULL;
     Statement* stmt = NULL;
     when = statementAcquire(db, whenRef);
-    if (when == NULL) { return; }
+    if (when == NULL) return;
 
     if (!statementRefIsNull(stmtRef)) {
         stmt = statementAcquire(db, stmtRef);
@@ -798,9 +841,7 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     // Now when is definitely non-null and stmt is non-null if
     // applicable.
 
-    Clause* whenClause = statementClause(when);
-    Clause* stmtClause = stmt == NULL ? whenPattern : statementClause(stmt);
-
+    // parent this match
     if (stmt != NULL) {
         StatementRef parents[] = { whenRef, stmtRef };
 
@@ -812,8 +853,8 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
             fprintf(stderr, "runWhenBlock: Warning: Conflicting atomicallyVersion between:\n"
                     "  when (%p): (%.150s)\n"
                     "  stmt (%p): (%.150s)\n",
-                    whenAtomicallyVersion, clauseToString(statementClause(when)),
-                    stmtAtomicallyVersion, clauseToString(statementClause(stmt)));
+                    whenAtomicallyVersion, Jim_String(interp, statementClause(when)),
+                    stmtAtomicallyVersion, Jim_String(interp, statementClause(stmt)));
         }
         atomicallyVersion = stmtAtomicallyVersion ?
             stmtAtomicallyVersion : whenAtomicallyVersion;
@@ -837,7 +878,9 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     dbInflightDecr(db, when);
     dbInflightDecr(db, stmt);
 
+    // check if match failed to be created
     if (!self->currentMatch) {
+        // A parent is gone. Abort.
         if (self->currentAtomicallyVersion != NULL) {
             dbAtomicallyVersionInflightDecr(db, self->currentAtomicallyVersion);
         }
@@ -848,20 +891,31 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
         }
         return;
     }
+
     // make sure this is initialized
     self->inSubscription = false;
 
-    assert(whenClause->nTerms >= 5);
+    // now that all the preconditions are met, we can get the parameters set
+    // up for `runBlock`
+    Jim_Obj* whenClause = statementClause(when);
+    Jim_Obj* stmtClause = stmt == NULL ? whenPattern : statementClause(stmt);
+
+    assert(Jim_IsList(whenClause));
+    assert(Jim_ListLength(interp, whenClause) >= 5);
+
+    Jim_Obj** whenClauseTerms = whenClause->internalRep.listValue.ele;
+    size_t whenClauseLen = whenClause->internalRep.listValue.len;
 
     // when the time is /t/ /body/ with environment /capturedEnvStack/
-    const Term* body = whenClause->terms[whenClause->nTerms - 4];
-    const Term* capturedEnvStack = whenClause->terms[whenClause->nTerms - 1];
-    Zicl_Value envStackObj = termToZiclObj(capturedEnvStack);
+    Jim_Obj* bodyObj = Jim_DuplicateObj(interp, whenClauseTerms[whenClauseLen - 4], JIM_LIVE_LIST);
+    Jim_Obj* capturedEnvStack = whenClauseTerms[whenClauseLen - 1];
 
-    int error = runBlock(whenPattern, stmtClause, body,
-                         statementSourceFileName(when),
-                         statementSourceLineNumber(when),
-                         envStackObj);
+    Jim_IncrRefCount(stmtClause);
+    Jim_IncrRefCount(bodyObj);
+    Jim_IncrRefCount(capturedEnvStack);
+
+    runBlock(whenPattern, stmtClause, bodyObj,
+        statementSourceFileName(when), statementSourceLineNumber(when), capturedEnvStack);
 
     if (self->currentAtomicallyVersion != NULL) {
         dbAtomicallyVersionInflightDecr(db, self->currentAtomicallyVersion);
@@ -874,67 +928,54 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     matchRelease(db, self->currentMatch);
     self->currentMatch = NULL;
 
-    if (error == ZICL_ERR) {
-        Zicl_MakeErrorMessage(interp);
-        int len;
-        const char *errorMessage = Zicl_GetString(Zicl_GetResult(interp), &len);
-        int bodyLen = termLen(body);
-        if (bodyLen > 100) bodyLen = 100;
-        fprintf(stderr, "Uncaught error running When (%.*s):\n  %s\n",
-                bodyLen, termPtr(body), errorMessage);
-
-    } else if (error == ZICL_SIGNAL) {
-        workerExit();
-    }
+    Jim_DecrRefCount(stmtClause);
+    Jim_DecrRefCount(bodyObj);
+    Jim_DecrRefCount(capturedEnvStack);
 }
 
 // Caller is responsible for freeing passed in clauses
-static void runSubscribeBlock(StatementRef subscribeRef, Clause* subscribePattern,
-                              Clause* notifyClause) {
+static void runSubscribeBlock(StatementRef subscribeRef, Jim_Obj* subscribePattern,
+                              Jim_Obj* notifyClause) {
     Statement* subscribeStmt = statementAcquire(db, subscribeRef);
     if (subscribeStmt == NULL) {  return; }
-
-    Clause* subscribeClause = statementClause(subscribeStmt);
-    assert(subscribeClause->nTerms >= 5);
 
     self->currentMatch = NULL;
     self->inSubscription = true;
 
+    Jim_Obj* subscribeClause = statementClause(subscribeStmt);
+    assert(Jim_IsList(subscribeClause));
+    assert(Jim_ListLength(interp, subscribeClause) >= 5);
+
+    Jim_Obj** subscribeClauseTerms = subscribeClause->internalRep.listValue.ele;
+    size_t subscribeClauseLen = subscribeClause->internalRep.listValue.len;
+
     // key x was pressed
     // -> subscribe key x was pressed /lambda/ with environment /capturedEnvStack/
-    const Term* body = subscribeClause->terms[subscribeClause->nTerms - 4];
-    const Term* capturedEnvStack = subscribeClause->terms[subscribeClause->nTerms - 1];
-    Zicl_Value envStackObj = termToZiclObj(capturedEnvStack);
+    Jim_Obj* bodyObj = Jim_DuplicateObj(interp, subscribeClauseTerms[subscribeClauseLen - 4], JIM_LIVE_LIST);
+    Jim_Obj* capturedEnvStack = subscribeClauseTerms[subscribeClauseLen - 1];
 
-    int error = runBlock(subscribePattern, notifyClause, body,
-                         statementSourceFileName(subscribeStmt),
-                         statementSourceLineNumber(subscribeStmt),
-                         envStackObj);
+    Jim_IncrRefCount(bodyObj);
+    Jim_IncrRefCount(capturedEnvStack);
+
+    runBlock(subscribePattern, notifyClause, bodyObj,
+        statementSourceFileName(subscribeStmt),
+        statementSourceLineNumber(subscribeStmt),
+        capturedEnvStack);
 
     self->inSubscription = false;
     statementRelease(db, subscribeStmt);
 
-    // TODO: Remove duplication of this error handling with runWhenBlock.
-
-    if (error == ZICL_ERR) {
-        Zicl_MakeErrorMessage(interp);
-        int len;
-        const char *errorMessage = Zicl_GetString(Zicl_GetResult(interp), &len);
-        int bodyLen = termLen(body);
-        if (bodyLen > 100) bodyLen = 100;
-        fprintf(stderr, "Fatal (uncaught) error running When (%.*s):\n  %s\n",
-                bodyLen, termPtr(body), errorMessage);
-        Zicl_InterpDestroy(interp);
-        exit(EXIT_FAILURE);
-
-    } else if (error == ZICL_SIGNAL) {
-        workerExit();
-    }
+    Jim_DecrRefCount(capturedEnvStack);
+    Jim_DecrRefCount(bodyObj);
 }
 
 // Copies the whenPattern Clause and all terms so it can be owned (and
 // freed) by the eventual handler of the block.
-static void pushRunWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef stmtRef) {
+static void pushRunWhenBlock(StatementRef whenRef, Jim_Obj* whenPattern, StatementRef stmtRef) {
+    // make sure whenPattern is immutable, as it's about to become shared
+    Jim_MakeCrossthread(interp, whenPattern);
+    Jim_IncrRefCount(whenPattern);
+
     // TODO: Ideally we wouldn't re-acquire.
     Statement* stmt = statementAcquire(db, whenRef);
     Statement* when = statementAcquire(db, stmtRef);
@@ -949,24 +990,25 @@ static void pushRunWhenBlock(StatementRef whenRef, Clause* whenPattern, Statemen
     
     appropriateWorkQueuePush((WorkQueueItem) {
        .op = RUN_WHEN,
-       .runWhen = {
-           .when = whenRef,
-           .whenPattern = clauseDup(whenPattern),
-           .stmt = stmtRef
-       }
+       .runWhen = { .when = whenRef, .whenPattern = whenPattern, .stmt = stmtRef }
     });
 }
 
 // Copies the clauses and all their terms so it can be owned (and
 // freed) by the eventual handler of the block.
-static void pushRunSubscriptionBlock(StatementRef subscribeRef, Clause* subscribePattern,
-                              Clause* notifyClause) {
+static void pushRunSubscriptionBlock(StatementRef subscribeRef, Jim_Obj* subscribePattern,
+                              Jim_Obj* notifyClause) {
+    Jim_MakeCrossthread(interp, subscribePattern);
+    Jim_MakeCrossthread(interp, notifyClause);
+    Jim_IncrRefCount(subscribePattern);
+    Jim_IncrRefCount(notifyClause);
+
     appropriateWorkQueuePush((WorkQueueItem) {
        .op = RUN_SUBSCRIBE,
        .runSubscribe = {
             .subscribeRef = subscribeRef,
-            .subscribePattern = clauseDup(subscribePattern),
-            .notifyClause = clauseDup(notifyClause)
+            .subscribePattern = subscribePattern,
+            .notifyClause = notifyClause
         }
     });
 }
@@ -979,77 +1021,117 @@ static void pushRunSubscriptionBlock(StatementRef subscribeRef, Clause* subscrib
 })
 
 // Prepends `/someone/ claims` to `clause`. Returns NULL if `clause`
-// shouldn't be claimized. Returns a new heap-allocated Clause* that
-// must be freed by the caller.
-Clause* claimizeClause(Clause* clause) {
-    if (clause->nTerms >= 2 &&
-        (termEqString(clause->terms[1], "claims") ||
-         termEqString(clause->terms[1], "wishes"))) {
-        return NULL;
+// shouldn't be claimized. Returns new Jim_Obj with refCount = 0
+Jim_Obj* claimizeClause(Jim_Obj* clause) {
+    Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
+
+    assert(Jim_IsList(clause));
+    int nTerms = Jim_ListLength(interp, clause);
+
+    if (nTerms >= 2) {
+        const char* secondTerm = Jim_String(interp, Jim_ListGetIndex(interp, clause, 1));
+        if (strcmp(secondTerm, "claims") == 0 ||
+            strcmp(secondTerm, "wishes") == 0) {
+            Jim_FreeNewObj(ret);
+            return NULL;
+        }
     }
 
     // the time is /t/ -> /someone/ claims the time is /t/
-    Clause* ret = clauseNew(2 + clause->nTerms);
-    ret->terms[0] = TERM_STATIC("/someone/"); ret->terms[1] = TERM_STATIC("claims");
-    for (int i = 0; i < clause->nTerms; i++) {
-        ret->terms[2 + i] = clause->terms[i];
+    jimAppendString(interp, ret, "/someone/");
+    jimAppendString(interp, ret, "claims");
+
+    for (int i = 0; i < nTerms; i++) {
+        Jim_ListAppendElement(interp, ret, Jim_ListGetIndex(interp, clause, i));
     }
+
     return ret;
 }
-static Clause* unclaimizeClause(Clause* clause) {
+
+// Returns new Jim_Obj with refCount = 0
+static Jim_Obj* unclaimizeClause(Jim_Obj* clause) {
+    Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
+
+    assert(Jim_IsList(clause));
+    size_t nTerms = Jim_ListLength(interp, clause);
+
     // Omar claims the time is 3
     //   -> the time is 3
-    Clause* ret = clauseNew(clause->nTerms - 2);
-    for (int i = 2; i < clause->nTerms; i++) {
-        ret->terms[i - 2] = clause->terms[i];
+    for (size_t i = 2; i < nTerms; i++) {
+        Jim_ListAppendElement(interp, ret, Jim_ListGetIndex(interp, clause, i));
     }
+
     return ret;
 }
-static Clause* whenizeClause(Clause* clause) {
+
+// Returns new Jim_Obj with refCount = 0
+static Jim_Obj* whenizeClause(Jim_Obj* clause) {
     // the time is /t/
     //   -> when the time is /t/ /__lambda/ with environment /__env/
-    Clause* ret = clauseNew(clause->nTerms + 5);
-    ret->terms[0] = TERM_STATIC("when");
-    for (int i = 0; i < clause->nTerms; i++) {
-        ret->terms[1 + i] = clause->terms[i];
+    Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
+
+    assert(Jim_IsList(clause));
+    size_t nTerms = Jim_ListLength(interp, clause);
+
+    jimAppendString(interp, ret, "when");
+    for (int i = 0; i < nTerms; i++) {
+        Jim_ListAppendElement(interp, ret, Jim_ListGetIndex(interp, clause, i));
     }
-    ret->terms[1 + clause->nTerms] = TERM_STATIC("/__lambda/");
-    ret->terms[2 + clause->nTerms] = TERM_STATIC("with");
-    ret->terms[3 + clause->nTerms] = TERM_STATIC("environment");
-    ret->terms[4 + clause->nTerms] = TERM_STATIC("/__env/");
+    jimAppendString(interp, ret, "/__lambda/");
+    jimAppendString(interp, ret, "with");
+    jimAppendString(interp, ret, "environment");
+    jimAppendString(interp, ret, "/__env/");
+
     return ret;
 }
-static Clause* unwhenizeClause(Clause* whenClause) {
+
+// Returns new Jim_Obj with refCount = 0
+static Jim_Obj* unwhenizeClause(Jim_Obj* clause) {
     // when the time is /t/ /lambda/ with environment /env/
     //   -> the time is /t/
-    Clause* ret = clauseNew(whenClause->nTerms - 5);
-    for (int i = 1; i < whenClause->nTerms - 4; i++) {
-        ret->terms[i - 1] = whenClause->terms[i];
+    Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
+
+    assert(Jim_IsList(clause));
+    size_t nTerms = Jim_ListLength(interp, clause);
+
+    for (int i = 1; i < nTerms - 4; i++) {
+        Jim_ListAppendElement(interp, ret, Jim_ListGetIndex(interp, clause, i));
     }
+
     return ret;
 }
-static Clause* subscriptionizeClause(Clause* notifyClause) {
+static Jim_Obj* subscriptionizeClause(Jim_Obj* notifyClause) {
     // key x was pressed
     // -> subscribe key x was pressed /lambda/ with environment /__env/
-    Clause* ret = clauseNew(notifyClause->nTerms + 5);
-    ret->terms[0] = TERM_STATIC("subscribe");
-    for (int i = 0; i < notifyClause->nTerms; i++) {
-        ret->terms[1 + i] = notifyClause->terms[i];
+    Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
+
+    assert(Jim_IsList(notifyClause));
+    size_t nTerms = Jim_ListLength(interp, notifyClause);
+
+    jimAppendString(interp, ret, "subscribe");
+    for (int i = 0; i < nTerms; i++) {
+        Jim_ListAppendElement(interp, ret, Jim_ListGetIndex(interp, notifyClause, i));
     }
-    ret->terms[1 + notifyClause->nTerms] = TERM_STATIC("/__lambda/");
-    ret->terms[2 + notifyClause->nTerms] = TERM_STATIC("with");
-    ret->terms[3 + notifyClause->nTerms] = TERM_STATIC("environment");
-    ret->terms[4 + notifyClause->nTerms] = TERM_STATIC("/__env/");
+    jimAppendString(interp, ret, "/__lambda/");
+    jimAppendString(interp, ret, "with");
+    jimAppendString(interp, ret, "environment");
+    jimAppendString(interp, ret, "/__env/");
+
     return ret;
 }
 // currently the same as unwhenizeClause, but semantically different
-static Clause* unsubscriptionizeClause(Clause* subscribeClause) {
+static Jim_Obj* unsubscriptionizeClause(Jim_Obj* subscribeClause) {
     // subscribe the time is /t/ /lambda/ with environment /env/
     //        -> the time is /t/
-    Clause* ret = clauseNew(subscribeClause->nTerms - 5);
-    for (int i = 1; i < subscribeClause->nTerms - 4; i++) {
-        ret->terms[i - 1] = subscribeClause->terms[i];
+    Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
+
+    assert(Jim_IsList(subscribeClause));
+    size_t nTerms = Jim_ListLength(interp, subscribeClause);
+
+    for (int i = 1; i < nTerms - 4; i++) {
+        Jim_ListAppendElement(interp, ret, Jim_ListGetIndex(interp, subscribeClause, i));
     }
+
     return ret;
 }
 
@@ -1060,50 +1142,61 @@ static void reactToNewStatement(StatementRef ref) {
     // This is just to ensure clause validity.
     Statement* stmt = statementAcquire(db, ref);
     if (stmt == NULL) { return; }
-
-    Clause* clause = statementClause(stmt);
+    Jim_Obj* clause = statementClause(stmt);
     assert(clause != NULL);
 
-    if (termEqString(clause->terms[0], "subscribe")) {
+    Jim_Obj* firstTerm = Jim_ListGetIndex(interp, clause, 0);
+    if (firstTerm != NULL && strcmp(Jim_String(interp, firstTerm), "subscribe") == 0) {
         // nothing to do, as subscribe is handled when events are
         // fired
         statementRelease(db, stmt);
         return;
     }
 
-    if (termEqString(clause->terms[0], "when")) {
+    if (firstTerm != NULL && strcmp(Jim_String(interp, firstTerm), "when") == 0) {
         // Find the query pattern of the when:
-        Clause* pattern = unwhenizeClause(clause);
-        if (pattern->nTerms == 0) {
-            // Empty pattern: When { ... }
-            pushRunWhenBlock(ref, pattern, STATEMENT_REF_NULL);
-            clauseFreeBorrowed(pattern);
+        Jim_Obj* pattern = unwhenizeClause(clause);
+        Jim_IncrRefCount(pattern);
 
+        if (Jim_ListLength(interp, pattern) == 0) {
+            // Empty pattern: When { ... }
+            pushRunWhenBlock(
+                ref,
+                pattern,
+                STATEMENT_REF_NULL
+            );
         } else {
             // Scan the existing statement set for any
             // already-existing matching statements.
             ResultSet* existingMatchingStatements = dbQuery(db, pattern);
             for (int i = 0; i < existingMatchingStatements->nResults; i++) {
-                pushRunWhenBlock(ref, pattern,
-                                 existingMatchingStatements->results[i]);
+                pushRunWhenBlock(
+                    ref,
+                    pattern,
+                    existingMatchingStatements->results[i]
+                );
             }
             free(existingMatchingStatements);
 
-            Clause* claimizedPattern = claimizeClause(pattern);
+            Jim_Obj* claimizedPattern = claimizeClause(pattern);
             if (claimizedPattern) {
+                Jim_IncrRefCount(claimizedPattern);
+
                 existingMatchingStatements = dbQuery(db, claimizedPattern);
                 for (int i = 0; i < existingMatchingStatements->nResults; i++) {
-                    pushRunWhenBlock(ref, claimizedPattern,
-                                     existingMatchingStatements->results[i]);
+                    pushRunWhenBlock(
+                        ref,
+                        claimizedPattern,
+                        existingMatchingStatements->results[i]
+                    );
                 }
                 free(existingMatchingStatements);
-            }
 
-            // pattern and claimizedPattern don't allocate any new terms,
-            // so just free the clause structs themselves.
-            clauseFreeBorrowed(pattern);
-            clauseFreeBorrowed(claimizedPattern);
+                Jim_DecrRefCount(claimizedPattern);
+            }
         }
+
+        Jim_DecrRefCount(pattern);
     }
 
     // Add to DB <Claim Omar is a person>
@@ -1123,14 +1216,13 @@ static void reactToNewStatement(StatementRef ref) {
     // Solution? Some kind of lookaside buffer with a list of patterns
     // that are being contended over? Some kind of locks? Reversible
     // transactions? Like is this whole thing a transaction.
-    
+
     // Trigger any already-existing reactions to the addition of this
     // statement (look for Whens that are already in the database).
     {
         // the time is 3
         //   -> when the time is 3 /__lambda/ with environment /__env/
-        Clause* whenizedClause = whenizeClause(clause);
-
+        Jim_Obj* whenizedClause = whenizeClause(clause);
         ResultSet* existingReactingWhens = dbQuery(db, whenizedClause);
         /* trace("Adding stmt: existing reacting whens (%d)", */
         /*       existingReactingWhens->nResults); */
@@ -1140,29 +1232,33 @@ static void reactToNewStatement(StatementRef ref) {
             //   -> the time is /t/
             Statement* when = statementAcquire(db, whenRef);
             if (when) {
-                Clause* whenPattern = unwhenizeClause(statementClause(when));
-
-                pushRunWhenBlock(whenRef, whenPattern, ref);
-
+                Jim_Obj* whenPattern = unwhenizeClause(statementClause(when));
                 statementRelease(db, when);
-                clauseFreeBorrowed(whenPattern); // doesn't own any terms.
+
+                pushRunWhenBlock(
+                    whenRef,
+                    whenPattern,
+                    ref
+                );
             }
         }
         free(existingReactingWhens);
 
-        clauseFreeBorrowed(whenizedClause); // doesn't own any terms.
+        Jim_FreeNewObj(whenizedClause);
     }
-    if (clause->nTerms >= 2 && termEqString(clause->terms[1], "claims")) {
+
+    Jim_Obj* secondTerm = Jim_ListGetIndex(interp, clause, 1);
+    if (secondTerm != NULL && strcmp(Jim_String(interp, secondTerm), "claims") == 0) {
         // Cut off `/x/ claims` from start of clause:
         //
         // /x/ claims the time is 3
         //   -> when the time is 3 /__lambda/ with environment /__env/
-        Clause* unclaimizedClause = unclaimizeClause(clause);
-        Clause* whenizedUnclaimizedClause = whenizeClause(unclaimizedClause);
+        Jim_Obj* unclaimizedClause = unclaimizeClause(clause);
+        Jim_Obj* whenizedUnclaimizedClause = whenizeClause(unclaimizedClause);
 
         ResultSet* existingReactingWhens = dbQuery(db, whenizedUnclaimizedClause);
-        clauseFreeBorrowed(unclaimizedClause);
-        clauseFreeBorrowed(whenizedUnclaimizedClause);
+        Jim_FreeNewObj(unclaimizedClause);
+        Jim_FreeNewObj(whenizedUnclaimizedClause);
 
         for (int i = 0; i < existingReactingWhens->nResults; i++) {
             StatementRef whenRef = existingReactingWhens->results[i];
@@ -1170,41 +1266,44 @@ static void reactToNewStatement(StatementRef ref) {
             //   -> /someone/ claims the time is /t/
             Statement* when = statementAcquire(db, whenRef);
             if (when) {
-                Clause* unwhenizedWhenPattern = unwhenizeClause(statementClause(when));
-                Clause* claimizedUnwhenizedWhenPattern = claimizeClause(unwhenizedWhenPattern);
+                Jim_Obj* unwhenizedWhenPattern = unwhenizeClause(statementClause(when));
+                Jim_Obj* claimizedUnwhenizedWhenPattern = claimizeClause(unwhenizedWhenPattern);
 
-                pushRunWhenBlock(whenRef, claimizedUnwhenizedWhenPattern, ref);
-
+                pushRunWhenBlock(
+                    whenRef,
+                    // takes ownership
+                    claimizedUnwhenizedWhenPattern,
+                    ref
+                );
                 statementRelease(db, when);
-                clauseFreeBorrowed(unwhenizedWhenPattern);
-                clauseFreeBorrowed(claimizedUnwhenizedWhenPattern);
+
+                Jim_FreeNewObj(unwhenizedWhenPattern);
             }
         }
         free(existingReactingWhens);
     }
+
     statementRelease(db, stmt);
 }
 
-static void Notify(Clause* toNotify) {
+static void Notify(Jim_Obj* toNotify) {
     // key x was pressed
     // -> subscribe key x was pressed /lambda/ with environment /__env/
-    Clause* query = subscriptionizeClause(toNotify);
-    ResultSet* rs = dbQuery(db, query);
+    Jim_Obj* clauseQuery = subscriptionizeClause(toNotify);
+    ResultSet* rs = dbQuery(db, clauseQuery);
 
     for (size_t i = 0; i < rs->nResults; i++) {
         Statement* subscription = statementAcquire(db, rs->results[i]);
         if (subscription == NULL) { continue; }
 
-        Clause* subscriptionPattern = unsubscriptionizeClause(statementClause(subscription));
-
+        Jim_Obj* subscriptionPattern = unsubscriptionizeClause(statementClause(subscription));
         pushRunSubscriptionBlock(rs->results[i], subscriptionPattern, toNotify);
-        free(subscriptionPattern); // doesn't own any terms.
 
         statementRelease(db, subscription);
     }
 
     free(rs);
-    free(query);
+    Jim_FreeNewObj(clauseQuery);
 }
 
 void workerRun(WorkQueueItem item) {
@@ -1235,7 +1334,7 @@ void workerRun(WorkQueueItem item) {
         /* printf("Assert (%s)\n", clauseToString(item.assert.clause)); */
 
         Statement* stmt;
-        stmt = dbInsertOrReuseStatement(db, item.assert.clause,
+        stmt = dbInsertOrReuseStatement(db, interp, item.assert.clause,
                                         0, NULL,
                                         item.assert.sourceFileName,
                                         item.assert.sourceLineNumber,
@@ -1248,34 +1347,38 @@ void workerRun(WorkQueueItem item) {
             dbInflightDecr(db, stmt);
             statementRelease(db, stmt);
         }
+
+        // incremented when pushed to the queue
+        Jim_DecrRefCount(item.assert.clause);
         free(item.assert.sourceFileName);
 
     } else if (item.op == RETRACT) {
         /* printf("Retract (%s)\n", clauseToString(item.retract.pattern)); */
-
         dbRetractStatements(db, item.retract.pattern);
-        clauseFree(item.retract.pattern);
+
+        // incremented when pushed to the queue
+        Jim_DecrRefCount(item.retract.pattern);
 
     } else if (item.op == RUN_WHEN) {
         /* printf("  when: %d:%d; stmt: %d:%d\n", item.run.when.idx, item.run.when.gen, */
         /*        item.run.stmt.idx, item.run.stmt.gen); */
         runWhenBlock(item.runWhen.when, item.runWhen.whenPattern, item.runWhen.stmt);
-        clauseFree(item.runWhen.whenPattern);
+        Jim_DecrRefCount(item.runWhen.whenPattern);
 
     } else if (item.op == RUN_SUBSCRIBE) {
         runSubscribeBlock(item.runSubscribe.subscribeRef, item.runSubscribe.subscribePattern,
                           item.runSubscribe.notifyClause);
-        clauseFree(item.runSubscribe.subscribePattern);
-        clauseFree(item.runSubscribe.notifyClause);
+        Jim_DecrRefCount(item.runSubscribe.subscribePattern);
+        Jim_DecrRefCount(item.runSubscribe.notifyClause);
 
     } else if (item.op == EVAL) {
         // Used for destructors.
         char* code = item.eval.code;
-        int error = Zicl_EvalObject(interp, ziclNewString(code, -1));
-        if (error == ZICL_ERR) {
-            Zicl_MakeErrorMessage(interp);
+        int error = Jim_Eval(interp, code);
+        if (error == JIM_ERR) {
+            Jim_MakeErrorMessage(interp);
             fprintf(stderr, "destructorHelper: (%s) -> (%s)\n",
-                    code, Zicl_String(Zicl_GetResult(interp)));
+                    code, Jim_String(interp, Jim_GetResult(interp)));
         }
         free(code);
 
@@ -1314,26 +1417,32 @@ void workerRun(WorkQueueItem item) {
 
 extern Statement* statementUnsafeGet(Db* db, StatementRef ref);
 void traceItem(char* buf, size_t bufsz, WorkQueueItem item) {
-    int threadIndex = self->index;
     if (item.op == ASSERT) {
         snprintf(buf, bufsz, "Assert (%.100s)",
-                 clauseToString(item.assert.clause));
+                 Jim_String(interp, item.assert.clause));
+
     } else if (item.op == RETRACT) {
         snprintf(buf, bufsz, "Retract (%.100s)",
-                 clauseToString(item.retract.pattern));
+                 Jim_String(interp, item.retract.pattern));
+
     } else if (item.op == RUN_WHEN) {
-        Statement* when = statementUnsafeGet(db, item.runWhen.when);
-        Statement* stmt = statementUnsafeGet(db, item.runWhen.stmt);
+        Statement* when = statementAcquire(db, item.runWhen.when);
+        Statement* stmt = statementAcquire(db, item.runWhen.stmt);
         snprintf(buf, bufsz, "Run when(%.100s) pattern(%.100s) stmt(%.100s)",
-                 when != NULL ? clauseToString(statementClause(when)) : "NULL",
-                 clauseToString(item.runWhen.whenPattern),
-                 stmt != NULL ? clauseToString(statementClause(stmt)) : "NULL");
+                 when != NULL ? Jim_String(interp, statementClause(when)) : "NULL",
+                 Jim_String(interp, item.runWhen.whenPattern),
+                 stmt != NULL ? Jim_String(interp, statementClause(stmt)) : "NULL");
+        if (when) statementRelease(db, when);
+        if (stmt) statementRelease(db, stmt);
+
     } else if (item.op == RUN_SUBSCRIBE) {
-        Statement* subscribe = statementUnsafeGet(db, item.runSubscribe.subscribeRef);
+        Statement* subscribe = statementAcquire(db, item.runSubscribe.subscribeRef);
         snprintf(buf, bufsz, "Run subscribe(%.100s) pattern(%.100s) stmt(%.100s)",
-                 subscribe != NULL ? clauseToString(statementClause(subscribe)) : "NULL",
-                 clauseToString(item.runSubscribe.subscribePattern),
-                 clauseToString(item.runSubscribe.notifyClause));
+                 subscribe != NULL ? Jim_String(interp, statementClause(subscribe)) : "NULL",
+                 Jim_String(interp, item.runSubscribe.subscribePattern),
+                 Jim_String(interp, item.runSubscribe.notifyClause));
+        if (subscribe) statementRelease(db, subscribe);
+
     } else if (item.op == EVAL) {
         snprintf(buf, bufsz, "Eval");
     } else if (item.op == NONE) {
@@ -1364,9 +1473,15 @@ void workerLoop() {
     int64_t schedtick = 0;
     for (;;) {
         schedtick++;
-        if (Zicl_GetSigmask(interp) & (1 << SIGUSR1)) {
+        if (interp->sigmask & (1 << SIGUSR1)) {
+            // FIXME: I think this signal handler doesn't actually
+            // run.
             workerExit();
         }
+
+        // no one is using the interp at this moment, so we can
+        // rewind the temp list
+        Jim_RewindTempList(interp);
 
         WorkQueueItem item = { .op = NONE };
         if (schedtick % 61 == 0) {
@@ -1393,8 +1508,6 @@ void workerLoop() {
     workerExit();
 }
 void workerInit(int index) {
-    Zicl_InitThread();
-
     seedp = time(NULL) + index;
 
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
@@ -1436,8 +1549,24 @@ void workerExit() {
     // Need this so that this worker doesn't count as still being
     // alive and count toward the worker cap.
 
+    // Donate any remaining items in our local workQueue to the global
+    // queue. Otherwise they'd be stranded: workerSteal skips workers
+    // whose tid == 0. This matters for self-kill scenarios like a
+    // When body whose Hold!/Say replaces its own match's parent —
+    // reactToNewStatement pushes the follow-up RUN_WHEN onto the
+    // local queue right before SIGUSR1 tears the worker down.
+    if (self->workQueue != NULL) {
+        while (true) {
+            WorkQueueItem item = workQueueTake(self->workQueue);
+            if (item.op == NONE) { break; }
+            globalWorkQueuePush(item);
+        }
+    }
+
     // TODO: Clear everything else out?
     self->tid = 0;
+    Jim_FreeInterp(interp);
+    epochThreadDestroy();
 
     pthread_exit(NULL);
 }
@@ -1600,7 +1729,13 @@ int main(int argc, char** argv) {
 
     // Jim_Allocator = webDebugAllocator;
 
-    outputRedirectionInit();
+    if (argc == 1) {
+        // booting normal Folk (no script passed at command line); set
+        // up output redirection.
+        outputRedirectionInit(true);
+    } else {
+        outputRedirectionInit(false);
+    }
 
     // Set up database.
     db = dbNew();
@@ -1610,12 +1745,6 @@ int main(int argc, char** argv) {
     globalWorkQueueInit();
     blockStatsInit();
 
-    Zicl_SetGlobalStdout(realStdout);
-    Zicl_SetGlobalStderr(realStderr);
-    // NULL asks the system for this machine's name, which is where
-    // ::thisNode comes from too.
-    Zicl_InitGlobals(NULL);
-
 #ifdef __linux__
     // Count CPUs so we can set up the thread pool to align with the
     // available cores.
@@ -1623,7 +1752,7 @@ int main(int argc, char** argv) {
     sched_getaffinity(0, sizeof(cs), &cs);
     int cpuCount = CPU_COUNT(&cs);
     // printf("main: CPU_COUNT = %d\n", cpuCount);
-    // assert(cpuCount >= 2);
+    assert(cpuCount >= 2);
 
     int cpuUsableCount = cpuCount - 1; // will exclude CPU 0 later.
 #else
@@ -1660,7 +1789,7 @@ int main(int argc, char** argv) {
 #endif
 
     // Now spawn cpuUsableCount-1 additional workers.
-    // for (int i = 0; i < cpuUsableCount - 1; i++) { workerSpawn(); }
+    for (int i = 0; i < cpuUsableCount - 1; i++) { workerSpawn(); }
 
     // Now we set up worker 0, which is this main thread itself, which
     // needs to be an active worker, in case we need to do things like
@@ -1680,6 +1809,4 @@ int main(int argc, char** argv) {
     eval(code);
 
     workerLoop();
-
-    Zicl_DeinitAll();
 }

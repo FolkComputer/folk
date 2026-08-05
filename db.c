@@ -948,7 +948,7 @@ void dbUnlockClauseToStatementRef(Db* db) {
 }
 
 // Query
-ResultSet* dbQuery(Db* db, const Zicl_List* pattern) {
+ResultSet* dbQuery(Db* db, Zicl_List* pattern) {
     ResultSet *resultSet;
     size_t maxResults = 500;
     do {
@@ -1211,8 +1211,9 @@ Statement* dbInsertOrReuseStatement(Db* db, Zicl_List* clause, long keepMs,
         *outReusedStatementRef = (_ref); \
     }
 
-    Zicl_IncrRefCount(Zicl_BoxList(clause));
-    Zicl_MakeCrossthread(Zicl_BoxList(clause));
+    Zicl_Value clauseAsValue = Zicl_BoxList((Zicl_List *)clause);
+    Zicl_IncrRefCount(clauseAsValue);
+    Zicl_MakeCrossthread(clauseAsValue);
 
     Match* parentMatch = NULL;
     if (!matchRefIsNull(parentMatchRef)) {
@@ -1220,7 +1221,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Zicl_List* clause, long keepMs,
         parentMatch = matchAcquire(db, parentMatchRef);
         if (parentMatch == NULL) {
             setReusedStatementRef(STATEMENT_REF_NULL);
-            Zicl_DecrRefCount(Zicl_BoxList(clause));
+            Zicl_DecrRefCount(clauseAsValue);
             return NULL; // Abort!
         }
 
@@ -1231,7 +1232,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Zicl_List* clause, long keepMs,
             matchRelease(db, parentMatch);
 
             setReusedStatementRef(STATEMENT_REF_NULL);
-            Zicl_DecrRefCount(Zicl_BoxList(clause));
+            Zicl_DecrRefCount(clauseAsValue);
             return NULL; // Abort!
         }
 
@@ -1305,7 +1306,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Zicl_List* clause, long keepMs,
                     }
 
                     setReusedStatementRef(existingRefs[0]);
-                    Zicl_DecrRefCount(Zicl_BoxList(clause));
+                    Zicl_DecrRefCount(clauseAsValue);
                     return NULL;
                 } else {
                     // Reuse failed, but not for operation-aborting
@@ -1355,7 +1356,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Zicl_List* clause, long keepMs,
     }
 
     setReusedStatementRef(STATEMENT_REF_NULL);
-    Zicl_DecrRefCount(Zicl_BoxList(clause));
+    Zicl_DecrRefCount(clauseAsValue);
 
     return newStmt;
 
@@ -1422,7 +1423,7 @@ done:
     }
 }
 
-void dbRetractStatements(Db* db, const Zicl_List* pattern) {
+void dbRetractStatements(Db* db, Zicl_List* pattern) {
     StatementRef results[500];
     size_t maxResults = sizeof(results)/sizeof(results[0]);
 
@@ -1448,7 +1449,7 @@ void dbRetractStatements(Db* db, const Zicl_List* pattern) {
 
 // Takes ownership of `destructorSet`.
 Statement* dbHoldStatement(Db* db, const char* key, double version,
-                           const Zicl_List* clause, long keepMs,
+                           Zicl_List* clause, long keepMs,
                            const char* sourceFileName, int sourceLineNumber,
                            StatementRef* outOldStatement) {
     if (outOldStatement) { *outOldStatement = STATEMENT_REF_NULL; }
@@ -1542,14 +1543,14 @@ Statement* dbHoldStatement(Db* db, const char* key, double version,
         if (outOldStatement) { *outOldStatement = oldStmt; }
 
         mutexUnlock(&db->holdsMutex);
-        Jim_DecrRefCount(clause);
+        Zicl_DecrRefCount(Zicl_BoxList(clause));
         return newStmt;
     } else {
         // The new version is older than the version already in the
         // hold, so we just shouldn't do anything / we shouldn't
         // install the new statement.
         mutexUnlock(&db->holdsMutex);
-        Jim_DecrRefCount(clause);
+        Zicl_DecrRefCount(Zicl_BoxList(clause));
         return NULL;
     }
 }

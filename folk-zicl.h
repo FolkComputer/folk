@@ -52,6 +52,12 @@ const char *ziclGetString(Zicl_Value value, int *len) {
     return str;
 }
 
+const char *ziclShimGetString(Zicl_Shimmerable *shim, int *len) {
+    const char *str = Zicl_ShimGetString(shim, len);
+    if (!str) folkZiclAssert(ZICL_OOM);
+    return str;
+}
+
 Zicl_Value ziclNewString(const char *ptr, int len) {
     Zicl_Value out; int rc = Zicl_NewString(&out, ptr, len);
     return folkZiclCheck(rc, out);
@@ -67,13 +73,27 @@ Zicl_Value ziclValuePrintf(const char* format, ...) {
 
 Zicl_List *ziclNewList(Zicl_Value *values, int n_values) {
     Zicl_List *list = Zicl_NewList(values, n_values);
-    folkZiclAssert(list == NULL ? ZICL_OOM : 0);
+    folkZiclAssert(list == NULL ? ZICL_OOM : ZICL_OK);
     return list;
 }
 
-Zicl_Value ziclNewDict(Zicl_Value *values, int n_values) {
-    Zicl_Value out; int rc = Zicl_NewDict(&out, values, n_values);
-    return folkZiclCheck(rc, out);
+Zicl_List *ziclNewListFromShimmerables(Zicl_Shimmerable *values, int n_values) {
+    Zicl_List *list = Zicl_NewListFromShimmerables(values, n_values);
+    folkZiclAssert(list == NULL ? ZICL_OOM : ZICL_OK);
+    return list;
 }
 
-#endif
+void ziclListAppend(Zicl_List *list, Zicl_Value item) {
+    folkZiclAssert(Zicl_ListAppend(list, item));
+}
+
+Zicl_Dict *ziclNewDict(Zicl_Value *values, int n_values) {
+    Zicl_Dict *dict = Zicl_NewDict(values, n_values);
+    folkZiclAssert(dict == NULL ? ZICL_OOM : ZICL_OK);
+    return dict;
+}
+
+void ziclDictPut(Zicl_Dict *dict, Zicl_Value key, Zicl_Value value) {
+    folkZiclAssert(Zicl_DictPut(dict, key, value));
+}
+

@@ -26,7 +26,7 @@ Zicl_Value clauseFormat(const char* fmt, ...) {
     }
 
     free(formatted);
-    return Zicl_BoxListOwning(list);
+    return Zicl_BoxList(list);
 }
 
 const Trie* trieNew() {
@@ -124,7 +124,7 @@ static const Trie* trieAddImpl(const Trie* trie,
 // in it.
 const Trie* trieAdd(const Trie* trie,
                     const TrieAllocator* allocator,
-                    const Zicl_List* clause, uint64_t value) {
+                    Zicl_List* clause, uint64_t value) {
     int nTerms = Zicl_ListLength(clause);
     const Zicl_Value* terms = Zicl_ListItems(clause);
     return trieAddImpl(trie, allocator, nTerms, terms, value);
@@ -250,7 +250,7 @@ static void trieLookupImpl(bool isLiteral,
 static const Trie* trieRemoveImpl(bool isLiteral,
                                   const Trie* trie,
                                   const TrieAllocator* allocator,
-                                  int patternNTerms, Zicl_Value patternTerms[],
+                                  int patternNTerms, const Zicl_Value patternTerms[],
                                   int patternIdx,
                                   uint64_t* results, size_t maxResults,
                                   int* resultsIdx) {
@@ -302,7 +302,7 @@ static const Trie* trieRemoveImpl(bool isLiteral,
         } else {
             char keyVarName[100];
             // Is the trie node (we're currently walking) a variable?
-            if (!isLiteral && trieScanVariable(termString(trie->branches[j]->key),
+            if (!isLiteral && trieScanVariable(ziclString(trie->branches[j]->key),
                                                keyVarName, 100)) {
                 // Is the trie node a rest variable?
                 if (keyVarName[0] == '.' && keyVarName[1] == '.' && keyVarName[2] == '.') {
@@ -351,7 +351,7 @@ static const Trie* trieRemoveImpl(bool isLiteral,
     return newTrie;
 }
 
-int trieLookup(const Trie* trie, const Zicl_List* pattern,
+int trieLookup(const Trie* trie, Zicl_List* pattern,
                uint64_t* results, size_t maxResults) {
     int resultCount = 0;
     int nTerms = Zicl_ListLength(pattern);
@@ -362,7 +362,7 @@ int trieLookup(const Trie* trie, const Zicl_List* pattern,
     return resultCount;
 }
 
-int trieLookupLiteral(const Trie* trie, const Zicl_List* pattern,
+int trieLookupLiteral(const Trie* trie, Zicl_List* pattern,
                       uint64_t* results, size_t maxResults) {
     int resultCount = 0;
     int nTerms = Zicl_ListLength(pattern);
@@ -376,7 +376,7 @@ int trieLookupLiteral(const Trie* trie, const Zicl_List* pattern,
 // Note: does _literal_ matching only, for now.
 const Trie* trieRemove(const Trie* trie,
                        const TrieAllocator* allocator,
-                       const Zicl_List* pattern,
+                       Zicl_List* pattern,
                        uint64_t* results, size_t maxResults,
                        int* resultCount) {
     int nTerms = Zicl_ListLength(pattern);

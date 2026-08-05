@@ -14,27 +14,27 @@ typedef struct WorkQueueItem {
     // the Clause* you give it.
     union {
         struct {
-            Clause* clause;
+            Zicl_List* clause;
             // Caller is also responsible for freeing sourceFileName
             // on dequeue.
             char* sourceFileName;
             int sourceLineNumber;
         } assert;
-        struct { Clause* pattern; } retract;
+        struct { Zicl_List* pattern; } retract;
         struct {
             // The StatementRefs may be invalidated while this Run is
             // still in the workqueue -- if either is invalidated,
             // then the Run is invalidated.
             StatementRef when;
-            Clause* whenPattern;
+            Zicl_List* whenPattern;
             StatementRef stmt;
         } runWhen;
         struct {
             // The subscribeRef may be invalidated while this Run is
             // still in the workqueue -- if so, then the Run is invalidated.
             StatementRef subscribeRef;
-            Clause* subscribePattern;
-            Clause* notifyClause;
+            Zicl_List* subscribePattern;
+            Zicl_List* notifyClause;
         } runSubscribe;
         struct {
             char* code;

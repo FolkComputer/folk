@@ -107,7 +107,7 @@ typedef struct ResultSet {
 // invalid by the time dbQuery returns.
 //
 // Caller must free the returned ResultSet*.
-ResultSet* dbQuery(Db* db, const Zicl_List* pattern);
+ResultSet* dbQuery(Db* db, Zicl_List* pattern);
 
 // Creates and returns a new version (convergence-tracking subgraph)
 // on `key`.
@@ -138,8 +138,7 @@ void dbAtomicallyVersionInflightDecr(Db* db, AtomicallyVersion* atomicallyVersio
 // the caller. (This is mainly so that the caller can insert
 // destructors at will before doing the release.) Returns NULL if no
 // new statement was created.
-Statement* dbInsertOrReuseStatement(Db* db, Zicl_Interp* interp,
-                                    const Zicl_List* clause, long keepMs,
+Statement* dbInsertOrReuseStatement(Db* db, Zicl_List* clause, long keepMs,
                                     AtomicallyVersion* atomicallyVersion,
                                     const char* sourceFileName, int sourceLineNumber,
                                     MatchRef parent,
@@ -157,7 +156,7 @@ Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
                      AtomicallyVersion* atomicallyVersion,
                      int workerThreadIndex);
 
-void dbRetractStatements(Db* db, const Zicl_List* pattern);
+void dbRetractStatements(Db* db, Zicl_List* pattern);
 
 // If `version` is negative, then this statement will always stomp the
 // previous version.
@@ -169,9 +168,8 @@ void dbRetractStatements(Db* db, const Zicl_List* pattern);
 // the caller. (This is mainly so that the caller can insert
 // destructors at will before doing the release.) Returns NULL if no
 // new statement was created.
-Statement* dbHoldStatement(Db* db, Zicl_Interp* interp,
-                           const char* key, double version,
-                           const Zicl_List* clause, long keepMs,
+Statement* dbHoldStatement(Db* db, const char* key, double version,
+                           Zicl_List* clause, long keepMs,
                            const char* sourceFileName, int sourceLineNumber,
                            StatementRef* outOldStatement);
 

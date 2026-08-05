@@ -3,6 +3,8 @@
 
 #include <stdbool.h>
 
+struct Zicl_Object;
+
 // Call this at startup from each thread that will use epoch-based
 // reclamation.
 void epochThreadInit();
@@ -22,6 +24,11 @@ void *epochAlloc(size_t sz);
 // 'Pseudo-free' a pointer (mark it for potential retirement at the
 // end of the epoch).
 void epochFree(void *ptr);
+// Defer Zicl_DecrRefCount on a Zicl_Object until after all concurrent
+// epoch-protected readers have finished. Use this instead of
+// Zicl_DecrRefCount when retiring trie nodes whose keys must outlive
+// the epoch-protected window.
+void epochDecrRef(struct Zicl_Object* value);
 
 // Undo all allocations and frees on this thread since it called
 // epochBegin. You're still in the epoch when this returns.

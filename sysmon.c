@@ -31,7 +31,7 @@ extern ThreadControlBlock threads[];
 extern Db* db;
 extern void trace(const char* format, ...);
 extern void HoldStatementGlobally(const char *key, double version,
-                                  Clause *clause, long keepMs, const char *destructorCode,
+                                  Zicl_List *clause, long keepMs, const char *destructorCode,
                                   const char *sourceFileName, int sourceLineNumber);
 extern void workerReactivateOrSpawn(int64_t msSinceBoot, int targetNotBlockedWorkersCount);
 extern void dbGarbageCollectAtomicallys(Db* db, int64_t now);
