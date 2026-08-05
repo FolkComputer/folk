@@ -1,3 +1,6 @@
+# HACK: not always linux
+set tcl_platform::os linux
+
 # This file gets re-evaluated on every new Tcl interpreter that spins
 # up, so multiple times, possibly in parallel, possibly even late in
 # the lifetime of the Folk system.

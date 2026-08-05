@@ -7,6 +7,7 @@
 #include "vendor/stb_ds.h"
 
 #include <libzicl.h>
+#include "folk-zicl.h"
 
 #include "block-stats.h"
 
@@ -58,20 +59,20 @@ void blockStatsUpdate(const char *sourceFileName, int sourceLineNumber,
     pthread_rwlock_unlock(&blockStatsLock);
 }
 
-int __blockRuntimeStatsFunc(Zicl_Interp *interp, int argc, Zicl_Handle *const argv) {
-    Zicl_Handle result = Zicl_NewList(NULL, 0);
+int __blockRuntimeStatsFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+    Zicl_Value result = ziclNewList(NULL, 0);
     pthread_rwlock_rdlock(&blockStatsLock);
     for (int i = 0; i < shlen(blockStats); i++) {
         char ewma_buf[64], count_buf[64];
         snprintf(ewma_buf, sizeof(ewma_buf), "%.3f", blockStats[i].ewma_ns);
         snprintf(count_buf, sizeof(count_buf), "%llu",
                  (unsigned long long)blockStats[i].count);
-        Zicl_Handle items[3] = {
-            Zicl_NewString(blockStats[i].key, -1),
-            Zicl_NewString(ewma_buf, -1),
-            Zicl_NewString(count_buf, -1),
+        Zicl_Value items[3] = {
+            ziclNewString(blockStats[i].key, -1),
+            ziclNewString(ewma_buf, -1),
+            ziclNewString(count_buf, -1),
         };
-        Zicl_Handle entry = Zicl_NewList(items, 3);
+        Zicl_Value entry = ziclNewList(items, 3);
         Zicl_ListAppend(interp, &result, entry);
         for (int j = 0; j < 3; j++) Zicl_DecrRefCount(items[j]);
         Zicl_DecrRefCount(entry);

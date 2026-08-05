@@ -7,6 +7,6 @@
 void blockStatsInit(void);
 void blockStatsUpdate(const char *sourceFileName, int sourceLineNumber,
                       int64_t elapsed_ns);
-int __blockRuntimeStatsFunc(Zicl_Interp *interp, int argc, Zicl_Handle *const argv);
+int __blockRuntimeStatsFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv);
 
 #endif

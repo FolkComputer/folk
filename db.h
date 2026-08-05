@@ -2,6 +2,7 @@
 #define DB_H
 
 #include <pthread.h>
+#include <libzicl.h>
 
 #include "trie.h"
 
@@ -52,8 +53,10 @@ bool statementCheck(Db* db, StatementRef ref);
 StatementRef statementRef(Db* db, Statement* stmt);
 
 // Getters:
-Clause* statementClause(Statement* stmt);
+Zicl_List* statementClause(Statement* stmt);
+
 AtomicallyVersion* statementAtomicallyVersion(Statement* stmt);
+
 char* statementSourceFileName(Statement* stmt);
 int statementSourceLineNumber(Statement* stmt);
 
@@ -91,8 +94,6 @@ MatchRef matchRef(Db* db, Match* m);
 // Db
 // --
 
-typedef struct Clause Clause;
-
 Db* dbNew();
 const Trie* dbGetClauseToStatementRef(Db* db);
 
@@ -106,7 +107,7 @@ typedef struct ResultSet {
 // invalid by the time dbQuery returns.
 //
 // Caller must free the returned ResultSet*.
-ResultSet* dbQuery(Db* db, Clause* pattern);
+ResultSet* dbQuery(Db* db, const Zicl_List* pattern);
 
 // Creates and returns a new version (convergence-tracking subgraph)
 // on `key`.
@@ -137,8 +138,9 @@ void dbAtomicallyVersionInflightDecr(Db* db, AtomicallyVersion* atomicallyVersio
 // the caller. (This is mainly so that the caller can insert
 // destructors at will before doing the release.) Returns NULL if no
 // new statement was created.
-Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
-                                    long keepMs, AtomicallyVersion* atomicallyVersion,
+Statement* dbInsertOrReuseStatement(Db* db, Zicl_Interp* interp,
+                                    const Zicl_List* clause, long keepMs,
+                                    AtomicallyVersion* atomicallyVersion,
                                     const char* sourceFileName, int sourceLineNumber,
                                     MatchRef parent,
                                     StatementRef* outReusedStatementRef);
@@ -155,7 +157,7 @@ Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
                      AtomicallyVersion* atomicallyVersion,
                      int workerThreadIndex);
 
-void dbRetractStatements(Db* db, Clause* pattern);
+void dbRetractStatements(Db* db, const Zicl_List* pattern);
 
 // If `version` is negative, then this statement will always stomp the
 // previous version.
@@ -167,9 +169,9 @@ void dbRetractStatements(Db* db, Clause* pattern);
 // the caller. (This is mainly so that the caller can insert
 // destructors at will before doing the release.) Returns NULL if no
 // new statement was created.
-Statement* dbHoldStatement(Db* db,
+Statement* dbHoldStatement(Db* db, Zicl_Interp* interp,
                            const char* key, double version,
-                           Clause* clause, long keepMs,
+                           const Zicl_List* clause, long keepMs,
                            const char* sourceFileName, int sourceLineNumber,
                            StatementRef* outOldStatement);
 

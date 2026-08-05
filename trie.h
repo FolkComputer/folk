@@ -5,32 +5,14 @@
 #include <stdbool.h>
 #include <stdlib.h>
 
-typedef struct Term Term;
-Term* termNew(const char* s, int len);
-int termLen(const Term* t);
-const char* termPtr(const Term* t);
-bool termEq(const Term* t1, const Term* t2);
-bool termEqString(const Term* t, const char* s);
-
-typedef struct Clause {
-    int32_t nTerms;
-    Term* terms[];
-} Clause;
-Clause* clauseNew(int32_t nTerms);
-Clause* clauseFormat(const char* fmt, ...);
-Clause* clauseDup(Clause* c);
-void clauseFree(Clause* c);
-void clauseFreeBorrowed(Clause* c);
-
-// Caller must free the string.
-char* clauseToString(Clause* c);
-
-bool clauseIsEqual(Clause* a, Clause* b);
+#include <libzicl.h>
 
 typedef struct Trie Trie;
 struct Trie {
-    // This term string is owned by the trie.
-    Term* key;
+    // Owned by the trie: ref count is incremented when stored and
+    // decremented when the node is removed (and no successor takes
+    // over the key).
+    Zicl_Value key;
 
     // In practice, we store a statement ref in this slot.
     bool hasValue;
@@ -39,51 +21,57 @@ struct Trie {
     int32_t branchesCount;
     const Trie* branches[];
 };
-#define SIZEOF_TRIE(CAPACITY_BRANCHES) (sizeof(Trie) + (CAPACITY_BRANCHES)*sizeof(Trie*))
-
-typedef struct Trie Trie;
 
 const Trie* trieNew();
 
-// The `alloc` parameter is called by the trie functions to
-// heap-allocate memory. This is so that you (the caller) can supply a
-// custom allocator that can track & later reverse allocations if you
-// encounter a conflict that requires a retry (i.e., in a CAS loop).
-// 
-// The `retire` parameter is called to free any nodes that are being
-// replaced when you call `trieAdd` or `trieRemove`. You can pass
-// normal `free` if you have no concurrent access; otherwise, you'll
-// want to wrap the trie access in some memory reclamation scheme and
-// have your `retire` implementation defer reclamation until it's
-// guaranteed that no one else is accessing the old trie.
+// Allocator/reclaimer callbacks for trie operations.
+//
+// `alloc`: allocate a trie node. Supply a custom allocator to track &
+// reverse allocations on retry (in a CAS loop).
+//
+// `retire`: retire a replaced node. Pass normal `free` for
+// single-threaded use; for concurrent access wrap in a
+// memory-reclamation scheme so reclamation is deferred until no
+// reader can reach the old node.
+//
+// `retireObj`: called when a trie node's key is released (no successor
+// holds a reference to it). Pass a wrapper around `Jim_DecrRefCount`
+// for single-threaded use; in a concurrent context pass a deferred
+// variant so the key outlives any epoch-protected readers.
+typedef struct TrieAllocator {
+    void *(*alloc)(size_t);
+    void  (*retire)(void*);
+    void  (*retireValue)(Zicl_Object*);
+} TrieAllocator;
 
-// Returns a new Trie that is like `trie` with `clause` added. Copies
-// all the terms in `clause` into trie-owned structures, so the caller
-// doesn't need to worry about ownership.
+// Returns a new Trie that is like `trie` with `clause` added. Holds a
+// reference to each term Jim_Obj for as long as the term remains in
+// the trie.
 const Trie* trieAdd(const Trie* trie,
-                    void *(*alloc)(size_t), void (*retire)(void*),
-                    Clause* c, uint64_t value);
+                    const TrieAllocator* allocator,
+                    Zicl_List* clause, uint64_t value);
 
 // Returns a new Trie that is `trie` with all clauses matching
 // `pattern` removed. Fills `results` with the values of all removed
 // clauses.
 const Trie* trieRemove(const Trie* trie,
-                       void *(*alloc)(size_t), void (*retire)(void*),
-                       Clause* pattern,
+                       const TrieAllocator* allocator,
+                       Zicl_List* pattern,
                        uint64_t* results, size_t maxResults,
                        int* resultCount);
 
 // Fills `results` with the values of all clauses matching `pattern`.
-int trieLookup(const Trie* trie, Clause* pattern,
+int trieLookup(const Trie* trie, const Zicl_List* pattern,
                uint64_t* results, size_t maxResults);
 
 // Only looks for literal matches of `literal` in the trie (does not
 // treat /variable/ as a variable). Used to check for an
 // already-existing statement whenever a statement is inserted.
-int trieLookupLiteral(const Trie* trie, Clause* literal,
+int trieLookupLiteral(const Trie* trie, const Zicl_List* literal,
                       uint64_t* results, size_t maxResults);
 
-bool trieScanVariable(Term* term, char* outVarName, int sizeOutVarName);
+bool trieScanVariable(const char* term,
+                      char* outVarName, size_t sizeOutVarName);
 bool trieVariableNameIsNonCapturing(const char* varName);
 
 #endif

@@ -9,18 +9,28 @@
 #include <pthread.h>
 #include <signal.h>
 #include <stdatomic.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 
 #if __has_include ("tracy/TracyC.h")
 #include "tracy/TracyC.h"
 #endif
 
 #include "common.h"
+#include "folk-zicl.h"
 #include "trie.h"
 #include "epoch.h"
 #include "sysmon.h"
 #include "db.h"
 
 #include "vendor/stb_ds.h"
+
+static void epochDecrRefWrapper(Zicl_Object* value) { epochDecrRef(value); }
+static const TrieAllocator epochAllocator = {
+    .alloc = epochAlloc,
+    .retire = epochFree,
+    .retireValue = epochDecrRefWrapper,
+};
 
 typedef struct ListOfEdgeTo {
     size_t capacityEdges;
@@ -183,7 +193,7 @@ typedef struct Statement {
 
     // Owned by the DB. clause cannot be mutated or invalidated while
     // rc > 0.
-    Clause* _Atomic clause;
+    Zicl_List* _Atomic clause;
 
     // If the statement is removed, we wait keepMs milliseconds before
     // removing its child matches.
@@ -248,9 +258,17 @@ typedef struct Match {
     pthread_mutex_t destructorSetMutex;
 
     // ListOfEdgeTo StatementRef. Used for removal.
-    ListOfEdgeTo* childStatements;
+    // NULL means the slot is fully destroyed and ready for reuse (matchNew
+    // checks this). CHILD_STATEMENTS_REMOVING means matchRemoveSelf has
+    // claimed removal but matchDestroy hasn't finished yet.
+    ListOfEdgeTo* _Atomic childStatements;
     pthread_mutex_t childStatementsMutex;
 } Match;
+
+// Sentinel: matchRemoveSelf sets childStatements to this to prevent new
+// children from being added. matchDestroy then sets it to NULL (release)
+// as its final step, which is what matchNew waits for.
+#define CHILD_STATEMENTS_REMOVING ((ListOfEdgeTo*)1)
 
 // Database datatypes:
 
@@ -454,12 +472,18 @@ StatementRef statementRef(Db* db, Statement* stmt) {
 // from the outside (they need to insert into the DB as a complete
 // operation). Note: clause ownership transfers to the DB, which then
 // becomes responsible for freeing it. 
-static StatementRef statementNew(Db* db, Clause* clause,
+// 
+// This will increase clause's refCount by 1, and will
+// decrement refCount by 1 when it's done with clause.
+// clause and trieClause should be identical (with clause considered
+// authoritative)
+static StatementRef statementNew(Db* db, Zicl_List* clause, 
                                  long keepMs, AtomicallyVersion* atomicallyVersion,
-                                 const char* sourceFileName,
-                                 int sourceLineNumber) {
+                                 const char* sourceFileName, int sourceLineNumber) {
     StatementRef ret;
     Statement* stmt = NULL;
+
+    Zicl_MakeCrossthread(Zicl_BoxList(clause));
 
     // Look for a free statement slot to use:
     while (1) {
@@ -468,7 +492,8 @@ static StatementRef statementNew(Db* db, Clause* clause,
         stmt = &db->statementPool[idx];
 
         GenRc oldGenRc = stmt->genRc;
-        if (oldGenRc.rc == 0 && !oldGenRc.alive && stmt->clause == NULL) {
+        if (oldGenRc.rc == 0 && !oldGenRc.alive &&
+                atomic_load_explicit(&(stmt->clause), memory_order_relaxed) == NULL) {
             GenRc newGenRc = oldGenRc;
             newGenRc.alive = true;
 
@@ -481,8 +506,9 @@ static StatementRef statementNew(Db* db, Clause* clause,
 
     // We should now have exclusive access to stmt, as its rc
     // is 0 and we were the ones who made it alive.
+    Zicl_IncrRefCount(Zicl_BoxList(clause));
 
-    atomic_store(&stmt->clause, clause);
+    stmt->clause = clause;
     stmt->keepMs = keepMs;
 
     // inflightCount must start incremented so that this
@@ -523,16 +549,15 @@ static void statementDestroy(Statement* stmt) {
     destructorSetReleaseAll(&stmt->destructorSet);
     pthread_mutex_unlock(&stmt->destructorSetMutex);
 
-    Clause* stmtClause = statementClause(stmt);
-    // Marks this statement slot as being fully free and ready for
-    // reuse.
-    stmt->clause = NULL;
-
-    /* TracyCFreeS(stmt, 4); */
-    clauseFree(stmtClause);
+    Zicl_List* stmtClause = statementClause(stmt);
+    // Marks this statement slot as being fully free and ready for reuse.
+    atomic_store(&(stmt->clause), NULL);
+    Zicl_DecrRefCount(Zicl_BoxList(stmtClause));
 }
 
-Clause* statementClause(Statement* stmt) { return stmt->clause; }
+Zicl_List* statementClause(Statement* stmt) {
+    return atomic_load_explicit(&(stmt->clause), memory_order_relaxed);
+}
 
 AtomicallyVersion* statementAtomicallyVersion(Statement* stmt) {
     return stmt->atomicallyVersion;
@@ -665,7 +690,7 @@ void statementRemoveSelf(Db* db, Statement* stmt, bool doDeindex) {
             oldClauseToStatementRef = db->clauseToStatementRef;
             newClauseToStatementRef =
                 trieRemove(db->clauseToStatementRef,
-                           epochAlloc, epochFree,
+                           &epochAllocator,
                            stmt->clause,
                            (uint64_t*) results, sizeof(results)/sizeof(results[0]),
                            &resultsCount);
@@ -750,7 +775,8 @@ static MatchRef matchNew(Db* db,
         match = &db->matchPool[idx];
 
         GenRc oldGenRc = match->genRc;
-        if (oldGenRc.rc == 0 && !oldGenRc.alive && match->childStatements == NULL) {
+        if (oldGenRc.rc == 0 && !oldGenRc.alive &&
+            atomic_load_explicit(&match->childStatements, memory_order_acquire) == NULL) {
             GenRc newGenRc = oldGenRc;
             newGenRc.alive = true;
 
@@ -763,7 +789,7 @@ static MatchRef matchNew(Db* db,
 
     // We should have exclusive access to match right now.
 
-    match->childStatements = listOfEdgeToNew(8);
+    atomic_store_explicit(&match->childStatements, listOfEdgeToNew(8), memory_order_relaxed);
     match->parentWasRemoved = false;
 
     pthread_mutexattr_t mta;
@@ -783,12 +809,17 @@ static MatchRef matchNew(Db* db,
 }
 
 static void matchDestroy(Match* match) {
-    assert(match->childStatements == NULL);
+    assert(atomic_load_explicit(&match->childStatements, memory_order_relaxed)
+           == CHILD_STATEMENTS_REMOVING);
 
     // Fire any destructors.
     pthread_mutex_lock(&match->destructorSetMutex);
     destructorSetReleaseAll(&match->destructorSet);
     pthread_mutex_unlock(&match->destructorSetMutex);
+
+    // Release store: synchronizes with matchNew's acquire load so that
+    // all writes above are visible before the slot is reused.
+    atomic_store_explicit(&match->childStatements, NULL, memory_order_release);
 }
 
 AtomicallyVersion* matchAtomicallyVersion(Match* m) {
@@ -803,8 +834,9 @@ static bool statementChecker(void* db, uint64_t ref) {
 }
 // You must call this with the childStatementsMutex held.
 static void matchAddChildStatement(Db* db, Match* match, StatementRef child) {
-    listOfEdgeToAdd(statementChecker, db,
-                    &match->childStatements, child.val);
+    ListOfEdgeTo* list = atomic_load_explicit(&match->childStatements, memory_order_relaxed);
+    listOfEdgeToAdd(statementChecker, db, &list, child.val);
+    atomic_store_explicit(&match->childStatements, list, memory_order_relaxed);
 }
 void matchAddDestructor(Match* m, Destructor* d) {
     pthread_mutex_lock(&m->destructorSetMutex);
@@ -838,8 +870,8 @@ void matchRemoveSelf(Db* db, Match* match) {
     // Walk through each child statement and remove this match as a
     // parent of that statement.
     pthread_mutex_lock(&match->childStatementsMutex);
-    ListOfEdgeTo* childStatements = match->childStatements;
-    if (childStatements == NULL) {
+    ListOfEdgeTo* childStatements = atomic_load_explicit(&match->childStatements, memory_order_relaxed);
+    if (childStatements == NULL || childStatements == CHILD_STATEMENTS_REMOVING) {
         // Someone else has done / is doing removal. Abort.
         pthread_mutex_unlock(&match->childStatementsMutex);
         return;
@@ -847,7 +879,7 @@ void matchRemoveSelf(Db* db, Match* match) {
     // This blocks further child statements from being added to this
     // match (if they were added, then we wouldn't be able to remove
     // them).
-    match->childStatements = NULL;
+    atomic_store_explicit(&match->childStatements, CHILD_STATEMENTS_REMOVING, memory_order_relaxed);
     genRcMarkAsDead(&match->genRc);
     pthread_mutex_unlock(&match->childStatementsMutex);
 
@@ -866,9 +898,17 @@ void matchRemoveSelf(Db* db, Match* match) {
         // execution.
         ThreadControlBlock *workerThread = &threads[match->workerThreadIndex];
         if (timestamp_get(workerThread->clockid) - workerThread->currentItemStartTimestamp > 100000000) {
-            char buf[10000]; traceItem(buf, sizeof(buf), workerThread->currentItem);
+            mutexLock(&workerThread->currentItemMutex);
+            WorkQueueItem item = workerThread->currentItem;
+            mutexUnlock(&workerThread->currentItemMutex);
+
+            char buf[10000]; traceItem(buf, sizeof(buf), item);
             fprintf(stderr, "KILL (%.150s)\n", buf);
+#ifdef __APPLE__
             kill(workerThread->tid, SIGUSR1);
+#else
+            syscall(SYS_tgkill, getpid(), workerThread->tid, SIGUSR1);
+#endif
         }
     }
 }
@@ -908,7 +948,7 @@ void dbUnlockClauseToStatementRef(Db* db) {
 }
 
 // Query
-ResultSet* dbQuery(Db* db, Clause* pattern) {
+ResultSet* dbQuery(Db* db, const Zicl_List* pattern) {
     ResultSet *resultSet;
     size_t maxResults = 500;
     do {
@@ -926,8 +966,8 @@ ResultSet* dbQuery(Db* db, Clause* pattern) {
 
         maxResults *= 2;
         if (maxResults > 10 * 1000) {
-            fprintf(stderr, "dbQuery: Too many results for query (%s)\n",
-                    clauseToString(pattern));
+            /* fprintf(stderr, "dbQuery: Too many results for query (%s)\n", */
+            /*         Jim_String(interp, pattern)); */
             exit(1);
         }
         free(resultSet);
@@ -1161,11 +1201,8 @@ static bool tryReuseStatement(Db* db, Statement* stmt, Match* parentMatch) {
 // 
 // (both of these mean that the caller shouldn't trigger a reaction,
 // since no new statement is being created).
-//
-// Takes ownership of `clause` (i.e., you can't touch clause at the
-// caller after calling this!).
-Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
-                                    long keepMs, AtomicallyVersion* atomicallyVersion,
+Statement* dbInsertOrReuseStatement(Db* db, Zicl_List* clause, long keepMs,
+                                    AtomicallyVersion* atomicallyVersion,
                                     const char* sourceFileName, int sourceLineNumber,
                                     MatchRef parentMatchRef,
                                     StatementRef* outReusedStatementRef) {
@@ -1174,29 +1211,27 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
         *outReusedStatementRef = (_ref); \
     }
 
+    Zicl_IncrRefCount(Zicl_BoxList(clause));
+    Zicl_MakeCrossthread(Zicl_BoxList(clause));
+
     Match* parentMatch = NULL;
     if (!matchRefIsNull(parentMatchRef)) {
         // Need to set up parent match.
         parentMatch = matchAcquire(db, parentMatchRef);
         if (parentMatch == NULL) {
             setReusedStatementRef(STATEMENT_REF_NULL);
-
-            /* fprintf(stderr, "parentMatch == NULL; aborted Say (%s)\n", clauseToString(clause)); */
-            clauseFree(clause);
+            Zicl_DecrRefCount(Zicl_BoxList(clause));
             return NULL; // Abort!
         }
 
         pthread_mutex_lock(&parentMatch->childStatementsMutex);
-        if (parentMatch->childStatements == NULL) {
+        ListOfEdgeTo* cs = atomic_load_explicit(&parentMatch->childStatements, memory_order_relaxed);
+        if (cs == NULL || cs == CHILD_STATEMENTS_REMOVING) {
             pthread_mutex_unlock(&parentMatch->childStatementsMutex);
             matchRelease(db, parentMatch);
 
             setReusedStatementRef(STATEMENT_REF_NULL);
-
-            /* fprintf(stderr, "parentMatch->childStatements == NULL (%p); aborted Say (%s)\n", */
-            /*         parentMatch, */
-            /*         clauseToString(clause)); */
-            clauseFree(clause);
+            Zicl_DecrRefCount(Zicl_BoxList(clause));
             return NULL; // Abort!
         }
 
@@ -1207,8 +1242,6 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
     }
 
     // We'll provisionally create a new statement to add.
-    // 
-    // Also transfers ownership of `clause` to the DB.
     StatementRef ref = statementNew(db, clause,
                                     keepMs, atomicallyVersion,
                                     sourceFileName, sourceLineNumber);
@@ -1222,7 +1255,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
         epochReset();
         oldClauseToStatementRef = db->clauseToStatementRef;
         newClauseToStatementRef = trieAdd(oldClauseToStatementRef,
-                                          epochAlloc, epochFree,
+                                          &epochAllocator,
                                           clause, ref.val);
 
         if (newClauseToStatementRef == oldClauseToStatementRef) {
@@ -1272,6 +1305,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
                     }
 
                     setReusedStatementRef(existingRefs[0]);
+                    Zicl_DecrRefCount(Zicl_BoxList(clause));
                     return NULL;
                 } else {
                     // Reuse failed, but not for operation-aborting
@@ -1321,6 +1355,8 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
     }
 
     setReusedStatementRef(STATEMENT_REF_NULL);
+    Zicl_DecrRefCount(Zicl_BoxList(clause));
+
     return newStmt;
 
 #undef setReusedStatementRef
@@ -1386,7 +1422,7 @@ done:
     }
 }
 
-void dbRetractStatements(Db* db, Clause* pattern) {
+void dbRetractStatements(Db* db, const Zicl_List* pattern) {
     StatementRef results[500];
     size_t maxResults = sizeof(results)/sizeof(results[0]);
 
@@ -1410,15 +1446,15 @@ void dbRetractStatements(Db* db, Clause* pattern) {
     }
 }
 
-// Takes ownership of `clause` and `destructorSet`.
-Statement* dbHoldStatement(Db* db,
-                           const char* key, double version,
-                           Clause* clause, long keepMs,
+// Takes ownership of `destructorSet`.
+Statement* dbHoldStatement(Db* db, const char* key, double version,
+                           const Zicl_List* clause, long keepMs,
                            const char* sourceFileName, int sourceLineNumber,
                            StatementRef* outOldStatement) {
     if (outOldStatement) { *outOldStatement = STATEMENT_REF_NULL; }
 
     mutexLock(&db->holdsMutex);
+    Zicl_IncrRefCount(Zicl_BoxList(clause));
 
     Hold* hold = shgetp_null(db->holds, key);
     if (hold == NULL) {
@@ -1435,19 +1471,20 @@ Statement* dbHoldStatement(Db* db,
         // TODO: Should we accept a StatementRef and enforce that
         // is what gets removed?
         Statement* oldStmtPtr = statementAcquire(db, oldStmt);
-        if (oldStmtPtr && clauseIsEqual(clause, statementClause(oldStmtPtr))) {
+        if (oldStmtPtr && ziclEquals(Zicl_BoxList(clause), Zicl_BoxList(statementClause(oldStmtPtr)))) {
             statementRelease(db, oldStmtPtr);
             mutexUnlock(&db->holdsMutex);
-            clauseFree(clause);
+            Zicl_DecrRefCount(Zicl_BoxList(clause));
             return NULL;
         }
 
         Statement* newStmt = NULL;
-        if (clause->nTerms > 0) {
+        if (Zicl_ListLength(clause) > 0) {
             hold->version = version;
 
             StatementRef reusedStatementRef;
-            newStmt = dbInsertOrReuseStatement(db, clause, keepMs, NULL,
+            newStmt = dbInsertOrReuseStatement(db, clause,
+                                               keepMs, NULL,
                                                sourceFileName, sourceLineNumber,
                                                MATCH_REF_NULL,
                                                &reusedStatementRef);
@@ -1460,11 +1497,10 @@ Statement* dbHoldStatement(Db* db,
                 exit(1);
             }
         } else {
-            clauseFree(clause);
+            hold->statement = STATEMENT_REF_NULL;
             shdel(db->holds, key);
             hold = NULL;
         }
-
 
         if (oldStmtPtr) {
             // We deindex (trieRemove) the old statement immediately,
@@ -1482,7 +1518,7 @@ Statement* dbHoldStatement(Db* db,
                 oldClauseToStatementRef = db->clauseToStatementRef;
                 newClauseToStatementRef =
                     trieRemove(db->clauseToStatementRef,
-                               epochAlloc, epochFree,
+                               &epochAllocator,
                                statementClause(oldStmtPtr),
                                (uint64_t*) results, sizeof(results)/sizeof(results[0]),
                                &resultsCount);
@@ -1506,13 +1542,14 @@ Statement* dbHoldStatement(Db* db,
         if (outOldStatement) { *outOldStatement = oldStmt; }
 
         mutexUnlock(&db->holdsMutex);
+        Jim_DecrRefCount(clause);
         return newStmt;
     } else {
         // The new version is older than the version already in the
         // hold, so we just shouldn't do anything / we shouldn't
         // install the new statement.
         mutexUnlock(&db->holdsMutex);
-        clauseFree(clause);
+        Jim_DecrRefCount(clause);
         return NULL;
     }
 }

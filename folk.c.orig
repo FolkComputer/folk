@@ -18,7 +18,6 @@
 
 #include <jim.h>
 #include <libzicl.h>
-#include "folk-zicl.h"
 
 #define STB_DS_IMPLEMENTATION
 #include "vendor/stb_ds.h"
@@ -94,6 +93,39 @@ __thread bool __onErrorIsSet;
 
 Db* db;
 
+static Clause* ziclObjsToClause(int objc, Zicl_Handle *const objv) {
+    Clause* clause = clauseNew(objc);
+
+    const char* str;
+    int len;
+    for (int i = 0; i < objc; i++) {
+        str = Zicl_GetString(objv[i], &len);
+        clause->terms[i] = termNew(str, len);
+    }
+    return clause;
+}
+
+Clause* ziclObjToClause(Zicl_Interp* interp, Zicl_Handle* handle) {
+    int objc = Zicl_ListLength(interp, handle);
+    Clause* clause = clauseNew(objc);
+    for (int i = 0; i < objc; i++) {
+        Zicl_Handle termObj = Zicl_ListGetItem(*handle, i);
+        int len; const char* s = Zicl_GetString(termObj, &len);
+        clause->terms[i] = termNew(s, len);
+    }
+    return clause;
+}
+static Zicl_Handle termToZiclObj(const Term* term) {
+    return Zicl_NewString(termPtr(term), termLen(term));
+}
+static Zicl_Handle termsToZiclObj(int nTerms, Term* terms[]) {
+    Zicl_Handle termObjs[nTerms];
+    for (int i = 0; i < nTerms; i++) {
+        termObjs[i] = termToZiclObj(terms[i]);
+    }
+    return Zicl_NewList(termObjs, nTerms);
+}
+
 static void destructorHelper(void* arg) {
     // This dispatches an evaluation task to the global queue, so that
     // this function can be invoked from sysmon (which doesn't have
@@ -109,7 +141,7 @@ static void destructorHelper(void* arg) {
 
 typedef struct EnvironmentBinding {
     char name[100];
-    Zicl_Value value;
+    Zicl_Handle value;
 } EnvironmentBinding;
 typedef struct Environment {
     int nBindings;
@@ -157,10 +189,10 @@ Environment* clauseUnify(Clause* a, Clause* b) {
 }
 
 // Assert! the time is 3
-static int AssertFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int AssertFunc(Zicl_Interp *interp, int argc, Zicl_Handle *const argv) {
     Clause* clause = ziclObjsToClause(argc - 1, argv + 1);
 
-    Zicl_Value scriptObj = Zicl_GetScriptBeingEvaluated(interp);
+    Zicl_Handle scriptObj = Zicl_GetScriptBeingEvaluated(interp);
     const char* sourceFileName = Zicl_SourceGetFilename(scriptObj);
     if (!sourceFileName) sourceFileName = "<unknown>";
     int sourceLineNumber = Zicl_SourceGetLine(scriptObj);
@@ -177,7 +209,7 @@ static int AssertFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
     return (JIM_OK);
 }
 // Retract! the time is /t/
-static int RetractFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int RetractFunc(Zicl_Interp *interp, int argc, Zicl_Handle *const argv) {
     Clause* pattern = ziclObjsToClause(argc - 1, argv + 1);
 
     appropriateWorkQueuePush((WorkQueueItem) {
@@ -247,7 +279,7 @@ void HoldStatementGlobally(const char *key, double version,
         statementRelease(db, stmt);
     }
 }
-static int HoldStatementGloballyFunc(Zicl_Interp *interp, int argc, Zicl_Value *argv) {
+static int HoldStatementGloballyFunc(Zicl_Interp *interp, int argc, Zicl_Handle *argv) {
     assert(argc == 8);
 
     const char* sourceFileName;
@@ -323,7 +355,7 @@ static StatementRef Say(Clause* clause, long keepMs,
     }
 }
 
-static int SayWithSourceFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int SayWithSourceFunc(Zicl_Interp *interp, int argc, Zicl_Handle *const argv) {
     assert(argc >= 7);
     Clause* clause = ziclObjsToClause(argc - 6, argv + 6);
 
@@ -367,7 +399,7 @@ static int SayWithSourceFunc(Zicl_Interp *interp, int argc, Zicl_Value *const ar
     return JIM_ERR;
 }
 
-static int DestructorFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int DestructorFunc(Zicl_Interp *interp, int argc, Zicl_Handle *const argv) {
     assert(argc == 2);
     if (self->inSubscription) {
         Zicl_SetResultString(interp, "Cannot create destructor in a subscribe block", -1);
@@ -380,7 +412,7 @@ static int DestructorFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv)
 }
 
 static void Notify(Clause* toNotify);
-static int NotifyFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int NotifyFunc(Zicl_Interp *interp, int argc, Zicl_Handle *const argv) {
     assert(argc >= 2);
 
     Clause* toNotify = ziclObjsToClause(argc - 1, argv + 1);
@@ -391,10 +423,10 @@ static int NotifyFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
 }
 
 extern int statementParentCount(Statement* stmt);
-Zicl_Value QuerySimple(Zicl_Interp *interp, bool isAtomically, Clause* pattern) {
+Zicl_Handle QuerySimple(Zicl_Interp *interp, bool isAtomically, Clause* pattern) {
     ResultSet* rs = dbQuery(db, pattern);
 
-    Zicl_Value ret = ziclNewList(NULL, 0);
+    Zicl_Handle ret = Zicl_NewList(NULL, 0);
     for (size_t i = 0; i < rs->nResults; i++) {
         Statement* result = statementAcquire(db, rs->results[i]);
         if (result == NULL) { continue; }
@@ -418,18 +450,18 @@ Zicl_Value QuerySimple(Zicl_Interp *interp, bool isAtomically, Clause* pattern) 
             continue;
         }
 
-        Zicl_Value envDict[(env->nBindings + 1) * 2];
-        envDict[0] = ziclNewString("__ref", -1);
+        Zicl_Handle envDict[(env->nBindings + 1) * 2];
+        envDict[0] = Zicl_NewString("__ref", -1);
         char buf[100]; snprintf(buf, 100,  "s%d:%d", rs->results[i].idx, rs->results[i].gen);
-        envDict[1] = ziclNewString(buf, -1);
+        envDict[1] = Zicl_NewString(buf, -1);
 
         for (int j = 0; j < env->nBindings; j++) {
-            envDict[(j+1)*2] = ziclNewString(env->bindings[j].name, -1);
+            envDict[(j+1)*2] = Zicl_NewString(env->bindings[j].name, -1);
             envDict[(j+1)*2+1] = env->bindings[j].value;
         }
         statementRelease(db, result);
 
-        Zicl_Value resultObj = ziclNewDict(envDict, (env->nBindings + 1) * 2);
+        Zicl_Handle resultObj = Zicl_NewDict(envDict, (env->nBindings + 1) * 2);
         Zicl_ListAppend(interp, &ret, resultObj);
 
         free(env);
@@ -439,7 +471,7 @@ Zicl_Value QuerySimple(Zicl_Interp *interp, bool isAtomically, Clause* pattern) 
     return ret;
 }
 
-static int QuerySimpleFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int QuerySimpleFunc(Zicl_Interp *interp, int argc, Zicl_Handle *const argv) {
     assert(argc >= 3);
 
     int isAtomically;
@@ -453,14 +485,14 @@ static int QuerySimpleFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv
 /*     TracyCMessageFmt("query: %.200s", s); free(s); */
 /* #endif */
 
-    Zicl_Value retObj = QuerySimple(interp, isAtomically, pattern);
+    Zicl_Handle retObj = QuerySimple(interp, isAtomically, pattern);
     clauseFree(pattern);
 
     Zicl_SetResult(interp, retObj);
     return ZICL_OK;
 }
 
-static int StatementAcquireFunc(Zicl_Interp *interp, int argc, Zicl_Value *argv) {
+static int StatementAcquireFunc(Zicl_Interp *interp, int argc, Zicl_Handle *argv) {
     assert(argc == 2);
 
     StatementRef ref;
@@ -472,7 +504,7 @@ static int StatementAcquireFunc(Zicl_Interp *interp, int argc, Zicl_Value *argv)
     }
     return JIM_OK;
 }
-static int StatementReleaseFunc(Zicl_Interp *interp, int argc, Zicl_Value *argv) {
+static int StatementReleaseFunc(Zicl_Interp *interp, int argc, Zicl_Handle *argv) {
     assert(argc == 2);
 
     StatementRef ref;
@@ -482,7 +514,7 @@ static int StatementReleaseFunc(Zicl_Interp *interp, int argc, Zicl_Value *argv)
     return JIM_OK;
 }
 
-static int __scanVariableFunc(Zicl_Interp *interp, int argc, Zicl_Value *argv) {
+static int __scanVariableFunc(Zicl_Interp *interp, int argc, Zicl_Handle *argv) {
     assert(argc == 2);
     char varName[100];
     int len; const char* s = Zicl_GetString(argv[1], &len);
@@ -495,17 +527,17 @@ static int __scanVariableFunc(Zicl_Interp *interp, int argc, Zicl_Value *argv) {
     free(potentialVarTerm);
     return JIM_OK;
 }
-static int __variableNameIsNonCapturingFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int __variableNameIsNonCapturingFunc(Zicl_Interp *interp, int argc, Zicl_Handle *const argv) {
     assert(argc == 2);
     Zicl_SetResultBool(interp, trieVariableNameIsNonCapturing(Zicl_String(argv[1])));
     return ZICL_OK;
 }
-static int __startsWithDollarSignFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int __startsWithDollarSignFunc(Zicl_Interp *interp, int argc, Zicl_Handle *const argv) {
     assert(argc == 2);
     Zicl_SetResultBool(interp, Zicl_String(argv[1])[0] == '$');
     return ZICL_OK;
 }
-static int __currentMatchRefFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int __currentMatchRefFunc(Zicl_Interp *interp, int argc, Zicl_Handle *const argv) {
     assert(argc == 1);
     if (self->currentMatch == NULL) {
         Zicl_SetResultString(interp, "", 0);
@@ -518,7 +550,7 @@ static int __currentMatchRefFunc(Zicl_Interp *interp, int argc, Zicl_Value *cons
     return ZICL_OK;
 }
 
-static int __statementIncompleteChildMatchesCountFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int __statementIncompleteChildMatchesCountFunc(Zicl_Interp *interp, int argc, Zicl_Handle *const argv) {
     assert(argc == 2);
     StatementRef ref;
     assert(sscanf(Zicl_String(argv[1]), "s%d:%d", &ref.idx, &ref.gen) == 2);
@@ -531,7 +563,7 @@ static int __statementIncompleteChildMatchesCountFunc(Zicl_Interp *interp, int a
     statementRelease(db, stmt);
     return ZICL_OK;
 }
-static int __whenOfCurrentMatchIncompleteChildMatchesCountFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int __whenOfCurrentMatchIncompleteChildMatchesCountFunc(Zicl_Interp *interp, int argc, Zicl_Handle *const argv) {
     assert(argc == 1);
     StatementRef whenRef = STATEMENT_REF_NULL;
     mutexLock(&self->currentItemMutex);
@@ -554,11 +586,11 @@ static int __whenOfCurrentMatchIncompleteChildMatchesCountFunc(Zicl_Interp *inte
     statementRelease(db, when);
     return ZICL_OK;
 }
-static int __isInSubscriptionFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int __isInSubscriptionFunc(Zicl_Interp *interp, int argc, Zicl_Handle *const argv) {
     Zicl_SetResultBool(interp, self->inSubscription);
     return ZICL_OK;
 }
-static int __isTracyEnabledFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int __isTracyEnabledFunc(Zicl_Interp *interp, int argc, Zicl_Handle *const argv) {
 #ifdef TRACY_ENABLE
     Zicl_SetResultBool(interp, true);
 #else
@@ -566,17 +598,17 @@ static int __isTracyEnabledFunc(Zicl_Interp *interp, int argc, Zicl_Value *const
 #endif
     return ZICL_OK;
 }
-static int __dbFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int __dbFunc(Zicl_Interp *interp, int argc, Zicl_Handle *const argv) {
     char ret[100]; snprintf(ret, 100, "(Db*) %p", db);
     Zicl_SetResultString(interp, ret, strlen(ret));
     return ZICL_OK;
 }
-static int __threadIdFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int __threadIdFunc(Zicl_Interp *interp, int argc, Zicl_Handle *const argv) {
     Zicl_SetResultInt(interp, self->index);
     return ZICL_OK;
 }
 
-static int __setFreshAtomicallyVersionOnKeyFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int __setFreshAtomicallyVersionOnKeyFunc(Zicl_Interp *interp, int argc, Zicl_Handle *const argv) {
     assert(argc == 2);
     const char* key = Zicl_String(argv[1]);
     self->currentAtomicallyVersion =
@@ -585,7 +617,7 @@ static int __setFreshAtomicallyVersionOnKeyFunc(Zicl_Interp *interp, int argc, Z
     matchSetAtomicallyVersion(self->currentMatch, self->currentAtomicallyVersion);
     return ZICL_OK;
 }
-static int __currentAtomicallyVersionFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int __currentAtomicallyVersionFunc(Zicl_Interp *interp, int argc, Zicl_Handle *const argv) {
     assert(argc == 1);
     if (self->currentAtomicallyVersion == NULL) {
         Zicl_SetResultString(interp, "", -1);
@@ -598,7 +630,7 @@ static int __currentAtomicallyVersionFunc(Zicl_Interp *interp, int argc, Zicl_Va
     return ZICL_OK;
 }
 
-static int setpgrpFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
+static int setpgrpFunc(Zicl_Interp *interp, int argc, Zicl_Handle *const argv) {
     int ret = setpgrp();
     if (ret != -1) {
         return ZICL_OK;
@@ -607,7 +639,7 @@ static int setpgrpFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
         return ZICL_ERR;
     }
 }
-static int exitFunc(Zicl_Interp *interp, int argc, Zicl_Value *argv) {
+static int exitFunc(Zicl_Interp *interp, int argc, Zicl_Handle *argv) {
     assert(argc == 2);
     long exitCode; Zicl_GetLong(interp, &argv[1], &exitCode);
 
@@ -668,17 +700,17 @@ static void interpBoot() {
         int n_env = 0;
         while (environ[n_env] != NULL) n_env++;
 
-        Zicl_Value env_dict = ziclNewDict(NULL, 0);
+        Zicl_Handle env_dict = Zicl_NewDict(NULL, 0);
         for (int i = 0; i < n_env; i++) {
             char *eq = strchr(environ[i], '=');
             if (eq == NULL) continue;
 
-            Zicl_Value key = ziclNewString(environ[i], eq - environ[i]);
-            Zicl_Value val = ziclNewString(eq + 1, -1);
+            Zicl_Handle key = Zicl_NewString(environ[i], eq - environ[i]);
+            Zicl_Handle val = Zicl_NewString(eq + 1, -1);
             Zicl_DictPut(interp, &env_dict, key, val);
         }
 
-        Zicl_Value env_name = ziclNewString("env", -1);
+        Zicl_Handle env_name = Zicl_NewString("env", -1);
         Zicl_SetVariable(interp, &env_name, env_dict);
     }
 
@@ -690,7 +722,7 @@ static void interpBoot() {
 void eval(const char* code) {
     if (interp == NULL) { interpBoot(); }
 
-    int error = Zicl_EvalObject(interp, ziclNewString(code, -1));
+    int error = Zicl_EvalObject(interp, Zicl_NewString(code, -1));
     if (error == ZICL_ERR) {
         Zicl_MakeErrorMessage(interp);
         fprintf(stderr, "eval: %s\n", Zicl_String(Zicl_GetResult(interp)));
@@ -707,11 +739,9 @@ void workerExit();
 
 static int runBlock(Clause* bodyPattern, Clause* toUnifyWith, const Term* body,
                     const char *sourceFileName, int sourceLineNumber,
-                    Zicl_Value envStackObj) {
-    Zicl_Value bodyObj = termToZiclObj(body);
-    // Replaces bodyObj with a copy carrying the location; a source location is
-    // fixed when the value is built, so it cannot be attached after the fact.
-    Zicl_AttachSource(&bodyObj, sourceFileName, sourceLineNumber);
+                    Zicl_Handle envStackObj) {
+    Zicl_Handle bodyObj = termToZiclObj(body);
+    Zicl_SourceSetInfo(bodyObj, sourceFileName, sourceLineNumber);
 
     {
         // Figure out all the bound match variables by unifying when & stmt.
@@ -729,13 +759,13 @@ static int runBlock(Clause* bodyPattern, Clause* toUnifyWith, const Term* body,
             return ZICL_ERR;
         }
 
-        Zicl_Value objs[env->nBindings*2];
+        Zicl_Handle objs[env->nBindings*2];
         for (int i = 0; i < env->nBindings; i++) {
-            objs[i*2] = ziclNewString(env->bindings[i].name, -1);
+            objs[i*2] = Zicl_NewString(env->bindings[i].name, -1);
             objs[i*2 + 1] = env->bindings[i].value;
         }
 
-        Zicl_Value boundEnvObj = ziclNewDict(objs, env->nBindings*2);
+        Zicl_Handle boundEnvObj = Zicl_NewDict(objs, env->nBindings*2);
         Zicl_ListAppend(interp, &envStackObj, boundEnvObj);
 
         free(env);
@@ -757,13 +787,13 @@ static int runBlock(Clause* bodyPattern, Clause* toUnifyWith, const Term* body,
 #endif
 
         // Build a one-command list {evaluateBlock body envStack} and eval it.
-        Zicl_Value objv[] = {
-            ziclNewString("evaluateBlock", -1),
+        Zicl_Handle objv[] = {
+            Zicl_NewString("evaluateBlock", -1),
             bodyObj,
             envStackObj
         };
         int64_t t0 = timestamp_get(CLOCK_MONOTONIC);
-        error = Zicl_EvalObject(interp, ziclNewList(objv, 3));
+        error = Zicl_EvalObject(interp, Zicl_NewList(objv, 3));
         blockStatsUpdate(sourceFileName, sourceLineNumber,
                          timestamp_get(CLOCK_MONOTONIC) - t0);
 
@@ -856,7 +886,7 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     // when the time is /t/ /body/ with environment /capturedEnvStack/
     const Term* body = whenClause->terms[whenClause->nTerms - 4];
     const Term* capturedEnvStack = whenClause->terms[whenClause->nTerms - 1];
-    Zicl_Value envStackObj = termToZiclObj(capturedEnvStack);
+    Zicl_Handle envStackObj = termToZiclObj(capturedEnvStack);
 
     int error = runBlock(whenPattern, stmtClause, body,
                          statementSourceFileName(when),
@@ -904,7 +934,7 @@ static void runSubscribeBlock(StatementRef subscribeRef, Clause* subscribePatter
     // -> subscribe key x was pressed /lambda/ with environment /capturedEnvStack/
     const Term* body = subscribeClause->terms[subscribeClause->nTerms - 4];
     const Term* capturedEnvStack = subscribeClause->terms[subscribeClause->nTerms - 1];
-    Zicl_Value envStackObj = termToZiclObj(capturedEnvStack);
+    Zicl_Handle envStackObj = termToZiclObj(capturedEnvStack);
 
     int error = runBlock(subscribePattern, notifyClause, body,
                          statementSourceFileName(subscribeStmt),
@@ -1271,7 +1301,7 @@ void workerRun(WorkQueueItem item) {
     } else if (item.op == EVAL) {
         // Used for destructors.
         char* code = item.eval.code;
-        int error = Zicl_EvalObject(interp, ziclNewString(code, -1));
+        int error = Zicl_EvalObject(interp, Zicl_NewString(code, -1));
         if (error == ZICL_ERR) {
             Zicl_MakeErrorMessage(interp);
             fprintf(stderr, "destructorHelper: (%s) -> (%s)\n",
@@ -1393,7 +1423,7 @@ void workerLoop() {
     workerExit();
 }
 void workerInit(int index) {
-    Zicl_InitThread();
+    Zicl_InitLocalHeap();
 
     seedp = time(NULL) + index;
 
@@ -1612,9 +1642,7 @@ int main(int argc, char** argv) {
 
     Zicl_SetGlobalStdout(realStdout);
     Zicl_SetGlobalStderr(realStderr);
-    // NULL asks the system for this machine's name, which is where
-    // ::thisNode comes from too.
-    Zicl_InitGlobals(NULL);
+    Zicl_InitGlobals();
 
 #ifdef __linux__
     // Count CPUs so we can set up the thread pool to align with the

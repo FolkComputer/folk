@@ -67,11 +67,13 @@ set C {
     compiler cc
     prelude {
         #include <jim.h>
+        #include <libzicl.h>
         #include <inttypes.h>
         #include <stdint.h>
         #include <stdbool.h>
         #include <stdio.h>
         #include <setjmp.h>
+        #include "folk-zicl.h"
 
         #if __has_include ("tracy/TracyC.h")
         #include "tracy/TracyC.h"
@@ -92,14 +94,6 @@ set C {
         #define FOLK_ABORT() longjmp(__onError, 0)
         #define FOLK_ENSURE(EXPR) if (!(EXPR)) { Jim_SetResultString(interp, "assertion failed: " #EXPR, -1); longjmp(__onError, 0); }
         #define FOLK_CHECK(EXPR, MSG) if (!(EXPR)) { FOLK_ERROR(MSG); }
-
-        Jim_Obj* Jim_ObjPrintf(const char* format, ...) {
-            va_list args;
-            va_start(args, format);
-            char buf[10000]; vsnprintf(buf, 10000, format, args);
-            va_end(args);
-            return Jim_NewStringObj(interp, buf, -1);
-        }
     }
     code {}
 
@@ -115,75 +109,66 @@ set C {
         # to a C function as an argument.
     }
     argtypes {
-        int { expr {{ long _$argname; __ENSURE_OK(Jim_GetLong(interp, $obj, &_$argname)); int $argname = (int)_$argname; }}}
-        double { expr {{ double $argname; __ENSURE_OK(Jim_GetDouble(interp, $obj, &$argname)); }}}
-        float { expr {{ double _$argname; __ENSURE_OK(Jim_GetDouble(interp, $obj, &_$argname)); float $argname = (float)_$argname; }}}
-        bool { expr {{ int _$argname; __ENSURE_OK(Jim_GetBoolean(interp, $obj, &_$argname)); bool $argname = !!_$argname; }}}
-        int32_t { expr {{ long _$argname; __ENSURE_OK(Jim_GetLong(interp, $obj, &_$argname)); int32_t $argname = (int)_$argname; }}}
-        char { expr {{
+        int { identity { long _$argname; __ENSURE_OK(Zicl_GetLong(interp, $shim, &_$argname)); int $argname = (int)_$argname; }}
+        double { identity { double $argname; __ENSURE_OK(Zicl_GetDouble(interp, $shim, &$argname)); }}
+        float { identity { double _$argname; __ENSURE_OK(Zicl_GetDouble(interp, $shim, &_$argname)); float $argname = (float)_$argname; }}
+        bool { identity { int _$argname; __ENSURE_OK(Zicl_GetBoolean(interp, $shim, &_$argname)); bool $argname = !!_$argname; }}
+        int32_t { identity { long _$argname; __ENSURE_OK(Zicl_GetLong(interp, $shim, &_$argname)); int32_t $argname = (int)_$argname; }}
+        char { identity {
             char $argname;
             {
                 int _len_$argname;
-                char* _tmp_$argname = Jim_GetStringFromObj($obj, &_len_$argname);
+                char* _tmp_$argname = ziclShimGetString($shim, &_len_$argname);
                 __ENSURE(_len_$argname >= 1);
                 $argname = _tmp_$argname[0];
             }
-        }}}
-        size_t { expr {{ size_t $argname; __ENSURE_OK(Jim_GetLong(interp, $obj, (long *)&$argname)); }}}
-        intptr_t { expr {{ intptr_t $argname; __ENSURE_OK(Jim_GetLong(interp, $obj, (long *)&$argname)); }}}
-        uint16_t { expr {{ uint16_t $argname; __ENSURE_OK(Jim_GetLong(interp, $obj, (int *)&$argname)); }}}
-        uint32_t { expr {{ uint32_t $argname; __ENSURE(sscanf(Jim_String($obj), "%" PRIu32, &$argname) == 1); }}}
-        uint64_t { expr {{ uint64_t $argname; __ENSURE(sscanf(Jim_String($obj), "%" PRIu64, &$argname) == 1); }}}
-        char* { expr {{ char* $argname = (char*) Jim_String($obj); }} }
-        Jim_Obj* { expr {{ Jim_Obj* $argname = $obj; }}}
+        }}
+        size_t { identity { size_t $argname; __ENSURE_OK(Zicl_GetLong(interp, $shim, (long *)&$argname)); }}
+        intptr_t { identity { intptr_t $argname; __ENSURE_OK(Zicl_GetLong(interp, $shim, (long *)&$argname)); }}
+        uint16_t { identity { uint16_t $argname; __ENSURE_OK(Zicl_GetLong(interp, $shim, (int *)&$argname)); }}
+        uint32_t { identity { uint32_t $argname; __ENSURE(sscanf(ziclShimString($shim), "%" PRIu32, &$argname) == 1); }}
+        uint64_t { identity { uint64_t $argname; __ENSURE(sscanf(ziclShimString($shim), "%" PRIu64, &$argname) == 1); }}
+        char* { identity { char* $argname = (char*) ziclShimString($shim); } }
+        Zicl_Value { identity { Zicl_Value $argname = Zicl_Current($shim); }}
         default {
             if {[string index $argtype end] == "*"} {
                 set basetype [string range $argtype 0 end-1]
-                if {[dict exists $argtypes $basetype]} {
-                    expr {{
-                        $argtype $argname;
-                        // First, try to read the obj as a raw pointer.
-                        if (sscanf(Jim_String($obj), "($argtype) 0x%p", &$argname) != 1) {
-                            // No? Then try to coerce to a Tcl object.
-#if $[dict exists $self::objtypes $basetype]
-                                __ENSURE_OK($[set basetype]_setFromAnyProc(interp, $obj));
-                                $argname = $obj->internalRep.ptrIntValue.ptr;
-#else
-                                FOLK_ERROR("Unable to convert $[set basetype]");
-#endif
-                        }
-                    }}
-                } else {
-                    expr {{
-                        $argtype $argname;
-                        __ENSURE(sscanf(Jim_String($obj), "($argtype) 0x%p", &$argname) == 1);
-                    }}
-                }
+                error "Need to port this to the capability framework"
             } elseif {[regexp {(^[^\[]+)\[(\d*)\]$} $argtype -> basetype arraylen]} {
                 # note: arraylen can be ""
-                if {$basetype eq "char"} { expr {{
-                    char $argname[$arraylen]; memcpy($argname, Jim_String($obj), $arraylen);
-                }} } else { expr {{
-                    int $[set argname]_objc = Jim_ListLength(interp, $obj);
+                if {$basetype eq "char"} { identity {
+                    int $[set argname]_len; const char *$[set argname]_bytes = ziclShimString($shim, &len);
+                    if ($[set argname]_len > $arraylen) $[set argname]_len = $arraylen;
+                    char $argname[$arraylen]; memcpy($argname, $[set argname]_bytes, $[set argname]_len);
+                } } else { identity {
+                    const Zicl_List *$[set argname]_list = __ENSURE(Zicl_ListShimmer(interp, $shim, &$[set argname]_list));
+                    int $[set argname]_objc = Zicl_ListLength($[set argname]_list);
+                    const Zicl_Value *$[set argname]_objv = Zicl_ListItems($[set argname]_list);
                     $basetype $argname[$[set argname]_objc];
                     {
                         for (int i = 0; i < $[set argname]_objc; i++) {
-                            $[self::arg $basetype ${argname}_i "Jim_ListGetIndex(interp, $obj, i)"]
+                            Zicl_Shimmerable $[set argname]_shim = Zicl_NewShimmerable($[set argname]_objv[i]);
+                            defer { Zicl_ShimDiscardChanges(&$[set argname]_shim); }
+                            $[self::arg $basetype ${argname}_i "&$[set argname]_shim"]
                             $argname[i] = $[set argname]_i;
                         }
                     }
-                }} }
+                } }
             } elseif {[regexp {(^[^\[]+)\[(\d*)\]\[(\d*)\]$} $argtype -> basetype arraylen arraylen2]} {
-                expr {{
-                    int $[set argname]_objc = Jim_ListLength(interp, $obj);
-                    $basetype $argname[$[set argname]_objc][$arraylen2];
+                identity {
+                    const Zicl_List *$[set argname]_list_2 = __ENSURE(Zicl_ListShimmer(interp, $shim, &$[set argname]_list_2));
+                    int $[set argname]_objc_2 = Zicl_ListLength($[set argname]_list_2);
+                    const Zicl_Value *$[set argname]_objv_2 = Zicl_ListItems($[set argname]_list_2);
+                    $basetype $argname[$[set argname]_objc_2][$arraylen2];
                     {
-                        for (int j = 0; j < $[set argname]_objc; j++) {
-                            $[self::arg $basetype\[\] ${argname}_j "Jim_ListGetIndex(interp, $obj, j)"]
+                        for (int j = 0; j < $[set argname]_objc_2; j++) {
+                            Zicl_Shimmerable $[set argname]_shim_2 = Zicl_NewShimmerable($[set argname]_objv_2[j]);
+                            defer { Zicl_ShimDiscardChanges(&$[set argname]_shim_2); }
+                            $[self::arg $basetype\[\] ${argname}_j "&$[set argname]_shim_2"]
                             memcpy(${argname}[j], ${argname}_j, sizeof(${argname}_j));
                         }
                     }
-                }}
+                }
             } else {
                 error "Unrecognized argtype $argtype"
             }
@@ -195,52 +180,52 @@ set C {
         # C function to Tcl.
     }
     rtypes {
-        int { expr {{ $robj = Jim_NewIntObj(interp, $rvalue); }}}
-        int32_t { expr {{ $robj = Jim_NewIntObj(interp, $rvalue); }}}
-        double { expr {{ $robj = Jim_NewDoubleObj(interp, $rvalue); }}}
-        float { expr {{ $robj = Jim_NewDoubleObj(interp, $rvalue); }}}
-        char { expr {{ $robj = Jim_NewStringObj(&$rvalue, 1); }}}
-        bool { expr {{ $robj = Jim_NewIntObj(interp, $rvalue); }}}
-        uint8_t { expr {{ $robj = Jim_NewIntObj(interp, $rvalue); }}}
-        uint16_t { expr {{ $robj = Jim_NewIntObj(interp, $rvalue); }}}
-        uint32_t { expr {{ $robj = Jim_NewIntObj(interp, $rvalue); }}}
-        uint64_t { expr {{ $robj = Jim_NewIntObj(interp, $rvalue); }}}
-        size_t { expr {{ $robj = Jim_NewIntObj(interp, $rvalue); }}}
-        intptr_t { expr {{ $robj = Jim_NewIntObj(interp, $rvalue); }}}
-        char* { expr {{ $robj = Jim_NewStringObj(interp, $rvalue, -1); }} }
-        Jim_Obj* { expr {{ $robj = $rvalue; }}}
+        int { identity { $robj = Zicl_NewInt($rvalue); }}
+        int32_t { identity { $robj = Zicl_NewInt($rvalue); }}
+        double { identity { $robj = Zicl_NewInt($rvalue); }}
+        float { identity { $robj = Zicl_NewInt($rvalue); }}
+        char { identity { $robj = ziclNewString(&$rvalue, 1); }}
+        bool { identity { $robj = Zicl_NewInt($rvalue); }}
+        uint8_t { identity { $robj = Zicl_NewInt($rvalue); }}
+        uint16_t { identity { $robj = Zicl_NewInt($rvalue); }}
+        uint32_t { identity { $robj = Zicl_NewInt($rvalue); }}
+        uint64_t { identity { $robj = Zicl_NewInt((uint64_t)($rvalue)); }}
+        size_t { identity { $robj = Zicl_NewInt($rvalue); }}
+        intptr_t { identity { $robj = Zicl_NewInt($rvalue); }}
+        char* { identity { $robj = ziclNewString($rvalue, -1); } }
+        Zicl_Value { identity { $robj = $rvalue; }}
         default {
             if {[string index $rtype end] == "*"} {
-                expr {{ $robj = Jim_ObjPrintf("($rtype) 0x%" PRIxPTR, (uintptr_t) $rvalue); }}
+                identity { $robj = ziclValuePrintf("($rtype) 0x%" PRIxPTR, (uintptr_t) $rvalue); }
             } elseif {[regexp {(^[^\[]+)\[(\d*)\]$} $rtype -> basetype arraylen]} {
-                if {$basetype eq "char"} { expr {{
-                    $robj = Jim_ObjPrintf($rvalue);
-                }} } else { expr {{
+                if {$basetype eq "char"} { identity {
+                    $robj = ziclValuePrintf($rvalue);
+                } } else { identity {
                     {
-                        Jim_Obj* objv[$arraylen];
+                        Zicl_Value objv[$arraylen];
                         for (int i = 0; i < $arraylen; i++) {
                             $[self::ret $basetype objv\[i\] $rvalue\[i\]]
                         }
-                        $robj = Jim_NewListObj(interp, objv, $arraylen);
+                        $robj = Zicl_BoxList(ziclNewList(objv, $arraylen));
                     }
-                }} }
-            } elseif {[regexp {(^[^\[]+)\[(\d*)\]\[(\d*)\]$} $rtype -> basetype arraylen arraylen2]} { expr {{
+                } }
+            } elseif {[regexp {(^[^\[]+)\[(\d*)\]\[(\d*)\]$} $rtype -> basetype arraylen arraylen2]} { identity {
                     {
-                        Jim_Obj* objv[$arraylen];
+                        Zicl_Value objv[$arraylen];
                         for (int i = 0; i < $arraylen; i++) {
                             $basetype* rrow = $rvalue[i];
-                            Jim_Obj** objrow = &objv[i];
+                            Zicl_Value* objrow = &objv[i];
                             $[self::ret ${basetype}\[${arraylen2}\] *objrow rrow]
                         }
-                        $robj = Jim_NewListObj(interp, objv, $arraylen);
+                        $robj = Zicl_BoxList(ziclNewList(objv, $arraylen));
                     }
-            }} } else {
+            } } else {
                 error "Unrecognized rtype $rtype"
             }
         }
     }
 
-    cflags {-I./vendor/jimtcl}
+    cflags {-I./vendor/jimtcl -I./vendor/zicl/zig-out/include -I./}
     endcflags {}
 
     cfile {}
@@ -254,17 +239,17 @@ set C {
 
 # Registers a new argtype.
 method C::argtype {self t h} {
-    dict set argtypes $t [csubst {expr {{$h}}}]
+    dict set argtypes $t [csubst {identity {$h}}]
 }
 # Looks up the argtype and returns C code to convert it.
-method C::arg {self argtype argname obj} {
+method C::arg {self argtype argname shim} {
     csubst [eval [dict getdef $self::argtypes $argtype \
                       [dict get $self::argtypes default]]]
 }
 
 # Registers a new rtype.
 method C::rtype {self t h} {
-    dict set rtypes $t [csubst {expr {{$h}}}]
+    dict set rtypes $t [csubst {identity {$h}}]
 }
 method C::ret {self rtype robj rvalue} {
     csubst [eval [dict getdef $self::rtypes $rtype \
@@ -288,7 +273,6 @@ method C::addcode {self newcode} {
     lassign [info source $newcode] filename line
     if {$filename ne ""} { 
         set newcode [subst {
-            #line $line "$filename"
             $newcode
         }]
     }
@@ -382,21 +366,21 @@ method C::struct {self type fields} {
     # (by someone else like the statement store).
     dict set objtypes $type [csubst {
         $[join [lmap fieldname $fieldnames { subst {
-            __thread Jim_Obj* k__${type}__${fieldname} = NULL;
+            __thread Zicl_Value k__${type}__${fieldname} = NULL;
         } }] "\n"]
         Jim_ObjType* $[set type]_ObjType;
 
-        void $[set type]_freeIntRepProc(Jim_Interp* interp, Jim_Obj *objPtr) {
+        void $[set type]_freeIntRepProc(Jim_Interp* interp, Zicl_Value objPtr) {
             if (objPtr->internalRep.ptrIntValue.int1 == 1) {
                 free((char*)objPtr->internalRep.ptrIntValue.ptr);
             }
         }
-        void $[set type]_dupIntRepProc(Jim_Interp* interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr) {
+        void $[set type]_dupIntRepProc(Jim_Interp* interp, Zicl_Value srcPtr, Zicl_Value dupPtr) {
             dupPtr->internalRep.ptrIntValue.ptr = malloc(sizeof($type));
             dupPtr->internalRep.ptrIntValue.int1 = 1;
             memcpy(dupPtr->internalRep.ptrIntValue.ptr, srcPtr->internalRep.ptrIntValue.ptr, sizeof($type));
         }
-        void $[set type]_updateStringProc(Jim_Obj *objPtr) {
+        void $[set type]_updateStringProc(Zicl_Value objPtr) {
             $[set type] *robj = ($[set type] *) objPtr->internalRep.ptrIntValue.ptr;
 
             const char *format = "$[join [lmap fieldname $fieldnames {
@@ -404,26 +388,26 @@ method C::struct {self type fields} {
                 }] { }]";
             $[join [lmap {fieldtype fieldname} $fields {
                 csubst {
-                    Jim_Obj* robj_$fieldname;
+                    Zicl_Value robj_$fieldname;
                     $[self::ret $fieldtype robj_$fieldname robj->$fieldname]
                 }
             }] "\n"]
-            objPtr->length = snprintf(NULL, 0, format, $[join [lmap fieldname $fieldnames {expr {"Jim_String(robj_$fieldname)"}}] ", "]);
+            objPtr->length = snprintf(NULL, 0, format, $[join [lmap fieldname $fieldnames {subst {Jim_String(robj_$fieldname)}}] ", "]);
             objPtr->bytes = (char *) Jim_Alloc(objPtr->length + 1);
-            snprintf(objPtr->bytes, objPtr->length + 1, format, $[join [lmap fieldname $fieldnames {expr {"Jim_String(robj_$fieldname)"}}] ", "]);
+            snprintf(objPtr->bytes, objPtr->length + 1, format, $[join [lmap fieldname $fieldnames {subst {Jim_String(robj_$fieldname)}}] ", "]);
             $[join [lmap {fieldtype fieldname} $fields {
                 csubst {
                     Jim_FreeNewObj(interp, robj_$fieldname);
                 }
             }] "\n"]
         }
-        int $[set type]_setFromAnyProc(Jim_Interp *interp, Jim_Obj *objPtr) {
+        int $[set type]_setFromAnyProc(Jim_Interp *interp, Zicl_Value objPtr) {
             if (objPtr->typePtr == $[set type]_ObjType) { return JIM_OK; }
 
             $[set type] *robj = ($[set type] *)malloc(sizeof($[set type]));
             $[join [lmap {fieldtype fieldname} $fields {
                 csubst {
-                    Jim_Obj* obj_$fieldname;
+                    Zicl_Value obj_$fieldname;
                     if (k__$[set type]__$fieldname == NULL) {
                         k__${type}__${fieldname} = Jim_NewStringObj(interp, "$fieldname", -1);
                         Jim_IncrRefCount(k__${type}__${fieldname});
@@ -482,16 +466,16 @@ method C::struct {self type fields} {
     namespace eval $ns {}
     foreach {fieldtype fieldname} $fields {
         try {
-            if {$fieldtype ne "Jim_Obj*" &&
+            if {$fieldtype ne "Zicl_Value" &&
                 [regexp {(^[^\[]+)(?:\[(\d*)\]|\*)(?:\[(\d+)\])?$} $fieldtype -> basefieldtype arraylen arraylen2]} {
                 if {$basefieldtype eq "char"} {
-                    self::proc ${type}_$fieldname {Jim_Interp* interp Jim_Obj* obj} char* {
+                    self::proc ${type}_$fieldname {Jim_Interp* interp Zicl_Value obj} char* {
                         __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
                         return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname;
                     }
                 } else {
                     if {$arraylen2 eq ""} {
-                        self::proc ${type}_${fieldname}_ptr {Jim_Interp* interp Jim_Obj* obj} $basefieldtype* {
+                        self::proc ${type}_${fieldname}_ptr {Jim_Interp* interp Zicl_Value obj} $basefieldtype* {
                             __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
                             return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname;
                         }
@@ -501,13 +485,13 @@ method C::struct {self type fields} {
                     }
                     # If fieldtype is a pointer or an array,
                     # then make a getter that takes an index.
-                    self::proc ${type}_$fieldname {Jim_Interp* interp Jim_Obj* obj int idx} $elementtype {
+                    self::proc ${type}_$fieldname {Jim_Interp* interp Zicl_Value obj int idx} $elementtype {
                         __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
                         return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname[idx];
                     }
                 }
             } else {
-                self::proc ${type}_$fieldname {Jim_Interp* interp Jim_Obj* obj} $fieldtype {
+                self::proc ${type}_$fieldname {Jim_Interp* interp Zicl_Value obj} $fieldtype {
                     __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
                     return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname;
                 }
@@ -549,7 +533,7 @@ method C::proc {self name arguments rtype body} {
     } else {
         set saverv [subst {
             $decayedRtype rvalue = $cname ([join $argnames ", "]);
-            Zicl_Obj* robj;
+            Zicl_Value* robj;
             [self::ret $rtype robj rvalue]
             Zicl_SetResultOwning(interp, robj);
         }]
@@ -561,14 +545,14 @@ method C::proc {self name arguments rtype body} {
     dict set self::procs $name code [subst {
         static $decayedRtype $cname ([join $arglist ", "]) {
             [if {$filename ne ""} {
-                subst {#line $line "$filename"}
+                subst {}
             } else {list}]
             $body
         }
 
-        static int [set cname]_Cmd(Zicl_Interp* interp, int objc, Zicl_Obj* objv\[\]) {
+        static int [set cname]_Cmd(Zicl_Interp* interp, int objc, Zicl_Value* objv\[\]) {
             if (objc != 1 + [llength $loadargs]) {
-                Zicl_SetResultString(interp, "Wrong number of arguments to $name");
+                Zicl_SetResultString(interp, "Wrong number of arguments to $name", -1);
                 return JIM_ERR;
             }
             bool didSetOnError = false;
@@ -594,8 +578,8 @@ method C::proc {self name arguments rtype body} {
     }]
 }
 
-method C::cflags {self args} { lappend cflags {*}$args }
-method C::endcflags {self args} { lappend endcflags {*}$args }
+method C::addcflags {self args} { lappend self::cflags {*}$args }
+method C::addendcflags {self args} { lappend self::endcflags {*}$args }
 
 method C::compile {self args} {
     set noload false
@@ -627,21 +611,20 @@ method C::compile {self args} {
         static const char* _Atomic __cInfo = NULL;
         #endif
 
-        static int __setCInfo_Cmd(Jim_Interp* interp, int objc, Jim_Obj* const objv\[\]) {
-            if (__cInfo != NULL || objc != 2) { return JIM_ERR; }
-            const char* cInfo = Jim_String(objv\[1\]);
-            if (cInfo == NULL) { return JIM_ERR; }
+        static int __setCInfo_Cmd(Zicl_Interp *interp, int objc, Zicl_Shimmerable *const objv\[\]) {
+            if (__cInfo != NULL || objc != 2) { return ZICL_USAGE; }
+            const char* cInfo = Zicl_ShimString(objv\[1\]);
+            if (cInfo == NULL) { return ZICL_OOM; }
             __cInfo = strdup(cInfo);
-            return JIM_OK;
+            return ZICL_OK;
         }
-        static __thread Jim_Obj* __cInfoObj = NULL;
-        static int __getCInfo_Cmd(Jim_Interp* interp, int objc, Jim_Obj* const objv\[\]) {
-            if (__cInfo == NULL || objc != 1) { return JIM_ERR; }
-            if (__cInfoObj == NULL) {
-                __cInfoObj = Jim_NewStringObj(interp, __cInfo, -1);
-                Jim_IncrRefCount(__cInfoObj);
+        static __thread Zicl_Value __cInfoValue = NULL;
+        static int __getCInfo_Cmd(Jim_Interp* interp, int objc, Zicl_Shimmerable *const objv\[\]) {
+            if (__cInfo == NULL || objc != 1) { return ZICL_USAGE; }
+            if (__cInfoValue == NULL) {
+                __cInfoValue = folkNewString(__cInfo, -1);
             }
-            Jim_SetResult(interp, __cInfoObj);
+            Jim_SetResult(interp, __cInfoValue);
             return JIM_OK;
         }
 
@@ -714,24 +697,30 @@ extern "C" \{
 
     # puts "=====================\n$sourcecode\n====================="
 
-    set cfd [open $cfile w]; puts $cfd $sourcecode; close $cfd
-    set ignoreUnresolved {}; if {$::tcl_platform(os) eq "linux"} {
+    set cfd [fopen $cfile w]; puts $cfd $sourcecode; close $cfd
+    set ignoreUnresolved {}; if {$tcl_platform::os eq "linux"} {
         set ignoreUnresolved -Wl,--unresolved-symbols=ignore-all
-    } elseif {$::tcl_platform(os) eq "darwin"} {
+    } elseif {$tcl_platform::os eq "darwin"} {
         set ignoreUnresolved -Wl,-undefined,dynamic_lookup
     }
     if {[__isTracyEnabled]} {
-        lappend cflags -DTRACY_ENABLE=1 -I./vendor/tracy/public
+        lappend self::cflags -DTRACY_ENABLE=1 -I./vendor/tracy/public
     }
     set asan_flags {}
-    if {[info exists ::env(ASAN_ENABLE)] && $::env(ASAN_ENABLE) != ""} {
+    if {[info exists env::ASAN_ENABLE] && $env::ASAN_ENABLE != ""} {
         set asan_flags "-fsanitize=address -fsanitize-recover=address"
     }
-    set out [exec $compiler {*}$asan_flags -Wall \
-                 {*}$($::tcl_platform(os) eq "linux" ? [list -Wno-alloc-size-larger-than] : [list]) \
-                 -U_FORTIFY_SOURCE -O2 -march=native -g \
-                 -fno-omit-frame-pointer -fPIC \
-                 {*}$cflags $cfile -c -o [file rootname $cfile].o]
+    puts [list [list $self::compiler {*}$asan_flags -Wall \
+                        {*}$($tcl_platform::os eq "linux" ? [list -Wno-alloc-size-larger-than] : [list]) \
+                        -U_FORTIFY_SOURCE -O2 -march=native -g \
+                        -fno-omit-frame-pointer -fPIC \
+                        {*}$self::cflags $cfile -c -o [file rootname $cfile].o]]
+    puts "\n"
+    set out [exec [list $self::compiler {*}$asan_flags -Wall \
+                        {*}$($tcl_platform::os eq "linux" ? [list -Wno-alloc-size-larger-than] : [list]) \
+                        -U_FORTIFY_SOURCE -O2 -march=native -g \
+                        -fno-omit-frame-pointer -fPIC \
+                        {*}$self::cflags $cfile -c -o [file rootname $cfile].o]]
     if {[string trim $out] ne ""} {
         puts $out
     }
@@ -744,9 +733,9 @@ extern "C" \{
         if {$n > 1000} { error "Failed on $cfile! Timed out" }
     }
 
-    exec $compiler {*}$asan_flags -shared $ignoreUnresolved \
+    exec $self::compiler {*}$asan_flags -shared $ignoreUnresolved \
         -O2 -o /tmp/$cid.so [file rootname $cfile].o \
-        {*}$endcflags
+        {*}$self::endcflags
 
     # HACK: Why do we need this / only when running in lldb?
     set n 0
@@ -808,8 +797,8 @@ method C::extend {self args} {
     set argtypes [dict merge [dict get $srcinfo argtypes] $argtypes]
     set rtypes [dict merge [dict get $srcinfo rtypes] $self::rtypes]
     dict for {objtype _} [dict get $srcinfo objtypes] {
-        self::addcode "int (*${objtype}_setFromAnyProc)(Jim_Interp *interp, Jim_Obj *objPtr) = \
-(int (*)(Jim_Interp *interp, Jim_Obj *objPtr)) \
+        self::addcode "int (*${objtype}_setFromAnyProc)(Jim_Interp *interp, Zicl_Value objPtr) = \
+(int (*)(Jim_Interp *interp, Zicl_Value objPtr)) \
 [dict get $srcaddrs ${objtype}_setFromAnyProc];"
         self::addcode "Jim_ObjType* ${objtype}_ObjType = (Jim_ObjType*) [dict get $srcaddrs ${objtype}_ObjType];"
     }
@@ -836,6 +825,6 @@ method C::extend {self args} {
 fn C++ {} {
     set cpp [C]
     $cpp eval [list set compiler c++]
-    $cpp cflags -Wno-write-strings
+    $cpp addcflags -Wno-write-strings
     return $cpp
 }
