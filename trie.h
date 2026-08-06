@@ -7,6 +7,11 @@
 
 #include <libzicl.h>
 
+// printf-style helper to build a clause (Zicl list of string terms)
+// from a format string. Splits the formatted result on spaces. Uses
+// the current thread's interp.
+Zicl_List* clauseFormat(const char* fmt, ...);
+
 typedef struct Trie Trie;
 struct Trie {
     // Owned by the trie: ref count is incremented when stored and

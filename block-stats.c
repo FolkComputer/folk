@@ -59,8 +59,10 @@ void blockStatsUpdate(const char *sourceFileName, int sourceLineNumber,
     pthread_rwlock_unlock(&blockStatsLock);
 }
 
-int __blockRuntimeStatsFunc(Zicl_Interp *interp, int argc, Zicl_Value *const argv) {
-    Zicl_Value result = ziclNewList(NULL, 0);
+int __blockRuntimeStatsFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv) {
+    (void)argc;
+    (void)argv;
+    Zicl_List* result = ziclNewList(NULL, 0);
     pthread_rwlock_rdlock(&blockStatsLock);
     for (int i = 0; i < shlen(blockStats); i++) {
         char ewma_buf[64], count_buf[64];
@@ -74,8 +76,8 @@ int __blockRuntimeStatsFunc(Zicl_Interp *interp, int argc, Zicl_Value *const arg
         };
         Zicl_Value entry = ziclNewList(items, 3);
         Zicl_ListAppend(interp, &result, entry);
-        for (int j = 0; j < 3; j++) Zicl_DecrRefCount(items[j]);
-        Zicl_DecrRefCount(entry);
+        for (int j = 0; j < 3; j++) Zicl_Release(items[j]);
+        Zicl_Release(entry);
     }
     pthread_rwlock_unlock(&blockStatsLock);
     Zicl_SetResultOwning(interp, result);

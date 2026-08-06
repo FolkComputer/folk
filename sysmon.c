@@ -21,8 +21,12 @@
 #include <mach/mach.h>
 #endif
 
+#include <libzicl.h>
+
 #include "common.h"
 #include "epoch.h"
+#include "trie.h"
+#include "folk-zicl.h"
 
 extern void installLocalStdoutAndStderr(int stdoutfd, int stderrfd);
 
@@ -33,7 +37,11 @@ extern void trace(const char* format, ...);
 extern void HoldStatementGlobally(const char *key, double version,
                                   Zicl_List *clause, long keepMs, const char *destructorCode,
                                   const char *sourceFileName, int sourceLineNumber);
+
 extern void workerReactivateOrSpawn(int64_t msSinceBoot, int targetNotBlockedWorkersCount);
+extern void initSysmonInterp();
+extern void rewindSysmonInterp();
+
 extern void dbGarbageCollectAtomicallys(Db* db, int64_t now);
 
 // How many ms are in each tick? You probably want this to be less
@@ -157,7 +165,7 @@ void sysmon() {
     // Sixth: update the time statements in the database.
     int64_t timeNs = timestamp_get(CLOCK_REALTIME);
 
-    Clause* internalTimeClause = clauseFormat(
+    Zicl_List* internalTimeClause = clauseFormat(
         "sysmon.c claims the internal time is %f",
         (double)timeNs / 1000000000.0);
     HoldStatementGlobally("internal-time", currentTick,
@@ -165,7 +173,7 @@ void sysmon() {
                           "sysmon.c", __LINE__);
 
     if (currentTick % 3 == 0) {
-        Clause* clockTimeClause = clauseFormat(
+        Zicl_List* clockTimeClause = clauseFormat(
             "sysmon.c claims the clock time is %f",
             (double)timeNs / 1000000000.0);
         HoldStatementGlobally("clock-time", currentTick,
@@ -179,20 +187,17 @@ static void checkRam() {
     // Read MemAvailable from /proc/meminfo (includes reclaimable buffers/cache)
     int freeRamMb = 0;
 
-    static FILE* meminfo = NULL;
-    if (meminfo == NULL) {
-        meminfo = fopen("/proc/meminfo", "r");
-    }
-    assert(meminfo != NULL);
-    rewind(meminfo);
-
-    char line[256];
-    while (fgets(line, sizeof(line), meminfo)) {
-        long memAvailableKb;
-        if (sscanf(line, "MemAvailable: %ld kB", &memAvailableKb) == 1) {
-            freeRamMb = memAvailableKb / 1024;
-            break;
+    FILE* meminfo = fopen("/proc/meminfo", "r");
+    if (meminfo != NULL) {
+        char line[256];
+        while (fgets(line, sizeof(line), meminfo)) {
+            long memAvailableKb;
+            if (sscanf(line, "MemAvailable: %ld kB", &memAvailableKb) == 1) {
+                freeRamMb = memAvailableKb / 1024;
+                break;
+            }
         }
+        fclose(meminfo);
     }
     // Fallback to old method if /proc/meminfo reading failed
     if (freeRamMb == 0) {
@@ -257,6 +262,8 @@ static void checkRam() {
 }
 
 void *sysmonMain(void *ptr) {
+    initSysmonInterp();
+
 #ifdef TRACY_ENABLE
     TracyCSetThreadName("sysmon");
 #endif
@@ -265,9 +272,9 @@ void *sysmonMain(void *ptr) {
 
     {
         char path[256];
-        snprintf(path, sizeof(path), "/tmp/folk-%d/sysmon.c.stdout", getpid());
+        snprintf(path, sizeof(path), "/var/tmp/folk-%d/sysmon.c.stdout", getpid());
         int outfd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
-        snprintf(path, sizeof(path), "/tmp/folk-%d/sysmon.c.stderr", getpid());
+        snprintf(path, sizeof(path), "/var/tmp/folk-%d/sysmon.c.stderr", getpid());
         int errfd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
         installLocalStdoutAndStderr(outfd, errfd);
     }
@@ -287,6 +294,9 @@ void *sysmonMain(void *ptr) {
         TracyCZoneN(zone, "sysmon", 1);
 #endif
         sysmon();
+
+        rewindSysmonInterp();
+
 #ifdef TRACY_ENABLE
         TracyCZoneEnd(zone);
 #endif
@@ -314,7 +324,7 @@ void sysmonScheduleRemoveAfter(StatementRef stmtRef, int afterMs) {
         fprintf(stderr, "sysmon: Ran out of remove-later slots!");
         for (int i = 0; i < REMOVE_LATER_MAX; i++) {
             fprintf(stderr, "  %d: (%.200s)\n", i,
-                    clauseToString(statementClause(statementAcquire(db, removeLater[i].stmt))));
+                    ziclListString(statementClause(statementAcquire(db, removeLater[i].stmt)))));
         }
         exit(1);
     }

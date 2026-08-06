@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <semaphore.h>
 #include <errno.h>
+#include <stddefer.h>
 
 #if __has_include(<stddefer.h>)
 # include <stddefer.h>

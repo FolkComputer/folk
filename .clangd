@@ -1,0 +1,8 @@
+CompileFlags:
+  Add: [
+    "-I./vendor/zicl/zig-out/include",
+    "-I./vendor/tracy/public",
+    "-fdefer-ts",
+    "-Wall",
+    "-Wextra",
+  ]

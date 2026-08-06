@@ -66,7 +66,6 @@ fn typestyle {type name} {
 set C {
     compiler cc
     prelude {
-        #include <jim.h>
         #include <libzicl.h>
         #include <inttypes.h>
         #include <stdint.h>
@@ -180,18 +179,18 @@ set C {
         # C function to Tcl.
     }
     rtypes {
-        int { identity { $robj = Zicl_NewInt($rvalue); }}
-        int32_t { identity { $robj = Zicl_NewInt($rvalue); }}
-        double { identity { $robj = Zicl_NewInt($rvalue); }}
-        float { identity { $robj = Zicl_NewInt($rvalue); }}
+        int { identity { $robj = Zicl_NewLong($rvalue); }}
+        int32_t { identity { $robj = Zicl_NewLong($rvalue); }}
+        double { identity { $robj = Zicl_NewLong($rvalue); }}
+        float { identity { $robj = Zicl_NewLong($rvalue); }}
         char { identity { $robj = ziclNewString(&$rvalue, 1); }}
-        bool { identity { $robj = Zicl_NewInt($rvalue); }}
-        uint8_t { identity { $robj = Zicl_NewInt($rvalue); }}
-        uint16_t { identity { $robj = Zicl_NewInt($rvalue); }}
-        uint32_t { identity { $robj = Zicl_NewInt($rvalue); }}
-        uint64_t { identity { $robj = Zicl_NewInt((uint64_t)($rvalue)); }}
-        size_t { identity { $robj = Zicl_NewInt($rvalue); }}
-        intptr_t { identity { $robj = Zicl_NewInt($rvalue); }}
+        bool { identity { $robj = Zicl_NewLong($rvalue); }}
+        uint8_t { identity { $robj = Zicl_NewLong($rvalue); }}
+        uint16_t { identity { $robj = Zicl_NewLong($rvalue); }}
+        uint32_t { identity { $robj = Zicl_NewLong($rvalue); }}
+        uint64_t { identity { $robj = Zicl_NewLong((uint64_t)($rvalue)); }}
+        size_t { identity { $robj = Zicl_NewLong($rvalue); }}
+        intptr_t { identity { $robj = Zicl_NewLong($rvalue); }}
         char* { identity { $robj = ziclNewString($rvalue, -1); } }
         Zicl_Value { identity { $robj = $rvalue; }}
         default {

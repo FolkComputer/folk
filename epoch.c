@@ -39,8 +39,9 @@ inline void tfree(void *ptr) {
 
 #endif
 
+#include <libzicl.h>
+
 #include "epoch.h"
-#include "vendor/jimtcl/jim.h"
 
 // See: https://aturon.github.io/blog/2015/08/27/epoch/#epoch-based-reclamation
 
@@ -191,7 +192,7 @@ static void epochRetireAll() {
     }
     freesNextIdx = 0;
 
-    // Move all deferred Zicl_DecrRefCount calls to global list.
+    // Move all deferred Zicl_Release calls to global list.
     EpochGlobalDecrRefs *d = &epochGlobalDecrRefs[epochGlobalCounter % 3];
     for (int i = 0; i < decrRefsNextIdx; i++) {
         int didx = d->decrRefsNextIdx++;
@@ -238,12 +239,12 @@ void epochGlobalCollect() {
     }
     g->garbageNextIdx = 0;
 
-    // Process deferred Zicl_DecrRefCount calls from 2 epochs ago.
+    // Process deferred Zicl_Release calls from 2 epochs ago.
     // At this point no reader thread is in that epoch, so keys are safe to release.
     EpochGlobalDecrRefs *d = &epochGlobalDecrRefs[((freeableEpoch % 3) + 3) % 3];
     int decrCount = d->decrRefsNextIdx;
     for (int i = 0; i < decrCount; i++) {
-        Zicl_DecrRefCount(Zicl_BoxObject(d->decrRefs[i]));
+        Zicl_Release(Zicl_BoxObject(d->decrRefs[i]));
     }
     d->decrRefsNextIdx = 0;
 }

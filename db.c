@@ -506,7 +506,7 @@ static StatementRef statementNew(Db* db, Zicl_List* clause,
 
     // We should now have exclusive access to stmt, as its rc
     // is 0 and we were the ones who made it alive.
-    Zicl_IncrRefCount(Zicl_BoxList(clause));
+    Zicl_Borrow(Zicl_BoxList(clause));
 
     stmt->clause = clause;
     stmt->keepMs = keepMs;
@@ -552,7 +552,7 @@ static void statementDestroy(Statement* stmt) {
     Zicl_List* stmtClause = statementClause(stmt);
     // Marks this statement slot as being fully free and ready for reuse.
     atomic_store(&(stmt->clause), NULL);
-    Zicl_DecrRefCount(Zicl_BoxList(stmtClause));
+    Zicl_ReleaseList(stmtClause);
 }
 
 Zicl_List* statementClause(Statement* stmt) {
@@ -1101,7 +1101,7 @@ static void dbAtomicallyReapAllVersions(Db* db, Atomically* atomically,
 }
 void dbGarbageCollectAtomicallys(Db* db, int64_t now) {
     mutexLock(&db->atomicallysMutex);
-    for (int i = 0; i < sizeof(db->atomicallys)/sizeof(db->atomicallys[0]); i++) {
+    for (size_t i = 0; i < sizeof(db->atomicallys)/sizeof(db->atomicallys[0]); i++) {
         if (db->atomicallys[i].key != NULL &&
             now - db->atomicallys[i].latestConvergedTime > db->atomicallys[i].timeout) {
 
@@ -1212,7 +1212,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Zicl_List* clause, long keepMs,
     }
 
     Zicl_Value clauseAsValue = Zicl_BoxList((Zicl_List *)clause);
-    Zicl_IncrRefCount(clauseAsValue);
+    Zicl_Borrow(clauseAsValue);
     Zicl_MakeCrossthread(clauseAsValue);
 
     Match* parentMatch = NULL;
@@ -1221,7 +1221,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Zicl_List* clause, long keepMs,
         parentMatch = matchAcquire(db, parentMatchRef);
         if (parentMatch == NULL) {
             setReusedStatementRef(STATEMENT_REF_NULL);
-            Zicl_DecrRefCount(clauseAsValue);
+            Zicl_Release(clauseAsValue);
             return NULL; // Abort!
         }
 
@@ -1232,7 +1232,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Zicl_List* clause, long keepMs,
             matchRelease(db, parentMatch);
 
             setReusedStatementRef(STATEMENT_REF_NULL);
-            Zicl_DecrRefCount(clauseAsValue);
+            Zicl_Release(clauseAsValue);
             return NULL; // Abort!
         }
 
@@ -1306,7 +1306,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Zicl_List* clause, long keepMs,
                     }
 
                     setReusedStatementRef(existingRefs[0]);
-                    Zicl_DecrRefCount(clauseAsValue);
+                    Zicl_Release(clauseAsValue);
                     return NULL;
                 } else {
                     // Reuse failed, but not for operation-aborting
@@ -1356,7 +1356,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Zicl_List* clause, long keepMs,
     }
 
     setReusedStatementRef(STATEMENT_REF_NULL);
-    Zicl_DecrRefCount(clauseAsValue);
+    Zicl_Release(clauseAsValue);
 
     return newStmt;
 
@@ -1455,7 +1455,9 @@ Statement* dbHoldStatement(Db* db, const char* key, double version,
     if (outOldStatement) { *outOldStatement = STATEMENT_REF_NULL; }
 
     mutexLock(&db->holdsMutex);
-    Zicl_IncrRefCount(Zicl_BoxList(clause));
+    defer { mutexUnlock(&db->holdsMutex); }
+    Zicl_BorrowList(clause);
+    defer { Zicl_ReleaseList(clause); }
 
     Hold* hold = shgetp_null(db->holds, key);
     if (hold == NULL) {
@@ -1472,10 +1474,8 @@ Statement* dbHoldStatement(Db* db, const char* key, double version,
         // TODO: Should we accept a StatementRef and enforce that
         // is what gets removed?
         Statement* oldStmtPtr = statementAcquire(db, oldStmt);
+        defer { if (oldStmtPtr) statementRelease(db, oldStmtPtr); }
         if (oldStmtPtr && ziclEquals(Zicl_BoxList(clause), Zicl_BoxList(statementClause(oldStmtPtr)))) {
-            statementRelease(db, oldStmtPtr);
-            mutexUnlock(&db->holdsMutex);
-            Zicl_DecrRefCount(Zicl_BoxList(clause));
             return NULL;
         }
 
@@ -1509,6 +1509,7 @@ Statement* dbHoldStatement(Db* db, const char* key, double version,
             // statement itself (and therefore remove all its
             // children).
             epochBegin();
+            defer { epochEnd(); }
 
             uint64_t results[10]; int resultsCount;
 
@@ -1529,9 +1530,6 @@ Statement* dbHoldStatement(Db* db, const char* key, double version,
             } while (!atomic_compare_exchange_weak(&db->clauseToStatementRef,
                                                    &oldClauseToStatementRef,
                                                    newClauseToStatementRef));
-            epochEnd();
-
-            statementRelease(db, oldStmtPtr);
         } else if (oldStmt.idx != 0) {
             fprintf(stderr, "Somehow old statement from Hold (%d:%d) was already removed?\n",
                     oldStmt.idx, oldStmt.gen);
@@ -1542,15 +1540,11 @@ Statement* dbHoldStatement(Db* db, const char* key, double version,
 
         if (outOldStatement) { *outOldStatement = oldStmt; }
 
-        mutexUnlock(&db->holdsMutex);
-        Zicl_DecrRefCount(Zicl_BoxList(clause));
         return newStmt;
     } else {
         // The new version is older than the version already in the
         // hold, so we just shouldn't do anything / we shouldn't
         // install the new statement.
-        mutexUnlock(&db->holdsMutex);
-        Zicl_DecrRefCount(Zicl_BoxList(clause));
         return NULL;
     }
 }

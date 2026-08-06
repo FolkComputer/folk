@@ -1,9 +1,11 @@
+#include "folk-zicl.h"
 #define _GNU_SOURCE
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <assert.h>
 #include <pthread.h>
 #include <sys/syscall.h>
@@ -74,7 +76,6 @@ static interpose_t write_interpose[] __attribute__((section("__DATA,__interpose"
 // Normal build (linked into main binary): output redirection globals,
 // per-thread fd substitution, and Jim command registration.
 
-#include <jim.h>
 
 int realStdout = -1;
 int realStderr = -1;
@@ -147,27 +148,42 @@ static ProgramFds *programFdsTable = NULL;
 static pthread_rwlock_t programFdsLock = PTHREAD_RWLOCK_INITIALIZER;
 static char outputDir[256];
 
-void outputRedirectionInit(void) {
+void outputRedirectionInit(bool doRedirect) {
+    if (!doRedirect) {
+        realStdout = 1;
+        realStderr = 2;
+        return;
+    }
+
     sh_new_arena(programFdsTable);
 
-    snprintf(outputDir, sizeof(outputDir), "/tmp/folk-%d", (int)getpid());
+    snprintf(outputDir, sizeof(outputDir), "/var/tmp/folk-%d", (int)getpid());
     mkdir(outputDir, 0755);
 
     // Save stdout and stderr once, globally.
     realStdout = dup(1);
     realStderr = dup(2);
 
-    // Redirect fd 1/2 to /dev/null so system frameworks (NSLog,
-    // AppKit, etc.)  see a non-TTY and suppress their stderr
+    // Redirect fd 1/2 to OTHER.stdout/stderr so system frameworks
+    // (NSLog, AppKit, etc.) see a non-TTY and suppress their stderr
     // output. All legitimate writes go through folk_interpose.dylib
     // -> folkGetFdOverride, or to realStdout/realStderr.
-    int devnull = open("/dev/null", O_WRONLY);
-    dup2(devnull, STDOUT_FILENO);
-    dup2(devnull, STDERR_FILENO);
-    close(devnull);
+    char path[4096];
+    snprintf(path, sizeof(path), "%s/OTHER.stdout", outputDir);
+    int otherStdout = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    snprintf(path, sizeof(path), "%s/OTHER.stderr", outputDir);
+    int otherStderr = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    dup2(otherStdout, STDOUT_FILENO);
+    dup2(otherStderr, STDERR_FILENO);
+    close(otherStdout);
+    close(otherStderr);
 }
 
 void installLocalStdoutAndStderr(int stdoutfd, int stderrfd) {
+    if (programFdsTable == NULL) {
+        return;
+    }
+
     threadLocalStdout = stdoutfd;
     threadLocalStderr = stderrfd;
 }
@@ -184,9 +200,9 @@ static void escapeProgramName(const char *in, char *out, size_t outlen) {
     out[j] = '\0';
 }
 
-static int __installLocalStdoutAndStderrFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+static int __installLocalStdoutAndStderrFunc(Jim_Interp *interp, int argc, Zicl_Shimmerable *argv) {
     assert(argc == 2);
-    const char *this = Jim_String(argv[1]);
+    const char *this = ziclShimString(&argv[1]);
 
     int stdoutfd, stderrfd;
 
@@ -228,23 +244,24 @@ static int __installLocalStdoutAndStderrFunc(Jim_Interp *interp, int argc, Jim_O
     installLocalStdoutAndStderr(stdoutfd, stderrfd);
 
     // Set ::_folk_localStdout/Stderr as non-owning channels for the exec wrapper.
-    Jim_AioMakeChannelFromFd(interp, stdoutfd, 0);
+    // Delete the previous channels (if any) before creating new ones, to avoid
+    // accumulating one channel pair per when-block execution in the interpreter's
+    // command table. Use keepopen=1 since the fds are managed by programFdsTable.
+    Jim_Obj *oldChan;
+    oldChan = Jim_GetVariableStr(interp, "::_folk_localStdout", JIM_NONE);
+    if (oldChan) { Jim_DeleteCommand(interp, oldChan); }
+    oldChan = Jim_GetVariableStr(interp, "::_folk_localStderr", JIM_NONE);
+    if (oldChan) { Jim_DeleteCommand(interp, oldChan); }
+
+    Jim_AioMakeChannelFromFd(interp, stdoutfd, 1);
     Jim_SetVariableStr(interp, "::_folk_localStdout", Jim_GetResult(interp));
-    Jim_AioMakeChannelFromFd(interp, stderrfd, 0);
+    Jim_AioMakeChannelFromFd(interp, stderrfd, 1);
     Jim_SetVariableStr(interp, "::_folk_localStderr", Jim_GetResult(interp));
 
     return JIM_OK;
 }
 
-void outputRedirectionInterpSetup(Jim_Interp *interp) {
-    assert(realStdout != -1 && realStderr != -1);
-    Jim_AioMakeChannelFromFd(interp, realStdout, 1);
-    Jim_SetVariableStr(interp, "::realStdout", Jim_GetResult(interp));
-    Jim_AioMakeChannelFromFd(interp, realStderr, 1);
-    Jim_SetVariableStr(interp, "::realStderr", Jim_GetResult(interp));
-
-    Jim_CreateCommand(interp, "__installLocalStdoutAndStderr",
-                      __installLocalStdoutAndStderrFunc, NULL, NULL);
+static int __doNothingFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    return JIM_OK;
 }
-
 #endif // FOLK_INTERPOSE_DYLIB

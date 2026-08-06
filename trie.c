@@ -9,7 +9,7 @@
 #include "trie.h"
 #include "epoch.h"
 
-Zicl_Value clauseFormat(const char* fmt, ...) {
+Zicl_List* clauseFormat(const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
 
@@ -26,7 +26,7 @@ Zicl_Value clauseFormat(const char* fmt, ...) {
     }
 
     free(formatted);
-    return Zicl_BoxList(list);
+    return list;
 }
 
 const Trie* trieNew() {
@@ -81,7 +81,7 @@ static const Trie* trieAddImpl(const Trie* trie,
         // Need to add a new branch.
         newBranch = allocator->alloc(SIZEOF_TRIE(0));
         Zicl_MakeCrossthread(term);
-        newBranch->key = Zicl_IncrRefCount(term);
+        newBranch->key = Zicl_Borrow(term);
         newBranch->value = 0;
         newBranch->hasValue = false;
         newBranch->branchesCount = 0;
@@ -98,7 +98,7 @@ static const Trie* trieAddImpl(const Trie* trie,
         // Subtrie was unchanged by the addition (meaning that the
         // clause is already in the trie). Return the original trie.
         if (newBranch != NULL) {
-            Zicl_DecrRefCount(newBranch->key);
+            Zicl_Release(newBranch->key);
             allocator->retire(newBranch);
         }
         return trie;
