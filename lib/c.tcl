@@ -194,7 +194,7 @@ set C {
         char* { identity { $robj = ziclNewString($rvalue, -1); } }
         Zicl_Value { identity { $robj = $rvalue; }}
         default {
-            if {[string index $rtype end] == "*"} {
+            if {[string index $rtype end] eq "*"} {
                 identity { $robj = ziclValuePrintf("($rtype) 0x%" PRIxPTR, (uintptr_t) $rvalue); }
             } elseif {[regexp {(^[^\[]+)\[(\d*)\]$} $rtype -> basetype arraylen]} {
                 if {$basetype eq "char"} { identity {

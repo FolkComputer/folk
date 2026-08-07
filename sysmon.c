@@ -7,7 +7,6 @@
 #include <time.h>
 #include <sys/time.h>
 #include <inttypes.h>
-#include <string.h>
 #include <stdatomic.h>
 #include <assert.h>
 
@@ -40,7 +39,6 @@ extern void HoldStatementGlobally(const char *key, double version,
 
 extern void workerReactivateOrSpawn(int64_t msSinceBoot, int targetNotBlockedWorkersCount);
 extern void initSysmonInterp();
-extern void rewindSysmonInterp();
 
 extern void dbGarbageCollectAtomicallys(Db* db, int64_t now);
 
@@ -293,9 +291,9 @@ void *sysmonMain(void *ptr) {
 #ifdef TRACY_ENABLE
         TracyCZoneN(zone, "sysmon", 1);
 #endif
+        Zicl_ArenaSnapshot snapshot = Zicl_LocalArenaSnapshot();
         sysmon();
-
-        rewindSysmonInterp();
+        Zicl_LocalArenaRewind(snapshot);
 
 #ifdef TRACY_ENABLE
         TracyCZoneEnd(zone);
@@ -324,7 +322,7 @@ void sysmonScheduleRemoveAfter(StatementRef stmtRef, int afterMs) {
         fprintf(stderr, "sysmon: Ran out of remove-later slots!");
         for (int i = 0; i < REMOVE_LATER_MAX; i++) {
             fprintf(stderr, "  %d: (%.200s)\n", i,
-                    ziclListString(statementClause(statementAcquire(db, removeLater[i].stmt)))));
+                    ziclListString(statementClause(statementAcquire(db, removeLater[i].stmt))));
         }
         exit(1);
     }

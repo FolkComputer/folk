@@ -18,59 +18,59 @@
 
 #include <libzicl.h>
 
-inline void folkZiclAssert(int rc) {
+static inline void folkZiclAssert(int rc) {
     if (rc != 0) {
         fprintf(stderr, "folk: could not allocate %s (zicl status %d)\n", rc);
         abort();
     }
 }
 
-inline Zicl_Value folkZiclCheck(int rc, Zicl_Value value) {
+static inline Zicl_Value folkZiclCheck(int rc, Zicl_Value value) {
     folkZiclAssert(rc);
     return value;
 }
 
-inline const char *ziclString(Zicl_Value value) {
+static inline const char *ziclString(Zicl_Value value) {
     const char *str = Zicl_String(value);
     if (!str) folkZiclAssert(ZICL_OOM);
     return str;
 }
 
-inline const char *ziclListString(Zicl_List* list) {
+static inline const char *ziclListString(Zicl_List* list) {
     const char *str = Zicl_String(Zicl_BoxList(list));
     if (!str) folkZiclAssert(ZICL_OOM);
     return str;
 }
 
-inline int ziclEquals(Zicl_Value a, Zicl_Value b) {
+static inline int ziclEquals(Zicl_Value a, Zicl_Value b) {
     int out; folkZiclAssert(Zicl_Equals(a, b, &out));
     return out;
 }
 
-inline const char *ziclShimString(Zicl_Shimmerable *const shim) {
+static inline const char *ziclShimString(Zicl_Shimmerable *const shim) {
     const char *str = Zicl_ShimString(shim);
     if (!str) folkZiclAssert(ZICL_OOM);
     return str;
 }
 
-inline const char *ziclGetString(Zicl_Value value, int *len) {
+static inline const char *ziclGetString(Zicl_Value value, int *len) {
     const char *str = Zicl_GetString(value, len);
     if (!str) folkZiclAssert(ZICL_OOM);
     return str;
 }
 
-inline const char *ziclShimGetString(Zicl_Shimmerable *shim, int *len) {
+static inline const char *ziclShimGetString(Zicl_Shimmerable *shim, int *len) {
     const char *str = Zicl_ShimGetString(shim, len);
     if (!str) folkZiclAssert(ZICL_OOM);
     return str;
 }
 
-inline Zicl_Value ziclNewString(const char *ptr, int len) {
+static inline Zicl_Value ziclNewString(const char *ptr, int len) {
     Zicl_Value out; int rc = Zicl_NewString(&out, ptr, len);
     return folkZiclCheck(rc, out);
 }
 
-inline Zicl_Value ziclValuePrintf(const char* format, ...) {
+static inline Zicl_Value ziclValuePrintf(const char* format, ...) {
     va_list args;
     va_start(args, format);
     char buf[10000]; vsnprintf(buf, 10000, format, args);
@@ -78,29 +78,29 @@ inline Zicl_Value ziclValuePrintf(const char* format, ...) {
     return ziclNewString(buf, -1);
 }
 
-inline Zicl_List *ziclNewList(const Zicl_Value *values, int n_values) {
+static inline Zicl_List *ziclNewList(const Zicl_Value *values, int n_values) {
     Zicl_List *list = Zicl_NewList(values, n_values);
     folkZiclAssert(list == NULL ? ZICL_OOM : ZICL_OK);
     return list;
 }
 
-inline Zicl_List *ziclNewListFromShimmerables(Zicl_Shimmerable *values, int n_values) {
+static inline Zicl_List *ziclNewListFromShimmerables(Zicl_Shimmerable *values, int n_values) {
     Zicl_List *list = Zicl_NewListFromShimmerables(values, n_values);
     folkZiclAssert(list == NULL ? ZICL_OOM : ZICL_OK);
     return list;
 }
 
-inline void ziclListAppend(Zicl_List *list, Zicl_Value item) {
+static inline void ziclListAppend(Zicl_List *list, Zicl_Value item) {
     folkZiclAssert(Zicl_ListAppend(list, item));
 }
 
-inline Zicl_Dict *ziclNewDict(Zicl_Value *values, int n_values) {
+static inline Zicl_Dict *ziclNewDict(Zicl_Value *values, int n_values) {
     Zicl_Dict *dict = Zicl_NewDict(values, n_values);
     folkZiclAssert(dict == NULL ? ZICL_OOM : ZICL_OK);
     return dict;
 }
 
-inline void ziclDictPut(Zicl_Dict *dict, Zicl_Value key, Zicl_Value value) {
+static inline void ziclDictPut(Zicl_Dict *dict, Zicl_Value key, Zicl_Value value) {
     folkZiclAssert(Zicl_DictPut(dict, key, value));
 }
 

@@ -185,7 +185,9 @@ void installLocalStdoutAndStderr(int stdoutfd, int stderrfd) {
     }
 
     threadLocalStdout = stdoutfd;
+    Zicl_SetLocalStdout(stdoutfd);
     threadLocalStderr = stderrfd;
+    Zicl_SetLocalStderr(stderrfd);
 }
 
 static void escapeProgramName(const char *in, char *out, size_t outlen) {
@@ -200,7 +202,7 @@ static void escapeProgramName(const char *in, char *out, size_t outlen) {
     out[j] = '\0';
 }
 
-static int __installLocalStdoutAndStderrFunc(Jim_Interp *interp, int argc, Zicl_Shimmerable *argv) {
+static int __installLocalStdoutAndStderrFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv) {
     assert(argc == 2);
     const char *this = ziclShimString(&argv[1]);
 
@@ -240,28 +242,13 @@ static int __installLocalStdoutAndStderrFunc(Jim_Interp *interp, int argc, Zicl_
         pthread_rwlock_unlock(&programFdsLock);
     }
 
-    if (stdoutfd == -1 || stderrfd == -1) { return JIM_ERR; }
+    if (stdoutfd == -1 || stderrfd == -1) { return ZICL_ERR; }
     installLocalStdoutAndStderr(stdoutfd, stderrfd);
 
-    // Set ::_folk_localStdout/Stderr as non-owning channels for the exec wrapper.
-    // Delete the previous channels (if any) before creating new ones, to avoid
-    // accumulating one channel pair per when-block execution in the interpreter's
-    // command table. Use keepopen=1 since the fds are managed by programFdsTable.
-    Jim_Obj *oldChan;
-    oldChan = Jim_GetVariableStr(interp, "::_folk_localStdout", JIM_NONE);
-    if (oldChan) { Jim_DeleteCommand(interp, oldChan); }
-    oldChan = Jim_GetVariableStr(interp, "::_folk_localStderr", JIM_NONE);
-    if (oldChan) { Jim_DeleteCommand(interp, oldChan); }
-
-    Jim_AioMakeChannelFromFd(interp, stdoutfd, 1);
-    Jim_SetVariableStr(interp, "::_folk_localStdout", Jim_GetResult(interp));
-    Jim_AioMakeChannelFromFd(interp, stderrfd, 1);
-    Jim_SetVariableStr(interp, "::_folk_localStderr", Jim_GetResult(interp));
-
-    return JIM_OK;
+    return ZICL_OK;
 }
 
-static int __doNothingFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    return JIM_OK;
+static int __doNothingFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv) {
+    return ZICL_OK;
 }
 #endif // FOLK_INTERPOSE_DYLIB

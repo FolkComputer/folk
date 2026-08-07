@@ -191,7 +191,6 @@ static int AssertFunc(Zicl_Interp* interp, int argc, Zicl_Shimmerable *argv) {
 }
 // Retract! the time is /t/
 static int RetractFunc(Zicl_Interp* interp, int argc, Zicl_Shimmerable *argv) {
-    (void)interp;
     Zicl_List* pattern = ziclNewListFromShimmerables(argv + 1, argc - 1);
     Zicl_MakeCrossthread(Zicl_BoxList(pattern));
 
@@ -378,7 +377,6 @@ static int DestructorFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv)
 
 static void Notify(Zicl_List* toNotify);
 static int NotifyFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv) {
-    (void)interp;
     assert(argc >= 2);
 
     Notify(ziclNewListFromShimmerables(argv + 1, argc - 1));
@@ -461,7 +459,6 @@ static int StatementAcquireFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable 
     return ZICL_OK;
 }
 static int StatementReleaseFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv) {
-    (void) interp;
     assert(argc == 2);
 
     StatementRef ref;
@@ -472,7 +469,6 @@ static int StatementReleaseFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable 
     return ZICL_OK;
 }
 static int __statementOfCurrentMatchSourceInfoFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv) {
-    (void)argv;
     assert(argc == 1);
 
     StatementRef stmtRef = STATEMENT_REF_NULL;
@@ -524,7 +520,6 @@ static int __startsWithDollarSignFunc(Zicl_Interp *interp, int argc, Zicl_Shimme
     return ZICL_OK;
 }
 static int __currentMatchRefFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv) {
-    (void)argv;
     assert(argc == 1);
     if (self->currentMatch == NULL) {
         Zicl_SetEmptyResult(interp);
@@ -550,7 +545,6 @@ static int __statementIncompleteChildMatchesCountFunc(Zicl_Interp *interp, int a
     return Zicl_SetResultLong(interp, statementIncompleteChildMatchesCount(db, stmt));
 }
 static int __whenOfCurrentMatchIncompleteChildMatchesCountFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv) {
-    (void)argv;
     assert(argc == 1);
 
     StatementRef whenRef = STATEMENT_REF_NULL;
@@ -573,12 +567,10 @@ static int __whenOfCurrentMatchIncompleteChildMatchesCountFunc(Zicl_Interp *inte
 }
 static int __isInSubscriptionFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv) {
     assert(argc == 1);
-    (void)argv;
     return Zicl_SetResultBool(interp, self->inSubscription);
 }
 static int __isTracyEnabledFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv) {
     assert(argc == 1);
-    (void)argv;
 #ifdef TRACY_ENABLE
     return Zicl_SetResultBool(interp, true);
 #else
@@ -587,18 +579,15 @@ static int __isTracyEnabledFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable 
 }
 static int __dbFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv) {
     assert(argc == 1);
-    (void)argv;
     char ret[100]; snprintf(ret, 100, "(Db*) %p", db);
     return Zicl_SetResultString(interp, ret, strlen(ret));
 }
 static int __threadIdFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv) {
     assert(argc == 1);
-    (void)argv;
     return Zicl_SetResultLong(interp, self->index);
 }
 
 static int __setFreshAtomicallyVersionOnKeyFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv) {
-    (void)interp;
     assert(argc == 2);
     const char* key = ziclShimString(&argv[1]);
     self->currentAtomicallyVersion =
@@ -609,7 +598,6 @@ static int __setFreshAtomicallyVersionOnKeyFunc(Zicl_Interp *interp, int argc, Z
 }
 static int __currentAtomicallyVersionFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv) {
     assert(argc == 1);
-    (void)argv;
     if (self->currentAtomicallyVersion == NULL) {
         return Zicl_SetResultString(interp, "", -1);
     } else {
@@ -622,7 +610,6 @@ static int __currentAtomicallyVersionFunc(Zicl_Interp *interp, int argc, Zicl_Sh
 
 static int setpgrpFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv) {
     assert(argc == 1);
-    (void)argv;
     int ret = setpgrp();
     if (ret != -1) {
         return ZICL_OK;
@@ -649,12 +636,37 @@ static int exitFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv) {
     return ZICL_OK;
 }
 
+// `env::VAR` is dict-sugar for the global `env` variable, so scripts read
+// the process environment as `$env::HOME` etc. (see prelude.tcl, lib/c.tcl,
+// lib/python.tcl). Every interp needs this set up, since each is its own
+// Tcl namespace/variable space.
+static void interpSetupEnv(Zicl_Interp *interp) {
+    extern char **environ;
+
+    Zicl_Dict *envDict = ziclNewDict(NULL, 0);
+    defer { Zicl_ReleaseDict(envDict); }
+
+    for (char **e = environ; *e != NULL; e++) {
+        char *eq = strchr(*e, '=');
+        if (eq == NULL) continue;
+
+        ziclDictPut(envDict, ziclNewString(*e, eq - *e), ziclNewString(eq + 1, -1));
+    }
+
+    Zicl_Value envName = ziclNewString("env", -1);
+    folkZiclAssert(Zicl_SetVariable(interp, &envName, Zicl_BoxDict(envDict)));
+}
+
 void initSysmonInterp() {
+    Zicl_InitThread();
     interp = Zicl_CreateInterp();
+    interpSetupEnv(interp);
 }
 
 static void interpBoot() {
+    Zicl_InitThread();
     interp = Zicl_CreateInterp();
+    interpSetupEnv(interp);
 
     // TODO figure out what to do about output redirection.
     // outputRedirectionInterpSetup(interp);
@@ -774,8 +786,6 @@ static int runBlock(const Zicl_List* bodyPattern, const Zicl_List* toUnifyWith,
 
     // Rule: you should never be holding a lock while doing a Tcl
     // evaluation.
-    Zicl_IncrSignalDepth(interp);
-    defer { Zicl_DecrSignalDepth(interp); }
     int error;
     {
 #ifdef TRACY_ENABLE
@@ -1319,7 +1329,9 @@ void workerRun(WorkQueueItem item) {
         defer { free(code); }
 
         int error = Zicl_Eval(interp, code);
-        if (error != ZICL_OK) {
+        if (error == ZICL_EXIT) {
+            workerExit();
+        } else if (error != ZICL_OK) {
             Zicl_MakeErrorMessage(interp);
             fprintf(stderr, "destructorHelper: (%s) -> (%s)\n",
                     code, ziclString(Zicl_GetResult(interp)));
@@ -1419,11 +1431,6 @@ void workerLoop() {
         defer { Zicl_LocalArenaRewind(snapshot); }
 
         schedtick++;
-        if (Zicl_GetSigmask(interp) & (1 << SIGUSR1)) {
-            // FIXME: I think this signal handler doesn't actually
-            // run.
-            workerExit();
-        }
 
         WorkQueueItem item = { .op = NONE };
         if (schedtick % 61 == 0) {
@@ -1508,6 +1515,7 @@ void workerExit() {
     // TODO: Clear everything else out?
     self->tid = 0;
     Zicl_InterpDestroy(interp);
+    Zicl_DeinitThread();
     epochThreadDestroy();
 
     pthread_exit(NULL);
@@ -1670,6 +1678,7 @@ int main(int argc, char** argv) {
     // Do all setup.
 
     // Jim_Allocator = webDebugAllocator;
+    Zicl_InitGlobals(NULL);
 
     if (argc == 1) {
         // booting normal Folk (no script passed at command line); set

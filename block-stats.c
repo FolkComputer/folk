@@ -1,7 +1,6 @@
 #define _GNU_SOURCE
 #include <stdint.h>
 #include <stdio.h>
-#include <string.h>
 #include <pthread.h>
 
 #include "vendor/stb_ds.h"
@@ -9,6 +8,7 @@
 #include <libzicl.h>
 #include "folk-zicl.h"
 
+#include "common.h"
 #include "block-stats.h"
 
 // Running EWMA of block eval runtime per filename:lineno.
@@ -74,12 +74,12 @@ int __blockRuntimeStatsFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *arg
             ziclNewString(ewma_buf, -1),
             ziclNewString(count_buf, -1),
         };
-        Zicl_Value entry = ziclNewList(items, 3);
-        Zicl_ListAppend(interp, &result, entry);
-        for (int j = 0; j < 3; j++) Zicl_Release(items[j]);
-        Zicl_Release(entry);
+        defer { Zicl_ReleaseArrayItems(items, sizeof(items)/sizeof(Zicl_Value)); };
+        Zicl_Value entry = Zicl_BoxList(ziclNewList(items, 3));
+        defer { Zicl_Release(entry); }
+        ziclListAppend(result, entry);
     }
     pthread_rwlock_unlock(&blockStatsLock);
-    Zicl_SetResultOwning(interp, result);
+    Zicl_SetResultOwning(interp, Zicl_BoxList(result));
     return ZICL_OK;
 }
