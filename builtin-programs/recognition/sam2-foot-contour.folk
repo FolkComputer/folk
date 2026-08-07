@@ -408,8 +408,7 @@ When the png library is /pngLib/ &\
 
             set promptResults [Query! /anyone/ wishes $page tracks object /id/ with prompt /prompt/]
             lappend promptResults {*}[Query! /anyone/ wishes $page tracks object /id/ with antiprompt /prompt/]
-            lappend promptResults {*}[Query! /anyone/ wishes $page tracks object /id/ using prompt /prompt/ in frame /frame/]
-            lappend promptResults {*}[Query! /anyone/ wishes $page tracks object /id/ using antiprompt /prompt/ in frame /frame/]
+            lappend promptResults {*}[Query! /anyone/ wishes $page tracks object /id/ in frame /frame/ with /...promptSpecs/]
             lappend promptResults {*}[Query! /anyone/ wishes /id/ has foot contour in $page]
             set ids [lsort -unique [lmap result $promptResults {
                 dict get $result id
@@ -445,55 +444,67 @@ When the png library is /pngLib/ &\
                     </label>
                 }]
 
-                Expect! $id has SAM2 masked image /im/ in $page
-                StatementAcquire! $__ref
-
-                set filename [format "/tmp/sam2-foot-contour-%s-%s.png" \
-                    [string map {/ _ { } _} $page] \
-                    [string map {/ _ { } _} $id]]
-                $pngLib saveAsPng $im $filename
-
-                set fsize [file size $filename]
-                set fd [open $filename r]
-                fconfigure $fd -translation binary
-                set imageData [read $fd $fsize]
-                close $fd
-
-                StatementRelease! $__ref
-
+                set imageResults [Query! $id has SAM2 masked image /im/ in $page]
                 set footContourResults [Query! $id has foot contour /footContour/ in $page]
-                Expect! $id has mask /mask/ in $page with /...maskOpts/
-                Expect! $page has resolved geometry /geom/
+                set maskResults [Query! $id has mask /mask/ in $page with /...maskOpts/]
+                set geomResults [Query! $page has resolved geometry /geom/]
+                set body {<div class="missing">waiting for SAM2 mask</div>}
 
-                set width [dict get $maskOpts width]
-                set height [dict get $maskOpts height]
+                if {[llength $imageResults] > 0 &&
+                    [llength $maskResults] > 0 &&
+                    [llength $geomResults] > 0} {
 
-                set contourPoints ""
-                if {[llength $footContourResults] > 0} {
-                    set footContour [dict get [lindex $footContourResults end] footContour]
-                    set contourPoints [svgPoints $footContour $geom $width $height]
-                }
-                set centerSvg ""
-                if {[llength $arcResults] > 0} {
-                    set arcCircle [dict get [lindex $arcResults end] arcCircle]
-                    lassign [svgPoint [dict get $arcCircle center] $geom $width $height] cx cy
-                    set centerSvg [subst {
-                        <circle class="foot-center" cx="$cx" cy="$cy" r="4"></circle>
+                    set imageResult [lindex $imageResults end]
+                    dict with imageResult {
+                        StatementAcquire! $__ref
+
+                        set filename [format "/tmp/sam2-foot-contour-%s-%s.png" \
+                            [string map {/ _ { } _} $page] \
+                            [string map {/ _ { } _} $id]]
+                        $pngLib saveAsPng $im $filename
+
+                        set fsize [file size $filename]
+                        set fd [open $filename r]
+                        fconfigure $fd -translation binary
+                        set imageData [read $fd $fsize]
+                        close $fd
+
+                        StatementRelease! $__ref
+                    }
+
+                    set maskOpts [dict get [lindex $maskResults end] maskOpts]
+                    set geom [dict get [lindex $geomResults end] geom]
+
+                    set width [dict get $maskOpts width]
+                    set height [dict get $maskOpts height]
+
+                    set contourPoints ""
+                    if {[llength $footContourResults] > 0} {
+                        set footContour [dict get [lindex $footContourResults end] footContour]
+                        set contourPoints [svgPoints $footContour $geom $width $height]
+                    }
+                    set centerSvg ""
+                    if {[llength $arcResults] > 0} {
+                        set arcCircle [dict get [lindex $arcResults end] arcCircle]
+                        lassign [svgPoint [dict get $arcCircle center] $geom $width $height] cx cy
+                        set centerSvg [subst {
+                            <circle class="foot-center" cx="$cx" cy="$cy" r="4"></circle>
+                        }]
+                    }
+
+                    set b64 [binary encode base64 $imageData]
+                    set body [subst {
+                        <div class="overlay" data-object-id="[htmlEscape $id]"
+                             data-width="$width" data-height="$height"
+                             data-geom-width="$geom(width)" data-geom-height="$geom(height)">
+                            <img src="data:image/png;base64,$b64">
+                            <svg viewBox="0 0 $width $height" preserveAspectRatio="none">
+                                <polyline class="foot-contour" points="$contourPoints"></polyline>
+                                $centerSvg
+                            </svg>
+                        </div>
                     }]
                 }
-
-                set b64 [binary encode base64 $imageData]
-                set body [subst {
-                    <div class="overlay" data-object-id="[htmlEscape $id]"
-                         data-width="$width" data-height="$height"
-                         data-geom-width="$geom(width)" data-geom-height="$geom(height)">
-                        <img src="data:image/png;base64,$b64">
-                        <svg viewBox="0 0 $width $height" preserveAspectRatio="none">
-                            <polyline class="foot-contour" points="$contourPoints"></polyline>
-                            $centerSvg
-                        </svg>
-                    </div>
-                }]
 
                 lappend entries [format {<section><h2>%s</h2>%s</section>} \
                     $id "$body\n$measurementControls"]
