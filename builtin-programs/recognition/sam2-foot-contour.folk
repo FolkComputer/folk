@@ -51,8 +51,9 @@ $cc code {
 
 }
 
-# Returns the convex hull arc of a SAM2 mask that faces pp, where pp is the
-# camera optical axis projected into the viewport's local {x y} meter space.
+# Returns the convex hull arc of a SAM2 mask that faces away from pp, where pp
+# is the camera optical axis projected into the viewport's local {x y} meter
+# space.
 $cc proc maskFootContour {int width int height Jim_Obj* mask
                           double[2] pp double scaleX double scaleY} Jim_Obj* {
     int w = width;
@@ -130,32 +131,32 @@ $cc proc maskFootContour {int width int height Jim_Obj* mask
         return ret;
     }
 
-    bool *visible = calloc((size_t)hn, sizeof(bool));
-    ptrdiff_t visibleCount = 0;
+    bool *away = calloc((size_t)hn, sizeof(bool));
+    ptrdiff_t awayCount = 0;
     for (ptrdiff_t i = 0; i < hn; i++) {
         ptrdiff_t j = (i + 1) % hn;
         double ax = hull[i].x * scaleX;
         double ay = hull[i].y * scaleY;
         double bx = hull[j].x * scaleX;
         double by = hull[j].y * scaleY;
-        if (hullCrossD(ax, ay, bx, by, pp[0], pp[1]) < 0) {
-            visible[i] = true;
-            visibleCount++;
+        if (hullCrossD(ax, ay, bx, by, pp[0], pp[1]) > 0) {
+            away[i] = true;
+            awayCount++;
         }
     }
 
-    if (visibleCount == 0 || visibleCount == hn) {
+    if (awayCount == 0 || awayCount == hn) {
         for (ptrdiff_t i = 0; i < hn; i++) {
             appendPointObj(interp, ret, hull[i], scaleX, scaleY);
         }
-        free(visible);
+        free(away);
         arrfree(hull);
         return ret;
     }
 
     ptrdiff_t edge = 0;
-    while (edge < hn && !visible[edge]) edge++;
-    while (visible[(edge - 1 + hn) % hn]) {
+    while (edge < hn && !away[edge]) edge++;
+    while (away[(edge - 1 + hn) % hn]) {
         edge = (edge - 1 + hn) % hn;
     }
 
@@ -165,7 +166,7 @@ $cc proc maskFootContour {int width int height Jim_Obj* mask
         ptrdiff_t next = (edge + 1) % hn;
         arrput(arc, hull[next]);
         edge = next;
-        if (!visible[edge]) break;
+        if (!away[edge]) break;
     }
 
     ptrdiff_t arcLen = arrlen(arc);
@@ -174,7 +175,7 @@ $cc proc maskFootContour {int width int height Jim_Obj* mask
     }
 
     arrfree(arc);
-    free(visible);
+    free(away);
     arrfree(hull);
     return ret;
 }
@@ -460,14 +461,18 @@ When the png library is /pngLib/ &\
 
                 StatementRelease! $__ref
 
-                Expect! $id has foot contour /footContour/ in $page
+                set footContourResults [Query! $id has foot contour /footContour/ in $page]
                 Expect! $id has mask /mask/ in $page with /...maskOpts/
                 Expect! $page has resolved geometry /geom/
 
                 set width [dict get $maskOpts width]
                 set height [dict get $maskOpts height]
 
-                set contourPoints [svgPoints $footContour $geom $width $height]
+                set contourPoints ""
+                if {[llength $footContourResults] > 0} {
+                    set footContour [dict get [lindex $footContourResults end] footContour]
+                    set contourPoints [svgPoints $footContour $geom $width $height]
+                }
                 set centerSvg ""
                 if {[llength $arcResults] > 0} {
                     set arcCircle [dict get [lindex $arcResults end] arcCircle]

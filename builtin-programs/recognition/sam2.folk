@@ -309,10 +309,13 @@ When /anyone/ wishes /page/ tracks object /id/ using /...any/ {
     Wish -keep 400ms to load SAM2
 }
 
-When /someone/ wishes /page/ has a SAM2 object tracker &\
+When the SAM2 mask-to-image library is /mtiLib/ &\
+     the image library is /imageLib/ &\
+     /someone/ wishes /page/ has a SAM2 object tracker &\
      /page/ has resolved geometry /geom/ &\
      the SAM2 object tracker is /sam2Track/ &\
      the SAM2 prompt adder is /sam2AddPrompt/ {
+
     fn sam2Track
     fn sam2AddPrompt
 
@@ -325,43 +328,33 @@ When /someone/ wishes /page/ has a SAM2 object tracker &\
         return $hash
     }
 
-    fn addSAM2PromptsInFrame {slice id} {
+    fn addSAM2Prompt {slice id prompt label promptKind} {
         set sam2Id [sam2ObjectId $id]
 
-        set points [list]
-        set labels [list]
-        foreach result [Query! /anyone/ wishes $page tracks object $id using prompt /prompt/ in frame $slice] {
-            set prompt [dict get $result prompt]
-            set x [expr {[lindex $prompt 0] / $geom(width) * $slice(width)}]
-            set y [expr {[lindex $prompt 1] / $geom(height) * $slice(height)}]
-            lappend points [list $x $y]
-            lappend labels 1
-        }
-        foreach result [Query! /anyone/ wishes $page tracks object $id using antiprompt /prompt/ in frame $slice] {
-            set prompt [dict get $result prompt]
-            set x [expr {[lindex $prompt 0] / $geom(width) * $slice(width)}]
-            set y [expr {[lindex $prompt 1] / $geom(height) * $slice(height)}]
-            lappend points [list $x $y]
-            lappend labels 0
-        }
+        set x [expr {[lindex $prompt 0] / $geom(width) * $slice(width)}]
+        set y [expr {[lindex $prompt 1] / $geom(height) * $slice(height)}]
 
-        if {[lsearch -exact $labels 1] < 0} {
+        foreach object [sam2AddPrompt $slice $sam2Id [list [list $x $y]] [list $label] 0] {
+            lassign $object returnedSam2Id mask
+            if {$returnedSam2Id ne $sam2Id} {
+                continue
+            }
+
+            set maskedSlice [$mtiLib applyMaskToImage $slice $mask]
+            Hold! -on $page -key [list sam2 prompt masked-slice $id $promptKind $prompt] \
+                Claim $page tracks object $id using $promptKind $prompt masked-slice $maskedSlice \
+                -destructor [list $imageLib imageFree $maskedSlice]
             return
         }
-        sam2AddPrompt $slice $sam2Id $points $labels 0
+    }
+    When /someone/ wishes $page tracks object /id/ using prompt /prompt/ in frame /slice/ {
+        addSAM2Prompt $slice $id $prompt 1 prompt
+    }
+    When /someone/ wishes $page tracks object /id/ using antiprompt /prompt/ in frame /slice/ {
+        addSAM2Prompt $slice $id $prompt 0 antiprompt
     }
 
-    When /anyone/ wishes $page tracks object /id/ using prompt /prompt/ in frame /slice/ {
-        addSAM2PromptsInFrame $slice $id
-    }
-    When /anyone/ wishes $page tracks object /id/ using antiprompt /prompt/ in frame /slice/ {
-        addSAM2PromptsInFrame $slice $id
-    }
-
-    When the SAM2 mask-to-image library is /mtiLib/ &\
-         the image library is /imageLib/ &\
-         -serially $page has camera slice /slice/ {
-
+    When -serially $page has camera slice /slice/ {
         set promptResults [Query! /anyone/ wishes $page tracks object /id/ using prompt /prompt/ in frame /frame/]
         lappend promptResults {*}[Query! /anyone/ wishes $page tracks object /id/ using antiprompt /prompt/ in frame /frame/]
         if {[llength $promptResults] == 0} { return }
