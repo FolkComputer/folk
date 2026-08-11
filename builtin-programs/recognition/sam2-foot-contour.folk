@@ -290,10 +290,6 @@ fn circleFromArcContourDiameter {contour circleDiameter} {
 
     set radius [expr {$circleDiameter / 2.0}]
     set halfChord [expr {$chord / 2.0}]
-    if {$halfChord > $radius + 0.000001} {
-        return {}
-    }
-
     set signedArcSide 0
     foreach p $contour {
         lassign $p px py
@@ -306,6 +302,10 @@ fn circleFromArcContourDiameter {contour circleDiameter} {
         return {}
     }
 
+    # A noisy contour can produce an endpoint chord slightly longer than the
+    # known diameter.  There is no exact fixed-radius circle through those two
+    # endpoints; use the limiting solution at the chord midpoint instead of
+    # rejecting the fit and leaving a stale center behind.
     set centerDistanceSquared [expr {$radius * $radius - $halfChord * $halfChord}]
     if {$centerDistanceSquared < 0} {
         set centerDistanceSquared 0
@@ -376,7 +376,8 @@ When the quad library is /ql/ &\
             set objectDiameterM [expr {double($objectDiameterCm) / 100.0}]
             set arcCircle [circleFromArcContourDiameter $footContour $objectDiameterM]
             if {$arcCircle ne {}} {
-                Claim $obj has foot contour arc $arcCircle in $v
+                Hold! -key [list $obj foot contour arc] \
+                    Claim $obj has foot contour arc $arcCircle in $v
             }
         }
     }
@@ -590,3 +591,4 @@ When the png library is /pngLib/ &\
             }]
         }} $v $pngLib]
 }
+
