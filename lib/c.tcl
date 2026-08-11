@@ -55,12 +55,33 @@ fn cstyle {type name} {
         list $type $name
     }
 }
+# Converts something like {int x[10]} to {int[10] x}. That way the array type
+# is moved out of the name and into the type.
 fn typestyle {type name} {
     if {[regexp {([^\[]+)(\[\d*\](\[\d*\])?)$} $name -> basename arraysuffix]} {
         list $type$arraysuffix $basename
     } else {
         list $type $name
     }
+}
+
+# Emits one C statement per Zicl_Value-bearing field in $fields, substituting
+# %V for the field's expression on a struct reached through $structExpr (e.g.
+# "struct_ptr" for a `$type*`). Array fields loop over each element. Only
+# matches a field that is directly `Zicl_Value` or `Zicl_Value[N]` -- like the
+# getter-generation loop in C::struct, this does not look inside a nested
+# struct field's own fields.
+fn foreachZiclValueField {fields structExpr opTemplate} {
+    join [lmap {fieldtype fieldname} $fields {
+        if {$fieldtype eq "Zicl_Value"} {
+            string map [list %V "$structExpr->$fieldname"] $opTemplate
+        } elseif {[regexp {^Zicl_Value\[(\d*)\]$} $fieldtype -> arraylen]} {
+            set stmt [string map [list %V "$structExpr->$fieldname\[i\]"] $opTemplate]
+            subst {for (int i = 0; i < $arraylen; i++) { $stmt }}
+        } else {
+            continue
+        }
+    }] "\n"
 }
 
 set C {
@@ -78,20 +99,20 @@ set C {
         #include "tracy/TracyC.h"
         #endif
 
-        extern __thread Jim_Interp* interp;
+        extern __thread Zicl_Interp* interp;
         extern __thread jmp_buf __onError;
         extern __thread bool __onErrorIsSet;
 
-        #define __ENSURE(EXPR) if (!(EXPR)) { Jim_SetResultFormatted(interp, "failed to convert argument from Tcl to C in: " #EXPR); longjmp(__onError, 0); }
-        #define __ENSURE_OK(EXPR) if ((EXPR) != JIM_OK) { longjmp(__onError, 0); }
+        #define __ENSURE(EXPR) if (!(EXPR)) { Zicl_SetErrorString(interp, "failed to convert argument from Tcl to C in: " #EXPR, -1); longjmp(__onError, 0); }
+        #define __ENSURE_OK(EXPR) if ((EXPR) != ZICL_OK) { longjmp(__onError, 0); }
 
         #define FOLK_ERROR(...) do { \
             char __msg[1024]; snprintf(__msg, 1024, ##__VA_ARGS__); \
-            Jim_SetResultString(interp, __msg, -1); \
+            Zicl_SetErrorString(interp, __msg, -1); \
             longjmp(__onError, 0); \
           } while (0)
         #define FOLK_ABORT() longjmp(__onError, 0)
-        #define FOLK_ENSURE(EXPR) if (!(EXPR)) { Jim_SetResultString(interp, "assertion failed: " #EXPR, -1); longjmp(__onError, 0); }
+        #define FOLK_ENSURE(EXPR) if (!(EXPR)) { Zicl_SetErrorString(interp, "assertion failed: " #EXPR, -1); longjmp(__onError, 0); }
         #define FOLK_CHECK(EXPR, MSG) if (!(EXPR)) { FOLK_ERROR(MSG); }
     }
     code {}
@@ -129,6 +150,7 @@ set C {
         uint64_t { identity { uint64_t $argname; __ENSURE(sscanf(ziclShimString($shim), "%" PRIu64, &$argname) == 1); }}
         char* { identity { char* $argname = (char*) ziclShimString($shim); } }
         Zicl_Value { identity { Zicl_Value $argname = Zicl_Current($shim); }}
+        Zicl_Shimmerable* { identity { Zicl_Shimmerable* $argname = $shim; }}
         default {
             if {[string index $argtype end] == "*"} {
                 set basetype [string range $argtype 0 end-1]
@@ -195,7 +217,7 @@ set C {
         Zicl_Value { identity { $robj = $rvalue; }}
         default {
             if {[string index $rtype end] eq "*"} {
-                identity { $robj = ziclValuePrintf("($rtype) 0x%" PRIxPTR, (uintptr_t) $rvalue); }
+                identity { folkZiclAssert(Zicl_NewStringFormatted(&$robj, "($rtype) 0x%" PRIxPTR, (uintptr_t) $rvalue));  }
             } elseif {[regexp {(^[^\[]+)\[(\d*)\]$} $rtype -> basetype arraylen]} {
                 if {$basetype eq "char"} { identity {
                     $robj = ziclValuePrintf($rvalue);
@@ -275,7 +297,7 @@ method C::addcode {self newcode} {
             $newcode
         }]
     }
-    lappend code $newcode :noextend
+    lappend self::code $newcode :noextend
     list
 }
 
@@ -341,17 +363,21 @@ method C::struct {self type fields} {
         struct $type {$fields};
     }] :extend
 
+    # Remove any C comments.
     regsub -all -line {/\*.*?\*/} $fields "" fields
     regsub -all -line {//.*$} $fields "" fields
     if {[regsub -all {\s_Atomic\s} $fields " " fields] > 0} {
         puts stderr "C struct $type: Warning: Will ignore _Atomic for getters and setters"
     }
+    # By removing comments, and now semicolons, `fields` becomes a list
+    # of alternating field type and field name.
     set fields [string map {";" ""} $fields]
 
     set fieldnames [list]
     for {set i 0} {$i < [llength $fields]} {incr i 2} {
         set fieldtype [lindex $fields $i]
         set fieldname [lindex $fields $i+1]
+        # Canonicalize type.
         lassign [typestyle $fieldtype $fieldname] fieldtype fieldname
         lappend fieldnames $fieldname
         lset fields $i $fieldtype
@@ -359,124 +385,202 @@ method C::struct {self type fields} {
     }
 
     self::include <string.h>
-    # ptrAndLongRep.value = 1 means the data is owned by
-    # the Jim_ObjType and should be freed by this
-    # code. value = 0 means the data is owned externally
-    # (by someone else like the statement store).
     dict set objtypes $type [csubst {
-        $[join [lmap fieldname $fieldnames { subst {
-            __thread Zicl_Value k__${type}__${fieldname} = NULL;
-        } }] "\n"]
-        Jim_ObjType* $[set type]_ObjType;
+        Zicl_ObjectVTable* $[set type]_ObjectVTable;
 
-        void $[set type]_freeIntRepProc(Jim_Interp* interp, Zicl_Value objPtr) {
-            if (objPtr->internalRep.ptrIntValue.int1 == 1) {
-                free((char*)objPtr->internalRep.ptrIntValue.ptr);
+        void $[set type]_freeIntRepProc(Zicl_Object* objPtr) {
+            $type* struct_ptr = NULL;
+            if (sizeof($type) > ZICL_OBJECT_BODY_MAX_SIZE) {
+                struct_ptr = *(($type**)&objPtr->body_backing);
+            } else {
+                struct_ptr = ($type*)&objPtr->body_backing;
+            }
+
+            $[foreachZiclValueField $fields "struct_ptr" {Zicl_Release(%V);}]
+
+            if (sizeof($type) > ZICL_OBJECT_BODY_MAX_SIZE) {
+                // The body is a pointer to the struct we allocated, since it was
+                // too big to fit into the backing.
+                free(struct_ptr);
             }
         }
-        void $[set type]_dupIntRepProc(Jim_Interp* interp, Zicl_Value srcPtr, Zicl_Value dupPtr) {
-            dupPtr->internalRep.ptrIntValue.ptr = malloc(sizeof($type));
-            dupPtr->internalRep.ptrIntValue.int1 = 1;
-            memcpy(dupPtr->internalRep.ptrIntValue.ptr, srcPtr->internalRep.ptrIntValue.ptr, sizeof($type));
+        Zicl_Object* $[set type]_dupIntRepProc(const Zicl_Object* srcPtr) {
+            $type* allocated_struct = NULL;
+            size_t struct_size = sizeof($type);
+            // If the struct size is larger than what Zicl allows to be in the object
+            // body, we allocate the struct separately.
+            if (sizeof($type) > ZICL_OBJECT_BODY_MAX_SIZE) {
+                allocated_struct = malloc(sizeof($type));
+                struct_size = sizeof($type*);
+            }
+
+            uint8_t* body = NULL;
+            Zicl_Object* new_object = Zicl_NewObject($[set type]_ObjectVTable, struct_size, &body);
+
+            $type* dest_struct;
+            if (sizeof($type) > ZICL_OBJECT_BODY_MAX_SIZE) {
+                $type* src_struct = *(($type**)&srcPtr->body_backing);
+                memcpy(allocated_struct, src_struct, sizeof($type));
+                *(($type**)body) = allocated_struct;
+                dest_struct = allocated_struct;
+            } else {
+                *(($type*)body) = *(($type*)&srcPtr->body_backing);
+                dest_struct = ($type*)body;
+            }
+
+            $[foreachZiclValueField $fields "dest_struct" {%V = Zicl_Borrow(%V);}]
+
+            return new_object;
         }
-        void $[set type]_updateStringProc(Zicl_Value objPtr) {
-            $[set type] *robj = ($[set type] *) objPtr->internalRep.ptrIntValue.ptr;
+        void $[set type]_makeCrossthreadProc(Zicl_Object* objPtr) {
+            $type* struct_ptr = NULL;
+            if (sizeof($type) > ZICL_OBJECT_BODY_MAX_SIZE) {
+                struct_ptr = *(($type**)&objPtr->body_backing);
+            } else {
+                struct_ptr = ($type*)&objPtr->body_backing;
+            }
+
+            $[foreachZiclValueField $fields "struct_ptr" {Zicl_MakeCrossthread(%V);}]
+        }
+        int $[set type]_updateStringProc(Zicl_Object* objPtr) {
+            $type* struct_ptr = NULL;
+            if (sizeof($type) > ZICL_OBJECT_BODY_MAX_SIZE) {
+                struct_ptr = *(($type**)&objPtr->body_backing);
+            } else {
+                struct_ptr = ($type*)&objPtr->body_backing;
+            }
 
             const char *format = "$[join [lmap fieldname $fieldnames {
                 subst {$fieldname {%s}}
                 }] { }]";
             $[join [lmap {fieldtype fieldname} $fields {
                 csubst {
-                    Zicl_Value robj_$fieldname;
-                    $[self::ret $fieldtype robj_$fieldname robj->$fieldname]
+                    Zicl_Value struct_$fieldname;
+                    $[self::ret $fieldtype struct_$fieldname struct_ptr->$fieldname]
                 }
             }] "\n"]
-            objPtr->length = snprintf(NULL, 0, format, $[join [lmap fieldname $fieldnames {subst {Jim_String(robj_$fieldname)}}] ", "]);
-            objPtr->bytes = (char *) Jim_Alloc(objPtr->length + 1);
-            snprintf(objPtr->bytes, objPtr->length + 1, format, $[join [lmap fieldname $fieldnames {subst {Jim_String(robj_$fieldname)}}] ", "]);
+            // Calculate the length first, so we can allocate the right number of bytes.
+            size_t bytes_len = snprintf(NULL, 0, format, $[join [lmap fieldname $fieldnames {subst {ziclString(struct_$fieldname)}}] ", "]);
+            char* bytes = malloc(bytes_len + 1);
+            defer { free(bytes); }
+            snprintf(bytes, bytes_len + 1, format, $[join [lmap fieldname $fieldnames {subst {ziclString(struct_$fieldname)}}] ", "]);
+            folkZiclAssert(Zicl_SetObjectString(objPtr, bytes, bytes_len));
+            $[join [lmap {fieldtype fieldname} $fields {
+                subst {Zicl_Release(struct_$fieldname);}
+            }] "\n"]
+            return ZICL_OK;
+        }
+        int $[set type]_shimmerFrom(Zicl_Interp *interp, Zicl_Shimmerable* shim, $type** out) {
+            void* body = Zicl_AsObject(Zicl_Current(shim), $[set type]_ObjectVTable);
+            if (body) {
+                *out = (sizeof($type) > ZICL_OBJECT_BODY_MAX_SIZE) ? *($type**)body : ($type*)body;
+                return ZICL_OK;
+            }
+
+            $type robj;
             $[join [lmap {fieldtype fieldname} $fields {
                 csubst {
-                    Jim_FreeNewObj(interp, robj_$fieldname);
-                }
-            }] "\n"]
-        }
-        int $[set type]_setFromAnyProc(Jim_Interp *interp, Zicl_Value objPtr) {
-            if (objPtr->typePtr == $[set type]_ObjType) { return JIM_OK; }
-
-            $[set type] *robj = ($[set type] *)malloc(sizeof($[set type]));
-            $[join [lmap {fieldtype fieldname} $fields {
-                csubst {
-                    Zicl_Value obj_$fieldname;
-                    if (k__$[set type]__$fieldname == NULL) {
-                        k__${type}__${fieldname} = Jim_NewStringObj(interp, "$fieldname", -1);
-                        Jim_IncrRefCount(k__${type}__${fieldname});
-                    }
-                    __ENSURE_OK(Jim_DictKey(interp, objPtr, k__$[set type]__$fieldname, &obj_$fieldname, JIM_ERRMSG));
-
-                    $[self::arg $fieldtype robj_$fieldname obj_${fieldname}]
-                    memcpy(&robj->$fieldname, &robj_$fieldname, sizeof(robj->$fieldname));
+                    Zicl_OptionalValue obj_$fieldname;
+                    __ENSURE_OK(Zicl_ShimDictGet(interp, shim, Zicl_InternStr("$fieldname"), &obj_$fieldname));
+                    __ENSURE(Zicl_IsSome(obj_$fieldname));
+                    Zicl_Shimmerable shim_$fieldname = Zicl_NewShimmerable(Zicl_Unwrap(obj_$fieldname));
+                    defer { Zicl_ShimDiscardChanges(&shim_$fieldname); }
+                    $[self::arg $fieldtype robj_$fieldname "&shim_$fieldname"]
+                    robj.$fieldname = robj_$fieldname;
                 }
             }] "\n"]
 
-            Jim_FreeIntRep(interp, objPtr);
-            objPtr->typePtr = $[set type]_ObjType;
-            objPtr->internalRep.ptrIntValue.ptr = robj;
-            objPtr->internalRep.ptrIntValue.int1 = 1;
-            return JIM_OK;
+            void* new_body = Zicl_PrepareToShimmer(shim, $[set type]_ObjectVTable);
+            if (sizeof($type) > ZICL_OBJECT_BODY_MAX_SIZE) {
+                $type* allocated_struct = malloc(sizeof($type));
+                memcpy(allocated_struct, &robj, sizeof($type));
+                *(($type**)new_body) = allocated_struct;
+                *out = allocated_struct;
+            } else {
+                memcpy(new_body, &robj, sizeof($type));
+                *out = ($type*)new_body;
+            }
+
+            return ZICL_OK;
         }
 
-        void $[set type]_init(Jim_Interp* interp, const char* cid) {
-            $[set type]_ObjType = malloc(sizeof(Jim_ObjType));
-            *$[set type]_ObjType = (Jim_ObjType) {
+        /* Returns a list of addresses for all the vtable functions. */
+        Zicl_Dict* $[set type]_init(Zicl_Interp* interp, const char* cid) {
+            $[set type]_ObjectVTable = malloc(sizeof(Zicl_ObjectVTable));
+            *$[set type]_ObjectVTable = (Zicl_ObjectVTable) {
+                .is_c_vtable = true,
                 .name = "$type",
-                .freeIntRepProc = $[set type]_freeIntRepProc,
-                .dupIntRepProc = $[set type]_dupIntRepProc,
-                .updateStringProc = $[set type]_updateStringProc
-                // .setFromAnyProc = $[set type]_setFromAnyProc
+                .duplicate = $[set type]_dupIntRepProc,
+                .free_internal_rep = $[set type]_freeIntRepProc,
+                .update_string = $[set type]_updateStringProc,
+                .make_crossthread = $[set type]_makeCrossthreadProc,
+                .enumerate_struct = NULL
+                // .shimmerFrom = $[set type]_shimmerFrom
             };
 
-            char script[1000];
-            snprintf(script, 1000,
-                     "dict set {::<C:%s> __addrs} $[set type]_setFromAnyProc %p\n"
-                     "dict set {::<C:%s> __addrs} $[set type]_ObjType %p",
-                     cid, &$[set type]_setFromAnyProc,
-                     cid, $[set type]_ObjType);
-            Jim_Eval(interp, script);
+            Zicl_Dict* addresses = Zicl_NewDict(NULL, 0);
+
+            Zicl_Value shimmer_from_ptr; folkZiclAssert(Zicl_NewStringFormatted(&shimmer_from_ptr, "%p", &$[set type]_shimmerFrom));
+            defer { Zicl_Release(shimmer_from_ptr); }
+            Zicl_Value object_vtable_ptr; folkZiclAssert(Zicl_NewStringFormatted(&object_vtable_ptr, "%p", $[set type]_ObjectVTable));
+            defer { Zicl_Release(object_vtable_ptr); }
+
+            ziclDictPut(addresses, Zicl_InternStr("$[set type]_shimmerFrom"), shimmer_from_ptr);
+            ziclDictPut(addresses, Zicl_InternStr("$[set type]_ObjectVTable"), object_vtable_ptr);
+
+            return addresses;
         }
     }]
 
     self::argtype $type [csubst {
-        __ENSURE_OK($[set type]_setFromAnyProc(interp, \$obj));
-        \$argtype \$argname;
-        \$argname = *(($type *)\$obj->internalRep.ptrIntValue.ptr);
+        $type \$argname;
+        {
+            $type* struct_ptr;
+            __ENSURE_OK($[set type]_shimmerFrom(interp, \$shim, &struct_ptr));
+            \$argname = *struct_ptr;
+        }
     }]
 
-    self::rtype $type {
-        $robj = Jim_NewObj(interp);
-        $robj->bytes = NULL;
-        $robj->typePtr = $[set rtype]_ObjType;
-        $robj->internalRep.ptrIntValue.ptr = malloc(sizeof($[set rtype]));
-        $robj->internalRep.ptrIntValue.int1 = 1;
-        memcpy($robj->internalRep.ptrIntValue.ptr, &$rvalue, sizeof($[set rtype]));
-    }
+    self::rtype $type [csubst {
+        {
+            size_t struct_size = sizeof($type);
+            if (sizeof($type) > ZICL_OBJECT_BODY_MAX_SIZE) { struct_size = sizeof($type*); }
+
+            void* body = NULL;
+            Zicl_Object* obj = Zicl_NewObject($[set type]_ObjectVTable, struct_size, &body);
+
+            $type* dest_struct;
+            if (sizeof($type) > ZICL_OBJECT_BODY_MAX_SIZE) {
+                dest_struct = malloc(sizeof($type));
+                *(($type**)body) = dest_struct;
+            } else {
+                dest_struct = ($type*)body;
+            }
+            *dest_struct = \$rvalue;
+
+            $[foreachZiclValueField $fields {dest_struct} {%V = Zicl_Borrow(%V);}]
+
+            \$robj = Zicl_BoxObject(obj);
+        }
+    }]
 
     # Generate Tcl getter functions for each field:
-    set ns [uplevel {namespace current}]::$type
-    namespace eval $ns {}
     foreach {fieldtype fieldname} $fields {
         try {
             if {$fieldtype ne "Zicl_Value" &&
                 [regexp {(^[^\[]+)(?:\[(\d*)\]|\*)(?:\[(\d+)\])?$} $fieldtype -> basefieldtype arraylen arraylen2]} {
                 if {$basefieldtype eq "char"} {
-                    self::proc ${type}_$fieldname {Jim_Interp* interp Zicl_Value obj} char* {
-                        __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
-                        return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname;
+                    self::proc ${type}_$fieldname {Zicl_Interp* interp Zicl_Shimmerable* shim} char* {
+                        $type* struct_ptr;
+                        __ENSURE_OK($[set type]_shimmerFrom(interp, shim, &struct_ptr));
+                        return struct_ptr->$fieldname;
                     }
                 } else {
                     if {$arraylen2 eq ""} {
-                        self::proc ${type}_${fieldname}_ptr {Jim_Interp* interp Zicl_Value obj} $basefieldtype* {
-                            __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
-                            return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname;
+                        self::proc ${type}_${fieldname}_ptr {Zicl_Interp* interp Zicl_Shimmerable* shim} $basefieldtype* {
+                            $type* struct_ptr;
+                            __ENSURE_OK($[set type]_shimmerFrom(interp, shim, &struct_ptr));
+                            return struct_ptr->$fieldname;
                         }
                         set elementtype $basefieldtype
                     } else {
@@ -484,24 +588,34 @@ method C::struct {self type fields} {
                     }
                     # If fieldtype is a pointer or an array,
                     # then make a getter that takes an index.
-                    self::proc ${type}_$fieldname {Jim_Interp* interp Zicl_Value obj int idx} $elementtype {
-                        __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
-                        return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname[idx];
+                    self::proc ${type}_$fieldname {Zicl_Interp* interp Zicl_Shimmerable* shim int idx} $elementtype {
+                        $type* struct_ptr;
+                        __ENSURE_OK($[set type]_shimmerFrom(interp, shim, &struct_ptr));
+                        return struct_ptr->$fieldname[idx];
                     }
                 }
+            } elseif {$fieldtype eq "Zicl_Value"} {
+                # The field is itself a Zicl_Value living inside the struct, so
+                # borrow it before returning: it may point into a shimmered
+                # duplicate whose lifetime we don't own (see argtypes.Zicl_Value),
+                # and self::ret's Zicl_Value conversion is a bare alias that
+                # expects an already-owned reference, same as elsewhere in this
+                # codebase (e.g. folk.c's `Zicl_Borrow(bTerms[i])`).
+                self::proc ${type}_$fieldname {Zicl_Interp* interp Zicl_Shimmerable* shim} $fieldtype {
+                    $type* struct_ptr;
+                    __ENSURE_OK($[set type]_shimmerFrom(interp, shim, &struct_ptr));
+                    return Zicl_Borrow(struct_ptr->$fieldname);
+                }
             } else {
-                self::proc ${type}_$fieldname {Jim_Interp* interp Zicl_Value obj} $fieldtype {
-                    __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
-                    return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname;
+                self::proc ${type}_$fieldname {Zicl_Interp* interp Zicl_Shimmerable* shim} $fieldtype {
+                    $type* struct_ptr;
+                    __ENSURE_OK($[set type]_shimmerFrom(interp, shim, &struct_ptr));
+                    return struct_ptr->$fieldname;
                 }
             }
         } on error e {
             puts stderr "Warning: Unable to generate getter for `$type $fieldname`: $e"
         }
-    }
-    namespace eval $ns {
-        namespace export *
-        namespace ensemble create
     }
 }
 
@@ -520,7 +634,7 @@ method C::proc {self name arguments rtype body} {
 
         if {$argtype eq "Zicl_Interp*" && $argname eq "interp"} { continue }
 
-        set obj [subst {objv\[1 + [llength $loadargs]\]}]
+        set obj [subst {(&argv\[1 + [llength $loadargs]\])}]
         set res [typestyle $argtype $argname]
         lappend loadargs [self::arg {*}$res $obj]
     }
@@ -532,7 +646,7 @@ method C::proc {self name arguments rtype body} {
     } else {
         set saverv [subst {
             $decayedRtype rvalue = $cname ([join $argnames ", "]);
-            Zicl_Value* robj;
+            Zicl_Value robj;
             [self::ret $rtype robj rvalue]
             Zicl_SetResultOwning(interp, robj);
         }]
@@ -549,10 +663,10 @@ method C::proc {self name arguments rtype body} {
             $body
         }
 
-        static int [set cname]_Cmd(Zicl_Interp* interp, int objc, Zicl_Value* objv\[\]) {
-            if (objc != 1 + [llength $loadargs]) {
+        static int [set cname]_Cmd(Zicl_Interp* interp, int argc, Zicl_Shimmerable *argv) {
+            if (argc != 1 + [llength $loadargs]) {
                 Zicl_SetResultString(interp, "Wrong number of arguments to $name", -1);
-                return JIM_ERR;
+                return ZICL_ERR;
             }
             bool didSetOnError = false;
             if (!__onErrorIsSet) {
@@ -562,7 +676,7 @@ method C::proc {self name arguments rtype body} {
 
                 if (__r != 0) {
                     __onErrorIsSet = false;
-                    return JIM_ERR;
+                    return ZICL_ERR;
                 }
             }
 
@@ -572,7 +686,7 @@ method C::proc {self name arguments rtype body} {
             if (didSetOnError) {
                 __onErrorIsSet = false;
             }
-            return JIM_OK;
+            return ZICL_OK;
         }
     }]
 }
@@ -598,76 +712,39 @@ method C::compile {self args} {
         set cid [file rootname [file tail $cfile]]
     }
 
+    set nProcs [llength [dict keys $self::procs]]
+    if {$nProcs == 0} { set nProcs 1 }
+
     set init [subst {
-        #include <string.h>
-
-        #ifdef __cplusplus
-        \}
-        #include <atomic>
-        static std::atomic<const char*> __cInfo(nullptr);
-        extern "C" \{
-        #else
-        static const char* _Atomic __cInfo = NULL;
-        #endif
-
-        static int __setCInfo_Cmd(Zicl_Interp *interp, int objc, Zicl_Shimmerable *const objv\[\]) {
-            if (__cInfo != NULL || objc != 2) { return ZICL_USAGE; }
-            const char* cInfo = Zicl_ShimString(objv\[1\]);
-            if (cInfo == NULL) { return ZICL_OOM; }
-            __cInfo = strdup(cInfo);
-            return ZICL_OK;
-        }
-        static __thread Zicl_Value __cInfoValue = NULL;
-        static int __getCInfo_Cmd(Jim_Interp* interp, int objc, Zicl_Shimmerable *const objv\[\]) {
-            if (__cInfo == NULL || objc != 1) { return ZICL_USAGE; }
-            if (__cInfoValue == NULL) {
-                __cInfoValue = folkNewString(__cInfo, -1);
-            }
-            Jim_SetResult(interp, __cInfoValue);
-            return JIM_OK;
-        }
-
-        int Jim_${cid}Init(Jim_Interp* intp) {
-            interp = intp;
+        static void ${cid}_register(void* intp_raw) {
+            interp = (Zicl_Interp*) intp_raw;
 
             [join [lmap srcid $self::extends {
-                subst {Jim_${srcid}Init(interp);}
-            }] "\n"]
-
-            Jim_CreateCommand(interp, "<C:$cid> __setCInfo", __setCInfo_Cmd, NULL, NULL);
-            Jim_CreateCommand(interp, "<C:$cid> __getCInfo", __getCInfo_Cmd, NULL, NULL);
-
-            [join [lmap varname [dict keys $self::vars] {
-                csubst {{
-                    char script[1000];
-                    snprintf(script, 1000, "dict set {::<C:$cid> __addrs} ${varname}_ptr %p", &${varname}_ptr);
-                    Jim_Eval(interp, script);
-                }}
+                subst {${srcid}_register(interp);}
             }] "\n"]
 
             [join [lmap name [dict keys $self::procs] {
                 set cname [string map {":" "_" "!" "_"} $name]
-                set tclname $name
-                # puts "Creating C command: $tclname"
-                csubst {{
-                    char script[1000];
-                    snprintf(script, 1000, "dict set {::<C:$cid> __addrs} $cname %p", $cname);
-                    Jim_Eval(interp, script);
+                subst {Zicl_CreateCommand(interp, "${cid}::${name}", ${cname}_Cmd, "", 0, -1);}
+            }] "\n"]
+        }
 
-                    Jim_CreateCommand(interp, "<C:$cid> $tclname", $[set cname]_Cmd, NULL, NULL);
-                }}
+        Zicl_Dict* Zicl_${cid}Init(Zicl_Interp* intp) {
+            Zicl_Value __pairs\[$nProcs * 2\];
+            int __n = 0;
+
+            [join [lmap name [dict keys $self::procs] {
+                subst {
+                    if (Zicl_RegisterLazyFn("${cid}::${name}", "${cid}", ${cid}_register) != ZICL_OK) {
+                        Zicl_SetErrorString(intp, "failed to register ${cid}::${name}", -1);
+                        return NULL;
+                    }
+                    __pairs\[__n++\] = ziclNewString("${name}", -1);
+                    __pairs\[__n++\] = ziclNewString("${cid}::${name}", -1);
+                }
             }] "\n"]
 
-            {
-                char script\[1000\];
-                snprintf(script, 1000, "dict set {::<C:$cid> __addrs} Jim_${cid}Init %p", Jim_${cid}Init);
-                Jim_Eval(interp, script);
-            }
-
-            [join [lmap type [dict keys $self::objtypes] { subst {
-                ${type}_init(interp, "$cid");
-            } }] "\n"]
-            return JIM_OK;
+            return ziclNewDict(__pairs, __n);
         }
     }]
     set externC [subst {
@@ -709,12 +786,6 @@ extern "C" \{
     if {[info exists env::ASAN_ENABLE] && $env::ASAN_ENABLE != ""} {
         set asan_flags "-fsanitize=address -fsanitize-recover=address"
     }
-    puts [list [list $self::compiler {*}$asan_flags -Wall \
-                        {*}$($tcl_platform::os eq "linux" ? [list -Wno-alloc-size-larger-than] : [list]) \
-                        -U_FORTIFY_SOURCE -O2 -march=native -g \
-                        -fno-omit-frame-pointer -fPIC \
-                        {*}$self::cflags $cfile -c -o [file rootname $cfile].o]]
-    puts "\n"
     set out [exec [list $self::compiler {*}$asan_flags -Wall \
                         {*}$($tcl_platform::os eq "linux" ? [list -Wno-alloc-size-larger-than] : [list]) \
                         -U_FORTIFY_SOURCE -O2 -march=native -g \
@@ -732,9 +803,9 @@ extern "C" \{
         if {$n > 1000} { error "Failed on $cfile! Timed out" }
     }
 
-    exec $self::compiler {*}$asan_flags -shared $ignoreUnresolved \
+    exec [list $self::compiler {*}$asan_flags -shared $ignoreUnresolved \
         -O2 -o /tmp/$cid.so [file rootname $cfile].o \
-        {*}$self::endcflags
+        {*}$self::endcflags]
 
     # HACK: Why do we need this / only when running in lldb?
     set n 0
@@ -749,18 +820,14 @@ extern "C" \{
         return /tmp/$cid.so
     }
 
-    set cInfo [dict create]
-    foreach varName [self::vars] {
-        dict set cInfo $varName [self::get $varName]
-    }
-    
-    # Load the compiled module immediately so we can set its C info.
-    <C:$cid>
-    <C:$cid> __setCInfo $cInfo
-
-    return <C:$cid>
+    return [load /tmp/$cid.so]
 }
 
+# STALE: relies on `__getCInfo`/`__addrs`, which `C::compile` no longer
+# generates now that a library is a plain dict (see `load`). Nothing in the
+# current tree calls `C::import`/`C::extend`; porting them means deciding how
+# cross-compilation-unit direct-calling should work against the new dict
+# shape, not a mechanical fix.
 method C::import {self srclib srcname {_as {}} {destname {}}} {
     if {$destname eq ""} { set destname $srcname }
 
@@ -814,9 +881,9 @@ method C::extend {self args} {
     }
 
     regexp {<C:([^ ]+)>} $srclib -> srcid
-    set addr [dict get $srcaddrs Jim_${srcid}Init]
-    self::addcode "int (*Jim_${srcid}Init)(Jim_Interp* intp) =
-                     (int (*)(Jim_Interp* intp)) $addr;"
+    set addr [dict get $srcaddrs Zicl_${srcid}Init]
+    self::addcode "int (*Zicl_${srcid}Init)(Zicl_Interp* intp) =
+                     (int (*)(Zicl_Interp* intp)) $addr;"
 
     lappend extends $srcid
 }

@@ -20,7 +20,7 @@
 
 static inline void folkZiclAssert(int rc) {
     if (rc != 0) {
-        fprintf(stderr, "folk: could not allocate %s (zicl status %d)\n", rc);
+        fprintf(stderr, "folk: failed to perform operation (zicl status %d)\n", rc);
         abort();
     }
 }
@@ -70,23 +70,15 @@ static inline Zicl_Value ziclNewString(const char *ptr, int len) {
     return folkZiclCheck(rc, out);
 }
 
-static inline Zicl_Value ziclValuePrintf(const char* format, ...) {
-    va_list args;
-    va_start(args, format);
-    char buf[10000]; vsnprintf(buf, 10000, format, args);
-    va_end(args);
-    return ziclNewString(buf, -1);
-}
-
 static inline Zicl_List *ziclNewList(const Zicl_Value *values, int n_values) {
     Zicl_List *list = Zicl_NewList(values, n_values);
-    folkZiclAssert(list == NULL ? ZICL_OOM : ZICL_OK);
+    if (list == NULL) folkZiclAssert(ZICL_OOM);
     return list;
 }
 
 static inline Zicl_List *ziclNewListFromShimmerables(Zicl_Shimmerable *values, int n_values) {
     Zicl_List *list = Zicl_NewListFromShimmerables(values, n_values);
-    folkZiclAssert(list == NULL ? ZICL_OOM : ZICL_OK);
+    if (list == NULL) folkZiclAssert(ZICL_OOM);
     return list;
 }
 
@@ -96,7 +88,7 @@ static inline void ziclListAppend(Zicl_List *list, Zicl_Value item) {
 
 static inline Zicl_Dict *ziclNewDict(Zicl_Value *values, int n_values) {
     Zicl_Dict *dict = Zicl_NewDict(values, n_values);
-    folkZiclAssert(dict == NULL ? ZICL_OOM : ZICL_OK);
+    if (dict == NULL) folkZiclAssert(ZICL_OOM);
     return dict;
 }
 

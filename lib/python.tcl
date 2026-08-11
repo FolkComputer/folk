@@ -23,7 +23,7 @@ cc::proc sockConnect {char* path} int {
         close(fd);
         usleep(1000000);
     }
-    Jim_SetResultString(interp, "sockConnect: failed to connect", -1);
+    Zicl_SetResultString(interp, "sockConnect: failed to connect", -1);
     return -1;
 }
 
@@ -37,14 +37,14 @@ cc::proc sockSendStr {int fd char* data} void {
 #pragma GCC diagnostic pop
 }
 
-cc::proc sockRecvMulti {int fd} Jim_Obj* {
-    Jim_Obj *result = Jim_NewListObj(interp, NULL, 0);
+cc::proc sockRecvMulti {int fd} Zicl_Value {
+    Zicl_List* result = ziclNewList(NULL, 0);
     while (1) {
         uint32_t len = 0;
         int got = 0;
         while (got < 4) {
             int n = read(fd, ((char*)&len) + got, 4 - got);
-            if (n <= 0) return result;
+            if (n <= 0) return Zicl_BoxList(result);
             got += n;
         }
         if (len == 0) break;
@@ -52,14 +52,14 @@ cc::proc sockRecvMulti {int fd} Jim_Obj* {
         got = 0;
         while ((uint32_t)got < len) {
             int n = read(fd, buf + got, len - got);
-            if (n <= 0) { free(buf); return result; }
+            if (n <= 0) { free(buf); return Zicl_BoxList(result); }
             got += n;
         }
         buf[len] = '\0';
-        Jim_ListAppendElement(interp, result, Jim_NewStringObj(interp, buf, len));
+        ziclListAppend(result, ziclNewString(buf, len));
         free(buf);
     }
-    return result;
+    return Zicl_BoxList(result);
 }
 
 # These need to be maintained in C so that they can be written and
@@ -165,7 +165,7 @@ cc::proc setRegisteredArgtypes {char* endpoint char* value} void {
 
 set impl [cc::compile]
 
-proc Uvx args {impl UVX} {
+fn Uvx args {
     set endpoint "/tmp/uvx-[clock milliseconds]-[expr {int(rand() * 100000)}].sock"
 
     set harnessCode [subst -nocommands -nobackslashes {

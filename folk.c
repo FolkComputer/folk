@@ -1492,6 +1492,9 @@ void workerInit(int index) {
     TracyCSetThreadName(threadName);
 #endif
 
+    // Needed for Zicl panic messages to show up.
+    installLocalStdoutAndStderr(realStdout, realStderr);
+
     interpBoot();
 }
 void workerExit() {
@@ -1755,7 +1758,7 @@ int main(int argc, char** argv) {
     char *bootFile = argc == 1 ? "boot.folk" : argv[1];
     char code[1024];
     snprintf(code, sizeof(code),
-             "apply {{} {set __envStack [list]; set this {%s}; source {%s}}}",
+             "fn run {} { set this {%s}; source {%s} }; run",
              bootFile, bootFile);
     eval(code);
 
