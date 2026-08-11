@@ -274,8 +274,8 @@ fn downprojectContourToPlane {ql qInCamera contour heightM} {
     return $corrected
 }
 
-fn circleFromArcContourDiameter {contour circleDiameter} {
-    if {[llength $contour] < 3 || $circleDiameter <= 0} {
+fn circleFromArcContourDiameter {contour {circleDiameter {}}} {
+    if {[llength $contour] < 3} {
         return {}
     }
 
@@ -285,6 +285,13 @@ fn circleFromArcContourDiameter {contour circleDiameter} {
     set vy [expr {$by - $ay}]
     set chord [expr {sqrt($vx * $vx + $vy * $vy)}]
     if {$chord < 0.000001} {
+        return {}
+    }
+
+    if {$circleDiameter eq {}} {
+        set circleDiameter $chord
+    }
+    if {$circleDiameter <= 0} {
         return {}
     }
 
@@ -324,14 +331,6 @@ fn circleFromArcContourDiameter {contour circleDiameter} {
     return [list center $center diameter $circleDiameter radius $radius chord $chord sagitta $sagitta]
 }
 
-When /someone/ claims /obj/ has object height /heightCm/ cm in /v/ {
-    Wish $obj has foot contour in $v
-}
-
-When /someone/ claims /obj/ has object diameter /diameterCm/ cm in /v/ {
-    Wish $obj has foot contour in $v
-}
-
 When the quad library is /ql/ &\
      the quad changer is /quadChange/ &\
      the SAM2 foot contour library is /footContourLib/ &\
@@ -358,6 +357,8 @@ When the quad library is /ql/ &\
     set footContour [$footContourLib maskFootContour \
                          $width $height $mask $pp $scaleX $scaleY]
 
+    # With no physical measurements, treat the observed contour as already on
+    # the surface plane and fit a semicircle through its endpoint chord.
     set objectHeightCm 0
     set heightResults [Query! $obj has object height /heightCm/ cm in $v]
     if {[llength $heightResults] > 0} {
@@ -370,15 +371,18 @@ When the quad library is /ql/ &\
 
     if {[llength $footContour] >= 2} {
         Claim $obj has foot contour $footContour in $v
+        # An empty diameter tells circleFromArcContourDiameter to use the
+        # contour's endpoint chord length.
+        set objectDiameterM {}
         set diameterResults [Query! $obj has object diameter /diameterCm/ cm in $v]
         if {[llength $diameterResults] > 0} {
             set objectDiameterCm [dict get [lindex $diameterResults end] diameterCm]
             set objectDiameterM [expr {double($objectDiameterCm) / 100.0}]
-            set arcCircle [circleFromArcContourDiameter $footContour $objectDiameterM]
-            if {$arcCircle ne {}} {
-                Hold! -key [list $obj foot contour arc] \
-                    Claim $obj has foot contour arc $arcCircle in $v
-            }
+        }
+        set arcCircle [circleFromArcContourDiameter $footContour $objectDiameterM]
+        if {$arcCircle ne {}} {
+            Hold! -key [list $obj foot contour arc] \
+                Claim $obj has foot contour arc $arcCircle in $v
         }
     }
 }
@@ -591,4 +595,3 @@ When the png library is /pngLib/ &\
             }]
         }} $v $pngLib]
 }
-
