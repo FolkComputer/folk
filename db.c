@@ -236,6 +236,7 @@ typedef struct Match {
     // Will be NULL if not running in an Atomically
     // convergence-tracking subgraph.
     AtomicallyVersion* _Atomic atomicallyVersion;
+    _Atomic bool isAtomicallyRootMatch;
     // Set to true if ANY parent statement was removed but we kept the
     // Match alive.
     _Atomic bool parentWasRemoved;
@@ -784,6 +785,7 @@ static MatchRef matchNew(Db* db,
     pthread_mutexattr_destroy(&mta);
 
     match->atomicallyVersion = atomicallyVersion;
+    match->isAtomicallyRootMatch = false;
     match->workerThreadIndex = workerThreadIndex;
     match->isCompleted = false;
 
@@ -841,15 +843,20 @@ extern ThreadControlBlock threads[];
 extern void traceItem(char* buf, size_t bufsz, WorkQueueItem item);
 void matchRemoveSelf(Db* db, Match* match) {
     /* assert(match > &db->matchPool[0] && match < &db->matchPool[65536]); */
-    if (match->atomicallyVersion != NULL &&
-        match->atomicallyVersion->rootMatch == match &&
-        ((match->atomicallyVersion->atomically->latestConvergedVersion == NULL) ||
-         match->atomicallyVersion->number >=
-         match->atomicallyVersion->atomically->latestConvergedVersion->number)) {
-        // Skip this removal; this is a root match owned by an
-        // AtomicallyVersion; leave it to the atomically reaper.
+    if (match->isAtomicallyRootMatch &&
+        atomic_load(&match->atomicallyVersion) != NULL) {
+        // The AtomicallyVersion owns this root until the reaper clears
+        // atomicallyVersion. Don't dereference it here: the reaper may be
+        // freeing it concurrently.
         match->parentWasRemoved = true;
-        return;
+        if (atomic_load(&match->atomicallyVersion) != NULL) {
+            return;
+        }
+        // The reaper cleared the pin between our two loads. Exactly one of
+        // us must claim removal.
+        if (!atomic_exchange(&match->parentWasRemoved, false)) {
+            return;
+        }
     }
 
     // Walk through each child statement and remove this match as a
@@ -1005,6 +1012,7 @@ AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key,
     atomicallyVersion->inflightCount = 1;
     atomicallyVersion->rootMatch = matchAcquire(db, rootMatchRef);
     assert(atomicallyVersion->rootMatch != NULL);
+    atomicallyVersion->rootMatch->isAtomicallyRootMatch = true;
 
     // Add this version to atomically->allVersions list
     AtomicallyVersionList* newNode = malloc(sizeof(AtomicallyVersionList));
@@ -1046,7 +1054,8 @@ static void dbAtomicallyReapAllVersions(Db* db, Atomically* atomically,
             Match* rootMatch = x->version->rootMatch;
             x->version->rootMatch = NULL;
             if (rootMatch != NULL) {
-                if (rootMatch->parentWasRemoved) {
+                atomic_store(&rootMatch->atomicallyVersion, NULL);
+                if (atomic_exchange(&rootMatch->parentWasRemoved, false)) {
                     matchRemoveSelf(db, rootMatch);
                 }
                 matchRelease(db, rootMatch);
