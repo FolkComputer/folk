@@ -410,6 +410,10 @@ When the SAM2 mask-to-image library is /mtiLib/ &\
                 set entries [list]
                 foreach id $ids {
                     set imageResults [Query! $id has SAM2 masked image /im/ in $page]
+                    set controlResults [Query! $id has sam2 control /controlHtml/ in $page]
+                    set controls [join [lmap result $controlResults {
+                        dict get $result controlHtml
+                    }] "\n"]
                     set body {<div class="missing">waiting for mask</div>}
 
                     if {[llength $imageResults] > 0} {
@@ -435,20 +439,26 @@ When the SAM2 mask-to-image library is /mtiLib/ &\
                         set body [format {<img src="data:image/png;base64,%s">} $b64]
                     }
 
-                    lappend entries [format {<section><h2>%s</h2>%s</section>} \
-                        $id $body]
+                    lappend entries [format \
+                        {<section><h2>%s</h2>%s<div class="sam2-controls">%s</div></section>} \
+                        [htmlEscape $id] $body $controls]
                 }
 
                 html [subst {
                     <html>
                     <head>
                         <title>SAM2 $page</title>
+                        <script src="/lib/folk.js"></script>
                         <style>
                             body { font-family: sans-serif; margin: 24px; }
                             main { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
                             section { border: 1px solid #ddd; padding: 12px; }
                             h2 { font-size: 14px; margin: 0 0 8px; word-break: break-word; }
                             img { max-width: 100%; background: #111; }
+                            .sam2-controls:empty { display: none; }
+                            .sam2-control { margin-top: 10px; }
+                            .sam2-control label { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: #555; font-size: 13px; }
+                            .sam2-control input { width: 80px; font: inherit; padding: 3px 5px; }
                             .missing { color: #777; font-size: 14px; }
                         </style>
                     </head>

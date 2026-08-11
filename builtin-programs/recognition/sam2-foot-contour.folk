@@ -387,211 +387,77 @@ When the quad library is /ql/ &\
     }
 }
 
-When the png library is /pngLib/ &\
-     /v/ is a viewport {
-    Wish the web server handles route [format {/sam2-foot-contour/%s$} $v] \
-        with hidden true handler [list apply {{page pngLib} {
-            local proc svgPoints {contour geom width height} {
-                set points [list]
-                foreach p $contour {
-                    lassign $p x y
-                    lappend points [format "%.3f,%.3f" \
-                                        [expr {$x / $geom(width) * $width}] \
-                                        [expr {$y / $geom(height) * $height}]]
+fn sam2FootHtmlEscape {s} {
+    string map {& "&amp;" < "&lt;" > "&gt;" "\"" "&quot;"} $s
+}
+
+fn sam2FootJsString {s} {
+    return "\"[string map [list "\\" "\\\\" "\"" "\\\"" "\n" "\\n" "\r" "\\r" "\t" "\\t"] $s]\""
+}
+
+# Publish controls as an HTML fragment for the canonical /sam2/<viewport>
+# endpoint. The SAM2 page owns rendering; this module only owns its controls.
+When /obj/ has foot contour /footContour/ in /v/ {
+    set heightCm 0
+    set diameterCm {}
+
+    set escapedObj [sam2FootHtmlEscape $obj]
+    set escapedHeight [sam2FootHtmlEscape $heightCm]
+    set escapedDiameter [sam2FootHtmlEscape $diameterCm]
+    set pageJs [sam2FootJsString $v]
+
+    set controlHtml [subst {
+        <div class="sam2-control sam2-foot-control"
+             data-object-id="$escapedObj">
+            <label>
+                <span>height</span>
+                <input class="height-cm" type="number" step="0.1" min="0"
+                       value="$escapedHeight">
+                <span>cm</span>
+            </label>
+            <label>
+                <span>diameter</span>
+                <input class="diameter-cm" type="number" step="0.1" min="0"
+                       value="$escapedDiameter" placeholder="chord">
+                <span>cm</span>
+            </label>
+        </div>
+        <script>
+        (() => {
+            const control = document.currentScript.previousElementSibling;
+            const objectId = control.dataset.objectId;
+            const page = $pageJs;
+            const folk = window.sam2ControlFolk ||
+                (window.sam2ControlFolk = new FolkWS());
+
+            control.querySelector('.height-cm').addEventListener('input', (event) => {
+                const input = event.currentTarget;
+                const key = 'sam2-foot-contour height ' + page + ' ' + objectId;
+                const heightCm = Number(input.value);
+                if (!Number.isFinite(heightCm) || heightCm < 0 || input.value === '') {
+                    folk.hold(key, '', 'sam2-foot-contour');
+                    return;
                 }
-                return [join $points " "]
-            }
-            local proc svgPoint {point geom width height} {
-                lassign $point x y
-                return [list \
-                    [expr {$x / $geom(width) * $width}] \
-                    [expr {$y / $geom(height) * $height}]]
-            }
-            local proc jsString {s} {
-                return "\"[string map [list "\\" "\\\\" "\"" "\\\"" "\n" "\\n" "\r" "\\r" "\t" "\\t"] $s]\""
-            }
+                const statement = 'Claim ' + dump(objectId) +
+                    ' has object height ' + dump(heightCm) + ' cm in ' + dump(page);
+                folk.hold(key, statement, 'sam2-foot-contour');
+            });
 
-            set promptResults [Query! /anyone/ wishes $page tracks object /id/ with prompt /prompt/]
-            lappend promptResults {*}[Query! /anyone/ wishes $page tracks object /id/ with antiprompt /prompt/]
-            lappend promptResults {*}[Query! /anyone/ wishes $page tracks object /id/ in frame /frame/ with /...promptSpecs/]
-            lappend promptResults {*}[Query! /anyone/ wishes /id/ has foot contour in $page]
-            set ids [lsort -unique [lmap result $promptResults {
-                dict get $result id
-            }]]
-
-            set entries [list]
-            foreach id $ids {
-                set arcResults [Query! $id has foot contour arc /arcCircle/ in $page]
-                set heightResults [Query! $id has object height /heightCm/ cm in $page]
-                set heightCm ""
-                if {[llength $heightResults] > 0} {
-                    set heightCm [dict get [lindex $heightResults end] heightCm]
+            control.querySelector('.diameter-cm').addEventListener('input', (event) => {
+                const input = event.currentTarget;
+                const key = 'sam2-foot-contour diameter ' + page + ' ' + objectId;
+                const diameterCm = Number(input.value);
+                if (!Number.isFinite(diameterCm) || diameterCm <= 0 || input.value === '') {
+                    folk.hold(key, '', 'sam2-foot-contour');
+                    return;
                 }
-                set diameterResults [Query! $id has object diameter /diameterCm/ cm in $page]
-                set diameterCm ""
-                if {[llength $diameterResults] > 0} {
-                    set diameterCm [dict get [lindex $diameterResults end] diameterCm]
-                }
-                set measurementControls [subst {
-                    <label class="measurement-control">
-                        <span>height</span>
-                        <input class="height-cm" type="number" step="0.1" min="0"
-                               value="[htmlEscape $heightCm]"
-                               data-object-id="[htmlEscape $id]">
-                        <span>cm</span>
-                    </label>
-                    <label class="measurement-control">
-                        <span>diameter</span>
-                        <input class="diameter-cm" type="number" step="0.1" min="0"
-                               value="[htmlEscape $diameterCm]"
-                               data-object-id="[htmlEscape $id]">
-                        <span>cm</span>
-                    </label>
-                }]
+                const statement = 'Claim ' + dump(objectId) +
+                    ' has object diameter ' + dump(diameterCm) + ' cm in ' + dump(page);
+                folk.hold(key, statement, 'sam2-foot-contour');
+            });
+        })();
+        </script>
+    }]
 
-                set imageResults [Query! $id has SAM2 masked image /im/ in $page]
-                set footContourResults [Query! $id has foot contour /footContour/ in $page]
-                set maskResults [Query! $id has mask /mask/ in $page with /...maskOpts/]
-                set geomResults [Query! $page has resolved geometry /geom/]
-                set body {<div class="missing">waiting for SAM2 mask</div>}
-
-                if {[llength $imageResults] > 0 &&
-                    [llength $maskResults] > 0 &&
-                    [llength $geomResults] > 0} {
-
-                    set imageResult [lindex $imageResults end]
-                    dict with imageResult {
-                        StatementAcquire! $__ref
-
-                        set filename [format "/tmp/sam2-foot-contour-%s-%s.png" \
-                            [string map {/ _ { } _} $page] \
-                            [string map {/ _ { } _} $id]]
-                        $pngLib saveAsPng $im $filename
-
-                        set fsize [file size $filename]
-                        set fd [open $filename r]
-                        fconfigure $fd -translation binary
-                        set imageData [read $fd $fsize]
-                        close $fd
-
-                        StatementRelease! $__ref
-                    }
-
-                    set maskOpts [dict get [lindex $maskResults end] maskOpts]
-                    set geom [dict get [lindex $geomResults end] geom]
-
-                    set width [dict get $maskOpts width]
-                    set height [dict get $maskOpts height]
-
-                    set contourPoints ""
-                    if {[llength $footContourResults] > 0} {
-                        set footContour [dict get [lindex $footContourResults end] footContour]
-                        set contourPoints [svgPoints $footContour $geom $width $height]
-                    }
-                    set centerSvg ""
-                    if {[llength $arcResults] > 0} {
-                        set arcCircle [dict get [lindex $arcResults end] arcCircle]
-                        lassign [svgPoint [dict get $arcCircle center] $geom $width $height] cx cy
-                        set centerSvg [subst {
-                            <circle class="foot-center" cx="$cx" cy="$cy" r="4"></circle>
-                        }]
-                    }
-
-                    set b64 [binary encode base64 $imageData]
-                    set body [subst {
-                        <div class="overlay" data-object-id="[htmlEscape $id]"
-                             data-width="$width" data-height="$height"
-                             data-geom-width="$geom(width)" data-geom-height="$geom(height)">
-                            <img src="data:image/png;base64,$b64">
-                            <svg viewBox="0 0 $width $height" preserveAspectRatio="none">
-                                <polyline class="foot-contour" points="$contourPoints"></polyline>
-                                $centerSvg
-                            </svg>
-                        </div>
-                    }]
-                }
-
-                lappend entries [format {<section><h2>%s</h2>%s</section>} \
-                    $id "$body\n$measurementControls"]
-            }
-
-            html [subst {
-                <html>
-                <head>
-                    <title>SAM2 foot contour $page</title>
-                    <script src="/lib/folk.js"></script>
-                    <style>
-                        body { font-family: sans-serif; margin: 24px; }
-                        main { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
-                        section { border: 1px solid #ddd; padding: 12px; }
-                        h2 { font-size: 14px; margin: 0 0 8px; word-break: break-word; }
-                        .overlay { position: relative; display: inline-block; max-width: 100%; background: #111; cursor: crosshair; }
-                        .measurement-control { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: #555; font-size: 13px; }
-                        .measurement-control input { width: 80px; font: inherit; padding: 3px 5px; }
-                        img { display: block; max-width: 100%; }
-                        svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-                        polyline { fill: none; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
-                        .foot-contour { stroke: #00ff4a; stroke-width: 3; }
-                        .foot-center { fill: #ffb000; stroke: #111; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
-                        .missing { color: #777; font-size: 14px; }
-                    </style>
-                </head>
-                <body>
-                    <h1>SAM2 foot contour $page</h1>
-                    <main>
-                        [join $entries "\n"]
-                    </main>
-                    <script>
-                        const folk = new FolkWS();
-                        const page = [jsString $page];
-                        let promptSeq = 0;
-                        document.querySelectorAll('.overlay').forEach((overlay) => {
-                            overlay.addEventListener('click', (event) => {
-                                event.preventDefault();
-
-                                const rect = overlay.getBoundingClientRect();
-                                const px = (event.clientX - rect.left) / rect.width * Number(overlay.dataset.width);
-                                const py = (event.clientY - rect.top) / rect.height * Number(overlay.dataset.height);
-                                const x = px / Number(overlay.dataset.width) * Number(overlay.dataset.geomWidth);
-                                const y = py / Number(overlay.dataset.height) * Number(overlay.dataset.geomHeight);
-                                const objectId = overlay.dataset.objectId;
-                                const antiprompt = event.altKey;
-                                const key = 'sam2-foot-contour prompt ' + page + ' ' + objectId + ' ' + Date.now() + '-' + promptSeq++;
-                                const statement = antiprompt
-                                    ? 'Wish ' + dump(page) + ' tracks object ' + dump(objectId) + ' with antiprompt ' + dump(\[x, y])
-                                    : 'Wish ' + dump(page) + ' tracks object ' + dump(objectId) + ' with prompt ' + dump(\[x, y]);
-                                folk.hold(key, statement, 'sam2-foot-contour');
-                            });
-                        });
-                        document.querySelectorAll('.height-cm').forEach((input) => {
-                            input.addEventListener('input', () => {
-                                const objectId = input.dataset.objectId;
-                                const key = 'sam2-foot-contour height ' + page + ' ' + objectId;
-                                const heightCm = Number(input.value);
-                                if (!Number.isFinite(heightCm) || heightCm < 0 || input.value === '') {
-                                    folk.hold(key, '', 'sam2-foot-contour');
-                                    return;
-                                }
-                                const statement = 'Claim ' + dump(objectId) + ' has object height ' + dump(heightCm) + ' cm in ' + dump(page);
-                                folk.hold(key, statement, 'sam2-foot-contour');
-                            });
-                        });
-                        document.querySelectorAll('.diameter-cm').forEach((input) => {
-                            input.addEventListener('input', () => {
-                                const objectId = input.dataset.objectId;
-                                const key = 'sam2-foot-contour diameter ' + page + ' ' + objectId;
-                                const diameterCm = Number(input.value);
-                                if (!Number.isFinite(diameterCm) || diameterCm <= 0 || input.value === '') {
-                                    folk.hold(key, '', 'sam2-foot-contour');
-                                    return;
-                                }
-                                const statement = 'Claim ' + dump(objectId) + ' has object diameter ' + dump(diameterCm) + ' cm in ' + dump(page);
-                                folk.hold(key, statement, 'sam2-foot-contour');
-                            });
-                        });
-                    </script>
-                </body>
-                </html>
-            }]
-        }} $v $pngLib]
+    Claim $obj has sam2 control $controlHtml in $v
 }
