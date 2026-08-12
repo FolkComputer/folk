@@ -410,6 +410,8 @@ When the SAM2 mask-to-image library is /mtiLib/ &\
                 set entries [list]
                 foreach id $ids {
                     set imageResults [Query! $id has SAM2 masked image /im/ in $page]
+                    set promptTrackingResults [Query! $page tracks object $id \
+                        in frame /frame/ with /...promptResult/]
                     set controlResults [Query! $id has sam2 control /controlHtml/ in $page]
                     set controls [join [lmap result $controlResults {
                         dict get $result controlHtml
@@ -439,9 +441,53 @@ When the SAM2 mask-to-image library is /mtiLib/ &\
                         set body [format {<img src="data:image/png;base64,%s">} $b64]
                     }
 
+                    set promptSlices [list]
+                    set promptIndex 0
+                    foreach promptTrackingResult $promptTrackingResults {
+                        set promptResult [dict get $promptTrackingResult promptResult]
+                        set maskedIndex [lsearch -exact $promptResult masked-slice]
+                        if {$maskedIndex < 0 || $maskedIndex + 1 >= [llength $promptResult]} {
+                            continue
+                        }
+
+                        set promptSpecs [lrange $promptResult 0 \
+                            [expr {$maskedIndex - 1}]]
+                        set promptIm [lindex $promptResult \
+                            [expr {$maskedIndex + 1}]]
+                        set promptRef [dict get $promptTrackingResult __ref]
+                        StatementAcquire! $promptRef
+
+                        set filename [format "/tmp/sam2-prompt-%s-%s-%d.png" \
+                            [string map {/ _ { } _} $page] \
+                            [string map {/ _ { } _} $id] \
+                            $promptIndex]
+                        $pngLib saveAsPng $promptIm $filename
+
+                        set fsize [file size $filename]
+                        set fd [open $filename r]
+                        fconfigure $fd -translation binary
+                        set promptImageData [read $fd $fsize]
+                        close $fd
+
+                        StatementRelease! $promptRef
+
+                        set promptB64 [binary encode base64 $promptImageData]
+                        lappend promptSlices [format \
+                            {<figure><img src="data:image/png;base64,%s"><figcaption>%s</figcaption></figure>} \
+                            $promptB64 [htmlEscape $promptSpecs]]
+                        incr promptIndex
+                    }
+
+                    set promptGallery ""
+                    if {[llength $promptSlices] > 0} {
+                        set promptGallery [format \
+                            {<div class="sam2-prompt-masks"><h3>Prompt masks</h3><div class="sam2-prompt-grid">%s</div></div>} \
+                            [join $promptSlices "\n"]]
+                    }
+
                     lappend entries [format \
-                        {<section><h2>%s</h2>%s<div class="sam2-controls">%s</div></section>} \
-                        [htmlEscape $id] $body $controls]
+                        {<section><h2>%s</h2><div class="sam2-image">%s</div>%s<div class="sam2-controls">%s</div></section>} \
+                        [htmlEscape $id] $body $promptGallery $controls]
                 }
 
                 html [subst {
@@ -454,7 +500,14 @@ When the SAM2 mask-to-image library is /mtiLib/ &\
                             main { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
                             section { border: 1px solid #ddd; padding: 12px; }
                             h2 { font-size: 14px; margin: 0 0 8px; word-break: break-word; }
-                            img { max-width: 100%; background: #111; }
+                            .sam2-image { position: relative; display: inline-block; max-width: 100%; }
+                            .sam2-image img { display: block; max-width: 100%; background: #111; }
+                            .sam2-prompt-masks { margin-top: 12px; }
+                            .sam2-prompt-masks h3 { margin: 0 0 6px; font-size: 12px; color: #666; }
+                            .sam2-prompt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; }
+                            .sam2-prompt-grid figure { min-width: 0; margin: 0; }
+                            .sam2-prompt-grid img { display: block; width: 100%; background: #111; }
+                            .sam2-prompt-grid figcaption { margin-top: 3px; overflow: hidden; color: #777; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
                             .sam2-controls:empty { display: none; }
                             .sam2-control { margin-top: 10px; }
                             .sam2-control label { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: #555; font-size: 13px; }

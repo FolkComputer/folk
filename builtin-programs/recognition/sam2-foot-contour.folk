@@ -397,18 +397,30 @@ fn sam2FootJsString {s} {
 
 # Publish controls as an HTML fragment for the canonical /sam2/<viewport>
 # endpoint. The SAM2 page owns rendering; this module only owns its controls.
-When /obj/ has foot contour /footContour/ in /v/ {
+When /obj/ has foot contour /footContour/ in /v/ &\
+     /v/ has resolved geometry /geom/ {
     set heightCm 0
     set diameterCm {}
+
+    set contourPoints [join [lmap point $footContour {
+        lassign $point x y
+        format "%.9g,%.9g" $x $y
+    }] " "]
 
     set escapedObj [sam2FootHtmlEscape $obj]
     set escapedHeight [sam2FootHtmlEscape $heightCm]
     set escapedDiameter [sam2FootHtmlEscape $diameterCm]
+    set escapedContourPoints [sam2FootHtmlEscape $contourPoints]
+    set geomWidth [dict get $geom width]
+    set geomHeight [dict get $geom height]
     set pageJs [sam2FootJsString $v]
 
     set controlHtml [subst {
         <div class="sam2-control sam2-foot-control"
-             data-object-id="$escapedObj">
+             data-object-id="$escapedObj"
+             data-contour-points="$escapedContourPoints"
+             data-geom-width="$geomWidth"
+             data-geom-height="$geomHeight">
             <label>
                 <span>height</span>
                 <input class="height-cm" type="number" step="0.1" min="0"
@@ -429,6 +441,32 @@ When /obj/ has foot contour /footContour/ in /v/ {
             const page = $pageJs;
             const folk = window.sam2ControlFolk ||
                 (window.sam2ControlFolk = new FolkWS());
+
+            const visual = control.closest('section').querySelector('.sam2-image');
+            if (visual && visual.querySelector('img')) {
+                const oldOverlay = visual.querySelector('.sam2-foot-contour-overlay');
+                if (oldOverlay) oldOverlay.remove();
+
+                const svgNs = 'http://www.w3.org/2000/svg';
+                const svg = document.createElementNS(svgNs, 'svg');
+                svg.classList.add('sam2-foot-contour-overlay');
+                svg.setAttribute('viewBox', '0 0 ' + control.dataset.geomWidth +
+                    ' ' + control.dataset.geomHeight);
+                svg.setAttribute('preserveAspectRatio', 'none');
+                svg.setAttribute('style',
+                    'position:absolute;inset:0;width:100%;height:100%;pointer-events:none');
+
+                const polyline = document.createElementNS(svgNs, 'polyline');
+                polyline.setAttribute('points', control.dataset.contourPoints);
+                polyline.setAttribute('fill', 'none');
+                polyline.setAttribute('stroke', '#00ff4a');
+                polyline.setAttribute('stroke-width', '3');
+                polyline.setAttribute('stroke-linejoin', 'round');
+                polyline.setAttribute('stroke-linecap', 'round');
+                polyline.setAttribute('vector-effect', 'non-scaling-stroke');
+                svg.appendChild(polyline);
+                visual.appendChild(svg);
+            }
 
             control.querySelector('.height-cm').addEventListener('input', (event) => {
                 const input = event.currentTarget;
