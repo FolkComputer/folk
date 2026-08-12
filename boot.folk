@@ -1,13 +1,13 @@
 # This program gets directly evaluated at the top level.
 
-apply {{} {
+apply [fn {} {
     # We setpgrp so that all subprocesses spawned by Folk, even ones
     # that outlive Folk itself, can be killed later by their PGID (the
     # PID in folk.pid).
     catch { setpgrp }
 
     catch {
-        set fp [open "folk.pid" r]
+        set fp [fopen "folk.pid" r]
         set oldPid [read $fp]; close $fp
         try {
             if {[string trim [exec ps -o state= -p $oldPid]] eq "Z"} {
@@ -22,11 +22,11 @@ apply {{} {
         }
     }
 
-    set fp [open "folk.pid" w]
+    set fp [fopen "folk.pid" w]
     puts -nonewline $fp [pid]; close $fp
     # in case we're running as root:
     catch { exec chown folk folk.pid }
-}}
+}]
 
 __installLocalStdoutAndStderr "boot.folk"
 
@@ -52,14 +52,14 @@ Assert! when /_this/ has program code /programCode/ {
     }
 } with environment {}
 
-local proc LoadProgram! {programFilename} {
-    set fp [open $programFilename r]
+fn LoadProgram! {programFilename} {
+    set fp [fopen $programFilename r]
     set code [read $fp]
     close $fp
 
-    set editedPath "$::env(HOME)/folk-data/program/[regsub {\.folk$} $programFilename {}].folk.edited"
+    set editedPath "$env::HOME/folk-data/program/[regsub {\.folk$} $programFilename {}].folk.edited"
     if {[file exists $editedPath]} {
-        set efd [open $editedPath r]
+        set efd [fopen $editedPath r]
         set code [read $efd]
         close $efd
     }
@@ -71,8 +71,8 @@ local proc LoadProgram! {programFilename} {
 foreach programFilename [list {*}[glob -nocomplain builtin-programs/*.folk] \
                              {*}[glob -nocomplain builtin-programs/*/*.folk] \
                              {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"] \
-                             {*}[glob -nocomplain "$::env(HOME)/folk-data/local-program/*.folk"] \
-                             {*}[glob -nocomplain "$::env(HOME)/folk-data/local-program/*/*.folk"]] {
+                             {*}[glob -nocomplain "$env::HOME/folk-data/local-program/*.folk"] \
+                             {*}[glob -nocomplain "$env::HOME/folk-data/local-program/*/*.folk"]] {
     if {[string match "*/_archive/*" $programFilename]} {
         continue
     }

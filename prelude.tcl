@@ -12,7 +12,7 @@ source "lib/c.tcl"
 source "lib/math.tcl"
 source "lib/text.tcl"
 
-set pid [pid]
+set folkPid [pid]
 
 # FIXME: zicl doesn't have channel handles like Jimtcl. Re-enable
 # buffering configuration when I/O is properly set up.
@@ -527,7 +527,7 @@ set ::thisNode [info hostname]
 # TODO: Save ::thisNode and check if it's changed.
 
 if {[__isTracyEnabled]} {
-    set tracyCid "tracy_$pid"
+    set tracyCid "tracy_$folkPid"
     set ::tracyLib "<C:$tracyCid>"
     set tracySo "/tmp/$tracyCid.so"
     fn tracyCompile {} {

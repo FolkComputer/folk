@@ -206,6 +206,13 @@ static int __installLocalStdoutAndStderrFunc(Zicl_Interp *interp, int argc, Zicl
     assert(argc == 2);
     const char *this = ziclShimString(&argv[1]);
 
+    // outputRedirectionInit(false) (e.g. `./folk somefile.folk`) skips setting
+    // up per-program redirection entirely, leaving this table NULL. In that
+    // mode there's nowhere to redirect to, so just leave stdout/stderr alone.
+    if (programFdsTable == NULL) {
+        return ZICL_OK;
+    }
+
     int stdoutfd, stderrfd;
 
     // Fast path: entry already exists — look up under rlock.
@@ -250,5 +257,10 @@ static int __installLocalStdoutAndStderrFunc(Zicl_Interp *interp, int argc, Zicl
 
 static int __doNothingFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv) {
     return ZICL_OK;
+}
+
+void outputRedirectionInterpSetup(Zicl_Interp *interp) {
+    Zicl_CreateCommand(interp, "__installLocalStdoutAndStderr",
+                        __installLocalStdoutAndStderrFunc, "this", 1, 1);
 }
 #endif // FOLK_INTERPOSE_DYLIB

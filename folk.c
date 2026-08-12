@@ -668,8 +668,7 @@ static void interpBoot() {
     interp = Zicl_CreateInterp();
     interpSetupEnv(interp);
 
-    // TODO figure out what to do about output redirection.
-    // outputRedirectionInterpSetup(interp);
+    outputRedirectionInterpSetup(interp);
 
     Zicl_CreateCommand(interp, "Assert!", AssertFunc, "?term ...?", 0, -1);
     Zicl_CreateCommand(interp, "Retract!", RetractFunc, "?term ...?", 0, -1);
