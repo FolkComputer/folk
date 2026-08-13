@@ -169,6 +169,7 @@ void sysmon() {
     HoldStatementGlobally("internal-time", currentTick,
                           internalTimeClause, 0, NULL,
                           "sysmon.c", __LINE__);
+    Zicl_ReleaseList(internalTimeClause);
 
     if (currentTick % 3 == 0) {
         Zicl_List* clockTimeClause = clauseFormat(
@@ -177,6 +178,7 @@ void sysmon() {
         HoldStatementGlobally("clock-time", currentTick,
                               clockTimeClause, 0, NULL,
                               "sysmon.c", __LINE__);
+        Zicl_ReleaseList(clockTimeClause);
     }
 }
 

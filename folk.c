@@ -406,6 +406,7 @@ Zicl_List* QuerySimple(bool isAtomically, Zicl_List* pattern) {
         }
 
         Environment* env = clauseUnify(pattern, statementClause(result));
+        defer { for (int j = 0; j < env->nBindings; j++) Zicl_Release(env->bindings[j].value); }
         if (env == NULL) {
             statementRelease(db, result);
             continue;
@@ -807,10 +808,13 @@ static int runBlock(const Zicl_List* bodyPattern, const Zicl_List* toUnifyWith,
     // Figure out all the bound match variables by unifying when &
     // stmt:
     Environment* env = clauseUnify(bodyPattern, toUnifyWith);
-    defer { free(env); }
     if (env == NULL) {
         // Unification failed.
         return ZICL_OK;
+    }
+    defer {
+        for (int i = 0; i < env->nBindings; i++) Zicl_Release(env->bindings[i].value);
+        free(env);
     }
 
     if (env->nBindings > 50) {
@@ -1048,7 +1052,7 @@ Zicl_List* claimizeClause(Zicl_List* clause) {
     const Zicl_Value* terms = Zicl_ListItems(clause);
     if (nTerms >= 2) {
         if (ziclEquals(terms[1], Zicl_InternStr("claims")) ||
-            ziclEquals(terms[1], Zicl_InternStr("wishes")) == 0) {
+            ziclEquals(terms[1], Zicl_InternStr("wishes"))) {
             // Already a claim or wish, so we don't need to claimize it.
             Zicl_ReleaseList(ret);
             return NULL;
@@ -1264,12 +1268,9 @@ static void reactToNewStatement(StatementRef ref) {
             Statement* when = statementAcquire(db, whenRef);
             defer { if (when) statementRelease(db, when); }
             if (when) {
-                dprintf(realStdout, "Statement: %s\n", ziclString(Zicl_BoxList(statementClause(when))));
                 Zicl_List* unwhenizedWhenPattern = unwhenizeClause(statementClause(when));
                 defer { Zicl_ReleaseList(unwhenizedWhenPattern); }
-                dprintf(realStdout, "Unwhenized statement: %s\n", ziclString(Zicl_BoxList(unwhenizedWhenPattern)));
                 Zicl_List* claimizedUnwhenizedWhenPattern = claimizeClause(unwhenizedWhenPattern);
-                assert(claimizedUnwhenizedWhenPattern);
                 defer { Zicl_ReleaseList(claimizedUnwhenizedWhenPattern); }
 
                 pushRunWhenBlock(

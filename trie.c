@@ -22,7 +22,10 @@ Zicl_List* clauseFormat(const char* fmt, ...) {
     char* saveptr;
     char* token = strtok_r(formatted, " ", &saveptr);
     while (token != NULL) {
-        Zicl_ListAppend(list, ziclNewString(token, -1));
+        Zicl_Value tokenValue = ziclNewString(token, -1);
+        Zicl_ListAppend(list, tokenValue);
+        Zicl_Release(tokenValue);
+        token = strtok_r(NULL, " ", &saveptr);
     }
 
     free(formatted);
