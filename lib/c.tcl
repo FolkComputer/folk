@@ -49,7 +49,9 @@ fn csubst {s} {
     join $result ""
 }
 fn cstyle {type name} {
-    if {[regexp {([^\[]+)(\[\d*\](\[\d*\])?)$} $type -> basetype arraysuffix]} {
+    if {[regexp {([^\[]+)(\[[^\]]*\](\[[^\]]*\])?)$} $type -> basetype arraysuffix]} {
+        # Normalize any named dimension (identifier) to [] for the C declaration.
+        regsub {\[[a-zA-Z_]\w*\]} $arraysuffix {[]} arraysuffix
         list $basetype $name$arraysuffix
     } else {
         list $type $name
@@ -155,19 +157,25 @@ set C {
             if {[string index $argtype end] == "*"} {
                 set basetype [string range $argtype 0 end-1]
                 error "Need to port this to the capability framework"
-            } elseif {[regexp {(^[^\[]+)\[(\d*)\]$} $argtype -> basetype arraylen]} {
-                # note: arraylen can be ""
+            } elseif {[regexp {(^[^\[]+)\[([^\]]*)\]$} $argtype -> basetype arraylen]} {
+                # note: arraylen can be "" or a named identifier
                 if {$basetype eq "char"} { identity {
                     int $[set argname]_len; const char *$[set argname]_bytes = ziclShimString($shim, &len);
                     if ($[set argname]_len > $arraylen) $[set argname]_len = $arraylen;
                     char $argname[$arraylen]; memcpy($argname, $[set argname]_bytes, $[set argname]_len);
-                } } else { identity {
+                } } else {
+                    if {[regexp {^[a-zA-Z_]} $arraylen]} {
+                        set countvar $arraylen
+                    } else {
+                        set countvar ${argname}_objc
+                    }
+                    identity {
                     const Zicl_List *$[set argname]_list = __ENSURE(Zicl_ListShimmer(interp, $shim, &$[set argname]_list));
-                    int $[set argname]_objc = Zicl_ListLength($[set argname]_list);
+                    int $countvar = Zicl_ListLength($[set argname]_list);
                     const Zicl_Value *$[set argname]_objv = Zicl_ListItems($[set argname]_list);
-                    $basetype $argname[$[set argname]_objc];
+                    $basetype $argname[$countvar];
                     {
-                        for (int i = 0; i < $[set argname]_objc; i++) {
+                        for (int i = 0; i < $countvar; i++) {
                             Zicl_Shimmerable $[set argname]_shim = Zicl_NewShimmerable($[set argname]_objv[i]);
                             defer { Zicl_ShimDiscardChanges(&$[set argname]_shim); }
                             $[self::arg $basetype ${argname}_i "&$[set argname]_shim"]
@@ -175,17 +183,23 @@ set C {
                         }
                     }
                 } }
-            } elseif {[regexp {(^[^\[]+)\[(\d*)\]\[(\d*)\]$} $argtype -> basetype arraylen arraylen2]} {
+            } elseif {[regexp {(^[^\[]+)\[([^\]]*)\]\[(\d*)\]$} $argtype -> basetype arraylen arraylen2]} {
+                # If arraylen is a named identifier, expose it as that C variable name.
+                if {[regexp {^[a-zA-Z_]} $arraylen]} {
+                    set countvar $arraylen
+                } else {
+                    set countvar ${argname}_objc
+                }
                 identity {
-                    const Zicl_List *$[set argname]_list_2 = __ENSURE(Zicl_ListShimmer(interp, $shim, &$[set argname]_list_2));
-                    int $[set argname]_objc_2 = Zicl_ListLength($[set argname]_list_2);
-                    const Zicl_Value *$[set argname]_objv_2 = Zicl_ListItems($[set argname]_list_2);
-                    $basetype $argname[$[set argname]_objc_2][$arraylen2];
+                    const Zicl_List *$[set argname]_list = __ENSURE(Zicl_ListShimmer(interp, $shim, &$[set argname]_list_2));
+                    int $countvar = Zicl_ListLength($[set argname]_list);
+                    const Zicl_Value *$[set argname]_objv = Zicl_ListItems($[set argname]_list);
+                    $basetype $argname[$countvar][$arraylen2];
                     {
-                        for (int j = 0; j < $[set argname]_objc_2; j++) {
-                            Zicl_Shimmerable $[set argname]_shim_2 = Zicl_NewShimmerable($[set argname]_objv_2[j]);
-                            defer { Zicl_ShimDiscardChanges(&$[set argname]_shim_2); }
-                            $[self::arg $basetype\[\] ${argname}_j "&$[set argname]_shim_2"]
+                        for (int j = 0; j < $countvar; j++) {
+                            Zicl_Shimmerable $[set argname]_shim = Zicl_NewShimmerable($[set argname]_objv[j]);
+                            defer { Zicl_ShimDiscardChanges(&$[set argname]_shim); }
+                            $[self::arg $basetype\[\] ${argname}_j "&$[set argname]_shim"]
                             memcpy(${argname}[j], ${argname}_j, sizeof(${argname}_j));
                         }
                     }
@@ -290,14 +304,14 @@ method C::include {self h} {
     }
 }
 
-method C::addcode {self newcode} {
+method C::addcode {self newcode {extendArg {:noextend}}} {
     lassign [info source $newcode] filename line
     if {$filename ne ""} { 
         set newcode [subst {
             $newcode
         }]
     }
-    lappend self::code $newcode :noextend
+    lappend self::code $newcode {*}$extendArg
     list
 }
 
@@ -629,6 +643,14 @@ method C::proc {self name arguments rtype body} {
     set loadargs [list]
     foreach {argtype argname} $arguments {
         lassign [typestyle $argtype $argname] argtype argname
+
+        # If type has a named first dimension (e.g. int[n] or float[n][4]),
+        # inject that dimension as an implicit int parameter before the array.
+        if {[regexp {^[^\[]+\[([a-zA-Z_]\w*)\]} $argtype -> dimname]} {
+            lappend arglist "int $dimname"
+            lappend argnames $dimname
+        }
+
         lappend arglist [join [cstyle $argtype $argname] " "]
         lappend argnames $argname
 
@@ -812,7 +834,7 @@ extern "C" \{
     while {![file exists /tmp/$cid.so]} {
         sleep 0.01
         incr n
-        if {$n > 10} { error "Failed! [string range $e 0 500]" }
+        if {$n > 200} { error "Failed on /tmp/$cid.so! Timed out" }
     }
 
     if {$noload} {
@@ -836,7 +858,8 @@ method C::import {self srclib srcname {_as {}} {destname {}}} {
     set arglist [dict get $procinfo arglist]
 
     set addr [dict get [set "::$srclib __addrs"] $srcname]
-    self::addcode "$rtype (*$destname) ([join $arglist {, }]) = ($rtype (*) ([join $arglist {, }])) $addr;"
+    regsub {\[\d*\]} $rtype * decayedRtype
+    self::addcode "$decayedRtype (*$destname) ([join $arglist {, }]) = ($decayedRtype (*) ([join $arglist {, }])) $addr;"
 }
 
 method C::string_toupper_first {self s} {

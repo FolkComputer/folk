@@ -56,13 +56,16 @@ fn applyBlock {body envStack} {
     dict set env __envStack $envStack
     dict set env __env $env
 
-    set ::this [dict getdef $env this <unknown>]
-    # Flush before installing so any buffered data from the previous
-    # program drains to the correct fd before we switch.
-    stdout flush
-    # Install thread-local stdout/stderr so all subsequent write()/puts/
-    # fprintf/printf calls go to the local files for this $this.
-    __installLocalStdoutAndStderr $::this
+    set newThis [dict getdef $env this <unknown>]
+    if {![info exists ::this] || $newThis ne $::this} {
+        # Flush before switching so any buffered data from the previous
+        # program drains to the correct fd before we switch.
+        if {[info exists ::this]} { stdout flush }
+        set ::this $newThis
+        # Install thread-local stdout/stderr so all subsequent write()/puts/
+        # fprintf/printf calls go to the local files for this $this.
+        __installLocalStdoutAndStderr $::this
+    }
 
     set names [dict keys $env]
     set values [dict values $env]
@@ -288,8 +291,10 @@ fn When {args} {
         } elseif {$term eq "-serially"} {
             set isSerially true
         } elseif {$term eq "-atomically"} {
-            set key [list $this $sourceInfo $pattern]
-            set atomicallyVersion [list "fresh" $key]
+            # Defer key construction until after the loop so the key
+            # uses the full pattern, not just the terms parsed before
+            # `-atomically` appeared.
+            set atomicallyVersion "fresh-from-full-pattern"
         } elseif {$term eq "-atomicallyInherit"} {
             set atomicallyVersion [__currentAtomicallyVersion]
         } elseif {$term eq "-atomicallyWithKey"} {
@@ -301,6 +306,11 @@ fn When {args} {
         } else {
             lappend pattern $term
         }
+    }
+
+    if {$atomicallyVersion eq "fresh-from-full-pattern"} {
+        set key [list [uplevel set this] $sourceInfo $pattern]
+        set atomicallyVersion [list "fresh" $key]
     }
 
     if {$atomicallyVersion eq "default"} {
@@ -390,6 +400,9 @@ fn On {event args} {
     }
 }
 
+# Synchronous, sampling query of the db. Returns a list of dicts where
+# each dict is a statement matching the pattern.
+#
 # Query! is like QuerySimple! but with added support for & joins, and
 # it'll automatically also query the claimized pattern (the pattern
 # with `/someone/ claims` prepended).
@@ -478,16 +491,74 @@ fn Query! {args} {
     }
     return $results
 }
-fn QueryOne! {args} {
-    set results [Query! {*}$args]
 
+# Synchronous, sampling query of the db. Throws unless there is
+# exactly 1 statement result. Returns a dict whose keys are bound keys
+# from the pattern and whose values are corresponding terms from the
+# statement.
+#
+# Use like this:
+#
+#    Claim the dog is cool
+#    sleep 0.5
+#    puts [dict get [QueryOne! the dog is /val/] val] ;# -> cool
+#
+proc QueryOne! {args} {
+    set pattern [list]
+    for {set i 0} {$i < [llength $args]} {incr i} {
+        set arg [lindex $args $i]
+        if {$arg eq "-default"} {
+            incr i
+            set default [lindex $args $i]
+        } else {
+            lappend pattern $arg
+        }
+    }
+
+    set results [Query! {*}$pattern]
+    if {[llength $results] == 0 && [info exists default]} {
+        return $default
+    }
     if {[llength $results] != 1} {
         error "QueryOne! of ($args) had [llength $results] results. Should be one result!"
     }
 
+    if {{/./} in $pattern} {
+        return [dict get [lindex $results 0] .]
+    }
     return [lindex $results 0]
 }
-fn ForEach! {args} {
+
+# Sort of like QueryOne!, but introduces the bindings directly into
+# caller scope. Unlike Expect!, this samples the db once and errors
+# unless there is exactly one result.
+proc Require! {args} {
+    dict for {k v} [QueryOne! {*}$args] {
+        uplevel 1 [list set $k $v]
+    }
+}
+
+# Sort of like QueryOne!, but picks an arbitrary result if >1 result,
+# and introduces the bindings directly into caller scope.
+#
+#     Expect! the dog is /val/
+#     puts $val ;# -> cool
+#
+# Also polls and retries if there are 0 results.
+proc Expect! {args} {
+    set results [list]
+    while {[llength $results] == 0} {
+        set results [Query! {*}$args]
+        if {[llength $results] == 0} {
+            sleep 0.1
+        }
+    }
+
+    dict for {k v} [lindex $results 0] {
+        uplevel 1 [list set $k $v]
+    }
+}
+proc ForEach! {args} {
     set body [lindex $args end]
     set pattern [lreplace $args end end]
 
@@ -571,7 +642,9 @@ if {[__isTracyEnabled]} {
             TracyCSetThreadName(strdup(name));
         }
         $tracyCpp code {
-            __thread TracyCZoneCtx __zoneCtx;
+            #define __ZONE_CTX_MAX 16
+            __thread TracyCZoneCtx __zoneCtxs[__ZONE_CTX_MAX];
+            __thread int __zoneCtxIdx;
         }
         $tracyCpp proc zoneBegin {} void {
             Zicl_Value script = Zicl_GetScriptBeingEvaluated(interp);
@@ -585,13 +658,23 @@ if {[__isTracyEnabled]} {
             uint64_t loc = ___tracy_alloc_srcloc((uint32_t) sourceLineNumber,
                                                  sourceFileName, strlen(sourceFileName),
                                                  fnName, strlen(fnName), 0);
-            __zoneCtx = ___tracy_emit_zone_begin_alloc(loc, 1);
+            if (__zoneCtxIdx >= __ZONE_CTX_MAX) {
+                fprintf(stderr, "tracy: zone stack overflow (max %d)\n", __ZONE_CTX_MAX);
+                exit(1);
+            }
+            __zoneCtxs[__zoneCtxIdx++] = ___tracy_emit_zone_begin_alloc(loc, 1);
         }
         $tracyCpp proc zoneName {char* name} void {
-            ___tracy_emit_zone_name(__zoneCtx, name, strlen(name));
+            if (__zoneCtxIdx > 0) {
+                ___tracy_emit_zone_name(__zoneCtxs[__zoneCtxIdx - 1], name, strlen(name));
+            }
         }
         $tracyCpp proc zoneEnd {} void {
-            ___tracy_emit_zone_end(__zoneCtx);
+            if (__zoneCtxIdx <= 0) {
+                fprintf(stderr, "tracy: zone stack underflow\n");
+                exit(1);
+            }
+            ___tracy_emit_zone_end(__zoneCtxs[--__zoneCtxIdx]);
         }
         return [$tracyCpp compile $tracyCid]
     }
@@ -628,11 +711,6 @@ if {[__isTracyEnabled]} {
 
 source "lib/python.tcl"
 
-# For backward-compatibility:
-fn Assert {args} {
-    puts stderr "Warning: Assert with no ! is deprecated: trying to [list Assert {*}$args]"
-    uplevel Assert! {*}$args
-}
 set isLaptop [expr {$tcl_platform::os eq "darwin" ||
                       ([info exists env::XDG_SESSION_TYPE] &&
                        $env::XDG_SESSION_TYPE ne "tty")}]

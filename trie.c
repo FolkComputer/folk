@@ -133,25 +133,24 @@ const Trie* trieAdd(const Trie* trie,
     return trieAddImpl(trie, allocator, nTerms, terms, value);
 }
 
-
-bool trieScanVariable(const char* term,
-                      char* outVarName, size_t sizeOutVarName) {
+bool trieScanVariable(Zicl_Value termValue, char* outVarName, int sizeOutVarName) {
+    int termLen;
+    const char* term = ziclGetString(termValue, &termLen);
+    if (termLen < 2) { return false; }
     if (term[0] != '/') { return false; }
-    int i = 1;
-    while (true) {
-        if (i - 1 > sizeOutVarName) { return false; }
-        if (term[i] == '/') {
-            if (term[i + 1] == '\0') {
-                outVarName[i - 1] = '\0';
-                return true;
-            } else {
-                return false;
-            }
+    if (term[termLen - 1] != '/') { return false; }
+
+    int varLen = termLen - 2;
+    if (varLen < 1 || varLen > sizeOutVarName) { return false; }
+
+    for (int i = 0; i < varLen; i++) {
+        if (term[1 + i] == ' ') {
+            return false;
         }
-        if (term[i] == '\0') { return false; }
         outVarName[i - 1] = term[i];
-        i++;
     }
+    outVarName[varLen] = '\0';
+    return true;
 }
 bool trieVariableNameIsNonCapturing(const char* varName) {
     const char* nonCapturingVarNames[] = {
@@ -200,7 +199,7 @@ static void trieLookupImpl(bool isLiteral,
     Zicl_Value term = patternTerms[patternIdx];
     enum { TERM_TYPE_LITERAL, TERM_TYPE_VARIABLE, TERM_TYPE_REST_VARIABLE } termType;
     char termVarName[100];
-    if (!isLiteral && trieScanVariable(ziclString(term), termVarName, 100)) {
+    if (!isLiteral && trieScanVariable(term, termVarName, 100)) {
         if (termVarName[0] == '.' && termVarName[1] == '.' && termVarName[2] == '.') {
             termType = TERM_TYPE_REST_VARIABLE;
         } else { termType = TERM_TYPE_VARIABLE; }
@@ -224,7 +223,7 @@ static void trieLookupImpl(bool isLiteral,
         } else {
             char keyVarName[100];
             // Is the trie node (we're currently walking) a variable?
-            if (!isLiteral && trieScanVariable(ziclString(trie->branches[j]->key),
+            if (!isLiteral && trieScanVariable(trie->branches[j]->key,
                                                keyVarName, 100)) {
                 // Is the trie node a rest variable?
                 if (keyVarName[0] == '.' && keyVarName[1] == '.' && keyVarName[2] == '.') {
@@ -273,7 +272,7 @@ static const Trie* trieRemoveImpl(bool isLiteral,
     Zicl_Value term = patternTerms[patternIdx];
     enum { TERM_TYPE_LITERAL, TERM_TYPE_VARIABLE, TERM_TYPE_REST_VARIABLE } termType;
     char termVarName[100];
-    if (!isLiteral && trieScanVariable(ziclString(term), termVarName, 100)) {
+    if (!isLiteral && trieScanVariable(term, termVarName, 100)) {
         if (termVarName[0] == '.' && termVarName[1] == '.' && termVarName[2] == '.') {
             termType = TERM_TYPE_REST_VARIABLE;
         } else { termType = TERM_TYPE_VARIABLE; }
@@ -305,7 +304,7 @@ static const Trie* trieRemoveImpl(bool isLiteral,
         } else {
             char keyVarName[100];
             // Is the trie node (we're currently walking) a variable?
-            if (!isLiteral && trieScanVariable(ziclString(trie->branches[j]->key),
+            if (!isLiteral && trieScanVariable(trie->branches[j]->key,
                                                keyVarName, 100)) {
                 // Is the trie node a rest variable?
                 if (keyVarName[0] == '.' && keyVarName[1] == '.' && keyVarName[2] == '.') {

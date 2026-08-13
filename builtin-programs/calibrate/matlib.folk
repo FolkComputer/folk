@@ -1,10 +1,11 @@
-When libapriltag has been built {
+When libapriltag has been built with config /configCcWithLibapriltag/ {
+fn configCcWithLibapriltag
 
 # We try to use the AprilTag matrix library (instead of tcllib linalg)
 # to do matrix/homography operations in the live calibration inner
 # loop, to help with performance:
 set cc [C]
-$cc cflags -I./vendor/apriltag
+configCcWithLibapriltag $cc
 $cc include <math.h>
 $cc include <common/matd.h>
 $cc include <common/homography.h>
@@ -135,13 +136,13 @@ $cc code {
     static void refineHomography(int nPointPairs, float pointPairs[][4],
                                  matd_t *H);
 }
-$cc proc estimateHomographyImpl {int nPointPairs float[][4] pointPairs} matd_t* {
+$cc proc estimateHomography {float[nPointPairs][4] pointPairs} matd_t* {
     matd_t *H = estimateHomographyBaseImpl(nPointPairs, pointPairs);
     refineHomography(nPointPairs, pointPairs, H);
     return H;
 }
 
-$cc proc estimateHomographyBaseImpl {int nPointPairs float[][4] pointPairs} matd_t* {
+$cc proc estimateHomographyBaseImpl {float[nPointPairs][4] pointPairs} matd_t* {
     float xys[nPointPairs][2];
     float uvs[nPointPairs][2];
     for (int i = 0; i < nPointPairs; i++) {
@@ -247,15 +248,7 @@ $cc proc applyHomography {matd_t* H double[2] xy} Jim_Obj* {
 $cc proc matdMul {matd_t* a matd_t* b} matd_t* {
     return matd_multiply(a, b);
 }
-$cc endcflags ./vendor/apriltag/build/libapriltag.so
 set matLib [$cc compile]
-Claim the calibration matLib is $matLib
-
-# HACK: wrapper because we have to give the array length as a separate
-# arg (at least for now).
-fn estimateHomography {pointPairs} {
-    $matLib estimateHomographyImpl [llength $pointPairs] $pointPairs
-}
-Claim the calibration estimateHomography is [fn estimateHomography]
+Claim the calibration matrix library is $matLib
 
 }

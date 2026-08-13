@@ -8,7 +8,6 @@ puts "web: [__threadId] (PID [pid])"
 signal handle SIGPIPE
 
 # To force a rebuild: rm vendor/wslay/Makefile
-set wslayFresh [expr {![file exists vendor/wslay/lib/.libs/libwslay.a]}]
 if {![file exists vendor/wslay/Makefile]} {
     puts "web: Configuring libwslay..."
     exec sh -c {cd vendor/wslay && autoreconf -i && automake && autoconf && ./configure} \
@@ -16,10 +15,6 @@ if {![file exists vendor/wslay/Makefile]} {
 }
 puts "web: Building libwslay..."
 exec make -C vendor/wslay >@stdout 2>@stderr
-if {$wslayFresh && $::tcl_platform(os) eq "linux"} {
-    exec patchelf --set-soname "[pwd]/vendor/wslay/lib/.libs/libwslay.so.0" \
-        vendor/wslay/lib/.libs/libwslay.so.0
-}
 puts "web: libwslay built."
 
 source "lib/ws.tcl"
@@ -44,6 +39,15 @@ proc readFile {filename contentTypeVar} {
     upvar $contentTypeVar contentType
     set fd [open $filename rb]
     set response [read $fd]; close $fd; return $response
+}
+
+proc headerGet {headers name args} {
+    foreach {k v} $headers {
+        if {[string equal -nocase $k $name]} { return $v }
+    }
+
+    if {[llength $args] > 0} { return [lindex $args 0] }
+    error "missing HTTP header $name"
 }
 
 proc handlePage {path httpStatusVar contentTypeVar} {
@@ -261,7 +265,7 @@ proc handleRead {chan addr} {
         set contentType "text/plain; charset=utf-8"
         puts -nonewline $chan "$httpStatus\r\nConnection: close\r\nContent-Type: $contentType\r\n\r\n"
 
-        set body [$chan read [dict get $headers Content-Length]]
+        set body [$chan read [headerGet $headers Content-Length]]
         # puts "  ($body)"
         try {
             puts -nonewline $chan [eval $body]
@@ -273,7 +277,14 @@ proc handleRead {chan addr} {
 
     } elseif {[info exists path] && $path eq "/ws"} {
         puts "web: Request for /ws ($headers)"
-        WsConnection upgrade $chan [dict get $headers Sec-WebSocket-Key] \
+        set clientKey [headerGet $headers Sec-WebSocket-Key ""]
+        if {$clientKey eq ""} {
+            puts -nonewline $chan "HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nMissing Sec-WebSocket-Key\r\n"
+            close $chan
+            return
+        }
+
+        WsConnection upgrade $chan $clientKey \
             [list Retract! websocket $chan is connected]
         Assert! websocket $chan is connected
 
@@ -283,6 +294,7 @@ proc handleRead {chan addr} {
 while true {
     try {
         set f [socket stream.server 4273]
+        $f listen 128
         $f readable [lambda {} {f} {
             set client [$f accept addr]
             handleConnect $client $addr
@@ -298,7 +310,7 @@ vwait forever
 
 } on error {e opts} {
     puts $::realStderr "WARNING: web.folk failed to initialize;
-the web server is probably down; check /tmp/folk-[pid]/ for log files.
+the web server is probably down; check /var/tmp/folk-[pid]/ for log files.
 (Make sure libtool and autoconf-archive are installed.)
 ------------------------------------------
 [errorInfo $e]"

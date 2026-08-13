@@ -1,0 +1,98 @@
+When the image library is /imageLib/ {
+    set cc [C]
+    $cc extend $imageLib
+    $cc cflags -I.
+    $cc include "vendor/CContour.c"
+
+    # Binarizes the first channel of `im` at `threshold` and returns
+    # the contours as a Tcl list. Each contour is itself a Tcl list of
+    # {x y} pairs. If epsilon > 0, each contour is simplified with
+    # Ramer-Douglas-Peucker.
+    #
+    # Contours are scaled by `scaleX` and `scaleY` so that they can be
+    # returned in real-world meters (instead of image-pixel space).
+    #
+    # Discards any contours that are not at least minLength long
+    # (unless minLength is very small).
+    $cc proc findImageContours {Image im int threshold double epsilon
+                                double scaleX double scaleY
+                                double minLength} Jim_Obj* {
+        int w = (int)im.width;
+        int h = (int)im.height;
+        if (w < 3 || h < 3) return Jim_NewListObj(interp, NULL, 0);
+
+        int *F = malloc(sizeof(int) * (size_t)w * (size_t)h);
+        for (int y = 0; y < h; y++) {
+            uint8_t *row = im.data + (size_t)y * im.bytesPerRow;
+            int *Frow = F + (size_t)y * w;
+            for (int x = 0; x < w; x++) {
+                Frow[x] = (row[x * im.components] > threshold) ? 1 : 0;
+            }
+        }
+
+        Contour *contours = findContours(F, w, h);
+        free(F);
+
+        Jim_Obj *outer = Jim_NewListObj(interp, NULL, 0);
+        for (ptrdiff_t c = 0; c < arrlen(contours); c++) {
+            Point *pts = (epsilon > 0)
+                ? approxPolyDP(contours[c].points, (float)epsilon)
+                : contours[c].points;
+            ptrdiff_t n = arrlen(pts);
+
+            if (minLength > 0.0001) {
+                double total = 0;
+                for (ptrdiff_t k = 1; k < n; k++) {
+                    double dx = (pts[k].x - pts[k-1].x) * scaleX;
+                    double dy = (pts[k].y - pts[k-1].y) * scaleY;
+                    total += sqrt(dx*dx + dy*dy);
+                }
+                if (total < minLength) {
+                    if (epsilon > 0) arrfree(pts);
+                    continue;
+                }
+            }
+
+            // %g prints up to ~13 chars per double; round up to give headroom.
+            size_t cap = (size_t)n * 40 + 1;
+            char *buf = malloc(cap);
+            size_t off = 0;
+            for (ptrdiff_t k = 0; k < n; k++) {
+                off += snprintf(buf + off, cap - off,
+                                k == 0 ? "{%g %g}" : " {%g %g}",
+                                pts[k].x * scaleX, pts[k].y * scaleY);
+            }
+            // Jim_NewStringObjNoAlloc takes ownership of buf.
+            Jim_ListAppendElement(interp, outer,
+                Jim_NewStringObjNoAlloc(interp, buf, (int)off));
+
+            if (epsilon > 0) arrfree(pts);
+        }
+        freeContours(contours);
+        return outer;
+    }
+
+    set contourLib [$cc compile]
+    Claim the contour library is $contourLib
+}
+
+When /someone/ wishes /p/ has contours {
+    Wish $p has contours with _ {}
+}
+When the contour library is /contourLib/ &\
+     /someone/ wishes /p/ has contours with /...opts/ {
+    Wish $p has camera slice
+    When $p has resolved geometry /geom/ &\
+         $p has camera slice /s/ {
+        set scaleX [/ $geom(width) $s(width)]
+        set scaleY [/ $geom(height) $s(height)]
+        set threshold [dict getdef $opts threshold 128]
+        set epsilon [dict getdef $opts epsilon 3.0]
+        set minLength [dict getdef $opts minLength 0.0]
+        Claim $p has contours [$contourLib findImageContours $s \
+                                   $threshold $epsilon \
+                                   $scaleX $scaleY \
+                                   $minLength] \
+            with {*}$opts
+    }
+}

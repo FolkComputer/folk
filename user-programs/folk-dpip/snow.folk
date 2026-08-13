@@ -1,0 +1,57 @@
+# Snowfall shader. Adapted from https://www.shadertoy.com/view/tc3GDl
+
+Wish the GPU compiles function "snow" {{vec2 uv float scale float time} float {
+    // Linear fade out towards the bottom
+    float w = clamp((uv.y + 1.2) * 0.5, 0.0, 1.0);
+    float t = time * 0.8;
+
+    // Movement logic
+    uv += t / scale;
+    uv.y += t * 3.0 / scale;
+    uv.x += sin(uv.y + t * 0.5) / scale;
+    uv *= scale;
+
+    vec2 s = floor(uv), f = fract(uv);
+    vec2 shift = fract(sin(vec2(dot(s, vec2(12.9898, 78.233)), 
+                               dot(s, vec2(45.164, 94.673)))) * 43758.5453);
+
+    // Each flake has an individual wobble and soft-edged dot shape
+    vec2 p = 0.5 + 0.35 * sin(t + 6.28 * shift) - f;
+    float size = 0.03 + 0.07 * shift.x;
+    return smoothstep(size, 0.0, length(p)) * w;
+}}
+
+Wish the GPU compiles pipeline "snowfall" {
+    {vec2 viewport mat3 surfaceToClip float time} {
+        vec2 vertices[6] = vec2[6](
+            vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(1.0, 1.0),
+            vec2(0.0, 0.0), vec2(1.0, 1.0), vec2(0.0, 1.0)
+        );
+        vec3 v = surfaceToClip * vec3(vertices[gl_VertexIndex], 1.0);
+        return vec4(v.xy/v.z, 0.0, 1.0);
+    } {fn snow} {
+        vec2 uv = (gl_FragCoord.xy * 2.0 - viewport.xy) / min(viewport.x, viewport.y);
+        uv.y = -uv.y; // Invert Y so 1.0 is top
+
+        float c = 0.0;
+        c += snow(uv, 20.0, time) * 0.3;
+        c += snow(uv, 15.0, time) * 0.5;
+        c += snow(uv, 10.0, time) * 0.8;
+        c += snow(uv, 5.0, time) * 1.0;
+
+        return vec4(vec3(c), 1.0);
+    }
+}
+
+When /someone/ wishes /p/ is snowing & \
+     the clock time is /t/ & \
+     /p/ has canvas /id/ with /...wiOptions/ & \
+     /p/ has canvas projection /surfaceToClip/ {
+    set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
+    
+    # Normalize time to maintain floating point precision in the shader
+    set normalizedTime [expr {fmod($t, 1000)}]
+    
+    Wish the GPU draws pipeline "snowfall" onto canvas $id \
+        with arguments [list $wiResolution $surfaceToClip $normalizedTime]
+}

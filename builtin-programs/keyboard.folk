@@ -84,7 +84,7 @@ When /keyboard/ is a keyboard device {
         Claim $keyboard has keymaps [dict create]
 
     When /page/ is a keyboard with path $keyboard locale /locale/ {
-        set localKeymaps [dict getdef [lindex [Query! $keyboard has keymaps /localKeymaps/] 0] localKeymaps {}]
+        set localKeymaps [QueryOne! $keyboard has keymaps /./ -default {}]
         if {[dict exists $localKeymaps $locale]} {
             return
         }
@@ -126,8 +126,7 @@ When /keyboard/ is a keyboard device {
             tvSec tvUsec type code value
 
         if {$type == 0x01} { ;# EV_KEY
-            set localKeymaps [dict getdef [lindex [Query! /someone/ claims $keyboard has keymaps /localKeymaps/] \
-                                               0] localKeymaps {}]
+            set localKeymaps [QueryOne! $keyboard has keymaps /./ -default {}]
 
             lassign [dict values $localKeymaps] activeKeymap
             if {$activeKeymap eq ""} {

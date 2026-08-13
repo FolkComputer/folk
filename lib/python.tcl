@@ -1,6 +1,21 @@
 set UVX "$env::HOME/.local/bin/uvx"
 if {![file exists $UVX]} { set UVX "uvx" }
 
+fn UvxCleanup {pid endpoint} {
+    # `uvx` may keep the real Python worker as a child process. Kill children
+    # first, then the wrapper. Both commands are best-effort because the worker
+    # may already have exited by the time the match is retracted.
+    catch {exec {pkill -TERM -P $pid}}
+    catch {exec {kill SIGTERM $pid}}
+    catch {exec {kill $pid}}
+    catch {file {delete -force $endpoint}}
+
+    after 1000 [list apply {{pid} {
+        catch {exec {pkill -KILL -P $pid}}
+        catch {exec {kill SIGKILL $pid}}
+    }} $pid]
+}
+
 set cc [dict link $C {}]
 cc::include <sys/socket.h>
 cc::include <sys/un.h>
@@ -167,13 +182,40 @@ set impl [cc::compile]
 
 fn Uvx args {
     set endpoint "/tmp/uvx-[clock milliseconds]-[expr {int(rand() * 100000)}].sock"
+    set folkPid [pid]
 
     set harnessCode [subst -nocommands -nobackslashes {
 import sys
+import os
 import socket
 import struct
 import json
 import threading
+import time
+
+folk_pid = $folkPid
+uvx_parent_pid = os.getppid()
+
+def process_is_zombie(pid):
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            return f.read().split()[2] == "Z"
+    except OSError:
+        return False
+
+def exit_when_parent_is_gone():
+    while True:
+        time.sleep(1)
+        if os.getppid() != uvx_parent_pid:
+            os._exit(0)
+        try:
+            os.kill(folk_pid, 0)
+        except OSError:
+            os._exit(0)
+        if process_is_zombie(folk_pid):
+            os._exit(0)
+
+threading.Thread(target=exit_when_parent_is_gone, daemon=True).start()
 
 def recv_frame(conn):
     hdr = b''
@@ -265,8 +307,12 @@ def handle_conn(conn):
                     parsed_args.append(arg.decode('utf-8'))
 
             result = func(*parsed_args)
-            send_frame(conn, b"ok")
-            send_frame(conn, json.dumps(result).encode('utf-8'))
+            if isinstance(result, (bytes, bytearray)):
+                send_frame(conn, b"okb")
+                send_frame(conn, result)
+            else:
+                send_frame(conn, b"ok")
+                send_frame(conn, json.dumps(result).encode('utf-8'))
             send_frame(conn, b"")
 
         except Exception as e:
@@ -284,7 +330,7 @@ while True:
                  python -u -c $harnessCode &]
     # HACK: This is a bit of Folk poking down into the library level,
     # which is awkward.
-    catch { uplevel [list On unmatch [list kill $pid]] } res
+    catch { uplevel [list On unmatch [list UvxCleanup $pid $endpoint]] } res
 
     # Return a library that runs internal state through the Folk db so
     # it can be called from any thread.
@@ -318,7 +364,7 @@ proc registerArgtype {typeName serializer} {
 }
 
 proc unknown {fnName args} {
-    variable impl; variable socket
+    variable impl; variable socket; variable endpoint
     # We need normal `unknown` to call methods on $impl, so need to
     # pass it through to ::unknown.
     if {$fnName eq $impl} {
@@ -357,9 +403,16 @@ proc unknown {fnName args} {
     $impl sockSendStr $socket ""
 
     set response [$impl sockRecvMulti $socket]
+    if {[llength $response] == 0} {
+        error "Python worker at $endpoint closed the connection"
+    }
 
     lassign $response status value
     if {$status eq "error"} { error $value }
+    if {$status eq "okb"} { return $value }
+    if {$status ne "ok"} {
+        error "Python worker at $endpoint returned invalid response: $response"
+    }
     return [json::decode $value]
 }
 proc exec {code} {

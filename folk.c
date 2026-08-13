@@ -664,6 +664,14 @@ void initSysmonInterp() {
     interpSetupEnv(interp);
 }
 
+void __attribute__((noinline)) __attribute__((used)) magic_trace_stop_indicator() {
+    asm volatile("" ::: "memory");
+}
+static int __magicTraceStopIndicatorFunc(Zicl_Interp* interp, int argc, Zicl_Shimmerable* argv) {
+    magic_trace_stop_indicator();
+    return ZICL_OK;
+}
+
 static void interpBoot() {
     Zicl_InitThread();
     interp = Zicl_CreateInterp();
@@ -708,8 +716,9 @@ static void interpBoot() {
     Zicl_CreateCommand(interp, "__db", __dbFunc, "", 0, 0);
     Zicl_CreateCommand(interp, "__threadId", __threadIdFunc, "", 0, 0);
 
-    Zicl_CreateCommand(interp, "__setFreshAtomicallyVersionOnKey", __setFreshAtomicallyVersionOnKeyFunc, "key", 1, 1);
+    Zicl_CreateCommand(interp, "__setFreshAtomicallyVersionOnKey", __setFreshAtomicallyVersionOnKeyFunc, "", 0, 0);
     Zicl_CreateCommand(interp, "__currentAtomicallyVersion", __currentAtomicallyVersionFunc, "", 0, 0);
+    Zicl_CreateCommand(interp, "__magicTraceStopIndicator", __magicTraceStopIndicatorFunc, "", 0, 0);
 
     Zicl_CreateCommand(interp, "setpgrp", setpgrpFunc, "", 0, 0);
     Zicl_CreateCommand(interp, "Exit!", exitFunc, "code", 1, 1);
@@ -1545,6 +1554,20 @@ void workerInit(int index) {
 void workerExit() {
     // Need this so that this worker doesn't count as still being
     // alive and count toward the worker cap.
+
+    // Donate any remaining items in our local workQueue to the global
+    // queue. Otherwise they'd be stranded: workerSteal skips workers
+    // whose tid == 0. This matters for self-kill scenarios like a
+    // When body whose Hold!/Say replaces its own match's parent —
+    // reactToNewStatement pushes the follow-up RUN_WHEN onto the
+    // local queue right before SIGUSR1 tears the worker down.
+    if (self->workQueue != NULL) {
+        while (true) {
+            WorkQueueItem item = workQueueTake(self->workQueue);
+            if (item.op == NONE) { break; }
+            globalWorkQueuePush(item);
+        }
+    }
 
     // Donate any remaining items in our local workQueue to the global
     // queue. Otherwise they'd be stranded: workerSteal skips workers

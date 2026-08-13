@@ -3,7 +3,67 @@
 #     This file provides global math datatypes and utilities.
 #
 
-set vec2 {}
+set math::PI 3.142
+set math::TAU 6.283
+
+fn math::drawPhysicalLength {value} {
+    if {[llength $value] != 1} {
+        error "draw: expected a scalar physical length, got $value"
+    }
+
+    set unit ""
+    set amount $value
+    foreach suffix {mm cm m} {
+        if {[string match *$suffix $value]} {
+            set unit $suffix
+            set amount [string range $value 0 end-[string length $suffix]]
+            break
+        }
+    }
+
+    if {$unit eq ""} {
+        error "draw: physical length $value must include a unit: mm, cm, or m"
+    }
+    if {![string is double -strict $amount]} {
+        error "draw: invalid physical length $value"
+    }
+
+    switch -- $unit {
+        cm { return [expr {double($amount) * 0.01}] }
+        mm { return [expr {double($amount) * 0.001}] }
+        m { return [expr {double($amount)}] }
+        default { error "draw: invalid physical unit $unit" }
+    }
+}
+
+fn math::drawPhysicalAxisExtent {width height axis} {
+    switch -- $axis {
+        x - width - horizontal { return $width }
+        y - height - vertical { return $height }
+        max { return [expr {$width > $height ? $width : $height}] }
+        min - radius - scale - thickness - default {
+            return [expr {$width < $height ? $width : $height}]
+        }
+    }
+}
+
+fn math::drawRelativePhysicalLength {value width height axis {context draw}} {
+    if {[llength $value] != 1} {
+        error "$context: expected a scalar length, got $value"
+    }
+
+    set override ""
+    if {[regexp {^([-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+))%(min|max|x|y|width|height)?$} \
+             $value -> pct override]} {
+        if {$override ne ""} {
+            set axis $override
+        }
+        return [expr {double($pct) / 100.0 * [drawPhysicalAxisExtent $width $height $axis]}]
+    }
+
+    drawPhysicalLength $value
+}
+
 fn vec2::add {a b} {
     list [+ [lindex $a 0] [lindex $b 0]] [+ [lindex $a 1] [lindex $b 1]]
 }
@@ -81,6 +141,17 @@ fn math::geometry::pointInsidePolygon {point polygon} {
     return $c
 }
 
+fn math::lsort-indices {itemL} {
+    set pairL [list]
+    foreach item $itemL {
+        lappend pairL [list $item [llength $pairL]]
+    }
+    set indexL [list]
+    foreach pair [lsort -index 0 -real $pairL] {
+        lappend indexL [lindex $pair 1]
+    }
+    set indexL
+}
 fn math::min {args} {
     if {[llength $args] == 0} { error "min: No args" }
     set min infinity

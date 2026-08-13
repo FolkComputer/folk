@@ -1,0 +1,14 @@
+
+set cc [C]
+$cc proc sumify {int[n] x} int {
+    int sum = 0;
+    for (int i = 0; i < n; i++) {
+        sum += x[i];
+    }
+    return sum;
+}
+set clib [$cc compile]
+
+assert {[$clib sumify [list 1 2 3 4]] == 10}
+
+Exit! 0

@@ -1,8 +1,10 @@
-When the image library is /imageLib/ {
+When the image library is /imageLib/ &\
+     libapriltag has been built with config /configCcWithLibapriltag/ {
+fn configCcWithLibapriltag
 
 set cc [C]
-$cc cflags -I./vendor/apriltag
-$cc endcflags vendor/blobdetect/hk.c ./vendor/apriltag/build/libapriltag.so
+configCcWithLibapriltag $cc
+$cc endcflags vendor/blobdetect/hk.c
 $cc extend $imageLib
 
 $cc include <apriltag.h>

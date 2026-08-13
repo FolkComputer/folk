@@ -41,13 +41,13 @@ folk: workqueue.o db.o trie.o sysmon.o epoch.o folk.o output-redirection.o block
 		dsymutil $@; \
 	fi
 	# Hack for the gadget trigger button.
-	if [ "$$(uname)" = "Linux" ]; then \
+	if [ "$$(uname)" = "Linux" ] && case "$$(hostname)" in gadget-*) true;; *) false;; esac; then \
 		(sudo -n true 2>/dev/null && sudo setcap cap_sys_rawio+ep $@) || true; \
 	fi
 
 %.o: %.c trie.h workqueue.h folk-zicl.h CFLAGS
 	cc -c -O2 -g -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) -o$@  \
-		-D_GNU_SOURCE $(CFLAGS) $(BUILTIN_CFLAGS) \
+		-D_GNU_SOURCE -U_FORTIFY_SOURCE $(CFLAGS) $(BUILTIN_CFLAGS) \
 		$< -I./vendor/jimtcl -I./vendor/tracy/public -I./vendor/zicl/zig-out/include
 
 folk_interpose.dylib: output-redirection.c
@@ -87,7 +87,7 @@ debug: folk
 	if [ "$$(uname)" = "Darwin" ]; then \
 		lldb -o "process handle -p true -s false SIGUSR1" -- ./folk; \
 	else \
-		gdb -ex "handle SIGUSR1 nostop" -ex "handle SIGPIPE nostop" ./folk; \
+		DEBUGINFOD_URLS="" gdb -ex "handle SIGUSR1 nostop" -ex "handle SIGPIPE nostop" ./folk; \
 	fi
 
 clean:
@@ -126,10 +126,10 @@ sync:
 	rsync --timeout=15 -e "ssh -o StrictHostKeyChecking=no" \
 		--archive --delete --itemize-changes \
 		--exclude='/.git' \
-		--exclude-from='.git/ignores.tmp' \
 		--exclude='vendor/tracy/public/TracyClient.o' \
 		--include='vendor/tracy/public/***' \
 		--exclude='vendor/tracy/*' \
+		--exclude-from='.git/ignores.tmp' \
 		./ $(FOLK_REMOTE_NODE):~/folk/
 
 remote-setup:
@@ -170,13 +170,13 @@ remote-flamegraph:
 start: folk
 	@if [ -n "$$(systemctl list-unit-files | grep folk.service)" ] && \
 	   [ -n "$$(systemctl cat folk.service | grep "ExecStart.*$$(pwd)")" ] && \
-	   [ -z "$(ENABLE_ASAN)" ] && \
+	   [ -z "$(ASAN_ENABLE)" ] && \
 	   [ -z "$$INVOCATION_ID" ] && \
 	   [ -z "$(CFLAGS)" ] ; then \
 		sudo systemctl start folk.service; \
 		journalctl --output=cat -f -u folk.service; \
 	else \
-		$(if $(ENABLE_ASAN),ASAN_OPTIONS=detect_leaks=1:halt_on_error=0,) ./folk; \
+		$(if $(ASAN_ENABLE),ASAN_OPTIONS=detect_leaks=1:halt_on_error=0,) ./folk; \
 	fi
 
 run-tracy:

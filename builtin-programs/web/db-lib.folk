@@ -108,12 +108,17 @@ Claim the db library is [apply {{} {
         matchRelease(db, match);
         return alive;
     }
+    $cc code {
+        #define CHILD_STATEMENTS_REMOVING ((ListOfEdgeTo*)1)
+    }
     $cc proc childStatements {Db* db MatchRef matchRef} Jim_Obj* {
         Match* match = matchAcquire(db, matchRef);
         if (match == NULL) { return Jim_NewStringObj(interp, "", -1); }
 
         pthread_mutex_lock(&match->childStatementsMutex);
-        if (match->childStatements == NULL) {
+        if (match->childStatements == NULL ||
+            match->childStatements == CHILD_STATEMENTS_REMOVING) {
+
             pthread_mutex_unlock(&match->childStatementsMutex);
             matchRelease(db, match);
             return Jim_NewEmptyStringObj(interp);

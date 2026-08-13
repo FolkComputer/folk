@@ -1,0 +1,8 @@
+Wish the web server handles route {/log/(.+)$} with hidden true handler {
+    set filename [string map {/ __} $1]
+    set path "/var/tmp/folk-[pid]/$filename"
+
+    set content ""
+    catch { set content [exec tail -c 100000 $path] }
+    dict create statusAndHeaders "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n" body $content
+}
