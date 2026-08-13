@@ -30,27 +30,27 @@ apply [fn {} {
 
 __installLocalStdoutAndStderr "boot.folk"
 
-Assert! when /_this/ has program code /programCode/ {
-    if {$_this eq "builtin-programs/collect.folk"} {
+Assert! when /this/ has program code /programCode/ {
+    if {$this eq "builtin-programs/collect.folk"} {
         # We don't have Collect available in boot.folk yet, since it's
         # implemented in userspace, so we can't do the queries. Just
         # run it always.
-        SayWithSource $_this 1 0 {} {} \
-            when $programCode with environment [list [list this $_this]]
+        SayWithSource $this 1 0 {} {} \
+            when [fn {} $programCode]
         return
     }
 
-    When /nobody/ wishes program $_this does not run {
-        When /nobody/ wishes program $_this is replaced with /...anything/ {
-            SayWithSource $_this 1 0 {} {} \
-                when $programCode with environment [list [list this $_this]]
+    When /nobody/ wishes program $this does not run {
+        When /nobody/ wishes program $this is replaced with /...anything/ {
+            SayWithSource $this 1 0 {} {} \
+                when [fn {} $programCode]
         }
-        When /someone/ wishes program $_this is replaced with /...replacedOpts/ {
-            SayWithSource $_this 1 0 {} {} \
-                when [dict get $replacedOpts code] with environment [list [list this $_this]]
+        When /someone/ wishes program $this is replaced with /...replacedOpts/ {
+            SayWithSource $this 1 0 {} {} \
+                when [fn {} [dict get $replacedOpts code]]
         }
     }
-} with environment {}
+}
 
 fn LoadProgram! {programFilename} {
     set fp [fopen $programFilename r]
@@ -80,7 +80,7 @@ foreach programFilename [list {*}[glob -nocomplain builtin-programs/*.folk] \
     LoadProgram! $programFilename
 }
 
-if {$::tcl_platform(os) eq "darwin"} {
+if {$tcl_platform::os eq "darwin"} {
     # HACK: We must run all the GPU and window setup stuff
     # synchronously in the main thread on macOS.
 

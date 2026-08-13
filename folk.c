@@ -682,8 +682,8 @@ static void interpBoot() {
 
     Zicl_CreateCommand(
         interp, "SayWithSource", SayWithSourceFunc,
-        "clause keepMs version destructorCode sourceFileName sourceLineNumber",
-        6, 6
+        "keepMs version destructorCode sourceFileName sourceLineNumber clause",
+        6, -1
     );
     Zicl_CreateCommand(interp, "Destructor", DestructorFunc, "destructor", 1, 1);
 
@@ -736,52 +736,100 @@ void eval(const char* code) {
 
 void workerExit();
 
-// Takes ownership of `bodyObj`.
+// Looks up "this" in closure's captured scope (following ~parent links, so
+// this reaches enclosing scopes too), falling back to "<unknown>" if there's
+// no scope or no "this" in it. Owned; caller must Zicl_Release the result.
+static Zicl_Value closureGetThis(Zicl_Closure* closure) {
+    Zicl_Dict* scope = Zicl_ClosureGetScope(closure);
+    if (scope != NULL) {
+        Zicl_Shimmerable scopeShim = Zicl_NewShimmerable(Zicl_BoxDict(scope));
+        defer { Zicl_ShimDiscardChanges(&scopeShim); }
+        Zicl_OptionalValue out;
+        if (Zicl_ShimDictGet(interp, &scopeShim, Zicl_InternStr("this"), &out) == ZICL_OK &&
+            Zicl_IsSome(out)) {
+            return Zicl_Borrow(Zicl_Unwrap(out));
+        }
+    }
+    return Zicl_InternStr("<unknown>");
+}
+
+// Reports an error raised while running a block: prints it to stderr, and
+// asserts (or, inside a subscription, holds) a "<this> has error <err> with
+// info {-errorinfo <stack>}" statement, so other parts of a Folk program can
+// react to it (see builtin-programs/errors.folk). This used to be a Tcl-level
+// `try`/`on error` wrapper around applyBlock, reading $::this out of the
+// merged environment; now that runBlock calls the closure directly, it's
+// done here instead. thisValue is borrowed from the caller, which already
+// had to look it up via closureGetThis to install output redirection.
+static void runBlockReportError(Zicl_Value thisValue, const char* sourceFileName, int sourceLineNumber) {
+    // Grab the raw message and structured stack before
+    // Zicl_MakeErrorMessage consumes/reformats the interpreter's result.
+    Zicl_Value errValue = Zicl_Borrow(Zicl_GetResult(interp));
+    defer { Zicl_Release(errValue); }
+    Zicl_Value stackTrace = Zicl_Borrow(Zicl_GetErrorStack(interp));
+    defer { Zicl_Release(stackTrace); }
+
+    Zicl_MakeErrorMessage(interp);
+    fprintf(stderr, "\nError while running %s: %s\n",
+            ziclString(thisValue), ziclString(Zicl_GetResult(interp)));
+
+    Zicl_Value infoObjs[] = { Zicl_InternStr("-errorinfo"), stackTrace };
+    Zicl_Value infoValue = Zicl_BoxDict(ziclNewDict(infoObjs, 2));
+    defer { Zicl_Release(infoValue); }
+
+    Zicl_Value clauseObjs[] = {
+        thisValue, Zicl_InternStr("has"), Zicl_InternStr("error"), errValue,
+        Zicl_InternStr("with"), Zicl_InternStr("info"), infoValue,
+    };
+    // Takes ownership of this list -- Say/HoldStatementGlobally below.
+    Zicl_List* errorClause = ziclNewList(clauseObjs, 7);
+    Zicl_MakeCrossthread(Zicl_BoxList(errorClause));
+
+    if (self->inSubscription) {
+        // Can't Say inside of a subscription, so Hold! instead (matching
+        // the old Tcl behavior), keyed on `this` so a new error replaces
+        // the previous one rather than accumulating duplicates.
+        char suffix[256];
+        snprintf(suffix, sizeof(suffix), "%s-error", ziclString(thisValue));
+        Zicl_Value keyObjs[] = { thisValue, ziclNewString(suffix, -1) };
+        Zicl_List* keyList = ziclNewList(keyObjs, 2);
+        defer { Zicl_ReleaseList(keyList); }
+
+        HoldStatementGlobally(ziclListString(keyList), -1, errorClause, 0, NULL,
+                              sourceFileName, sourceLineNumber);
+    } else {
+        Say(errorClause, 0, NULL, NULL, sourceFileName, sourceLineNumber);
+    }
+}
+
 static int runBlock(const Zicl_List* bodyPattern, const Zicl_List* toUnifyWith,
-                    Zicl_Value bodyObj, const char *sourceFileName, int sourceLineNumber,
-                    Zicl_Value envStackObj) {
-    defer { Zicl_Release(bodyObj); }
-    Zicl_List* combinedEnvStack = ziclNewList(NULL, 0);
-    defer { Zicl_ReleaseList(combinedEnvStack); }
-
-    // Set the source info for the bodyObj:
-    const Zicl_Source* asSource = Zicl_AsSource(bodyObj);
-    if (asSource == NULL) {
-        // Try to set the source.
-        Zicl_Source* asSourceMut = Zicl_AsSourceMut(bodyObj);
-        assert(asSourceMut);
-        ZICL_SWAP(&asSourceMut->file_name, ziclNewString(sourceFileName, -1));
+                    Zicl_Value closureObj, const char *sourceFileName, int sourceLineNumber) {
+    // Figure out all the bound match variables by unifying when &
+    // stmt:
+    Environment* env = clauseUnify(bodyPattern, toUnifyWith);
+    defer { free(env); }
+    if (env == NULL) {
+        // Unification failed.
+        return ZICL_OK;
     }
 
-    {
-        // Figure out all the bound match variables by unifying when &
-        // stmt:
-        Environment* env = clauseUnify(bodyPattern, toUnifyWith);
-        defer { free(env); }
-        if (env == NULL) {
-            // Unification failed.
-            return ZICL_OK;
-        }
-
-        if (env->nBindings > 50) {
-            fprintf(stderr, "runBlock: Too many bindings in env: %d\n",
-                    env->nBindings);
-            return ZICL_OK;
-        }
-
-        Zicl_Value objs[env->nBindings*2];
-        for (int i = 0; i < env->nBindings; i++) {
-            objs[i*2] = ziclNewString(env->bindings[i].name, -1);
-            objs[i*2 + 1] = env->bindings[i].value;
-        }
-        defer { for (int j = 0; j < env->nBindings; j++) Zicl_Release(objs[j*2]); }
-
-        Zicl_Value boundEnvValue = Zicl_BoxDict(ziclNewDict(objs, env->nBindings*2));
-        defer { Zicl_Release(boundEnvValue); }
-
-        ziclListAppend(combinedEnvStack, envStackObj);
-        ziclListAppend(combinedEnvStack, boundEnvValue);
+    if (env->nBindings > 50) {
+        fprintf(stderr, "runBlock: Too many bindings in env: %d\n",
+                env->nBindings);
+        return ZICL_OK;
     }
+
+    int rc = ZICL_OK;
+    Zicl_Closure* closure; ZICL_TRY(Zicl_GetClosure(interp, closureObj, &closure), rc);
+    defer { Zicl_ReleaseClosure(closure); }
+
+    // Install this block's output redirection before running it -- applyBlock
+    // used to do this generically from the merged environment; now `this`
+    // comes straight out of the closure's own captured scope.
+    Zicl_Value thisValue = closureGetThis(closure);
+    defer { Zicl_Release(thisValue); }
+    fflush(stdout);
+    installLocalStdoutAndStderrForProgram(ziclString(thisValue));
 
     // Rule: you should never be holding a lock while doing a Tcl
     // evaluation.
@@ -800,16 +848,19 @@ static int runBlock(const Zicl_List* bodyPattern, const Zicl_List* toUnifyWith,
 #endif
 
         int64_t t0 = timestamp_get(CLOCK_MONOTONIC);
-        Zicl_Value objv[] = {
-            Zicl_InternStr("evaluateBlock"),
-            bodyObj,
-            Zicl_BoxList(combinedEnvStack)
-        };
-        Zicl_Value toEvaluate = Zicl_BoxList(ziclNewList(objv, sizeof(objv)/sizeof(Zicl_Value)));
-        defer { Zicl_Release(toEvaluate); }
-        error = Zicl_EvalValue(interp, toEvaluate);
-        blockStatsUpdate(sourceFileName, sourceLineNumber,
-                         timestamp_get(CLOCK_MONOTONIC) - t0);
+        Zicl_Shimmerable* bodyArgs = malloc(sizeof(Zicl_Shimmerable) * env->nBindings);
+        defer { free(bodyArgs); }
+        for (int i = 0; i < env->nBindings; i++) {
+            bodyArgs[i] = Zicl_NewShimmerable(env->bindings[i].value);
+        }
+        defer { for (int i = 0; i < env->nBindings; i++) Zicl_ShimDiscardChanges(&bodyArgs[i]); }
+
+        error = Zicl_CallClosure(interp, closure, env->nBindings, bodyArgs);
+        blockStatsUpdate(sourceFileName ? sourceFileName : "<unknown>", sourceLineNumber, timestamp_get(CLOCK_MONOTONIC) - t0);
+    }
+
+    if (error != ZICL_OK) {
+        runBlockReportError(thisValue, sourceFileName, sourceLineNumber);
     }
 
     return error;
@@ -895,12 +946,11 @@ static void runWhenBlock(StatementRef whenRef, Zicl_List* whenPattern, Statement
     size_t whenClauseLen = Zicl_ListLength(whenClause);
     assert(whenClauseLen >= 5);
 
-    // when the time is /t/ /body/ with environment /capturedEnvStack/
-    Zicl_Value bodyObj = whenClauseTerms[whenClauseLen - 4];
-    Zicl_Value capturedEnvStack = whenClauseTerms[whenClauseLen - 1];
+    // when the time is /t/ /body/
+    Zicl_Value bodyObj = whenClauseTerms[whenClauseLen - 1];
 
     runBlock(whenPattern, stmtClause, bodyObj,
-        statementSourceFileName(when), statementSourceLineNumber(when), capturedEnvStack);
+        statementSourceFileName(when), statementSourceLineNumber(when));
 
     if (self->currentAtomicallyVersion != NULL) {
         dbAtomicallyVersionInflightDecr(db, self->currentAtomicallyVersion);
@@ -927,14 +977,12 @@ static void runSubscribeBlock(StatementRef subscribeRef, const Zicl_List* subscr
     assert(subscribeClauseLen >= 5);
 
     // key x was pressed
-    // -> subscribe key x was pressed /lambda/ with environment /capturedEnvStack/
-    Zicl_Value bodyObj = subscribeClauseTerms[subscribeClauseLen - 4];
-    Zicl_Value capturedEnvStack = subscribeClauseTerms[subscribeClauseLen - 1];
+    // -> subscribe key x was pressed /lambda/
+    Zicl_Value bodyObj = subscribeClauseTerms[subscribeClauseLen - 1];
 
     runBlock(subscribePattern, notifyClause, bodyObj,
         statementSourceFileName(subscribeStmt),
-        statementSourceLineNumber(subscribeStmt),
-        capturedEnvStack);
+        statementSourceLineNumber(subscribeStmt));
 
     self->inSubscription = false;
 }
@@ -942,7 +990,7 @@ static void runSubscribeBlock(StatementRef subscribeRef, const Zicl_List* subscr
 // Copies the whenPattern Clause and all terms so it can be owned (and
 // freed) by the eventual handler of the block.
 static void pushRunWhenBlock(StatementRef whenRef, Zicl_List* whenPattern, StatementRef stmtRef) {
-    // Make sure whenPattern is immutable, as it's about to become shared.
+    // Make sure whenPattern is immutable, as it's about to become crossthread.
     // This also freezes it as a list.
     Zicl_MakeCrossthread(Zicl_BoxList(whenPattern));
     Zicl_Borrow(Zicl_BoxList(whenPattern)); // Take ownership.
@@ -1032,7 +1080,7 @@ static Zicl_List* unclaimizeClause(Zicl_List* clause) {
 // Returns new Zicl_List with refCount = 1
 static Zicl_List* whenizeClause(Zicl_List* clause) {
     // the time is /t/
-    //   -> when the time is /t/ /__lambda/ with environment /__env/
+    //   -> when the time is /t/ /__lambda/
     Zicl_List* ret = ziclNewList(NULL, 0);
 
     size_t nTerms = Zicl_ListLength(clause);
@@ -1041,29 +1089,26 @@ static Zicl_List* whenizeClause(Zicl_List* clause) {
     ziclListAppend(ret, Zicl_InternStr("when"));
     for (size_t i = 0; i < nTerms; i++) ziclListAppend(ret, terms[i]);
     ziclListAppend(ret, Zicl_InternStr("/__lambda/"));
-    ziclListAppend(ret, Zicl_InternStr("with"));
-    ziclListAppend(ret, Zicl_InternStr("environment"));
-    ziclListAppend(ret, Zicl_InternStr("/__env/"));
 
     return ret;
 }
 
 // Returns new Zicl_List with refCount = 1
 static Zicl_List* unwhenizeClause(Zicl_List* clause) {
-    // when the time is /t/ /lambda/ with environment /env/
+    // when the time is /t/ /lambda/
     //   -> the time is /t/
     Zicl_List* ret = ziclNewList(NULL, 0);
 
     size_t nTerms = Zicl_ListLength(clause);
     const Zicl_Value* terms = Zicl_ListItems(clause);
 
-    for (size_t i = 2; i < nTerms - 4; i++) ziclListAppend(ret, terms[i]);
+    for (size_t i = 1; i < nTerms - 1; i++) ziclListAppend(ret, terms[i]);
 
     return ret;
 }
 static Zicl_List* subscriptionizeClause(Zicl_List* notifyClause) {
     // key x was pressed
-    // -> subscribe key x was pressed /lambda/ with environment /__env/
+    // -> subscribe key x was pressed /lambda/
     Zicl_List* ret = ziclNewList(NULL, 0);
 
     size_t nTerms = Zicl_ListLength(notifyClause);
@@ -1072,22 +1117,19 @@ static Zicl_List* subscriptionizeClause(Zicl_List* notifyClause) {
     ziclListAppend(ret, Zicl_InternStr("subscribe"));
     for (size_t i = 0; i < nTerms; i++) ziclListAppend(ret, terms[i]);
     ziclListAppend(ret, Zicl_InternStr("/__lambda/"));
-    ziclListAppend(ret, Zicl_InternStr("with"));
-    ziclListAppend(ret, Zicl_InternStr("environment"));
-    ziclListAppend(ret, Zicl_InternStr("/__env/"));
 
     return ret;
 }
 // currently the same as unwhenizeClause, but semantically different
 static Zicl_List* unsubscriptionizeClause(Zicl_List* subscribeClause) {
-    // subscribe the time is /t/ /lambda/ with environment /env/
+    // subscribe the time is /t/ /lambda/
     //        -> the time is /t/
     Zicl_List* ret = ziclNewList(NULL, 0);
 
     size_t nTerms = Zicl_ListLength(subscribeClause);
     const Zicl_Value* terms = Zicl_ListItems(subscribeClause);
 
-    for (size_t i = 1; i < nTerms - 4; i++) ziclListAppend(ret, terms[i]);
+    for (size_t i = 1; i < nTerms - 1; i++) ziclListAppend(ret, terms[i]);
 
     return ret;
 }
@@ -1176,7 +1218,7 @@ static void reactToNewStatement(StatementRef ref) {
     // statement (look for Whens that are already in the database).
     {
         // the time is 3
-        //   -> when the time is 3 /__lambda/ with environment /__env/
+        //   -> when the time is 3 /__lambda/
         Zicl_List* whenizedClause = whenizeClause(clause);
         defer { Zicl_ReleaseList(whenizedClause); }
         ResultSet* existingReactingWhens = dbQuery(db, whenizedClause);
@@ -1185,7 +1227,7 @@ static void reactToNewStatement(StatementRef ref) {
         /*       existingReactingWhens->nResults); */
         for (size_t i = 0; i < existingReactingWhens->nResults; i++) {
             StatementRef whenRef = existingReactingWhens->results[i];
-            // when the time is /t/ /__lambda/ with environment /__env/
+            // when the time is /t/ /__lambda/
             //   -> the time is /t/
             Statement* when = statementAcquire(db, whenRef);
             defer { if (when) statementRelease(db, when); }
@@ -1206,31 +1248,34 @@ static void reactToNewStatement(StatementRef ref) {
         // Cut off `/x/ claims` from start of clause:
         //
         // /x/ claims the time is 3
-        //   -> when the time is 3 /__lambda/ with environment /__env/
+        //   -> when the time is 3 /__lambda/
         Zicl_List* unclaimizedClause = unclaimizeClause(clause);
-        defer { Zicl_ReleaseList(unclaimizedClause); };
         Zicl_List* whenizedUnclaimizedClause = whenizeClause(unclaimizedClause);
-        defer { Zicl_ReleaseList(whenizedUnclaimizedClause); };
 
         ResultSet* existingReactingWhens = dbQuery(db, whenizedUnclaimizedClause);
         defer { free(existingReactingWhens); }
+        Zicl_ReleaseList(unclaimizedClause);
+        Zicl_ReleaseList(whenizedUnclaimizedClause);
 
         for (size_t i = 0; i < existingReactingWhens->nResults; i++) {
             StatementRef whenRef = existingReactingWhens->results[i];
-            // when the time is /t/ /__lambda/ with environment /__env/
+            // when the time is /t/ /__lambda/
             //   -> /someone/ claims the time is /t/
             Statement* when = statementAcquire(db, whenRef);
             defer { if (when) statementRelease(db, when); }
             if (when) {
+                dprintf(realStdout, "Statement: %s\n", ziclString(Zicl_BoxList(statementClause(when))));
                 Zicl_List* unwhenizedWhenPattern = unwhenizeClause(statementClause(when));
-                defer { Zicl_ReleaseList(unwhenizedWhenPattern); };
+                defer { Zicl_ReleaseList(unwhenizedWhenPattern); }
+                dprintf(realStdout, "Unwhenized statement: %s\n", ziclString(Zicl_BoxList(unwhenizedWhenPattern)));
                 Zicl_List* claimizedUnwhenizedWhenPattern = claimizeClause(unwhenizedWhenPattern);
-                defer { Zicl_ReleaseList(claimizedUnwhenizedWhenPattern); };
+                assert(claimizedUnwhenizedWhenPattern);
+                defer { Zicl_ReleaseList(claimizedUnwhenizedWhenPattern); }
 
                 pushRunWhenBlock(
                     whenRef,
                     // takes ownership
-                    claimizedUnwhenizedWhenPattern,
+                    claimizedUnwhenizedWhenPattern ? claimizedUnwhenizedWhenPattern : unwhenizedWhenPattern,
                     ref
                 );
             }
@@ -1240,7 +1285,7 @@ static void reactToNewStatement(StatementRef ref) {
 
 static void Notify(Zicl_List* toNotify) {
     // key x was pressed
-    // -> subscribe key x was pressed /lambda/ with environment /__env/
+    // -> subscribe key x was pressed /lambda/
     Zicl_List* clauseQuery = subscriptionizeClause(toNotify);
     defer { Zicl_ReleaseList(clauseQuery); }
     ResultSet* rs = dbQuery(db, clauseQuery);

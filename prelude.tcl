@@ -69,23 +69,6 @@ fn applyBlock {body envStack} {
     tailcall apply [list $names $body] {*}$values
 }
 
-fn evaluateBlock {whenBody envStack} {
-    try {
-        applyBlock $whenBody $envStack
-    } on error {err opts} {
-        set errorInfo [dict get $opts -errorinfo]
-        set this $([info exists ::this] ? $::this : [lindex $errorInfo 1])
-        puts stderr "\nError while running $this: $err\n  [errorInfo $err $errorInfo]"
-        if {[__isInSubscription]} {
-            # Can't Say inside of a subscription, so Hold! instead
-            # (TODO: might be a better way?)
-            Hold! -key $this-error -on $this $this has error $err with info $opts
-        } else {
-            Say $this has error $err with info $opts
-        }
-    }
-}
-
 fn assert condition {
     if {![uplevel [list expr $condition]]} {
         return -code error "assertion failed: $condition"
@@ -142,9 +125,8 @@ fn Hold! {args} {
         # Hold! { ... body ... }
         set body [lindex $clause 0]
 
-        set envStack {}
         lassign [info source $body] filename lineno
-        set clause [list when $body with environment $envStack]
+        set clause [list when [fn {} $body]]
     } elseif {[llength $clause] > 1} {
         if {[lindex $clause 0] eq "Claim"} {
             set clause [list $this claims {*}[lrange $clause 1 end]]
@@ -206,8 +188,8 @@ fn Say {args} {
             # {...}".
             set isWith true
         } elseif {$isWith && $term eq "handler"} {
-            set handler [lindex $args $i+1]
-            lset args $i+1 [list applyBlock $handler {}]
+            set handler [lindex $args $($i+1)]
+            lset args $($i+1) [list applyBlock $handler {}]
         }
     }
     tailcall SayWithSource $sourceFileName $sourceLineNumber \
@@ -219,6 +201,10 @@ fn Say {args} {
 fn Claim {args} { upvar this this; tailcall Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
 fn Wish {args} { upvar this this; tailcall Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }
 # returns the statement to Say/Assert (minus the envStack), as well as all bound variable names
+# Returns the front of the clause to Say/Assert (everything up to but not
+# including the body), the body script to build the block closure from, and
+# the list of variable names that will be bound to it, in the exact order
+# clauseUnify will bind them at match time.
 fn desugarWhen {pattern body} {
     set varNamesWillBeBound [list]
     set isNegated false
@@ -226,8 +212,8 @@ fn desugarWhen {pattern body} {
         set term [lindex $pattern $i]
         if {$term eq "&"} {
             # Desugar this join into nested Whens.
-            set remainingPattern [lrange $pattern $i+1 end]
-            set pattern [lrange $pattern 0 $i-1]
+            set remainingPattern [lrange $pattern $($i+1) end]
+            set pattern [lrange $pattern 0 $($i-1)]
             for {set j 0} {$j < [llength $remainingPattern]} {incr j} {
                 set remainingTerm [lindex $remainingPattern $j]
                 if {[regexp {^/([^/ ]+)/$} $remainingTerm -> remainingVarName] &&
@@ -238,7 +224,7 @@ fn desugarWhen {pattern body} {
             set body [list When {*}$remainingPattern $body]
             break
 
-        } elseif {[set varName [__scanVariable $term]] != 0} {
+        } elseif {[set varName [__scanVariable $term]] ne 0} {
             if {[__variableNameIsNonCapturing $varName]} {
             } elseif {$varName eq "nobody" || $varName eq "nothing"} {
                 # Rewrite this entire clause to be negated.
@@ -258,19 +244,25 @@ fn desugarWhen {pattern body} {
     }
 
     if {$isNegated} {
+        # The outer pattern here only ever binds /__results/ -- $pattern is
+        # spliced in as a single already-built term (collect.folk's
+        # Recollect! ran the pre-negation pattern as a query to build it),
+        # not scanned for its own variables at this level. The body only
+        # runs when $__results is empty, so there's no candidate match left
+        # to pull any of the other pattern's variables' values from anyway.
         set negateBody [list if {[llength $__results] == 0} $body]
         return [list \
-            [list when the collected results for $pattern are /__results/ \
-                $negateBody with environment] \
-            $varNamesWillBeBound]
+            [list when the collected results for $pattern are /__results/] \
+            $negateBody {__results}]
     } else {
         return [list \
-            [list when {*}$pattern $body with environment] \
-            $varNamesWillBeBound]
+            [list when {*}$pattern] \
+            $body $varNamesWillBeBound]
     }
 }
 fn When {args} {
     upvar this this
+
     set body [lindex $args end]
     set sourceInfo [info source $body]
 
@@ -328,11 +320,10 @@ fn When {args} {
         }
     }
 
-    if {$isNonCapturing} {
-        set envStack {}
-    } else {
-        set envStack {}
-    }
+    # TODO: -noncapturing isn't wired up to anything yet (it wasn't in the
+    # pre-port code either -- both branches just produced an empty
+    # envStack). With real closures, the natural meaning would be building
+    # the closure with no captured scope.
 
     if {$isSerially} {
         # Serial prologue: find this When itself; see if that
@@ -357,12 +348,25 @@ fn When {args} {
         set atomicallyVersion {}
     }
 
-    lassign [desugarWhen $pattern $body] statement boundVars
-    lappend statement $envStack
+    lassign [desugarWhen $pattern $body] clauseFront bodyToWrap boundVars
+
+    # Build the closure one level up, in our caller's frame -- not here in
+    # When's own frame, which only has our own parsing internals (pattern,
+    # term, i, ...), and not desugarWhen's frame either, which is already
+    # gone by the time we get its return value. `fn` captures whatever's
+    # actually in scope where the `When {...}` call was written (this, any
+    # outer fns), and boundVars becomes its formal parameter list --
+    # clauseUnify binds exactly those names, in this order, on every match,
+    # so the C side just calls this same closure directly with the bound
+    # values on every match. Output redirection (this used to be installed
+    # generically by applyBlock from the merged environment) is now handled
+    # by runBlock in C, reading `this` straight out of the closure's own
+    # captured scope.
+    set closure [uplevel 1 [list fn $boundVars $bodyToWrap]]
 
     tailcall SayWithSource {*}$sourceInfo \
         0 $atomicallyVersion {} \
-        {*}$statement
+        {*}$clauseFront $closure
 }
 fn Subscribe: {args} {
     set pattern [lrange $args 0 end-1]
@@ -372,7 +376,7 @@ fn Subscribe: {args} {
 
     tailcall SayWithSource {*}$sourceInfo \
         0 {} {} \
-        subscribe {*}$pattern $body with environment {}
+        subscribe {*}$pattern $body
 }
 fn Notify: {args} {
     NotifyImpl {*}$args
@@ -403,7 +407,7 @@ fn Query! {args} {
     for {set i 0} {$i < [llength $args]} {incr i} {
         set term [lindex $args $i]
         if {$term eq "&"} {
-            set remainingPattern [lrange $args $i+1 end]
+            set remainingPattern [lrange $args $($i+1) end]
             # pattern is already built up correctly before the &
             for {set j 0} {$j < [llength $remainingPattern]} {incr j} {
                 set remainingTerm [lindex $remainingPattern $j]
@@ -417,7 +421,7 @@ fn Query! {args} {
         } elseif {$term eq "-atomically"} {
             set isAtomically true
 
-        } elseif {[set varName [__scanVariable $term]] != 0} {
+        } elseif {[set varName [__scanVariable $term]] ne 0} {
             if {[__variableNameIsNonCapturing $varName]} {
             } elseif {$varName eq "nobody" || $varName eq "nothing"} {
                 set isNegated true
@@ -570,25 +574,17 @@ if {[__isTracyEnabled]} {
             __thread TracyCZoneCtx __zoneCtx;
         }
         $tracyCpp proc zoneBegin {} void {
-            Jim_Obj* scriptObj = interp->evalFrame->scriptObj;
-            const char* sourceFileName;
-            int sourceLineNumber;
-            if (Jim_ScriptGetSourceFileName(interp, scriptObj, &sourceFileName) != JIM_OK) {
-                sourceFileName = "<unknown>";
-            }
-            if (Jim_ScriptGetSourceLineNumber(interp, scriptObj, &sourceLineNumber) != JIM_OK) {
-                sourceLineNumber = -1;
-            }
-            Jim_CallFrame *frame = interp->framePtr->parent->parent;
-            const char *fnName = NULL;
-            if (frame != NULL && frame->argv != NULL) {
-                fnName = Jim_String(frame->argv[0]);
+            Zicl_Value script = Zicl_GetScriptBeingEvaluated(interp);
+            const char* sourceFileName = Zicl_SourceGetFilename(script);
+            sourceFileName = sourceFileName ? sourceFileName : "<unknown>";
+            Zicl_OptionalValue fnName = Zicl_GetClosureNameBeingEvaluated(interp);
+            const char *fnName = "<unknown>";
+            if (Zicl_IsSome(fnName)) {
+                fnName = ziclString(Zicl_Unwrap(fnName));
             }
             uint64_t loc = ___tracy_alloc_srcloc((uint32_t) sourceLineNumber,
                                                  sourceFileName, strlen(sourceFileName),
-                                                 fnName != NULL ? fnName : "<unknown>",
-                                                 fnName != NULL ? strlen(fnName) : strlen("<unknown>"),
-                                                 0);
+                                                 fnName, strlen(fnName), 0);
             __zoneCtx = ___tracy_emit_zone_begin_alloc(loc, 1);
         }
         $tracyCpp proc zoneName {char* name} void {

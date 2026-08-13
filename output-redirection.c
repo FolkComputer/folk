@@ -202,22 +202,19 @@ static void escapeProgramName(const char *in, char *out, size_t outlen) {
     out[j] = '\0';
 }
 
-static int __installLocalStdoutAndStderrFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv) {
-    assert(argc == 2);
-    const char *this = ziclShimString(&argv[1]);
-
+void installLocalStdoutAndStderrForProgram(const char *thisProgram) {
     // outputRedirectionInit(false) (e.g. `./folk somefile.folk`) skips setting
     // up per-program redirection entirely, leaving this table NULL. In that
     // mode there's nowhere to redirect to, so just leave stdout/stderr alone.
     if (programFdsTable == NULL) {
-        return ZICL_OK;
+        return;
     }
 
     int stdoutfd, stderrfd;
 
     // Fast path: entry already exists — look up under rlock.
     pthread_rwlock_rdlock(&programFdsLock);
-    ProgramFds *e = shgetp_null(programFdsTable, this);
+    ProgramFds *e = shgetp_null(programFdsTable, thisProgram);
     if (e != NULL) {
         stdoutfd = e->stdoutfd;
         stderrfd = e->stderrfd;
@@ -227,7 +224,7 @@ static int __installLocalStdoutAndStderrFunc(Zicl_Interp *interp, int argc, Zicl
 
         // Slow path: new program — open files and insert under wlock.
         char escaped[2048];
-        escapeProgramName(this, escaped, sizeof(escaped));
+        escapeProgramName(thisProgram, escaped, sizeof(escaped));
         char path[4096];
         snprintf(path, sizeof(path), "%s/%s.stdout", outputDir, escaped);
         stdoutfd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
@@ -235,23 +232,27 @@ static int __installLocalStdoutAndStderrFunc(Zicl_Interp *interp, int argc, Zicl
         stderrfd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
 
         pthread_rwlock_wrlock(&programFdsLock);
-        if (shgetp_null(programFdsTable, this) == NULL) {
-            ProgramFds new_entry = { .key = (char *)this,
+        if (shgetp_null(programFdsTable, thisProgram) == NULL) {
+            ProgramFds new_entry = { .key = (char *)thisProgram,
                                      .stdoutfd = stdoutfd, .stderrfd = stderrfd };
             shputs(programFdsTable, new_entry);
         } else {
             // Another thread inserted first; close our fds and use theirs.
             close(stdoutfd); close(stderrfd);
-            e = shgetp_null(programFdsTable, this);
+            e = shgetp_null(programFdsTable, thisProgram);
             stdoutfd = e->stdoutfd;
             stderrfd = e->stderrfd;
         }
         pthread_rwlock_unlock(&programFdsLock);
     }
 
-    if (stdoutfd == -1 || stderrfd == -1) { return ZICL_ERR; }
+    if (stdoutfd == -1 || stderrfd == -1) { return; }
     installLocalStdoutAndStderr(stdoutfd, stderrfd);
+}
 
+static int __installLocalStdoutAndStderrFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv) {
+    assert(argc == 2);
+    installLocalStdoutAndStderrForProgram(ziclShimString(&argv[1]));
     return ZICL_OK;
 }
 

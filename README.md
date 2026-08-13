@@ -529,7 +529,7 @@ that statement.
 When /thing/ is cool {
     Wish $this is labelled "$thing is cool"
 }
-When when /personVar/ is cool /lambda/ with environment /e/ {
+When when /personVar/ is cool /lambda/ {
     Claim Folk is cool
 }
 ```

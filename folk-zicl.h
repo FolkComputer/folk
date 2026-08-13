@@ -47,7 +47,7 @@ static inline int ziclEquals(Zicl_Value a, Zicl_Value b) {
     return out;
 }
 
-static inline const char *ziclShimString(Zicl_Shimmerable *const shim) {
+static inline const char *ziclShimString(Zicl_Shimmerable* shim) {
     const char *str = Zicl_ShimString(shim);
     if (!str) folkZiclAssert(ZICL_OOM);
     return str;
