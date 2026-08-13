@@ -76,7 +76,7 @@ int trieLookup(const Trie* trie, Zicl_List* pattern,
 int trieLookupLiteral(const Trie* trie, Zicl_List* literal,
                       uint64_t* results, size_t maxResults);
 
-bool trieScanVariable(const char* term,
+bool trieScanVariable(Zicl_Value termValue,
                       char* outVarName, size_t sizeOutVarName);
 bool trieVariableNameIsNonCapturing(const char* varName);
 

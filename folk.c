@@ -132,7 +132,7 @@ Environment* clauseUnify(const Zicl_List* a, const Zicl_List* b) {
 
     for (int i = 0; i < aLen && i < bLen; i++) {
         char aVarName[100] = {0}; char bVarName[100] = {0};
-        if (trieScanVariable(ziclString(aTerms[i]), aVarName, sizeof(aVarName))) {
+        if (trieScanVariable(aTerms[i], aVarName, sizeof(aVarName))) {
             if (aVarName[0] == '.' && aVarName[1] == '.' && aVarName[2] == '.') {
                 EnvironmentBinding* binding = &env->bindings[env->nBindings++];
                 memcpy(binding->name, aVarName + 3, sizeof(binding->name) - 3);
@@ -142,7 +142,7 @@ Environment* clauseUnify(const Zicl_List* a, const Zicl_List* b) {
                 memcpy(binding->name, aVarName, sizeof(binding->name));
                 binding->value = Zicl_Borrow(bTerms[i]);
             }
-        } else if (trieScanVariable(ziclString(bTerms[i]), bVarName, sizeof(bVarName))) {
+        } else if (trieScanVariable(bTerms[i], bVarName, sizeof(bVarName))) {
             if (bVarName[0] == '.' && bVarName[1] == '.' && bVarName[2] == '.') {
                 EnvironmentBinding* binding = &env->bindings[env->nBindings++];
                 memcpy(binding->name, bVarName + 3, sizeof(binding->name) - 3);
@@ -504,7 +504,7 @@ static int __statementOfCurrentMatchSourceInfoFunc(Zicl_Interp *interp, int argc
 static int __scanVariableFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv) {
     assert(argc == 2);
     char varName[100];
-    if (trieScanVariable(ziclShimString(&argv[1]), varName, 100)) {
+    if (trieScanVariable(Zicl_Current(&argv[1]), varName, 100)) {
         return Zicl_SetResultString(interp, varName, -1);
     } else {
         return Zicl_SetResultBool(interp, false);
