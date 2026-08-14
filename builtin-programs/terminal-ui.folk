@@ -1,10 +1,8 @@
 # Manage terminal UI for Folk.
-
-$::realStdout puts "Folk Computer (pid [pid])."
+puts $realStdout "Folk Computer (pid [pid])."
 set host $([string match "*.local" $::thisNode] ? $::thisNode : "$::thisNode.local")
-$::realStdout puts "Web interface at: http://$host:4273/"
-$::realStdout puts ""
-$::realStdout flush
+puts $realStdout "Web interface at: http://$host:4273/"
+puts $realStdout ""
 
 # Don't run the watcher process if we're not literally at a terminal
 # (if we're running on systemd, for instance.)
@@ -94,18 +92,18 @@ while true {
     }
 
     if {$prevLineCount > 0} {
-        $::realStdout puts -nonewline "\033\[${prevLineCount}A\r"
+        puts $realStdout -nonewline "\033\[${prevLineCount}A\r"
     }
-    $::realStdout puts -nonewline "\033\[?7l"
+    puts $realStdout -nonewline "\033\[?7l"
     foreach line $lines {
-        $::realStdout puts -nonewline "$line\033\[K\n"
+        puts $realStdout -nonewline "$line\033\[K\n"
     }
     # Blank out leftover lines from a previously longer render.
     set extra [expr {$prevLineCount - [llength $lines]}]
     for {set i 0} {$i < $extra} {incr i} {
-        $::realStdout puts -nonewline "\033\[K\n"
+        puts $realStdout -nonewline "\033\[K\n"
     }
-    $::realStdout puts -nonewline "\033\[?7h"
+    puts $realStdout -nonewline "\033\[?7h"
     if {[llength $lines] > $prevLineCount} {
         set prevLineCount [llength $lines]
     }

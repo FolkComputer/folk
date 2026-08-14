@@ -1211,7 +1211,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Zicl_List* clause, long keepMs,
         *outReusedStatementRef = (_ref); \
     }
 
-    Zicl_Value clauseAsValue = Zicl_BoxList((Zicl_List *)clause);
+    Zicl_Value clauseAsValue = Zicl_BoxList(clause);
     Zicl_Borrow(clauseAsValue);
     Zicl_MakeCrossthread(clauseAsValue);
 

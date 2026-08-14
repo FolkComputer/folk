@@ -637,10 +637,7 @@ static int exitFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv) {
     return ZICL_OK;
 }
 
-// `env::VAR` is dict-sugar for the global `env` variable, so scripts read
-// the process environment as `$env::HOME` etc. (see prelude.tcl, lib/c.tcl,
-// lib/python.tcl). Every interp needs this set up, since each is its own
-// Tcl namespace/variable space.
+// Sets up the `env` dict and redirection.
 static void interpSetupEnv(Zicl_Interp *interp) {
     extern char **environ;
 
@@ -654,8 +651,11 @@ static void interpSetupEnv(Zicl_Interp *interp) {
         ziclDictPut(envDict, ziclNewString(*e, eq - *e), ziclNewString(eq + 1, -1));
     }
 
-    Zicl_Value envName = ziclNewString("env", -1);
-    folkZiclAssert(Zicl_SetVariable(interp, &envName, Zicl_BoxDict(envDict)));
+    Zicl_SetVariableString(interp, "env", Zicl_BoxDict(envDict));
+    Zicl_Value stdoutValue; Zicl_NewFileFromDescriptor(realStdout, &stdoutValue);
+    Zicl_Value stderrValue; Zicl_NewFileFromDescriptor(realStderr, &stderrValue);
+    Zicl_SetVariableString(interp, "realStdout", stdoutValue);
+    Zicl_SetVariableString(interp, "realStderr", stderrValue);
 }
 
 void initSysmonInterp() {
@@ -716,7 +716,7 @@ static void interpBoot() {
     Zicl_CreateCommand(interp, "__db", __dbFunc, "", 0, 0);
     Zicl_CreateCommand(interp, "__threadId", __threadIdFunc, "", 0, 0);
 
-    Zicl_CreateCommand(interp, "__setFreshAtomicallyVersionOnKey", __setFreshAtomicallyVersionOnKeyFunc, "", 0, 0);
+    Zicl_CreateCommand(interp, "__setFreshAtomicallyVersionOnKey", __setFreshAtomicallyVersionOnKeyFunc, "", 1, 1);
     Zicl_CreateCommand(interp, "__currentAtomicallyVersion", __currentAtomicallyVersionFunc, "", 0, 0);
     Zicl_CreateCommand(interp, "__magicTraceStopIndicator", __magicTraceStopIndicatorFunc, "", 0, 0);
 
@@ -861,14 +861,17 @@ static int runBlock(const Zicl_List* bodyPattern, const Zicl_List* toUnifyWith,
 #endif
 
         int64_t t0 = timestamp_get(CLOCK_MONOTONIC);
-        Zicl_Shimmerable* bodyArgs = malloc(sizeof(Zicl_Shimmerable) * env->nBindings);
+        // argv[0] is the command-name slot Zicl_CallClosure expects (unused
+        // for arity purposes), the actual bound values start at argv[1].
+        Zicl_Shimmerable* bodyArgs = malloc(sizeof(Zicl_Shimmerable) * (env->nBindings + 1));
         defer { free(bodyArgs); }
+        bodyArgs[0] = Zicl_NewShimmerable(thisValue);
         for (int i = 0; i < env->nBindings; i++) {
-            bodyArgs[i] = Zicl_NewShimmerable(env->bindings[i].value);
+            bodyArgs[i + 1] = Zicl_NewShimmerable(env->bindings[i].value);
         }
-        defer { for (int i = 0; i < env->nBindings; i++) Zicl_ShimDiscardChanges(&bodyArgs[i]); }
+        defer { for (int i = 0; i < env->nBindings + 1; i++) Zicl_ShimDiscardChanges(&bodyArgs[i]); }
 
-        error = Zicl_CallClosure(interp, closure, env->nBindings, bodyArgs);
+        error = Zicl_CallClosure(interp, closure, env->nBindings + 1, bodyArgs);
         blockStatsUpdate(sourceFileName ? sourceFileName : "<unknown>", sourceLineNumber, timestamp_get(CLOCK_MONOTONIC) - t0);
     }
 
@@ -957,7 +960,7 @@ static void runWhenBlock(StatementRef whenRef, Zicl_List* whenPattern, Statement
 
     const Zicl_Value* whenClauseTerms = Zicl_ListItems(whenClause);
     size_t whenClauseLen = Zicl_ListLength(whenClause);
-    assert(whenClauseLen >= 5);
+    assert(whenClauseLen >= 1);
 
     // when the time is /t/ /body/
     Zicl_Value bodyObj = whenClauseTerms[whenClauseLen - 1];
@@ -987,7 +990,7 @@ static void runSubscribeBlock(StatementRef subscribeRef, const Zicl_List* subscr
     Zicl_List* subscribeClause = statementClause(subscribeStmt);
     const Zicl_Value* subscribeClauseTerms = Zicl_ListItems(subscribeClause);
     size_t subscribeClauseLen = Zicl_ListLength(subscribeClause);
-    assert(subscribeClauseLen >= 5);
+    assert(subscribeClauseLen >= 1);
 
     // key x was pressed
     // -> subscribe key x was pressed /lambda/
@@ -1285,7 +1288,7 @@ static void reactToNewStatement(StatementRef ref) {
                 pushRunWhenBlock(
                     whenRef,
                     // takes ownership
-                    claimizedUnwhenizedWhenPattern ? claimizedUnwhenizedWhenPattern : unwhenizedWhenPattern,
+                    claimizedUnwhenizedWhenPattern,
                     ref
                 );
             }

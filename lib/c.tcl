@@ -912,8 +912,8 @@ method C::extend {self args} {
 }
 
 fn C++ {} {
-    set cpp [C]
-    $cpp eval [list set compiler c++]
-    $cpp addcflags -Wno-write-strings
+    set cpp [dict link $C {}]
+    set cpp::compiler c++
+    cpp::addcflags -Wno-write-strings
     return $cpp
 }

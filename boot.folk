@@ -30,7 +30,7 @@ apply [fn {} {
 
 __installLocalStdoutAndStderr "boot.folk"
 
-Assert! when /this/ has program code /programCode/ {
+Assert! when /this/ has program code /programCode/ [fn {this programCode} {
     if {$this eq "builtin-programs/collect.folk"} {
         # We don't have Collect available in boot.folk yet, since it's
         # implemented in userspace, so we can't do the queries. Just
@@ -50,7 +50,7 @@ Assert! when /this/ has program code /programCode/ {
                 when [fn {} [dict get $replacedOpts code]]
         }
     }
-}
+}]
 
 fn LoadProgram! {programFilename} {
     set fp [fopen $programFilename r]

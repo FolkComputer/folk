@@ -227,7 +227,7 @@ fn desugarWhen {pattern body} {
             set body [list When {*}$remainingPattern $body]
             break
 
-        } elseif {[set varName [__scanVariable $term]] ne 0} {
+        } elseif {[set varName [__scanVariable $term]] ne "false"} {
             if {[__variableNameIsNonCapturing $varName]} {
             } elseif {$varName eq "nobody" || $varName eq "nothing"} {
                 # Rewrite this entire clause to be negated.
@@ -434,7 +434,7 @@ fn Query! {args} {
         } elseif {$term eq "-atomically"} {
             set isAtomically true
 
-        } elseif {[set varName [__scanVariable $term]] ne 0} {
+        } elseif {[set varName [__scanVariable $term]] ne "false"} {
             if {[__variableNameIsNonCapturing $varName]} {
             } elseif {$varName eq "nobody" || $varName eq "nothing"} {
                 set isNegated true
@@ -503,7 +503,7 @@ fn Query! {args} {
 #    sleep 0.5
 #    puts [dict get [QueryOne! the dog is /val/] val] ;# -> cool
 #
-proc QueryOne! {args} {
+fn QueryOne! {args} {
     set pattern [list]
     for {set i 0} {$i < [llength $args]} {incr i} {
         set arg [lindex $args $i]
@@ -532,7 +532,7 @@ proc QueryOne! {args} {
 # Sort of like QueryOne!, but introduces the bindings directly into
 # caller scope. Unlike Expect!, this samples the db once and errors
 # unless there is exactly one result.
-proc Require! {args} {
+fn Require! {args} {
     dict for {k v} [QueryOne! {*}$args] {
         uplevel 1 [list set $k $v]
     }
@@ -545,7 +545,7 @@ proc Require! {args} {
 #     puts $val ;# -> cool
 #
 # Also polls and retries if there are 0 results.
-proc Expect! {args} {
+fn Expect! {args} {
     set results [list]
     while {[llength $results] == 0} {
         set results [Query! {*}$args]
@@ -558,7 +558,7 @@ proc Expect! {args} {
         uplevel 1 [list set $k $v]
     }
 }
-proc ForEach! {args} {
+fn ForEach! {args} {
     set body [lindex $args end]
     set pattern [lreplace $args end end]
 

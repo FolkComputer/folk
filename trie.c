@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include <pthread.h>
 
 #include "folk-zicl.h"
 #include "trie.h"
@@ -45,7 +46,7 @@ const Trie* trieNew() {
 }
 
 // This will return the original trie if the clause is already present
-// in it.
+// in it. Terms must already be crossthread.
 static const Trie* trieAddImpl(const Trie* trie,
                                const TrieAllocator* allocator,
                                int32_t nTerms, const Zicl_Value terms[], uint64_t value) {
@@ -83,7 +84,6 @@ static const Trie* trieAddImpl(const Trie* trie,
     if (j == trie->branchesCount) {
         // Need to add a new branch.
         newBranch = allocator->alloc(SIZEOF_TRIE(0));
-        Zicl_MakeCrossthread(term);
         newBranch->key = Zicl_Borrow(term);
         newBranch->value = 0;
         newBranch->hasValue = false;
@@ -130,10 +130,11 @@ const Trie* trieAdd(const Trie* trie,
                     Zicl_List* clause, uint64_t value) {
     int nTerms = Zicl_ListLength(clause);
     const Zicl_Value* terms = Zicl_ListItems(clause);
+    Zicl_MakeCrossthread(Zicl_BoxList(clause));
     return trieAddImpl(trie, allocator, nTerms, terms, value);
 }
 
-bool trieScanVariable(Zicl_Value termValue, char* outVarName, int sizeOutVarName) {
+bool trieScanVariable(Zicl_Value termValue, char* outVarName, size_t sizeOutVarName) {
     int termLen;
     const char* term = ziclGetString(termValue, &termLen);
     if (termLen < 2) { return false; }
@@ -141,13 +142,13 @@ bool trieScanVariable(Zicl_Value termValue, char* outVarName, int sizeOutVarName
     if (term[termLen - 1] != '/') { return false; }
 
     int varLen = termLen - 2;
-    if (varLen < 1 || varLen > sizeOutVarName) { return false; }
+    if (varLen < 1 || varLen >= sizeOutVarName) { return false; }
 
     for (int i = 0; i < varLen; i++) {
         if (term[1 + i] == ' ') {
             return false;
         }
-        outVarName[i - 1] = term[i];
+        outVarName[i] = term[1 + i];
     }
     outVarName[varLen] = '\0';
     return true;
