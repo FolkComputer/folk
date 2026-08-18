@@ -1,7 +1,7 @@
 # Watch for builtin-programs/ changes.
 try {
-    set fd [open [list |fswatch --recursive --event Updated --event Created \
-                      builtin-programs $::env(HOME)/folk-data/local-program $::env(PWD)/user-programs] r]
+    set fd [fopen [list |fswatch --recursive --event Updated --event Created \
+                      builtin-programs $env::HOME/folk-data/local-program $env::PWD/user-programs] r]
     fconfigure $fd -buffering line
     while true {
         if {[gets $fd line] < 0} {
@@ -20,12 +20,12 @@ try {
         }
 
         puts "fswatch: $changedPath updated, reloading."
-        set fp [open $changedPath r]; set programCode [read $fp]; close $fp
+        set fp [fopen $changedPath r]; set programCode [read $fp]; close $fp
 
         Hold! -keep 100ms -on boot.folk -key [list $changedPath code] \
             Claim $changedPath has program code $programCode
     }
 } on error err {
-    puts stderr "fswatch: Warning: could not invoke `fswatch` ($err)."
-    puts stderr "fswatch: Will not watch builtin-programs for changes."
+    puts $realStderr "fswatch: Warning: could not invoke `fswatch` ($err)."
+    puts $realStderr "fswatch: Will not watch builtin-programs for changes."
 }

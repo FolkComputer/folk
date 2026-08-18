@@ -2,32 +2,32 @@
 #
 #     Hardware interface with USB webcams on Linux (v4l2).
 
-if {$::tcl_platform(os) ne "linux"} { return }
+if {$tcl_platform::os ne "linux"} { return }
 
 When the image library is /imageLib/ &\
      the jpeg library is /jpegLib/ {
 
-set camc [C]
-$camc extend $imageLib
-$camc include <string.h>
-$camc include <math.h>
+set camc [dict link $C {}]
+camc::extend $imageLib
+camc::include <string.h>
+camc::include <math.h>
 
-$camc include <errno.h>
-$camc include <fcntl.h>
-$camc include <sys/ioctl.h>
-$camc include <sys/mman.h>
-$camc include <asm/types.h>
-$camc include <linux/videodev2.h>
-$camc include <unistd.h>
+camc::include <errno.h>
+camc::include <fcntl.h>
+camc::include <sys/ioctl.h>
+camc::include <sys/mman.h>
+camc::include <asm/types.h>
+camc::include <linux/videodev2.h>
+camc::include <unistd.h>
 
-$camc include <stdint.h>
-$camc include <stdlib.h>
+camc::include <stdint.h>
+camc::include <stdlib.h>
 
-$camc struct CameraBuffer {
+camc::struct CameraBuffer {
     uint8_t* start;
     size_t length;
 }
-$camc struct Camera {
+camc::struct Camera {
     int fd;
     uint32_t width;
     uint32_t height;
@@ -36,7 +36,7 @@ $camc struct Camera {
     CameraBuffer head;
 }
 
-$camc code {
+camc::addcode {
     void quit(const char* msg) {
         FOLK_ERROR("camera/usb: Quitting: [%s] %d: %s\n",
                    msg, errno, strerror(errno));
@@ -53,7 +53,7 @@ $camc code {
     }
 }
 
-$camc proc cameraOpen {char* device int width int height} Camera* {
+camc::proc cameraOpen {char* device int width int height} Camera* {
     printf("camera/usb: Loading '%s'\n", device);
     // O_CLOEXEC is necessary so long-running child processes (like
     // fswatch) don't keep the camera open past the death of folk
@@ -70,7 +70,7 @@ $camc proc cameraOpen {char* device int width int height} Camera* {
     camera->head.start = NULL;
     return camera;
 }
-$camc proc cameraClose {Camera* camera} void {
+camc::proc cameraClose {Camera* camera} void {
     enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     if (xioctl(camera->fd, VIDIOC_STREAMOFF, &type) == -1) {
         // if ENODEV, we're already done; just return to caller.
@@ -101,7 +101,7 @@ $camc proc cameraClose {Camera* camera} void {
     free(camera);
 }
 
-$camc proc cameraInit {Camera* camera uint32_t requested_buffer_count} void {
+camc::proc cameraInit {Camera* camera uint32_t requested_buffer_count} void {
     struct v4l2_capability cap;
     if (xioctl(camera->fd, VIDIOC_QUERYCAP, &cap) == -1) quit("VIDIOC_QUERYCAP");
     if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)) quit("no capture");
@@ -176,7 +176,7 @@ $camc proc cameraInit {Camera* camera uint32_t requested_buffer_count} void {
     printf("camera %d; bufcount %zu\n", camera->fd, camera->buffer_count);
 }
 
-$camc proc cameraStart {Camera* camera} void {
+camc::proc cameraStart {Camera* camera} void {
     for (size_t i = 0; i < camera->buffer_count; i++) {
         struct v4l2_buffer buf;
         memset(&buf, 0, sizeof buf);
@@ -193,7 +193,7 @@ $camc proc cameraStart {Camera* camera} void {
     }
 }
 
-$camc code {
+camc::addcode {
     int camera_capture(Camera* camera) {
         struct v4l2_buffer buf;
         memset(&buf, 0, sizeof buf);
@@ -213,7 +213,7 @@ $camc code {
     }
 }
 
-$camc proc cameraFrameJpeg {Camera* camera} CameraBuffer {
+camc::proc cameraFrameJpeg {Camera* camera} CameraBuffer {
     // Retry select() up to 5 times with 2 second timeout each
     // Some cameras need time to start streaming
     int r = 0;
@@ -246,11 +246,11 @@ $camc proc cameraFrameJpeg {Camera* camera} CameraBuffer {
     memcpy(buf.start, camera->head.start, buf.length);
     return buf;
 }
-$camc proc jpegFree {CameraBuffer jpeg} void {
+camc::proc jpegFree {CameraBuffer jpeg} void {
     free(jpeg.start);
 }
 
-$camc proc setExposure {Camera* camera int value} void {
+camc::proc setExposure {Camera* camera int value} void {
     struct v4l2_control c;
 
     fprintf(stderr, "setExposure %d\n", value);
@@ -270,21 +270,21 @@ $camc proc setExposure {Camera* camera int value} void {
     }
 }
 
-$camc cflags -Wall -Werror
-set camLib [$camc compile]
+camc::addcflags -Wall -Werror
+set camLib [camc::compile]
 
 When camera /cameraPath/ has width /decompWidth/ height /decompHeight/ {
     When camera $cameraPath has jpeg frame /jpeg/ at timestamp /ts/ {
-        set grayImage [$jpegLib jpegDecompressGray $jpeg \
-                           $decompWidth $decompHeight \
+        set grayImage [jpegLib::jpegDecompressGray $jpeg \
+                           decompWidth::$decompHeight \
                            [expr {int($ts * 1000)}]]
         Hold! -key [list camera $cameraPath gray-frame] \
             Claim camera $cameraPath has gray frame $grayImage at timestamp $ts \
             -destructor [list $imageLib imageFree $grayImage]
     }
     When camera $cameraPath has jpeg frame /jpeg/ at timestamp /ts/ {
-        set frameImage [$jpegLib jpegDecompressRGB $jpeg \
-                            $decompWidth $decompHeight \
+        set frameImage [jpegLib::jpegDecompressRGB $jpeg \
+                            decompWidth::$decompHeight \
                             [expr {int($ts * 1000)}]]
         Hold! -key [list camera $cameraPath frame] \
             Claim camera $cameraPath has frame $frameImage at timestamp $ts \
@@ -307,15 +307,15 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
         puts "camera/usb: Will try to open $camera"
 
         upvar $camObjVar camObj_
-        set camObj_ [$camLib cameraOpen $camera $width $height]
+        set camObj_ [camLib::cameraOpen $camera $width $height]
         set camObj $camObj_ ;# HACK: we don't capture upvars yet.
         puts "camera/usb: Loaded $camera -> $camObj"
 
-        $camLib cameraInit $camObj $bufferCount
-        $camLib cameraStart $camObj
+        camLib::cameraInit $camObj $bufferCount
+        camLib::cameraStart $camObj
         # skip 5 frames for booting a cam
         for {set i 0} {$i < 5} {incr i} {
-            $camLib cameraFrameJpeg $camObj
+            camLib::cameraFrameJpeg $camObj
         }
 
         if {[info exists crops]} {
@@ -329,7 +329,7 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
         }
 
         When /someone/ wishes camera $camera uses exposure time /exposureTimeUs/ us {
-            $camLib setExposure $camObj [expr {int($exposureTimeUs / 100)}]
+            camLib::setExposure $camObj [expr {int($exposureTimeUs / 100)}]
         }
 
         # Inner, frame loop.
@@ -337,7 +337,7 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
             tracy zoneBegin
 
             set ms [clock milliseconds]
-            set jpeg [$camLib cameraFrameJpeg $camObj]
+            set jpeg [camLib::cameraFrameJpeg $camObj]
             set timestamp [expr {$ms / 1000.0}]
             tracy zoneName "camera/usb: $timestamp"
 
@@ -345,7 +345,7 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
                 for {set i 0} {$i < [llength $crops]} {incr i} {
                     set crop [lindex $crops $i]
                     set cropPath [list $camera $i]
-                    set croppedJpeg [$jpegLib jpegSubimage $jpeg \
+                    set croppedJpeg [jpegLib::jpegSubimage $jpeg \
                                          [dict get $crop x] \
                                          [dict get $crop y] \
                                          [dict get $crop width] \
@@ -381,7 +381,7 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
         } finally {
             if {$camObj ne {}} {
                 puts "camera/usb: Close $camObj"
-                $camLib cameraClose $camObj
+                camLib::cameraClose $camObj
             }
         }
 

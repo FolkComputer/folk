@@ -1,12 +1,12 @@
-set cc [C]
+set cc [dict link $C {}]
 
-$cc include <pthread.h>
-$cc include <assert.h>
-$cc include <stdio.h>
-$cc include <string.h>
-$cc include "jim.h"
+cc::include <pthread.h>
+cc::include <assert.h>
+cc::include <stdio.h>
+cc::include <string.h>
+cc::include "jim.h"
 
-$cc code {
+cc::addcode {
 
 /* Generic string hash function from jim.c */
 static unsigned int cacheGenHashFunction(const unsigned char *string, int length) {
@@ -56,7 +56,7 @@ static pthread_mutex_t holdMutex = PTHREAD_MUTEX_INITIALIZER;
 
 }
 
-$cc proc init {} void {
+cc::proc init {} void {
     pthread_mutex_lock(&holdMutex);
     if (!areHoldsInitialized) {
         areHoldsInitialized = 1;
@@ -65,14 +65,14 @@ $cc proc init {} void {
     pthread_mutex_unlock(&holdMutex);
 }
 
-$cc proc loadHolds {char* canonicalName char* holdStr} void {
+cc::proc loadHolds {char* canonicalName char* holdStr} void {
     pthread_mutex_lock(&holdMutex);
     Jim_AddHashEntry(&holds, (const void *)canonicalName, (void *)holdStr);
     pthread_mutex_unlock(&holdMutex);
 }
 
 # canonical, tclEscaped, and filename all have to do with the value from -on in Hold!
-$cc proc saveHold {char* canonical Jim_Obj* tclEscaped char* filename Jim_Obj* key Jim_Obj* clause} void {
+cc::proc saveHold {char* canonical Jim_Obj* tclEscaped char* filename Jim_Obj* key Jim_Obj* clause} void {
     pthread_mutex_lock(&holdMutex);
     assert(areHoldsInitialized);
 
@@ -134,14 +134,14 @@ $cc proc saveHold {char* canonical Jim_Obj* tclEscaped char* filename Jim_Obj* k
     Jim_FreeNewObj(interp, holdDict);
 }
 
-set savedHoldsLib [$cc compile]
-$savedHoldsLib init
+set savedHoldsLib [cc::compile]
+savedHoldsLib::init
 
 When /someone/ wishes to deserialize namespace hold with directory /directory/ {
     set holdFiles [glob -nocomplain $directory/*]
 
     foreach holdFile $holdFiles {
-        set fd [open $holdFile r]
+        set fd [fopen $holdFile r]
         set holds [read $fd]
         close $fd
 
@@ -155,7 +155,7 @@ When /someone/ wishes to deserialize namespace hold with directory /directory/ {
             Hold! -on $canonicalName -key $key -- {*}$clause
         }
 
-        $savedHoldsLib loadHolds $canonicalName $holdDict
+        savedHoldsLib::loadHolds $canonicalName $holdDict
     }
 
     Claim the saved holds are loaded
@@ -177,8 +177,8 @@ When the hold save directory is /holdDirectory/ {
         set escapedFilename [regsub -all -- / $escapedFilename __]
         set escapedFilename "$holdDirectory/$escapedFilename"
 
-        $savedHoldsLib saveHold $canonical $tclEscaped $escapedFilename \
-            $key $clause
+        savedHoldsLib::saveHold $canonical $tclEscaped $escapedFilename \
+            key::$clause
     }
 
     Claim saving is ready

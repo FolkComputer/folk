@@ -1,11 +1,11 @@
-set cc [C]
-$cc cflags -I.
-$cc include "vendor/CContour.c"
+set cc [dict link $C {}]
+cc::addcflags -I.
+cc::include "vendor/CContour.c"
 
 # Returns contours for a SAM2 mask byte string. Each contour is a Tcl list of
 # {x y} pairs, with the same epsilon/scale/minLength behavior as
 # findImageContours.
-$cc proc findMaskContours {int width int height Jim_Obj* mask
+cc::proc findMaskContours {int width int height Jim_Obj* mask
                            double epsilon
                            double scaleX double scaleY} Jim_Obj* {
     int w = width;
@@ -51,7 +51,7 @@ $cc proc findMaskContours {int width int height Jim_Obj* mask
     freeContours(contours);
     return outer;
 }
-Claim the SAM2 contours library is [$cc compile]
+Claim the SAM2 contours library is [cc::compile]
 
 When /someone/ wishes /obj/ has contours in /v/ &\
      /obj/ has mask /mask/ in /v/ with /...maskOpts/ &\
@@ -60,12 +60,12 @@ When /someone/ wishes /obj/ has contours in /v/ &\
 
     set width [dict get $maskOpts width]
     set height [dict get $maskOpts height]
-    set scaleX [expr {double($geom(width)) / double($width)}]
-    set scaleY [expr {double($geom(height)) / double($height)}]
+    set scaleX $(double($geom::width) / double($width))
+    set scaleY $(double($geom::height) / double($height))
     set epsilon 1.0
 
     Claim $obj has contours \
-        [$sam2ContoursLib findMaskContours $width $height $mask \
-             $epsilon $scaleX $scaleY] \
+        [sam2ContoursLib::findMaskContours $width $height $mask \
+             epsilon::$scaleX $scaleY] \
         in $v
 }

@@ -1,4 +1,4 @@
-proc hexcolor color {
+fn hexcolor color {
     set color 0x$color
     set b [expr {$color & 0xFF}]
     set g [expr {($color >> 8) & 0xFF}]

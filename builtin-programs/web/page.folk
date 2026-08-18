@@ -3,14 +3,14 @@ Wish the web server handles route {/page/(.*)$} with handler {
     set program_id $1
     set filenames [list \
         "$programDir/$program_id.folk" \
-        "$::env(HOME)/folk-live/$program_id.folk" \
+        "$env::HOME/folk-live/$program_id.folk" \
         "user-programs/[info hostname]/$program_id.folk" \
         "builtin-programs/$program_id.folk" \
     ]
 
     foreach filename $filenames {
         if [file exists $filename] {
-            set fp [open $filename r]
+            set fp [fopen $filename r]
             set file_data [read $fp]
             close $fp
             break
@@ -72,7 +72,7 @@ Wish the web server handles route {/page/(.*)$} with handler {
           function handleSave() {
             const code = document.getElementById("code").value;
             ws.send(tcl`
-              set fp [open file_name w]
+              set fp [fopen file_name w]
               puts -nonewline $fp ${code}
               close $fp
               puts "Saved program_id.folk"

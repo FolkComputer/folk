@@ -86,7 +86,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
 
     set modesByRegion [dict create]
     foreach mode [dict getdef $info modes [list]] {
-      dict lappend modesByRegion $mode(visibleRegion) $mode
+      dict lappend modesByRegion $mode::visibleRegion $mode
     }
     set regions [lsort -decreasing -integer -index 0 \
                      [dict keys $modesByRegion]]
@@ -101,7 +101,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
                  onchange="displayEnabledChange.call(this, event)">
           <strong>$displayName</strong><br>
           [if {[dict exists $info physicalResolution]} { subst {
-              (Physical resolution: [join $info(physicalResolution) x])
+              (Physical resolution: [join $info::physicalResolution x])
           } }]
         </label>
 
@@ -124,9 +124,9 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
                   <label>
                     <input type="radio" name="display-refreshRate-$displayId"
                            $([info exists usingOpts] && 
-                             $width == $usingOpts(width) &&
-                             $height == $usingOpts(height) &&
-                             $refreshRate == $usingOpts(refreshRate) ?
+                             width::== $usingOpts::width &&
+                             height::== $usingOpts::height &&
+                             refreshRate::== $usingOpts::refreshRate ?
                              "checked" : "")
                            data-display="$display"
                            value="width $width height $height refreshRate $refreshRate"
@@ -236,13 +236,13 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
         # For now, we only support MJPG. The more raw formats are
         # rarely used by cameras at even medium resolutions and
         # framerates, anyway, so it's only worth supporting MJPG.
-        if {$format(fourcc) eq "MJPG"} {
-            lappend resolutions {*}$format(resolutions)
+        if {$format::fourcc eq "MJPG"} {
+            lappend resolutions {*}$format::resolutions
         }
     }
-    set resolutions [lsort -command {apply {{a b} {
+    set resolutions [lsort -command {apply [fn {a b} {
         expr {[dict get $b width] - [dict get $a width]}
-    }}} $resolutions]
+    }]} $resolutions]
 
     if {[llength $resolutions] == 0} {
       # Cameras often have extra camera devices with no formats (or no
@@ -275,13 +275,13 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
                     onclick="cameraResolutionClicked.call(this, event)">
                 ${resolution(width)}x${resolution(height)}
               </span>
-              [join [lmap framerate $resolution(framerates) { subst {
+              [join [lmap framerate $resolution::framerates { subst {
                 <label>
                   <input type="radio" name="camera-framerate-$cameraId"
                          $([info exists usingOpts] && 
-                           $resolution(width) == $usingOpts(width) &&
-                           $resolution(height) == $usingOpts(height) &&
-                           $framerate == $usingOpts(framerate) ?
+                           $resolution::width == $usingOpts::width &&
+                           $resolution::height == $usingOpts::height &&
+                           framerate::== $usingOpts::framerate ?
                            "checked" : "")
                          data-camera="$camera"
                          value="width ${resolution(width)} height ${resolution(height)} framerate $framerate"
@@ -295,7 +295,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
         
         [if {$isUsingCamera} {
           set iframeWidth 600
-          set cameraAreaHeight [expr {int(600.0 * $usingOpts(height) / $usingOpts(width))}]
+          set cameraAreaHeight [expr {int(600.0 * $usingOpts::height / $usingOpts::width)}]
           set iframeHeight [expr {$cameraAreaHeight + 48}]
           set existingCrops [dict getdef $usingOpts crops [list]]
           subst {
@@ -314,10 +314,10 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
                 set cy [dict get $c y]
                 set cw [dict get $c width]
                 set ch [dict get $c height]
-                set rx [expr {int($cx * $iframeWidth / $usingOpts(width))}]
-                set ry [expr {int($cy * $cameraAreaHeight / $usingOpts(height))}]
-                set rw [expr {int($cw * $iframeWidth / $usingOpts(width))}]
-                set rh [expr {int($ch * $cameraAreaHeight / $usingOpts(height))}]
+                set rx [expr {int($cx * $iframeWidth / $usingOpts::width)}]
+                set ry [expr {int($cy * $cameraAreaHeight / $usingOpts::height)}]
+                set rw [expr {int($cw * $iframeWidth / $usingOpts::width)}]
+                set rh [expr {int($ch * $cameraAreaHeight / $usingOpts::height)}]
                 set cropHtml [subst {
                   <div class="crop-box" data-index="$i" data-crop="$cx,$cy,$cw,$ch"
                        style="left: ${rx}px; top: ${ry}px;
@@ -550,7 +550,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
     [HtmlWhen /someone/ wishes $::thisNode uses camera /camera/ with /...opts/ {
         if {[dict exists $opts crops]} {
             set htmls [list]
-            loop i [llength $opts(crops)] {
+            loop i [llength $opts::crops] {
                 lappend htmls [emitCameraHtml [list $camera $i]]
             }
             join $htmls \n

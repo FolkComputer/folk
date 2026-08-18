@@ -1,8 +1,8 @@
 When the image library is /imageLib/ {
-    set cc [C]
-    $cc extend $imageLib
-    $cc cflags -I.
-    $cc include "vendor/CContour.c"
+    set cc [dict link $C {}]
+    cc::extend $imageLib
+    cc::addcflags -I.
+    cc::include "vendor/CContour.c"
 
     # Binarizes the first channel of `im` at `threshold` and returns
     # the contours as a Tcl list. Each contour is itself a Tcl list of
@@ -14,7 +14,7 @@ When the image library is /imageLib/ {
     #
     # Discards any contours that are not at least minLength long
     # (unless minLength is very small).
-    $cc proc findImageContours {Image im int threshold double epsilon
+    cc::proc findImageContours {Image im int threshold double epsilon
                                 double scaleX double scaleY
                                 double minLength} Jim_Obj* {
         int w = (int)im.width;
@@ -72,7 +72,7 @@ When the image library is /imageLib/ {
         return outer;
     }
 
-    set contourLib [$cc compile]
+    set contourLib [cc::compile]
     Claim the contour library is $contourLib
 }
 
@@ -83,15 +83,15 @@ When the contour library is /contourLib/ &\
      /someone/ wishes /p/ has contours with /...opts/ {
     Wish $p has camera slice
     When $p has resolved geometry /geom/ &\
-         $p has camera slice /s/ {
-        set scaleX [/ $geom(width) $s(width)]
-        set scaleY [/ $geom(height) $s(height)]
+         p::has camera slice /s/ {
+        set scaleX [/ $geom::width $s::width]
+        set scaleY [/ $geom::height $s::height]
         set threshold [dict getdef $opts threshold 128]
         set epsilon [dict getdef $opts epsilon 3.0]
         set minLength [dict getdef $opts minLength 0.0]
-        Claim $p has contours [$contourLib findImageContours $s \
-                                   $threshold $epsilon \
-                                   $scaleX $scaleY \
+        Claim $p has contours [contourLib::findImageContours $s \
+                                   threshold::$epsilon \
+                                   scaleX::$scaleY \
                                    $minLength] \
             with {*}$opts
     }

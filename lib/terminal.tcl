@@ -166,7 +166,7 @@ set terminalLib [library create terminalLib {impl} {
       dict append keymap "Control_$char" $charCode
   }
 
-  proc _remap {key} {
+  fn _remap {key} {
     variable keymap
 
     if {[string length $key] == 1} {
@@ -188,22 +188,22 @@ set terminalLib [library create terminalLib {impl} {
     return ""
   }
 
-  proc create {rows cols cmd} {
+  fn create {rows cols cmd} {
     variable impl
     $impl termCreate $rows $cols [list bash -c $cmd ""]
   }
 
-  proc destroy {term} {
+  fn destroy {term} {
     variable impl
     $impl termDestroy $term
   }
 
-  proc write {term char} {
+  fn write {term char} {
     variable impl
     $impl termWrite $term $char
   }
 
-  proc handleKey {term key} {
+  fn handleKey {term key} {
     variable impl
     set key [_remap $key]
     if {$key ne ""} {
@@ -212,7 +212,7 @@ set terminalLib [library create terminalLib {impl} {
   }
 
   # Returns a newline separated string of terminal lines
-  proc read {term} {
+  fn read {term} {
     variable impl
     $impl termRead $term
   }

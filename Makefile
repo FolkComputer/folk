@@ -31,7 +31,7 @@ folk: workqueue.o db.o trie.o sysmon.o epoch.o folk.o output-redirection.o block
 	vendor/c11-queues/mpmc_queue.o vendor/c11-queues/memory.o \
 	vendor/jimtcl/libjim.a vendor/zicl/zig-out/lib/libzicl.a $(TRACY_TARGET) CFLAGS $(INTERPOSE_DYLIB)
 
-	$(LINKER) -g -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) -o$@ \
+	$(LINKER) -g3 -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) $(if $(TSAN_ENABLE),-fsanitize=thread,) -o$@ \
 		$(CFLAGS) $(BUILTIN_CFLAGS) \
 		-L./vendor/jimtcl \
 		-L./vendor/zicl/zig-out/lib \
@@ -46,14 +46,14 @@ folk: workqueue.o db.o trie.o sysmon.o epoch.o folk.o output-redirection.o block
 	fi
 
 %.o: %.c trie.h workqueue.h folk-zicl.h CFLAGS
-	cc -c -O2 -g -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) -o$@  \
+	cc -c -O2 -g3 -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) $(if $(TSAN_ENABLE),-fsanitize=thread,) -o$@  \
 		-D_GNU_SOURCE -U_FORTIFY_SOURCE $(CFLAGS) $(BUILTIN_CFLAGS) \
 		$< -I./vendor/jimtcl -I./vendor/tracy/public -I./vendor/zicl/zig-out/include
 
 folk_interpose.dylib: output-redirection.c
 	cc -dynamiclib -undefined dynamic_lookup \
 		-install_name @executable_path/folk_interpose.dylib \
-		-O2 -g -fno-omit-frame-pointer \
+		-O2 -g3 -fno-omit-frame-pointer \
 		-DFOLK_INTERPOSE_DYLIB \
 		-o $@ $<
 

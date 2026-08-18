@@ -154,7 +154,7 @@ set C {
         Zicl_Value { identity { Zicl_Value $argname = Zicl_Current($shim); }}
         Zicl_Shimmerable* { identity { Zicl_Shimmerable* $argname = $shim; }}
         default {
-            if {[string index $argtype end] == "*"} {
+            if {[string index $argtype end] eq "*"} {
                 set basetype [string range $argtype 0 end-1]
                 error "Need to port this to the capability framework"
             } elseif {[regexp {(^[^\[]+)\[([^\]]*)\]$} $argtype -> basetype arraylen]} {
@@ -390,12 +390,12 @@ method C::struct {self type fields} {
     set fieldnames [list]
     for {set i 0} {$i < [llength $fields]} {incr i 2} {
         set fieldtype [lindex $fields $i]
-        set fieldname [lindex $fields $i+1]
+        set fieldname [lindex $fields $($i+1)]
         # Canonicalize type.
         lassign [typestyle $fieldtype $fieldname] fieldtype fieldname
         lappend fieldnames $fieldname
         lset fields $i $fieldtype
-        lset fields $i+1 $fieldname
+        lset fields $($i+1) $fieldname
     }
 
     self::include <string.h>
@@ -808,11 +808,11 @@ extern "C" \{
     if {[info exists env::ASAN_ENABLE] && $env::ASAN_ENABLE != ""} {
         set asan_flags "-fsanitize=address -fsanitize-recover=address"
     }
-    set out [exec [list $self::compiler {*}$asan_flags -Wall \
+    set out [exec $self::compiler {*}$asan_flags -Wall \
                         {*}$($tcl_platform::os eq "linux" ? [list -Wno-alloc-size-larger-than] : [list]) \
                         -U_FORTIFY_SOURCE -O2 -march=native -g \
                         -fno-omit-frame-pointer -fPIC \
-                        {*}$self::cflags $cfile -c -o [file rootname $cfile].o]]
+                        {*}$self::cflags $cfile -c -o [file rootname $cfile].o]
     if {[string trim $out] ne ""} {
         puts $out
     }
@@ -825,9 +825,9 @@ extern "C" \{
         if {$n > 1000} { error "Failed on $cfile! Timed out" }
     }
 
-    exec [list $self::compiler {*}$asan_flags -shared $ignoreUnresolved \
+    exec $self::compiler {*}$asan_flags -shared $ignoreUnresolved \
         -O2 -o /tmp/$cid.so [file rootname $cfile].o \
-        {*}$self::endcflags]
+        {*}$self::endcflags
 
     # HACK: Why do we need this / only when running in lldb?
     set n 0

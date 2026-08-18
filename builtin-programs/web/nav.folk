@@ -2,8 +2,8 @@ When the collected results for [list /someone/ wishes the web server handles rou
     # Generate navigation from all route handlers.
     set navLinks [list]
     foreach handler $handlers {
-      set route $handler(route)
-      if {[dict getdef $handler(options) hidden false]} { continue }
+      set route $handler::route
+      if {[dict getdef $handler::options hidden false]} { continue }
       if {$route eq "/"} { continue }
 
       # Filter out routes with non-optional capture groups.
@@ -32,7 +32,7 @@ When the collected results for [list /someone/ wishes the web server handles rou
       set displayName [string map {"-" " " ".pdf" "" "_" " "} $displayName]
       set displayName [string totitle $displayName]
 
-      set nav [dict getdef $handler(options) nav $displayName]
+      set nav [dict getdef $handler::options nav $displayName]
       lappend navLinks "<a href=\"$route\">$nav</a>"
     }
 

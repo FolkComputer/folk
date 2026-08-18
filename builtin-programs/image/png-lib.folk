@@ -1,11 +1,11 @@
 When the image library is /imageLib/ {
-set cc [C]
-$cc extend $imageLib
-$cc endcflags -lpng
-$cc include <stdlib.h>
-$cc include <string.h>
+set cc [dict link $C {}]
+cc::extend $imageLib
+cc::addendcflags -lpng
+cc::include <stdlib.h>
+cc::include <string.h>
 
-$cc code {
+cc::addcode {
     #undef EXTERN
     #include <png.h>
     #include <stdint.h>
@@ -38,14 +38,14 @@ void png(FILE* dest, uint8_t* data, uint32_t components, uint32_t bytesPerRow, u
 
 }
 
-$cc proc saveAsPng {Image im char* filename} void {
+cc::proc saveAsPng {Image im char* filename} void {
     FILE* out = fopen(filename, "wb");
     FOLK_ENSURE(out != NULL);
     png(out, im.data, im.components, im.bytesPerRow, im.width, im.height);
     fclose(out);
 }
 
-$cc proc loadPng {char* filename} Image {
+cc::proc loadPng {char* filename} Image {
     FILE* file = fopen(filename, "rb");
     if (!file) {
         FOLK_ERROR("Error opening file: %s\n", filename);
@@ -103,6 +103,6 @@ $cc proc loadPng {char* filename} Image {
     return ret;
 }
 
-set pngLib [$cc compile]
+set pngLib [cc::compile]
 Claim the png library is $pngLib
 }

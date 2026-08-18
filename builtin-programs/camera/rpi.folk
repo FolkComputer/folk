@@ -2,26 +2,26 @@
 #
 #     Hardware interface with Pi webcams (libcamera).
 
-if {$::tcl_platform(os) eq "darwin"} {
+if {$tcl_platform::os eq "darwin"} {
     error "Raspberry Pi camera driver only runs on Linux."
 }
 
 set makeCamera {
     set cpp [C++]
-    $cpp extend $imageLib
-    $cpp include <iostream>
-    $cpp include <iomanip>
-    $cpp include <mutex>
-    $cpp include <condition_variable>
-    $cpp include <queue>
-    $cpp include <sys/mman.h>
+    cpp::extend $imageLib
+    cpp::include <iostream>
+    cpp::include <iomanip>
+    cpp::include <mutex>
+    cpp::include <condition_variable>
+    cpp::include <queue>
+    cpp::include <sys/mman.h>
 
-    $cpp include <libcamera/libcamera.h>
+    cpp::include <libcamera/libcamera.h>
     # osnr: HACK: just throwing any possible path in.
-    $cpp cflags -I/usr/local/include/libcamera -I/usr/include/libcamera
-    $cpp endcflags -lcamera
+    cpp::addcflags -I/usr/local/include/libcamera -I/usr/include/libcamera
+    cpp::addendcflags -lcamera
 
-    $cpp code {
+    cpp::addcode {
         using namespace libcamera;
 
         std::unique_ptr<CameraManager> cm;
@@ -42,7 +42,7 @@ set makeCamera {
 
         static void requestComplete(Request *request);
     }
-    $cpp proc cameraOpen {char* id int width int height} void {
+    cpp::proc cameraOpen {char* id int width int height} void {
         cm = std::make_unique<CameraManager>();
         cm->start();
 
@@ -122,7 +122,7 @@ set makeCamera {
         }
     }
 
-    $cpp code {
+    cpp::addcode {
         static void requestComplete(Request *request) {
             if (request->status() == Request::RequestCancelled) {
 		return;
@@ -159,7 +159,7 @@ set makeCamera {
         }
     }
 
-    $cpp proc newImage {} Image {
+    cpp::proc newImage {} Image {
         uint32_t width = frameWidth;
         uint32_t height = frameHeight;
         int components = 1;
@@ -172,11 +172,11 @@ set makeCamera {
             .data = data
         };
     }
-    $cpp proc freeImage {Image image} void {
+    cpp::proc freeImage {Image image} void {
         free(image.data);
     }
 
-    $cpp proc grayFrame {} Image {
+    cpp::proc grayFrame {} Image {
         Request *latestRequest = nullptr;
 
         // We want to drain the queue of completed requests.
@@ -210,7 +210,7 @@ set makeCamera {
         return im;
     }
 
-    $cpp compile
+    cpp::compile
 }
 
 When the image library is /imageLib/ &\
@@ -223,7 +223,7 @@ When the image library is /imageLib/ &\
     set height [dict get $options height]
 
     set camLib [eval $makeCamera]
-    $camLib cameraOpen $cameraPath $width $height
+    camLib::cameraOpen $cameraPath $width $height
 
     # TODO: report actual width and height from libcamera
     Claim camera $cameraPath has width $width height $height
@@ -235,7 +235,7 @@ When the image library is /imageLib/ &\
         tracy zoneBegin
 
         try {
-            set frame [$camLib grayFrame]
+            set frame [camLib::grayFrame]
         } on error e {
             tracy zoneName "err: $e"
             tracy zoneEnd
@@ -252,7 +252,7 @@ When the image library is /imageLib/ &\
         lappend oldFrames $frame
         if {[llength $oldFrames] >= 10} {
             set oldFrames [lassign $oldFrames oldestFrame]
-            $camLib freeImage $oldestFrame
+            camLib::freeImage $oldestFrame
         }
 
         tracy zoneEnd

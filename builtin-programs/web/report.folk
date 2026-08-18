@@ -1,7 +1,7 @@
 When the db library is /dbLib/ {
   set db [__db]
   Wish the web server handles route "/report" with handler {
-    set aliveCount [$dbLib countAliveStatements $db]
+    set aliveCount [dbLib::countAliveStatements $db]
 
     html [subst {
       <html>

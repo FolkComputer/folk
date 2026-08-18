@@ -1,13 +1,12 @@
 When the GPU Vulkan handle type definer is /defineVulkanHandleType/ {
 
-fn defineVulkanHandleType
 
 # VMA (Vulkan Memory Allocator) module:
 set vmac [C++]
-$vmac cflags -I./vendor \
+vmac::addcflags -I./vendor \
     -Wno-nullability-completeness -Wno-unused-private-field \
     -Wno-unused-variable
-$vmac code {
+vmac::addcode {
     #define VOLK_IMPLEMENTATION
     #include "volk/volk.h"
 
@@ -21,7 +20,7 @@ $vmac code {
 defineVulkanHandleType $vmac VkInstance
 defineVulkanHandleType $vmac VkPhysicalDevice
 defineVulkanHandleType $vmac VkDevice
-$vmac code { extern "C" {
+vmac::addcode { extern "C" {
 
 void vmaInit(VkInstance instance, VkPhysicalDevice physicalDevice, VkDevice device,
              PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr,
@@ -69,7 +68,7 @@ VmaAllocator vmaGetAllocator() {
 
 } }
 
-set vmaDll [$vmac compile -noload]
+set vmaDll [vmac::compile -noload]
 Claim the GPU VMA DLL is $vmaDll
 
 }

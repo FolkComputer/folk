@@ -9,6 +9,8 @@ $cc include <fcntl.h>
 
 $cc include <wslay/wslay.h>
 
+# FIXME I need to add a signal handler here, since Zicl doesn't handle signals.
+
 $cc code {
     typedef struct WsSession {
         int fd;
@@ -264,7 +266,7 @@ set ::wsConnections [dict create]
 
 # This class method creates a new WsConnection from an active HTTP
 # channel and key from /ws upgrade request header.
-proc {WsConnection upgrade} {chan clientKey destructor} {wsLib sha1Lib} {
+fn {WsConnection upgrade} {chan clientKey destructor} {wsLib sha1Lib} {
     set acceptKeyRaw "${clientKey}258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
     set acceptKey [binary encode base64 [$sha1Lib sha1 $acceptKeyRaw]]
 

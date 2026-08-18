@@ -1,257 +1,247 @@
-set quadLib [library create quadLib {} {
-    package require linalg
-    namespace import \
-        ::math::linearalgebra::add \
-        ::math::linearalgebra::matmul \
-        ::math::linearalgebra::sub \
-        ::math::linearalgebra::norm \
-        ::math::linearalgebra::dotproduct \
-        ::math::linearalgebra::unitLengthVector \
-        ::math::linearalgebra::scale
-    rename scale scaleVector
+dict assign [import lib/linalg.tcl] add matmul sub norm dotproduct unitLengthVector scale
 
-    proc create {space vertices} { list $space $vertices }
-    proc space {q} { lindex $q 0 }
-    proc vertices {q} { lindex $q 1 }
+fn quadLib::create {space vertices} { list $space $vertices }
+fn quadLib::space {q} { lindex $q 0 }
+fn quadLib::vertices {q} { lindex $q 1 }
 
-    # Returns an {x y z} point in the space of the quad.
-    proc centroid {q} {
-        lassign [vertices $q] topLeft topRight bottomRight bottomLeft
-        return [::math::linearalgebra::scale 0.25 \
-                    [add [add $topLeft $bottomRight] \
-                         [add $topRight $bottomLeft]]]
+# Returns an {x y z} point in the space of the quad.
+fn quadLib::centroid {q} {
+    lassign [quadLib::vertices $q] topLeft topRight bottomRight bottomLeft
+    return [scale 0.25 \
+                [add [add $topLeft $bottomRight] \
+                     [add $topRight $bottomLeft]]]
+}
+
+# Scales about the centroid of the quad, along the width and height
+# directions of the quad. You can scale by a percentage or set a specific length
+# in meters/centimeters/millimeters (which just sets the quad size
+# along that axis).
+fn quadLib::scale {q args} {
+    if {[llength $args] == 1} {
+        set value [lindex $args 0]
+        set args [list width $value height $value]
     }
 
-    # Scales about the centroid of the quad, along the width and height
-    # directions of the quad. You can scale by a percentage or set a specific length
-    # in meters/centimeters/millimeters (which just sets the quad size
-    # along that axis).
-    proc scale {q args} {
-        if {[llength $args] == 1} {
-            set value [lindex $args 0]
-            set args [list width $value height $value]
+    lassign [quadLib::vertices $q] topLeft topRight bottomRight bottomLeft
+    set width [math::max [norm [sub $topRight $topLeft]] \
+                   [norm [sub $bottomRight $bottomLeft]]]
+    set height [math::max [norm [sub $bottomRight $topRight]] \
+                    [norm [sub $bottomLeft $topLeft]]]
+
+    set sxp 1; set syp 1
+    foreach {dim value} $args {
+        if {![regexp {([\0-9\.]+)(cm|mm|m|%)?} $value -> value unit]} {
+            error "quad scale: Invalid scale value $value"
         }
 
-        lassign [vertices $q] topLeft topRight bottomRight bottomLeft
-        set width [::math::max [norm [sub $topRight $topLeft]] \
-                       [norm [sub $bottomRight $bottomLeft]]]
-        set height [::math::max [norm [sub $bottomRight $topRight]] \
-                        [norm [sub $bottomLeft $topLeft]]]
-
-        set sxp 1; set syp 1
-        foreach {dim value} $args {
-            if {![regexp {([\0-9\.]+)(cm|mm|m|%)?} $value -> value unit]} {
-                error "quad scale: Invalid scale value $value"
+        if {$dim eq "width"} {
+            if {$unit eq "px"} {
+                set sxp [* $sxp [/ $value $width]]
+            } elseif {$unit eq "%"} {
+                set sxp [* $sxp $value 0.01]
+            } elseif {$unit eq ""} {
+                set sxp [* $sxp $value]
             }
+        } elseif {$dim eq "height"} {
+            if {$unit eq "px"} {
+                set syp [* $syp [/ $value $height]]
+            } elseif {$unit eq "%"} {
+                set syp [* $syp [* $value 0.01]]
+            } elseif {$unit eq ""} {
+                set syp [* $syp $value]
+            }
+        } else {
+            error "quad scale: Invalid dimension $dim"
+        }
+    }
 
-            if {$dim eq "width"} {
-                if {$unit eq "px"} {
-                    set sxp [* $sxp [/ $value $width]]
-                } elseif {$unit eq "%"} {
-                    set sxp [* $sxp $value 0.01]
-                } elseif {$unit eq ""} {
-                    set sxp [* $sxp $value]
-                }
-            } elseif {$dim eq "height"} {
-                if {$unit eq "px"} {
-                    set syp [* $syp [/ $value $height]]
-                } elseif {$unit eq "%"} {
-                    set syp [* $syp [* $value 0.01]]
-                } elseif {$unit eq ""} {
-                    set syp [* $syp $value]
-                }
+    set c [quadLib::centroid $q]
+
+    # Calculate width and height vectors from the quad's actual orientation
+    # Width goes from left to right (topLeft -> topRight, bottomLeft -> bottomRight)
+    # Height goes from top to bottom (topLeft -> bottomLeft, topRight -> bottomRight)
+    set widthVectorTop [sub $topRight $topLeft]
+    set widthVectorBottom [sub $bottomRight $bottomLeft]
+    set heightVectorLeft [sub $bottomLeft $topLeft]
+    set heightVectorRight [sub $bottomRight $topRight]
+
+    # Scale each vertex by moving from centroid along scaled width/height vectors
+    # Each vertex = centroid + (width_factor * width_vector) + (height_factor * height_vector)
+    set newTopLeft [add $c [scale [expr {$sxp * -0.5}] $widthVectorTop]]
+    set newTopLeft [add $newTopLeft [scale [expr {$syp * -0.5}] $heightVectorLeft]]
+
+    set newTopRight [add $c [scale [expr {$sxp * 0.5}] $widthVectorTop]]
+    set newTopRight [add $newTopRight [scale [expr {$syp * -0.5}] $heightVectorRight]]
+
+    set newBottomRight [add $c [scale [expr {$sxp * 0.5}] $widthVectorBottom]]
+    set newBottomRight [add $newBottomRight [scale [expr {$syp * 0.5}] $heightVectorRight]]
+
+    set newBottomLeft [add $c [scale [expr {$sxp * -0.5}] $widthVectorBottom]]
+    set newBottomLeft [add $newBottomLeft [scale [expr {$syp * 0.5}] $heightVectorLeft]]
+
+    quadLib::create [quadLib::space $q] [list $newTopLeft $newTopRight $newBottomRight $newBottomLeft]
+}
+fn quadLib::buffer {q args} {
+    lassign [quadLib::vertices $q] topLeft topRight bottomRight bottomLeft
+
+    foreach {direction distance} $args {
+        if {![regexp {([\-0-9\.]+)(cm|mm|m)?} $distance -> distance unit]} {
+            error "quad buffer: Invalid distance $distance"
+        }
+
+        if {$distance == 0} { continue }
+
+        if {$unit eq "mm"} {
+            set distance [* $distance 0.001]
+            set unit "m"
+        }
+        if {$unit eq "cm"} {
+            set distance [* $distance 0.01]
+            set unit "m"
+        }
+        if {$unit ne "" && $unit ne "m"} {
+            error "quad buffer: Invalid unit $unit"
+        }
+
+        if {$direction eq "top"} {
+            set leftVector [sub $topLeft $bottomLeft]
+            set rightVector [sub $topRight $bottomRight]
+
+            set topLeft [add $topLeft [scale $distance [unitLengthVector $leftVector]]]
+            set topRight [add $topRight [scale $distance [unitLengthVector $rightVector]]]
+        } elseif {$direction eq "bottom"} {
+            set leftVector [sub $bottomLeft $topLeft]
+            set rightVector [sub $bottomRight $topRight]
+
+            set bottomLeft [add $bottomLeft [scale $distance [unitLengthVector $leftVector]]]
+            set bottomRight [add $bottomRight [scale $distance [unitLengthVector $rightVector]]]
+        } elseif {$direction eq "left"} {
+            set topVector [sub $topLeft $topRight]
+            set bottomVector [sub $bottomLeft $bottomRight]
+
+            set bottomLeft [add $bottomLeft [scale $distance [unitLengthVector $bottomVector]]]
+            set topLeft [add $topLeft [scale $distance [unitLengthVector $topVector]]]
+        } elseif {$direction eq "right"} {
+            set topVector [sub $topRight $topLeft]
+            set bottomVector [sub $bottomRight $bottomLeft]
+
+            set bottomRight [add $bottomRight [scale $distance [unitLengthVector $bottomVector]]]
+            set topRight [add $topRight [scale $distance [unitLengthVector $bottomVector]]]
+        } else {
+            error "quad buffer: Invalid direction $direction"
+        }
+    }
+    return [quadLib::create [quadLib::space $q] [list $topLeft $topRight $bottomRight $bottomLeft]]
+}
+
+# Moves the quad left/right/up/down along the width and height
+# directions of the quad (not the global x and y).
+fn quadLib::move {q args} {
+    lassign [quadLib::vertices $q] topLeft topRight bottomRight bottomLeft
+    set width [math::max [norm [sub $topRight $topLeft]] \
+                   [norm [sub $bottomRight $bottomLeft]]]
+    set height [math::max [norm [sub $bottomRight $topRight]] \
+                    [norm [sub $bottomLeft $topLeft]]]
+
+    foreach {direction distance} $args {
+        if {![regexp {^([\-0-9\.]+)(cm|mm|m|%)?$} $distance -> distance unit]} {
+            error "quad move: Invalid distance $distance"
+        }
+
+        if {$distance == 0} { continue }
+
+        if {$unit eq "%"} {
+            if {$direction eq "up" || $direction eq "down"} {
+                set distance [* $height $distance 0.01]
             } else {
-                error "quad scale: Invalid dimension $dim"
+                set distance [* $width $distance 0.01]
             }
+            set unit "m"
+        }
+        if {$unit eq "mm"} {
+            set distance [* $distance 0.001]
+            set unit "m"
+        }
+        if {$unit eq "cm"} {
+            set distance [* $distance 0.01]
+            set unit "m"
+        }
+        if {$unit ne "" && $unit ne "m"} {
+            error "quad move: Invalid unit $unit"
         }
 
-        set c [centroid $q]
-
-        # Calculate width and height vectors from the quad's actual orientation
-        # Width goes from left to right (topLeft -> topRight, bottomLeft -> bottomRight)  
-        # Height goes from top to bottom (topLeft -> bottomLeft, topRight -> bottomRight)
-        set widthVectorTop [sub $topRight $topLeft]
-        set widthVectorBottom [sub $bottomRight $bottomLeft]
-        set heightVectorLeft [sub $bottomLeft $topLeft] 
-        set heightVectorRight [sub $bottomRight $topRight]
-        
-        # Scale each vertex by moving from centroid along scaled width/height vectors
-        # Each vertex = centroid + (width_factor * width_vector) + (height_factor * height_vector)
-        set newTopLeft [add $c [scaleVector [expr {$sxp * -0.5}] $widthVectorTop]]
-        set newTopLeft [add $newTopLeft [scaleVector [expr {$syp * -0.5}] $heightVectorLeft]]
-        
-        set newTopRight [add $c [scaleVector [expr {$sxp * 0.5}] $widthVectorTop]]
-        set newTopRight [add $newTopRight [scaleVector [expr {$syp * -0.5}] $heightVectorRight]]
-        
-        set newBottomRight [add $c [scaleVector [expr {$sxp * 0.5}] $widthVectorBottom]]
-        set newBottomRight [add $newBottomRight [scaleVector [expr {$syp * 0.5}] $heightVectorRight]]
-        
-        set newBottomLeft [add $c [scaleVector [expr {$sxp * -0.5}] $widthVectorBottom]]
-        set newBottomLeft [add $newBottomLeft [scaleVector [expr {$syp * 0.5}] $heightVectorLeft]]
-
-        create [space $q] [list $newTopLeft $newTopRight $newBottomRight $newBottomLeft]
-    }
-    proc buffer {q args} {
-        lassign [vertices $q] topLeft topRight bottomRight bottomLeft
-
-        foreach {direction distance} $args {
-            if {![regexp {([\-0-9\.]+)(cm|mm|m)?} $distance -> distance unit]} {
-                error "quad buffer: Invalid distance $distance"
-            }
-
-            if {$distance == 0} { continue }
-
-            if {$unit eq "mm"} {
-                set distance [* $distance 0.001]
-                set unit "m"
-            }
-            if {$unit eq "cm"} {
-                set distance [* $distance 0.01]
-                set unit "m"
-            }
-            if {$unit ne "" && $unit ne "m"} {
-                error "quad buffer: Invalid unit $unit"
-            }
-
-            if {$direction eq "top"} {
-                set leftVector [sub $topLeft $bottomLeft]
-                set rightVector [sub $topRight $bottomRight]
-
-                set topLeft [add $topLeft [scaleVector $distance [unitLengthVector $leftVector]]]
-                set topRight [add $topRight [scaleVector $distance [unitLengthVector $rightVector]]]
-            } elseif {$direction eq "bottom"} {
-                set leftVector [sub $bottomLeft $topLeft]
-                set rightVector [sub $bottomRight $topRight]
-
-                set bottomLeft [add $bottomLeft [scaleVector $distance [unitLengthVector $leftVector]]]
-                set bottomRight [add $bottomRight [scaleVector $distance [unitLengthVector $rightVector]]]
-            } elseif {$direction eq "left"} {
-                set topVector [sub $topLeft $topRight]
-                set bottomVector [sub $bottomLeft $bottomRight]
-
-                set bottomLeft [add $bottomLeft [scaleVector $distance [unitLengthVector $bottomVector]]]
-                set topLeft [add $topLeft [scaleVector $distance [unitLengthVector $topVector]]]
-            } elseif {$direction eq "right"} {
-                set topVector [sub $topRight $topLeft]
-                set bottomVector [sub $bottomRight $bottomLeft]
-
-                set bottomRight [add $bottomRight [scaleVector $distance [unitLengthVector $bottomVector]]]
-                set topRight [add $topRight [scaleVector $distance [unitLengthVector $bottomVector]]]
-            } else {
-                error "quad buffer: Invalid direction $direction"
-            }
-        }
-        return [create [space $q] [list $topLeft $topRight $bottomRight $bottomLeft]]
-    }
-
-    # Moves the quad left/right/up/down along the width and height
-    # directions of the quad (not the global x and y).
-    proc move {q args} {
-        lassign [vertices $q] topLeft topRight bottomRight bottomLeft
-        set width [::math::max [norm [sub $topRight $topLeft]] \
-                       [norm [sub $bottomRight $bottomLeft]]]
-        set height [::math::max [norm [sub $bottomRight $topRight]] \
-                        [norm [sub $bottomLeft $topLeft]]]
-        
-        foreach {direction distance} $args {
-            if {![regexp {^([\-0-9\.]+)(cm|mm|m|%)?$} $distance -> distance unit]} {
-                error "quad move: Invalid distance $distance"
-            }
-
-            if {$distance == 0} { continue }
-
-            if {$unit eq "%"} {
-                if {$direction eq "up" || $direction eq "down"} {
-                    set distance [* $height $distance 0.01]
-                } else {
-                    set distance [* $width $distance 0.01]
-                }
-                set unit "m"
-            }
-            if {$unit eq "mm"} {
-                set distance [* $distance 0.001]
-                set unit "m"
-            }
-            if {$unit eq "cm"} {
-                set distance [* $distance 0.01]
-                set unit "m"
-            }
-            if {$unit ne "" && $unit ne "m"} {
-                error "quad move: Invalid unit $unit"
-            }
-
-            # Calculate displacement based on quad's actual orientation
-            if {$direction eq "up"} {
-                # Move in the direction opposite to height (from bottom to top)
-                set heightVectorLeft [sub $topLeft $bottomLeft]
-                set heightVectorRight [sub $topRight $bottomRight] 
-                set avgHeightVector [scaleVector 0.5 [add $heightVectorLeft $heightVectorRight]]
-                set disp [scaleVector $distance [unitLengthVector $avgHeightVector]]
-            } elseif {$direction eq "down"} {
-                # Move in the height direction (from top to bottom)
-                set heightVectorLeft [sub $bottomLeft $topLeft]
-                set heightVectorRight [sub $bottomRight $topRight]
-                set avgHeightVector [scaleVector 0.5 [add $heightVectorLeft $heightVectorRight]]
-                set disp [scaleVector $distance [unitLengthVector $avgHeightVector]]
-            } elseif {$direction eq "left"} {
-                # Move in the direction opposite to width (from right to left)
-                set widthVectorTop [sub $topLeft $topRight]
-                set widthVectorBottom [sub $bottomLeft $bottomRight]
-                set avgWidthVector [scaleVector 0.5 [add $widthVectorTop $widthVectorBottom]]
-                set disp [scaleVector $distance [unitLengthVector $avgWidthVector]]
-            } elseif {$direction eq "right"} {
-                # Move in the width direction (from left to right)  
-                set widthVectorTop [sub $topRight $topLeft]
-                set widthVectorBottom [sub $bottomRight $bottomLeft]
-                set avgWidthVector [scaleVector 0.5 [add $widthVectorTop $widthVectorBottom]]
-                set disp [scaleVector $distance [unitLengthVector $avgWidthVector]]
-            } else {
-                error "quad move: Invalid direction $direction"
-            }
-
-            set topLeft [add $topLeft $disp]
-            set topRight [add $topRight $disp]
-            set bottomRight [add $bottomRight $disp]
-            set bottomLeft [add $bottomLeft $disp]
-        }
-        return [create [space $q] [list $topLeft $topRight $bottomRight $bottomLeft]]
-    }
-
-    # Creates a new quad from an existing geometry geom (object with
-    # width and height keys) by aligning geom onto the plane & the top
-    # edge & left edge of the existing quad q.
-    proc createFromGeometry {q geom} {
-        lassign [vertices $q] topLeft topRight bottomRight bottomLeft
-        set topDisp [scaleVector $geom(width) [unitLengthVector [sub $topRight $topLeft]]]
-        set leftDisp [scaleVector $geom(height) [unitLengthVector [sub $bottomLeft $topLeft]]]
-        set topRight [add $topLeft $topDisp]
-        set bottomRight [add $topRight $leftDisp]
-        set bottomLeft [add $topLeft $leftDisp]
-        return [create [space $q] [list $topLeft $topRight $bottomRight $bottomLeft]]
-    }
-
-    # Take a {x y z} point in the same space as the quad and project
-    # it down onto a {top left} point on the quad (that can be used in
-    # the drawing APIs, etc).
-    proc pointToXY {q xyz {checkBounds true}} {
-        lassign [vertices $q] topLeft topRight bottomRight bottomLeft
-        set width [norm [sub $topRight $topLeft]]
-        set height [norm [sub $bottomLeft $topLeft]]
-        set xAxis [unitLengthVector [sub $topRight $topLeft]]
-        set yAxis [unitLengthVector [sub $bottomLeft $topLeft]]
-        set delta [sub $xyz $topLeft]
-        set x [dotproduct $delta $xAxis]
-        set y [dotproduct $delta $yAxis]
-
-        set eps 0.000001
-        if {$x < -$eps || $x > $width + $eps ||
-            $y < -$eps || $y > $height + $eps} {
-            if {$checkBounds} {
-                error "quad pointToXY: point $xyz projects outside quad bounds as {$x $y}; bounds are {0 0} {$width $height}"
-            }
+        # Calculate displacement based on quad's actual orientation
+        if {$direction eq "up"} {
+            # Move in the direction opposite to height (from bottom to top)
+            set heightVectorLeft [sub $topLeft $bottomLeft]
+            set heightVectorRight [sub $topRight $bottomRight]
+            set avgHeightVector [scale 0.5 [add $heightVectorLeft $heightVectorRight]]
+            set disp [scale $distance [unitLengthVector $avgHeightVector]]
+        } elseif {$direction eq "down"} {
+            # Move in the height direction (from top to bottom)
+            set heightVectorLeft [sub $bottomLeft $topLeft]
+            set heightVectorRight [sub $bottomRight $topRight]
+            set avgHeightVector [scale 0.5 [add $heightVectorLeft $heightVectorRight]]
+            set disp [scale $distance [unitLengthVector $avgHeightVector]]
+        } elseif {$direction eq "left"} {
+            # Move in the direction opposite to width (from right to left)
+            set widthVectorTop [sub $topLeft $topRight]
+            set widthVectorBottom [sub $bottomLeft $bottomRight]
+            set avgWidthVector [scale 0.5 [add $widthVectorTop $widthVectorBottom]]
+            set disp [scale $distance [unitLengthVector $avgWidthVector]]
+        } elseif {$direction eq "right"} {
+            # Move in the width direction (from left to right)
+            set widthVectorTop [sub $topRight $topLeft]
+            set widthVectorBottom [sub $bottomRight $bottomLeft]
+            set avgWidthVector [scale 0.5 [add $widthVectorTop $widthVectorBottom]]
+            set disp [scale $distance [unitLengthVector $avgWidthVector]]
+        } else {
+            error "quad move: Invalid direction $direction"
         }
 
-        return [list $x $y]
+        set topLeft [add $topLeft $disp]
+        set topRight [add $topRight $disp]
+        set bottomRight [add $bottomRight $disp]
+        set bottomLeft [add $bottomLeft $disp]
     }
-}]
+    return [quadLib::create [quadLib::space $q] [list $topLeft $topRight $bottomRight $bottomLeft]]
+}
+
+# Creates a new quad from an existing geometry geom (object with
+# width and height keys) by aligning geom onto the plane & the top
+# edge & left edge of the existing quad q.
+fn quadLib::createFromGeometry {q geom} {
+    lassign [quadLib::vertices $q] topLeft topRight bottomRight bottomLeft
+    set topDisp [scale $geom::width [unitLengthVector [sub $topRight $topLeft]]]
+    set leftDisp [scale $geom::height [unitLengthVector [sub $bottomLeft $topLeft]]]
+    set topRight [add $topLeft $topDisp]
+    set bottomRight [add $topRight $leftDisp]
+    set bottomLeft [add $topLeft $leftDisp]
+    return [quadLib::create [quadLib::space $q] [list $topLeft $topRight $bottomRight $bottomLeft]]
+}
+
+# Take a {x y z} point in the same space as the quad and project
+# it down onto a {top left} point on the quad (that can be used in
+# the drawing APIs, etc).
+fn quadLib::pointToXY {q xyz {checkBounds true}} {
+    lassign [quadLib::vertices $q] topLeft topRight bottomRight bottomLeft
+    set width [norm [sub $topRight $topLeft]]
+    set height [norm [sub $bottomLeft $topLeft]]
+    set xAxis [unitLengthVector [sub $topRight $topLeft]]
+    set yAxis [unitLengthVector [sub $bottomLeft $topLeft]]
+    set delta [sub $xyz $topLeft]
+    set x [dotproduct $delta $xAxis]
+    set y [dotproduct $delta $yAxis]
+
+    set eps 0.000001
+    if {$x < -$eps || $x > $width + $eps ||
+        $y < -$eps || $y > $height + $eps} {
+        if {$checkBounds} {
+            error "quad pointToXY: point $xyz projects outside quad bounds as {$x $y}; bounds are {0 0} {$width $height}"
+        }
+    }
+
+    return [list $x $y]
+}
+
 Claim the quad library is $quadLib

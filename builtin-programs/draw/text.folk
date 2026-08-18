@@ -1,42 +1,42 @@
 When the image library is /imageLib/ {
 
-set cc [C]
-$cc extend $imageLib
-$cc include <math.h>
+set cc [dict link $C {}]
+cc::extend $imageLib
+cc::include <math.h>
 
-$cc struct GlyphInfo {
+cc::struct GlyphInfo {
     float advance;
     float planeBounds[4];
     float atlasBounds[4];
 }
-$cc struct Font {
+cc::struct Font {
     Image atlasImage;
     int gpuAtlasImage;
     // TODO: This only handles ASCII, obviously.
     GlyphInfo glyphInfos[128];
 }
 
-$cc struct vec2f { float x; float y; }
-$cc proc vec2f_add {vec2f a vec2f b} vec2f {
+cc::struct vec2f { float x; float y; }
+cc::proc vec2f_add {vec2f a vec2f b} vec2f {
     return (vec2f) { a.x + b.x, a.y + b.y };
 }
-$cc proc vec2f_rotate {vec2f a float radians} vec2f {
+cc::proc vec2f_rotate {vec2f a float radians} vec2f {
     return (vec2f) {
         a.x*cosf(radians) + a.y*sinf(radians),
         -a.x*sinf(radians) + a.y*cosf(radians)
     };
 }
-$cc proc vec2f_toObj {vec2f a} Jim_Obj* {
+cc::proc vec2f_toObj {vec2f a} Jim_Obj* {
     Jim_Obj *v[] = { Jim_NewDoubleObj(interp, a.x), Jim_NewDoubleObj(interp, a.y) };
     return Jim_NewListObj(interp, v, 2);
 }
-$cc proc charOrFallback {Font* font int ch} int {
+cc::proc charOrFallback {Font* font int ch} int {
     if (ch < ' ' || ch >= sizeof(font->glyphInfos)/sizeof(font->glyphInfos[0])) {
         return '?';
     }
     return ch;
 }
-$cc proc textExtent {Font* font char* text float scale} vec2f {
+cc::proc textExtent {Font* font char* text float scale} vec2f {
     float em = scale;
     float x = 0; float y = 0;
     float width = 0;
@@ -52,7 +52,7 @@ $cc proc textExtent {Font* font char* text float scale} vec2f {
     }
     return (vec2f) { width, y };
 }
-$cc proc textShape {Jim_Obj* viewport Jim_Obj* surfaceToClip
+cc::proc textShape {Jim_Obj* viewport Jim_Obj* surfaceToClip
                     Font* font char* text
                     float x0 float y0 float scale
                     float blockAnchorX float blockAnchorY float lineAnchorX float lineAnchorY
@@ -159,22 +159,22 @@ $cc proc textShape {Jim_Obj* viewport Jim_Obj* surfaceToClip
     free(buf);
     return result;
 }
-$cc proc fontNew {Image atlasImage int gpuAtlasImage {GlyphInfo[128]} glyphInfos} Font* {
+cc::proc fontNew {Image atlasImage int gpuAtlasImage {GlyphInfo[128]} glyphInfos} Font* {
     Font* font = (Font*) malloc(sizeof(Font));
     font->atlasImage = atlasImage;
     font->gpuAtlasImage = gpuAtlasImage;
     memcpy(font->glyphInfos, glyphInfos, sizeof(font->glyphInfos));
     return font;
 }
-$cc proc fontFree {Font* font} void {
+cc::proc fontFree {Font* font} void {
     free(font);
 }
-set fontLib [$cc compile]
+set fontLib [cc::compile]
 
 When the image loader is /loadImage/ {
     fn loadImage
     fn loadFont {name} {
-        set csvFd [open "vendor/fonts/$name.csv" r]; set csv [read $csvFd]; close $csvFd
+        set csvFd [fopen "vendor/fonts/$name.csv" r]; set csv [read $csvFd]; close $csvFd
         set fields [list ]
         # HACK: Create list of null glyphs to initialize.
         set glyphInfos [list]
@@ -206,7 +206,7 @@ When the image loader is /loadImage/ {
         Wish the GPU loads image $im as texture
         When the GPU has loaded image $im as texture /gim/ {
             puts "text: Loaded $name as GPU texture $gim"
-            set font [$fontLib fontNew $im $gim $glyphInfos]
+            set font [fontLib::fontNew $im $gim $glyphInfos]
             Claim the GPU has font $name with data $font \
                 -destructor [list $fontLib fontFree $font]
         }
@@ -305,14 +305,14 @@ When the color map is /colorMap/ &\
     }
 
     When $p has canvas /id/ with /...wiOptions/ &\
-         $p has canvas projection /surfaceToClip/ &\
+         p::has canvas projection /surfaceToClip/ &\
          the GPU has font $font with data /fontData/ {
 
         set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
-        set instances [$fontLib textShape \
-                           $wiResolution $surfaceToClip \
-                           $fontData \
-                           $text $x0 $y0 $scale {*}$anchor $radians $color]
+        set instances [fontLib::textShape \
+                           wiResolution::$surfaceToClip \
+                           fontData::\
+                           text::$x0 $y0 $scale {*}$anchor $radians $color]
 
         # We need to batch into one wish so we don't deal with n^2
         # checks for existing statements for n glyphs.

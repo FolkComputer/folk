@@ -30,13 +30,9 @@ When the quad library is /quadLib/ &\
 
             When -atomicallyWithKey [list $thing quad $label] $thing has quad /q/ {
                 package require linalg
-                namespace import \
-                    ::math::linearalgebra::add \
-                    ::math::linearalgebra::sub \
-                    ::math::linearalgebra::scale \
-                    ::math::linearalgebra::unitLengthVector
+                dict assign [import lib/linalg.tcl] add sub scale unitLengthVector
 
-                lassign [$quadLib vertices [quadChange $q "display $disp"]] \
+                lassign [quadLib::vertices [quadChange $q "display $disp"]] \
                     topLeft topRight bottomRight bottomLeft
 
                 switch $edge {
@@ -62,10 +58,10 @@ When the quad library is /quadLib/ &\
                 set offset [scale $paddingMeters [unitLengthVector $physicalDir]]
                 set physicalPos [add $physicalPos $offset]
 
-                set dispPosition [$poseLib project $displayIntrinsics $displayWidth $displayHeight $physicalPos]
+                set dispPosition [poseLib::project $displayIntrinsics $displayWidth $displayHeight $physicalPos]
 
-                set dispTopLeft [$poseLib project $displayIntrinsics $displayWidth $displayHeight $topLeft]
-                set dispTopRight [$poseLib project $displayIntrinsics $displayWidth $displayHeight $topRight]
+                set dispTopLeft [poseLib::project $displayIntrinsics $displayWidth $displayHeight $topLeft]
+                set dispTopRight [poseLib::project $displayIntrinsics $displayWidth $displayHeight $topRight]
                 
                 set dispTop [vec2 sub $dispTopRight $dispTopLeft]
                 set dispRadians [expr {-atan2([lindex $dispTop 1], [lindex $dispTop 0])}]
@@ -96,7 +92,7 @@ When the quad library is /quadLib/ &\
                 }
 
                 if {$maxLength == 0} { return }
-                set scale [::math::min 36.0 [/ 3600.0 $maxLength]]
+                set scale [math::min 36.0 [/ 3600.0 $maxLength]]
 
                 Wish to draw text onto $disp with \
                     position $dispPosition \

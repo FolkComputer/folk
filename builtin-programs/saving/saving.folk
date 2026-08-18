@@ -1,4 +1,4 @@
-set dataDirectory "$::env(HOME)/folk-data"
+set dataDirectory "$env::HOME/folk-data"
 
 if {![file isdirectory $dataDirectory]} {
     file mkdir $dataDirectory

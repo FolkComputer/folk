@@ -1,11 +1,11 @@
-set cc [C]
-$cc cflags -I./vendor
-$cc code {
+set cc [dict link $C {}]
+cc::addcflags -I./vendor
+cc::addcode {
     #define VOLK_IMPLEMENTATION
     #include "volk/volk.h"
 }
 
-$cc proc enumerateDisplays {} Jim_Obj* {
+cc::proc enumerateDisplays {} Jim_Obj* {
     FOLK_ENSURE(volkInitialize() == VK_SUCCESS);
 
     // Create a minimal Vulkan instance for display enumeration.
@@ -99,15 +99,15 @@ $cc proc enumerateDisplays {} Jim_Obj* {
     return allDisplaysList;
 }
 
-set displayLib [$cc compile]
+set displayLib [cc::compile]
 
-if {![catch {exec pkg-config --exists glfw3}]} {
+if {[catch {exec pkg-config --exists glfw3}] == 0} {
     Claim $::thisNode has display glfw with info {name "GLFW (windowed)"}
 }
 
 try {
-    foreach display [$displayLib enumerateDisplays] {
-        Claim $::thisNode has display $display(name) with info $display
+    foreach display [displayLib::enumerateDisplays] {
+        Claim $::thisNode has display $display::name with info $display
     }
 } finally {
     Claim $::thisNode has had displays enumerated

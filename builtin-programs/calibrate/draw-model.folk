@@ -5,16 +5,14 @@ When display /display/ has width /displayWidth/ height /displayHeight/ &\
         using model-to-display homography /H_modelToDisplay/ \
         with message /calibrationMessage/ {
 
-    package require linalg
-    namespace import ::math::linearalgebra::scale \
-        ::math::linearalgebra::add ::math::linearalgebra::sub
+    dict assign [import lib/linalg.tcl] scale add sub
 
     fn innerToOuter {center corner {s 1.66666667}} {
         set r [sub $corner $center]
         return [add $center [scale $s $r]]
     }
 
-    set ROWS [$modelLib rows]; set COLS [$modelLib cols]
+    set ROWS [modelLib::rows]; set COLS [modelLib::cols]
 
     set topLeftTag     [dict get $model [expr {48600 + 0*$COLS + 0}]]
     set topRightTag    [dict get $model [expr {48600 + 0*$COLS + $COLS-1}]]
@@ -32,7 +30,7 @@ When display /display/ has width /displayWidth/ height /displayHeight/ &\
              [list $displayWidth 0 1 -1] \
              [list $displayWidth $displayHeight 1 1] \
              [list 0 $displayHeight -1 1]]
-    set boardCanvasToClipSpace [$matLib estimateHomography $boardToClipSpaceCorners]
+    set boardCanvasToClipSpace [matLib::estimateHomography $boardToClipSpaceCorners]
 
     set board [list $this board]
     set boardCanvas [list $board canvas]
@@ -47,9 +45,7 @@ When display /display/ has width /displayWidth/ height /displayHeight/ &\
 
     When $board has canvas /any/ with /...wiOpts/ {
         package require linalg
-        namespace import ::math::linearalgebra::scale \
-            ::math::linearalgebra::add ::math::linearalgebra::sub \
-            ::math::linearalgebra::norm
+        dict assign [import lib/linalg.tcl] scale add sub norm
 
         # White backdrop on board:
         Wish the GPU draws pipeline "fillTriangle" onto canvas $boardCanvas \
@@ -63,14 +59,14 @@ When display /display/ has width /displayWidth/ height /displayHeight/ &\
 
         # Draw AprilTags on board:
         dict for {id modelTag} $model {
-            if {![$modelLib isProjectedTag $id]} { continue }
+            if {![modelLib::isProjectedTag $id]} { continue }
 
             set modelInnerCorners [lreverse [dict get $modelTag p]]
             set modelCenter [dict get $modelTag c]
 
             set displayOuterCorners [lmap modelInnerCorner $modelInnerCorners {
                 set modelOuterCorner [innerToOuter $modelCenter $modelInnerCorner]
-                $matLib applyHomography $H_modelToDisplay $modelOuterCorner
+                matLib::applyHomography $H_modelToDisplay $modelOuterCorner
             }]
             Wish to draw an AprilTag onto $board with \
                 id $id corners $displayOuterCorners background $bgColor \
@@ -100,13 +96,13 @@ When display /display/ has width /displayWidth/ height /displayHeight/ &\
             getelem transpose determineSVD shape mkIdentity show
             solvePGauss crossproduct getcol setcol unitLengthVector det
         } {
-            namespace import ::math::linearalgebra::$p
+            dict assign [import lib/linalg.tcl] $p
         }
 
         foreach side $sides {
             lassign $side start end
-            set displayStart [$matLib applyHomography $H_modelToDisplay $start]
-            set displayEnd   [$matLib applyHomography $H_modelToDisplay $end]
+            set displayStart [matLib::applyHomography $H_modelToDisplay $start]
+            set displayEnd   [matLib::applyHomography $H_modelToDisplay $end]
 
             set v [sub $displayEnd $displayStart]
             set displayRadians [expr {atan2(-1*[lindex $v 1], [lindex $v 0])}]
@@ -129,7 +125,7 @@ When display /display/ has width /displayWidth/ height /displayHeight/ &\
 
         Wish the GPU draws pipeline "image" with arguments \
             [list [list $displayWidth $displayHeight] \
-                 $displayToClip \
+                 displayToClip::\
                  [dict get $wiOpts texture] \
                  [list -1 -1] [list 1 -1] [list 1 1] [list -1 1]] \
             layer 100

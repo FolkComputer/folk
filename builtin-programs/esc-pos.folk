@@ -17,7 +17,7 @@ When the print library is /printLib/ &\
             [init]
             [tag $id]
             [feed 1]
-            $id ([clock format [clock seconds] -format "%a, %d %b %Y, %r"])
+            id::([clock format [clock seconds] -format "%a, %d %b %Y, %r"])
             [feed 2]
             $code
             [feed 3]
@@ -34,14 +34,14 @@ When the print library is /printLib/ &\
     }
 
     fn writeFolkFile {id code} {
-        set folkFile [open "$saveDir/$id.folk" w]
+        set folkFile [fopen "$saveDir/$id.folk" w]
         puts $folkFile $code
         close $folkFile
     }
 
     fn writeMetaFile {printer id} {
         Require! $printer has tag geometry /geometry/
-        set metaFile [open "$saveDir/$id.meta.folk" w]
+        set metaFile [fopen "$saveDir/$id.meta.folk" w]
         puts $metaFile [subst {Claim tag \$this has geometry {$geometry}}]
         close $metaFile
     }
@@ -63,13 +63,13 @@ When the print library is /printLib/ &\
     }
 
     fn scaledAprilTag {id scale} {
-        set tagImage [$printLib tagImageForId $id]
+        set tagImage [printLib::tagImageForId $id]
         set tagBits [list]
         for {set y 0} {$y < 10} {incr y} {
             for {set i 0 } {$i < $scale} {incr i} {
                 for {set x 0} {$x < 10} {incr x} {
-                    set j [expr {$y * [$imageLib Image_bytesPerRow $tagImage] + $x}]
-                    set bit [expr {[$imageLib Image_data $tagImage $j] != 255}]
+                    set j [expr {$y * [imageLib::Image_bytesPerRow $tagImage] + $x}]
+                    set bit [expr {[imageLib::Image_data $tagImage $j] != 255}]
                     lappend tagBits {*}[lrepeat $scale $bit]
                 }
             }

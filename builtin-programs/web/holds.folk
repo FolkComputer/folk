@@ -1,7 +1,7 @@
 When the db library is /dbLib/ {
   set db [__db]
   Wish the web server handles route "/holds" with handler {
-    set holds [$dbLib holds $db]
+    set holds [dbLib::holds $db]
 
     html [subst {
       <html>

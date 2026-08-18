@@ -1,11 +1,11 @@
-if {$::tcl_platform(os) ne "linux"} { return }
+if {$tcl_platform::os ne "linux"} { return }
 
-set cc [C]
-$cc include <fcntl.h>
-$cc include <unistd.h>
-$cc include <sys/ioctl.h>
-$cc include <linux/videodev2.h>
-$cc proc getInfoForCamera {char* camera} Jim_Obj* {
+set cc [dict link $C {}]
+cc::include <fcntl.h>
+cc::include <unistd.h>
+cc::include <sys/ioctl.h>
+cc::include <linux/videodev2.h>
+cc::proc getInfoForCamera {char* camera} Jim_Obj* {
     int fd = open(camera, O_RDWR);
     FOLK_ENSURE(fd >= 0);
 
@@ -93,7 +93,7 @@ $cc proc getInfoForCamera {char* camera} Jim_Obj* {
     close(fd);
     return infoObj;
 }
-set formatsLib [$cc compile]
+set formatsLib [cc::compile]
 
 set camerasByCanonicalName [dict create]
 set cameras [glob -nocomplain "/dev/v4l/by-path/*"]
@@ -116,6 +116,6 @@ foreach camera $cameras {
     }
     dict set camerasByCanonicalName $canonicalName $camera
 
-    set info [$formatsLib getInfoForCamera $camera]
+    set info [formatsLib::getInfoForCamera $camera]
     Claim $::thisNode has camera $camera with {*}$info
 }

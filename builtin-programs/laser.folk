@@ -2,14 +2,14 @@ When the image library is /imageLib/ &\
      libapriltag has been built with config /configCcWithLibapriltag/ {
 fn configCcWithLibapriltag
 
-set cc [C]
+set cc [dict link $C {}]
 configCcWithLibapriltag $cc
-$cc endcflags vendor/blobdetect/hk.c
-$cc extend $imageLib
+cc::addendcflags vendor/blobdetect/hk.c
+cc::extend $imageLib
 
-$cc include <apriltag.h>
-$cc include <math.h>
-$cc code {
+cc::include <apriltag.h>
+cc::include <math.h>
+cc::addcode {
     int hoshen_kopelman(int **matrix, int m, int n);
 
     typedef struct {
@@ -128,7 +128,7 @@ $cc code {
     }
 }
 
-$cc proc detect {Image gray int threshold} Jim_Obj* {
+cc::proc detect {Image gray int threshold} Jim_Obj* {
     FOLK_ENSURE(gray.components == 1);
     image_u8_t im = (image_u8_t) { .width = gray.width, .height = gray.height, .stride = gray.bytesPerRow, .buf = gray.data };
 
@@ -162,13 +162,13 @@ $cc proc detect {Image gray int threshold} Jim_Obj* {
     return result;
 }
 
-set blobdetectLib [$cc compile]
+set blobdetectLib [cc::compile]
 
 When /someone/ wishes to detect laser blobs &\
      camera /any/ has gray frame /grayFrame/ at timestamp /timestamp/ {
     set blobTime [time {
         set threshold 250
-        set blobs [$blobdetectLib detect $grayFrame $threshold]
+        set blobs [blobdetectLib::detect $grayFrame $threshold]
     }]
     Hold! {
         Claim the blob detection time is $blobTime

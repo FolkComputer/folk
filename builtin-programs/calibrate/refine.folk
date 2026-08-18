@@ -62,22 +62,22 @@ fn rotationVectorToRotationMatrix {r} {
 
 set NUM_TAGS_IN_MODEL 20
 
-set cc [C]
-$cc cflags -I./vendor/cmpfit -Wall -Werror
+set cc [dict link $C {}]
+cc::addcflags -I./vendor/cmpfit -Wall -Werror
 configCcWithLibapriltag $cc
 
-$cc include <math.h>
-$cc include <string.h>
-$cc include <assert.h>
-$cc include "mpfit.h"
-$cc include "mpfit.c"
-$cc include <apriltag_pose.h>
-$cc include <common/matd.h>
+cc::include <math.h>
+cc::include <string.h>
+cc::include <assert.h>
+cc::include "mpfit.h"
+cc::include "mpfit.c"
+cc::include <apriltag_pose.h>
+cc::include <common/matd.h>
 
 # Mono calibration
 # ----------------
 
-$cc code [csubst {
+cc::addcode [csubst {
     #define MAX_POINTS_PER_POSE $[* $NUM_TAGS_IN_MODEL 4]
 
     typedef struct Intrinsics {
@@ -121,7 +121,7 @@ $cc code [csubst {
     double (*MonoPoseModelPoints)[MAX_POINTS_PER_POSE][3];
     double (*MonoPosePoints)[MAX_POINTS_PER_POSE][2];
 }]
-$cc proc monoSetPoints {int poseCount
+cc::proc monoSetPoints {int poseCount
                         int[] posePointsCount
                         double[] poseModelPoints
                         double[] posePoints} void {
@@ -152,7 +152,7 @@ $cc proc monoSetPoints {int poseCount
     }
 }
 
-$cc code {
+cc::addcode {
     void rotationVectorToRotationMatrix(double r[3], double out[3][3]) {
         double theta = sqrt(r[0]*r[0] + r[1]*r[1] + r[2]*r[2]);
         if (fabs(theta) < 0.0001) {
@@ -237,7 +237,7 @@ $cc code {
         return dx*dx + dy*dy;
     }
 }
-$cc proc monoFunc {int m int n double* x
+cc::proc monoFunc {int m int n double* x
                    double* fvec double** dvec
                    void* _} int {
     // Unwrap the parameters x[]:
@@ -284,7 +284,7 @@ $cc proc monoFunc {int m int n double* x
     }
     return 0;
 }
-$cc proc monoComputeError {double[paramsCount] params} double {
+cc::proc monoComputeError {double[paramsCount] params} double {
     double fvec[MonoPointsCount];
     monoFunc(MonoPointsCount, paramsCount, params, fvec, NULL, NULL);
     double totalError = 0;
@@ -297,7 +297,7 @@ $cc proc monoComputeError {double[paramsCount] params} double {
     printf("RMSE: %f\n", rmse);
     return rmse;
 }
-$cc proc monoRefineCalibrationOptimize {double[paramsCount] params} Jim_Obj* {
+cc::proc monoRefineCalibrationOptimize {double[paramsCount] params} Jim_Obj* {
     setvbuf(stdout, NULL, _IONBF, BUFSIZ);
 
     mp_result result = {0};
@@ -332,7 +332,7 @@ $cc proc monoRefineCalibrationOptimize {double[paramsCount] params} Jim_Obj* {
 # Stereo calibration
 # ------------------
 
-$cc code {
+cc::addcode {
     int StereoPoseCount;
     int StereoPointsCount;
     int* StereoPosePointsCount;
@@ -343,7 +343,7 @@ $cc code {
     Intrinsics StereoCameraIntrinsics;
     Intrinsics StereoProjectorIntrinsics;
 }
-$cc proc stereoSetPoints {int poseCount
+cc::proc stereoSetPoints {int poseCount
                           int[] posePointsCount
                           double[] poseModelPoints
                           double[] poseCameraPoints
@@ -379,14 +379,14 @@ $cc proc stereoSetPoints {int poseCount
         }
     }
 }
-$cc proc stereoSetIntrinsics {double[] cameraIntrinsics
+cc::proc stereoSetIntrinsics {double[] cameraIntrinsics
                               double[] projectorIntrinsics} void {
     loadIntrinsics(&StereoCameraIntrinsics,
                    cameraIntrinsics);
     loadIntrinsics(&StereoProjectorIntrinsics,
                    projectorIntrinsics);
 }
-$cc proc stereoFunc {int m int n double* x
+cc::proc stereoFunc {int m int n double* x
                      double* fvec double** dvec
                      void* _} int {
     // Intrinsics (these are fixed):
@@ -454,7 +454,7 @@ $cc proc stereoFunc {int m int n double* x
     }
     return 0;
 }
-$cc proc stereoComputeError {double[paramsCount] params} double {
+cc::proc stereoComputeError {double[paramsCount] params} double {
     double fvec[StereoPointsCount * 2];
     stereoFunc(StereoPointsCount * 2, paramsCount, params, fvec, NULL, NULL);
     double totalError = 0;
@@ -467,7 +467,7 @@ $cc proc stereoComputeError {double[paramsCount] params} double {
     printf("RMSE: %f\n", rmse);
     return rmse;
 }
-$cc proc stereoRefineCalibrationOptimize {double[paramsCount] params} Jim_Obj* {
+cc::proc stereoRefineCalibrationOptimize {double[paramsCount] params} Jim_Obj* {
     mp_result result = {0};
 
     FOLK_ENSURE(paramsCount == 6 + StereoPoseCount*6);
@@ -499,7 +499,7 @@ $cc proc stereoRefineCalibrationOptimize {double[paramsCount] params} Jim_Obj* {
 # Folk level
 # ----------
 
-set refineLib [$cc compile] ;# takes about a half-second
+set refineLib [cc::compile] ;# takes about a half-second
 
 # Refines the calibration of an individual camera or
 # projector. Takes a dict with intrinsics (dict of fx, s, cx, etc)
@@ -520,8 +520,8 @@ fn refineMonoCalibration {calibration} {
 
         lappend posePointsCount [llength $points]
     }
-    $refineLib monoSetPoints [llength [dict get $calibration poses]] \
-        $posePointsCount $poseModelPoints $posePoints
+    refineLib::monoSetPoints [llength [dict get $calibration poses]] \
+        posePointsCount::$poseModelPoints $posePoints
 
     set intrNames {fx cx fy cy k1 k2 p1 p2}
 
@@ -535,7 +535,7 @@ fn refineMonoCalibration {calibration} {
     }
 
     # Do the actual optimization:
-    set refined [$refineLib monoRefineCalibrationOptimize $params]
+    set refined [refineLib::monoRefineCalibrationOptimize $params]
 
     # Unspool the optimization result into the calibration data
     # structure and return that.
@@ -579,7 +579,7 @@ fn refineCalibration {modelLib matLib setCameraToProjectorExtrinsics
           set modelPoints [list]
           set points [list]
           dict for {id tag} [dict get $pose tags] {
-              if {[$modelLib isPrintedTag $id]} continue
+              if {[modelLib::isPrintedTag $id]} continue
               lappend modelPoints {*}[lmap corner [dict get $pose model $id p] {
                   list {*}$corner 0.0
               }]
@@ -617,10 +617,10 @@ fn refineCalibration {modelLib matLib setCameraToProjectorExtrinsics
           set modelPoints [list]
           set points [list]
           dict for {id tag} [dict get $pose tags] {
-              if {![$modelLib isProjectedTag $id]} continue
+              if {![modelLib::isProjectedTag $id]} continue
               foreach modelCorner [dict get $pose model $id p] {
                   lappend modelPoints [list {*}$modelCorner 0.0]
-                  lappend points [$matLib applyHomography $H_modelToProjector $modelCorner]
+                  lappend points [matLib::applyHomography $H_modelToProjector $modelCorner]
               }
           }
           dict create \
@@ -675,12 +675,12 @@ fn refineCalibration {modelLib matLib setCameraToProjectorExtrinsics
         dict for {id tag} [dict get $pose tags] {
             # We only look at _projected_ tags & they have to be
             # in `tags`, so were actually detected by the camera.
-            if {![$modelLib isProjectedTag $id]} continue
+            if {![modelLib::isProjectedTag $id]} continue
             for {set j 0} {$j < 4} {incr j} {
                 set modelCorner [lindex [dict get $pose model $id p] $j]
                 lappend modelPoints [list {*}$modelCorner 0.0]
                 lappend cameraPoints [lindex [dict get $tag p] $j]
-                lappend projectorPoints [$matLib applyHomography $H_modelToProjector $modelCorner]
+                lappend projectorPoints [matLib::applyHomography $H_modelToProjector $modelCorner]
             }
         }
         incr poseCount
@@ -690,13 +690,13 @@ fn refineCalibration {modelLib matLib setCameraToProjectorExtrinsics
         lappend poseProjectorPoints {*}$projectorPoints
         lappend poseExtrinsics [lindex [dict get $calibration camera extrinsics] $i]
     }
-    $refineLib stereoSetPoints $poseCount $posePointsCount \
+    refineLib::stereoSetPoints $poseCount $posePointsCount \
         [concat {*}$poseModelPoints] \
         [concat {*}$poseCameraPoints] \
         [concat {*}$poseProjectorPoints]
 
     set intrNames {fx cx fy cy k1 k2 p1 p2}
-    $refineLib stereoSetIntrinsics [lmap intrName $intrNames {
+    refineLib::stereoSetIntrinsics [lmap intrName $intrNames {
         dict get $calibration camera intrinsics $intrName
     }] [lmap intrName $intrNames {
         dict get $calibration projector intrinsics $intrName
@@ -714,7 +714,7 @@ fn refineCalibration {modelLib matLib setCameraToProjectorExtrinsics
     }
 
     puts ".\nStereo refine ($poseCount poses):"
-    set refined [$refineLib stereoRefineCalibrationOptimize $params]
+    set refined [refineLib::stereoRefineCalibrationOptimize $params]
     set refined [lassign $refined rmse]
     dict set calibration rmse $rmse
     dict set calibration R_cameraToProjector [rotationVectorToRotationMatrix [lrange $refined 0 2]]

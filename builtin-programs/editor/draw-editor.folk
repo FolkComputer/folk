@@ -28,16 +28,16 @@ When /editor/ is an editor with /...anything/ &\
          the clock time is /t/ {
         Wish to draw a dashed line onto $editor with points \
             [list [list 0 0] \
-                 [list $geom(width) 0] \
-                 [list $geom(width) $geom(height)] \
-                 [list 0 $geom(height)] \
+                 [list $geom::width 0] \
+                 [list $geom::width $geom::height] \
+                 [list 0 $geom::height] \
                  [list 0 0]] \
             color gold width 0.005 dashlength 0.008 \
             dashoffset [expr {fmod($t, 1.6) * 0.01}]
     }
 
     set textScale [dict get $fontOptions scale]
-    set advance [$utils getAdvance $textScale]
+    set advance [utils::getAdvance $textScale]
 
     When editor $editor has selected program /program/ &\
          editor buffer for /program/ is /code/ &\
@@ -45,7 +45,7 @@ When /editor/ is an editor with /...anything/ &\
          editor $editor has cursor position /cursorPos/ &\
          editor $editor has selection anchor /selAnchor/ {
         set lineCount [min [- [llength [split $code "\n"]] $vpY] $vpHeight]
-        set lineNumbers [$utils lineNumberView $vpY $lineCount]
+        set lineNumbers [utils::lineNumberView $vpY $lineCount]
 
         set marginLeft [lindex $margin 3]
         set lineNumbersRight $($marginLeft + $advance*1.5)
@@ -54,7 +54,7 @@ When /editor/ is an editor with /...anything/ &\
             text $lineNumbers color gold \
             scale $textScale anchor topright font NeomatrixCode
 
-        set text [$utils applyTextViewport $code $vpX $vpY $vpWidth $vpHeight]
+        set text [utils::applyTextViewport $code $vpX $vpY $vpWidth $vpHeight]
         set pos [list [+ $lineNumbersRight $advance] [lindex $margin 0]]
         Wish to draw text onto $editor with \
             position $pos text $text \
@@ -64,8 +64,8 @@ When /editor/ is an editor with /...anything/ &\
         if {$selAnchor ne ""} {
             set rawStart [min $selAnchor $cursor]
             set rawEnd [max $selAnchor $cursor]
-            lassign [$utils cursorToXy $code $rawStart] selStartX selStartY
-            lassign [$utils cursorToXy $code $rawEnd] selEndX selEndY
+            lassign [utils::cursorToXy $code $rawStart] selStartX selStartY
+            lassign [utils::cursorToXy $code $rawEnd] selEndX selEndY
 
             set lines [split $code "\n"]
             for {set ly $selStartY} {$ly <= $selEndY} {incr ly} {

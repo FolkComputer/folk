@@ -1,14 +1,14 @@
 # sha1 for stable, content-addressed pipeline names.
-set cc [C]
-$cc include <string.h>
-$cc include <openssl/sha.h>
-$cc proc sha1 {char* d} Jim_Obj* {
+set cc [dict link $C {}]
+cc::include <string.h>
+cc::include <openssl/sha.h>
+cc::proc sha1 {char* d} Jim_Obj* {
     unsigned char md[20];
     SHA1((unsigned char *)d, strlen(d), md);
     return Jim_NewStringObj(interp, (char *)md, 20);
 }
-$cc endcflags -lssl -lcrypto
-set sha1Lib [$cc compile]
+cc::addendcflags -lssl -lcrypto
+set sha1Lib [cc::compile]
 
 When the GPU Vulkan handle type definer is /defineVulkanHandleType/ &\
      the GPU pipeline library is /pipelineLib/ {
@@ -20,10 +20,10 @@ When the GPU Vulkan handle type definer is /defineVulkanHandleType/ &\
 #   offset 12 float iTime          (4 bytes)
 #
 # Wish arguments: [list $resolution $iTime]
-set cc [C]
-$cc include <string.h>
-$cc include <stdint.h>
-$cc code {
+set cc [dict link $C {}]
+cc::include <string.h>
+cc::include <stdint.h>
+cc::addcode {
     // HACK: copied from pipelines.folk
     typedef struct PushConstantsEncoder {
         int (*encode)(Jim_Interp* interp, Jim_Obj* obj, uint8_t out[128]);
@@ -56,21 +56,21 @@ $cc code {
         return sizeof(args);
     }
 }
-$cc proc makeToyEncoder {} PushConstantsEncoder* {
+cc::proc makeToyEncoder {} PushConstantsEncoder* {
     PushConstantsEncoder* e = malloc(sizeof(PushConstantsEncoder));
     e->encode = encodeToy;
     return e;
 }
-$cc proc getToyArgsSize {} int { return sizeof(Args); }
-set toyEncoderLib [$cc compile]
+cc::proc getToyArgsSize {} int { return sizeof(Args); }
+set toyEncoderLib [cc::compile]
 
-set toyEncoder [$toyEncoderLib makeToyEncoder]
-set toyArgsSize [$toyEncoderLib getToyArgsSize]
+set toyEncoder [toyEncoderLib::makeToyEncoder]
+set toyArgsSize [toyEncoderLib::getToyArgsSize]
 
 # Run glslc as a subprocess to turn GLSL into SPIR-V words.
 fn toyGlslc {stage glsl} {
     set glslfile [file tempfile /tmp/toyshaderXXXXXX].glsl
-    set glslfd [open $glslfile w]; puts $glslfd $glsl; close $glslfd
+    set glslfd [fopen $glslfile w]; puts $glslfd $glsl; close $glslfd
     split [string map {\n ""} [exec glslc -fshader-stage=$stage -mfmt=num -o - $glslfile]] ","
 }
 
@@ -82,7 +82,7 @@ set toyPushConstantsBlock {
 }
 
 When /wisher/ wishes /p/ draws toy shader /shaderCode/ {
-    binary scan [$sha1Lib sha1 $shaderCode] H* sha1
+    binary scan [sha1Lib::sha1 $shaderCode] H* sha1
 
     set vertGlsl [csubst {
         #version 450
@@ -132,16 +132,16 @@ When /wisher/ wishes /p/ draws toy shader /shaderCode/ {
     }]
 
     try {
-        set vertShaderModule [$pipelineLib createShaderModule [toyGlslc vert $vertGlsl]]
-        set fragShaderModule [$pipelineLib createShaderModule [toyGlslc frag $fragGlsl]]
+        set vertShaderModule [pipelineLib::createShaderModule [toyGlslc vert $vertGlsl]]
+        set fragShaderModule [pipelineLib::createShaderModule [toyGlslc frag $fragGlsl]]
     } on error e {
-        puts stderr "Error compiling toy shader: [errorInfo $e]"
-        Claim $wisher has error $e with info [errorInfo $e]
+        puts stderr "Error compiling toy shader: [errorinfo $e]"
+        Claim $wisher has error $e with info [errorinfo $e]
     }
 
-    set pipeline [$pipelineLib createPipeline \
-                      $vertShaderModule $fragShaderModule \
-                      $toyEncoder $toyArgsSize]
+    set pipeline [pipelineLib::createPipeline \
+                      vertShaderModule::$fragShaderModule \
+                      toyEncoder::$toyArgsSize]
 
     Claim the GPU compiles pipeline $sha1 to $pipeline
 

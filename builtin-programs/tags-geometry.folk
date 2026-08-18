@@ -1,6 +1,6 @@
 When the default program geometry is /defaultGeom/ &\
      program /program/ is scaled by x /xScale/ y /yScale/ {
-    proc extractMm {mm} {
+    fn extractMm {mm} {
         regexp {([0-9.]+)mm} $mm -> extracted
         return $extracted
     }
@@ -35,7 +35,7 @@ When the default program geometry is /defaultGeom/ &\
         } elseif {[llength $results] == 0} {
             set geom $defaultGeom
         } else {
-            puts stderr "tags-to-quads: WARNING: Multiple geometries for $tag"
+            puts $realStderr "tags-to-quads: WARNING: Multiple geometries for $tag"
             set geom [dict get [lindex $results 0] geom]
         }
 

@@ -48,21 +48,20 @@ When the print library is /printLib/ &\
      the calibration matrix library is /matLib/ {
 
 fn makeCalibrationBoardPs {} {
-    set model [$modelLib unitModel]
+    set model [modelLib::unitModel]
 
-    package require linalg
-    namespace import ::math::linearalgebra::add
+    dict assign [import lib/linalg.tcl] add
 
     Require! the paper formats are /formats/
     set formatName [QueryOne! paper format /./ is the default paper format \
                        -default letter]
-    lassign [dict get $formats($formatName) pageSize] PageWidth PageHeight
+    lassign [dict get $formats $formatName pageSize] PageWidth PageHeight
 
     set innerToOuter 0.333333
 
     set tagOuterLengthPs [expr {$tagInnerSideLength * 10/6}]
 
-    set H_modelToPs [$matLib estimateHomography [subst {
+    set H_modelToPs [matLib::estimateHomography [subst {
         {1 1 $tagInnerSideLength $tagInnerSideLength}
         {1 0 $tagInnerSideLength 0}
         {0 1 0 $tagInnerSideLength}
@@ -71,10 +70,10 @@ fn makeCalibrationBoardPs {} {
 
     set ps [subst {
         %!PS
-        << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
+        << /PageSize \[PageWidth::$PageHeight\] >> setpagedevice
 
         gsave
-        $marginLeft [- $PageHeight [/ $marginTop 2]] translate
+        marginLeft::[- $PageHeight [/ $marginTop 2]] translate
         0 setgray /Helvetica findfont 14 scalefont setfont
         newpath 0 0 moveto (Folk calibration board) show
         grestore
@@ -132,12 +131,12 @@ fn makeCalibrationBoardPs {} {
         % Short blue segment at left measure, with arrow left to left edge.
         2 setlinewidth
         newpath
-        $measureLeft [expr {$PageHeight/2 - 20}] moveto
-        $measureLeft [expr {$PageHeight/2 + 20}] lineto
+        measureLeft::[expr {$PageHeight/2 - 20}] moveto
+        measureLeft::[expr {$PageHeight/2 + 20}] lineto
         stroke
         1 setlinewidth
         newpath
-        $measureLeft [/ $PageHeight 2] moveto
+        measureLeft::[/ $PageHeight 2] moveto
         2 [/ $PageHeight 2] lineto
         stroke
         newpath
@@ -156,21 +155,21 @@ fn makeCalibrationBoardPs {} {
         % We should flip the coordinate system to match the model coordinate system,
         % so (0, 0) is top-left.
         1 -1 scale
-        $marginLeft [- $marginTop $PageHeight] translate        
+        marginLeft::[- $marginTop $PageHeight] translate        
 
         [set tagIdx -1]
         [join [lmap {id modelTag} $model {
-            if {![$modelLib isPrintedTag $id]} { continue }
+            if {![modelLib::isPrintedTag $id]} { continue }
             incr tagIdx
 
             set modelInnerTopLeft [lindex [dict get $modelTag p] 3]
             set modelOuterTopLeft [add $modelInnerTopLeft [list -$innerToOuter -$innerToOuter]]
-            lassign [$matLib applyHomography $H_modelToPs $modelOuterTopLeft] psX psY
+            lassign [matLib::applyHomography $H_modelToPs $modelOuterTopLeft] psX psY
             subst {
                 gsave
-                $psX [+ $psY $tagOuterLengthPs] translate
-                $tagOuterLengthPs -$tagOuterLengthPs scale
-                [$printLib tagPsForId $id]
+                psX::[+ $psY $tagOuterLengthPs] translate
+                tagOuterLengthPs::-$tagOuterLengthPs scale
+                [printLib::tagPsForId $id]
                 grestore
 
                 % gsave
@@ -205,7 +204,7 @@ Claim the makeCalibrationBoardPs is [fn makeCalibrationBoardPs]
 
 fn makeCalibrationBoardPdf {} {
     set ps [makeCalibrationBoardPs]
-    set fp [open [list |ps2pdf - - <<$ps] rb]
+    set fp [fopen [list |ps2pdf - - <<$ps] rb]
     set pdf [read $fp]; close $fp
     return $pdf
 }
@@ -214,12 +213,12 @@ Claim the makeCalibrationBoardPdf is [fn makeCalibrationBoardPdf]
 fn makeCalibrationBoardPng {} {
     set ps [makeCalibrationBoardPs]
     set psFile [file tempfile].ps
-    set fp [open $psFile w]; puts $fp $ps; close $fp
+    set fp [fopen $psFile w]; puts $fp $ps; close $fp
     set pngFile [file tempfile].png
     exec gs -dNOPAUSE -dBATCH -sFONTPATH=vendor/fonts \
         -sDEVICE=png16m -r144 \
         -sOutputFile=$pngFile $psFile
-    set fp [open $pngFile rb]
+    set fp [fopen $pngFile rb]
     set png [read $fp]; close $fp
     return $png
 }

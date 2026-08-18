@@ -3,10 +3,10 @@
 #     This file provides global math datatypes and utilities.
 #
 
-set math::PI 3.142
-set math::TAU 6.283
+set PI 3.142
+set TAU 6.283
 
-fn math::drawPhysicalLength {value} {
+fn drawPhysicalLength {value} {
     if {[llength $value] != 1} {
         error "draw: expected a scalar physical length, got $value"
     }
@@ -36,7 +36,7 @@ fn math::drawPhysicalLength {value} {
     }
 }
 
-fn math::drawPhysicalAxisExtent {width height axis} {
+fn drawPhysicalAxisExtent {width height axis} {
     switch -- $axis {
         x - width - horizontal { return $width }
         y - height - vertical { return $height }
@@ -47,7 +47,7 @@ fn math::drawPhysicalAxisExtent {width height axis} {
     }
 }
 
-fn math::drawRelativePhysicalLength {value width height axis {context draw}} {
+fn drawRelativePhysicalLength {value width height axis {context draw}} {
     if {[llength $value] != 1} {
         error "$context: expected a scalar length, got $value"
     }
@@ -119,7 +119,7 @@ fn vec2::midpoint {a b} {
 # From tcllib ::math::geometry
 # Original code found at: https://www.ecse.rpi.edu/~wrf/Research/Short_Notes/pnpoly.html
 # Thanks to Christian Gollwitzer, Peter Lewerin and Eduard Zozuly
-fn math::geometry::pointInsidePolygon {point polygon} {
+fn geometry::pointInsidePolygon {point polygon} {
     lassign $point testx testy
     foreach p $polygon {
         lassign $p x y
@@ -141,7 +141,7 @@ fn math::geometry::pointInsidePolygon {point polygon} {
     return $c
 }
 
-fn math::lsort-indices {itemL} {
+fn lsort-indices {itemL} {
     set pairL [list]
     foreach item $itemL {
         lappend pairL [list $item [llength $pairL]]
@@ -152,19 +152,19 @@ fn math::lsort-indices {itemL} {
     }
     set indexL
 }
-fn math::min {args} {
+fn min {args} {
     if {[llength $args] == 0} { error "min: No args" }
     set min infinity
     foreach arg $args { if {$arg < $min} { set min $arg } }
     return $min
 }
-fn math::max {args} {
+fn max {args} {
     if {[llength $args] == 0} { error "max: No args" }
     set max -infinity
     foreach arg $args { if {$arg > $max} { set max $arg } }
     return $max
 }
-fn math::mean {val args} {
+fn mean {val args} {
     set sum $val
     set N [ expr { [ llength $args ] + 1 } ]
     foreach val $args {
@@ -172,5 +172,5 @@ fn math::mean {val args} {
     }
     set mean [expr { double($sum) / $N }]
 }
-fn math::sin {x} { expr {sin($x)} }
-fn math::cos {x} { expr {cos($x)} }
+fn sin {x} { expr {sin($x)} }
+fn cos {x} { expr {cos($x)} }

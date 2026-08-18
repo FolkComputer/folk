@@ -1,3 +1,5 @@
+set math [import lib/math.tcl]
+
 Wish the GPU compiles pipeline "arc" [list \
     {vec2 viewport mat3 surfaceToClip
         vec2 center float radius float thickness float start float arclen vec4 color} {
@@ -16,7 +18,7 @@ Wish the GPU compiles pipeline "arc" [list \
             vec2 clipXy = (gl_FragCoord.xy / viewport) * 2.0 - 1.0;
             vec3 surfaceXy = inverse(surfaceToClip) * vec3(clipXy, 1.0);
             surfaceXy /= surfaceXy.z;
-            const float TAU = $::TAU;
+            const float TAU = $math::TAU;
             float c_start = clamp(start, 0.0, TAU);
             float c_arclen = clamp(arclen, 0.0, TAU);
             float dist = length(surfaceXy.xy - center) - radius;
@@ -48,6 +50,6 @@ When the color map is /colorMap/ &\
         set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
         Wish the GPU draws pipeline "arc" onto canvas $id with arguments \
             [list $wiResolution $surfaceToClip \
-            $center $radius $thickness $start $arclen $color] \
+            center::$radius $thickness $start $arclen $color] \
             layer $layer
     }

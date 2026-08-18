@@ -29,13 +29,13 @@ When the image library is /imageLib/ & the print library is /printLib/ &\
     set layer [dict getdef $options layer 0]
     set background [dict getdef $options background [list 1 1 1 1]]
 
-    set tagImage [$printLib tagImageForId $id]
+    set tagImage [printLib::tagImageForId $id]
     set tagBits [list]
     # 10x10 AprilTag -> 100 bits
     for {set y 0} {$y < 10} {incr y} {
         for {set x 0} {$x < 10} {incr x} {
-            set j [expr {$y * [$imageLib Image_bytesPerRow $tagImage] + $x}]
-            set bit $([$imageLib Image_data $tagImage $j] == 255)
+            set j [expr {$y * [imageLib::Image_bytesPerRow $tagImage] + $x}]
+            set bit $([imageLib::Image_data $tagImage $j] == 255)
             lappend tagBits $bit
         }
     }
@@ -48,6 +48,6 @@ When the image library is /imageLib/ & the print library is /printLib/ &\
     set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
     Wish the GPU draws pipeline "apriltag" onto canvas $writableTexture with \
         arguments [list $wiResolution $surfaceToClip $background \
-                       $tagBitsVec {*}$corners] \
+                       tagBitsVec::{*}$corners] \
         layer $layer
 }

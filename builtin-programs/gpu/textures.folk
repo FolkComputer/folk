@@ -5,10 +5,10 @@ When the GPU Vulkan handle type definer is /defineVulkanHandleType/ &\
 
 fn defineVulkanHandleType
 
-set gpuc [C]
-$gpuc cflags -I./vendor
-$gpuc endcflags $vmaDll
-$gpuc code {
+set gpuc [dict link $C {}]
+gpuc::addcflags -I./vendor
+gpuc::addendcflags $vmaDll
+gpuc::addcode {
     #define VOLK_IMPLEMENTATION
     #include "volk/volk.h"
 
@@ -21,25 +21,25 @@ $gpuc code {
                  PFN_vkGetPhysicalDeviceMemoryProperties vkGetPhysicalDeviceMemoryProperties);
     VmaAllocator vmaGetAllocator();
 }
-$gpuc include <pthread.h>
-$gpuc include <stdlib.h>
-$gpuc include <string.h>
-$gpuc include <stdatomic.h>
+gpuc::include <pthread.h>
+gpuc::include <stdlib.h>
+gpuc::include <string.h>
+gpuc::include <stdatomic.h>
 
-$gpuc extend $gpuLib
-$gpuc extend $imageLib
+gpuc::extend $gpuLib
+gpuc::extend $imageLib
 
-$gpuc include <pthread.h>
+gpuc::include <pthread.h>
 
-$gpuc typedef {struct VmaAllocation_T*} VmaAllocation
-$gpuc argtype VmaAllocation {
+gpuc::typedef {struct VmaAllocation_T*} VmaAllocation
+gpuc::argtype VmaAllocation {
     VmaAllocation $argname;
     sscanf(Jim_String($obj), "(VmaAllocation) %p", &$argname);
 }
-$gpuc rtype VmaAllocation {
+gpuc::rtype VmaAllocation {
     char buf[100];
     snprintf(buf, 100, "(VmaAllocation) %p", $rvalue);
-    $robj = Jim_NewStringObj(interp, buf, -1);
+    robj::= Jim_NewStringObj(interp, buf, -1);
 }
 
 local proc vktry {call} { string map {\n " "} [csubst {{
@@ -70,24 +70,24 @@ local proc vktry {call} { string map {\n " "} [csubst {{
 # - https://chunkstories.xyz/blog/a-note-on-descriptor-indexing/
 # - https://gist.github.com/DethRaid/0171f3cfcce51950ee4ef96c64f59617
 # - http://roar11.com/2019/06/vulkan-textures-unbound/
-$gpuc define {
+gpuc::define {
     VkDescriptorSetLayout textureDescriptorSetLayout;
     VkDescriptorSet textureDescriptorSet;
 }
 defineVulkanHandleType $gpuc VkDescriptorSetLayout
 defineVulkanHandleType $gpuc VkDescriptorSet
 
-$gpuc code {
+gpuc::addcode {
     VkDevice device;
     static void initPlaceholderTexture();
 }
 
-$gpuc typedef int GpuTextureHandle
+gpuc::typedef int GpuTextureHandle
 defineVulkanHandleType $gpuc VkImage
 defineVulkanHandleType $gpuc VkDeviceMemory
 defineVulkanHandleType $gpuc VkImageView
 defineVulkanHandleType $gpuc VkSampler
-$gpuc struct GpuTextureBlock {
+gpuc::struct GpuTextureBlock {
     bool _Atomic alive;
     bool _Atomic retiring;
 
@@ -105,7 +105,7 @@ $gpuc struct GpuTextureBlock {
     // mostly for debugging:
     char* description;
 }
-$gpuc code {
+gpuc::addcode {
     // Array of GpuTextureBlocks. Each element points to all GPU-side
     // data structures associated with a particular texture (that we
     // will destroy when we evict that texture).
@@ -126,7 +126,7 @@ $gpuc code {
     #define TEXTURE_RETIRE_GRACE_FRAMES 2
     int textureFrameEpoch = 0;
 }
-$gpuc proc textureManagerInit {} void {
+gpuc::proc textureManagerInit {} void {
     $[vktry volkInitialize()]
     volkLoadInstanceOnly(*instance_ptr());
 
@@ -196,7 +196,7 @@ $gpuc proc textureManagerInit {} void {
 }
 
 # Buffer allocation:
-$gpuc code [csubst {
+gpuc::addcode [csubst {
     uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
         VkPhysicalDeviceMemoryProperties memProperties;
         vkGetPhysicalDeviceMemoryProperties(*physicalDevice_ptr(), &memProperties);
@@ -211,10 +211,10 @@ $gpuc code [csubst {
     }
 }]
 
-$gpuc typedef size_t VkDeviceSize false
-$gpuc typedef uint32_t VkBufferUsageFlags false
-$gpuc typedef uint32_t VkMemoryPropertyFlags false
-$gpuc proc createBuffer {VkDeviceSize size VkBufferUsageFlags usage VkMemoryPropertyFlags properties
+gpuc::typedef size_t VkDeviceSize false
+gpuc::typedef uint32_t VkBufferUsageFlags false
+gpuc::typedef uint32_t VkMemoryPropertyFlags false
+gpuc::proc createBuffer {VkDeviceSize size VkBufferUsageFlags usage VkMemoryPropertyFlags properties
                          VkBuffer* buffer VmaAllocation* allocation} void {
     VkBufferCreateInfo bufferInfo = {0};
     bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -245,7 +245,7 @@ $gpuc proc createBuffer {VkDeviceSize size VkBufferUsageFlags usage VkMemoryProp
 }
 
 # Texture allocation:
-$gpuc code [csubst {
+gpuc::addcode [csubst {
     void createImage(uint32_t width, uint32_t height,
                      VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties,
                      VkImage* image, VmaAllocation* allocation) {
@@ -290,7 +290,7 @@ $gpuc code [csubst {
 
 defineVulkanHandleType $gpuc VkCommandBuffer
 defineVulkanHandleType $gpuc VkFence
-$gpuc proc beginSingleTimeCommands {} VkCommandBuffer {
+gpuc::proc beginSingleTimeCommands {} VkCommandBuffer {
     VkCommandBuffer commandBuffer = getCommandBuffer();
 
     VkCommandBufferBeginInfo beginInfo = {0};
@@ -301,7 +301,7 @@ $gpuc proc beginSingleTimeCommands {} VkCommandBuffer {
 
     return commandBuffer;
 }
-$gpuc proc endSingleTimeCommands {VkCommandBuffer commandBuffer VkFence fence} void {
+gpuc::proc endSingleTimeCommands {VkCommandBuffer commandBuffer VkFence fence} void {
     vkEndCommandBuffer(commandBuffer);
 
     VkSubmitInfo submitInfo = {0};
@@ -314,10 +314,10 @@ $gpuc proc endSingleTimeCommands {VkCommandBuffer commandBuffer VkFence fence} v
     pthread_mutex_unlock(graphicsQueueMutex_ptr());
 }
 
-$gpuc code {
+gpuc::addcode {
     static __thread VkFence _fence = VK_NULL_HANDLE;
 }
-$gpuc proc getFence {} VkFence {
+gpuc::proc getFence {} VkFence {
     if (_fence == VK_NULL_HANDLE) {
         VkFenceCreateInfo fenceInfo = {0};
         fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
@@ -328,9 +328,9 @@ $gpuc proc getFence {} VkFence {
     return _fence;
 }
 
-$gpuc typedef int VkFormat false
-$gpuc typedef int VkImageLayout false
-$gpuc proc transitionImageLayout {VkImage image VkFormat format
+gpuc::typedef int VkFormat false
+gpuc::typedef int VkImageLayout false
+gpuc::proc transitionImageLayout {VkImage image VkFormat format
                                   VkImageLayout oldLayout VkImageLayout newLayout} void {
     VkFence fence = getFence();
 
@@ -385,7 +385,7 @@ $gpuc proc transitionImageLayout {VkImage image VkFormat format
 }
 
 # Copy 1-channel, 3-channel, or 4-channel im to 4-channel ret.
-$gpuc proc copyImageToRgba {Image im Image ret} void {
+gpuc::proc copyImageToRgba {Image im Image ret} void {
     FOLK_ENSURE(im.width == ret.width && im.height == ret.height);
 
     if (im.components == 4) {
@@ -437,7 +437,7 @@ $gpuc proc copyImageToRgba {Image im Image ret} void {
     }
 }
 
-$gpuc code [csubst {
+gpuc::addcode [csubst {
     GpuTextureHandle allocateGpuTextureHandle() {
         for (;;) {
             for (int i = 0; i < getMaxTextures(); i++) {
@@ -457,7 +457,7 @@ $gpuc code [csubst {
     }
 }]
 
-$gpuc code {
+gpuc::addcode {
     static void enqueueDeferredTextureOp(enum DeferredTextureOp op, GpuTextureHandle handle) {
         pthread_mutex_lock(&deferredQueueMutex);
         if (deferredQueueCount >= DEFERRED_QUEUE_CAP) {
@@ -489,7 +489,7 @@ $gpuc code {
     }
 }
 
-$gpuc proc initializeDescriptorSet {GpuTextureHandle firstTextureId} void {
+gpuc::proc initializeDescriptorSet {GpuTextureHandle firstTextureId} void {
     // Hack: if we're not using the descriptor indexing extension,
     // we can't have a partially bound descriptor set, so we need
     // to fill all the slots in the texture array with _something_.
@@ -514,17 +514,17 @@ $gpuc proc initializeDescriptorSet {GpuTextureHandle firstTextureId} void {
     vkUpdateDescriptorSets(device, getMaxTextures(), descriptorWrites, 0, NULL);
 }
 
-$gpuc proc addToTextureDescriptorSet {GpuTextureHandle textureId} void {
+gpuc::proc addToTextureDescriptorSet {GpuTextureHandle textureId} void {
     enqueueDeferredTextureOp(DEFERRED_ADD, textureId);
 }
 
-$gpuc proc getGpuTexture {GpuTextureHandle handle} GpuTextureBlock* {
+gpuc::proc getGpuTexture {GpuTextureHandle handle} GpuTextureBlock* {
     return &gpuTextures[handle];
 }
 
 # NOTE: The caller must call addToTextureDescriptorSet at some point
 # after calling this to actually use the texture.
-$gpuc proc createGpuTexture {int width int height int format} GpuTextureBlock* {
+gpuc::proc createGpuTexture {int width int height int format} GpuTextureBlock* {
     GpuTextureHandle textureId = allocateGpuTextureHandle();
     GpuTextureBlock* block = &gpuTextures[textureId];
 
@@ -582,7 +582,7 @@ $gpuc proc createGpuTexture {int width int height int format} GpuTextureBlock* {
 
 # Per-worker reusable texture upload slots. Staging buffers stay alive
 # until their slot is reused and the previous upload fence has signaled.
-$gpuc code {
+gpuc::addcode {
     #define INFLIGHT_UPLOADS 8
     struct InflightUpload {
         VkCommandBuffer cmdBuffer;
@@ -637,7 +637,7 @@ $gpuc code {
     }
 }
 
-$gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
+gpuc::proc copyImageToGpuTexture {Image im} GpuTextureHandle {
     struct InflightUpload* upload = acquireInflightUpload();
 
     size_t size = im.width * im.height * 4;
@@ -743,7 +743,7 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
 }
 # Replace a descriptor slot with a different texture. Must only be
 # called on the GPU thread between frames (used by canvases).
-$gpuc proc replaceInTextureDescriptorSet {GpuTextureHandle oldHandle GpuTextureHandle newHandle} void {
+gpuc::proc replaceInTextureDescriptorSet {GpuTextureHandle oldHandle GpuTextureHandle newHandle} void {
     VkDescriptorImageInfo imageInfo = {0};
     imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     imageInfo.imageView = gpuTextures[newHandle].textureImageView;
@@ -761,13 +761,13 @@ $gpuc proc replaceInTextureDescriptorSet {GpuTextureHandle oldHandle GpuTextureH
     vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
 }
 
-$gpuc proc freeGpuTexture {GpuTextureHandle gim} void {
+gpuc::proc freeGpuTexture {GpuTextureHandle gim} void {
     enqueueDeferredTextureOp(DEFERRED_FREE, gim);
 }
 
 # Actually destroy a texture's GPU resources. Must only be called
 # on the GPU thread between frames when the GPU is idle.
-$gpuc code {
+gpuc::addcode {
     static void retireGpuTexture(GpuTextureHandle gim) {
         GpuTextureBlock* block = &gpuTextures[gim];
         if (gim == 0 || !block->alive || block->retiring) return;
@@ -830,7 +830,7 @@ $gpuc code {
 }
 
 # Called on the GPU thread before recording work that may sample textures.
-$gpuc proc drainDeferredTextureOps {} void {
+gpuc::proc drainDeferredTextureOps {} void {
     pthread_mutex_lock(&deferredQueueMutex);
     int count = deferredQueueCount;
     struct DeferredTextureEntry localQueue[DEFERRED_QUEUE_CAP];
@@ -854,12 +854,12 @@ $gpuc proc drainDeferredTextureOps {} void {
 
 # Called once per GPU frame so retired textures age exactly once,
 # even though descriptor work may be drained multiple times.
-$gpuc proc beginTextureFrame {} void {
+gpuc::proc beginTextureFrame {} void {
     textureFrameEpoch++;
     drainDeferredTextureOps();
 }
 
-$gpuc proc initPlaceholderTexture {} void {
+gpuc::proc initPlaceholderTexture {} void {
     // Set up a placeholder texture in slot 0 that can always be drawn
     // that we can swap in when textures get invalidated.
     Image debugIm = {
@@ -887,14 +887,14 @@ $gpuc proc initPlaceholderTexture {} void {
     drainDeferredTextureOps();
 }
 
-set gpuTextureLib [$gpuc compile]
+set gpuTextureLib [gpuc::compile]
 
-$gpuTextureLib textureManagerInit
+gpuTextureLib::textureManagerInit
 
 Claim the GPU texture library is $gpuTextureLib
 
 When /someone/ wishes the GPU loads image /im/ as texture {
-    set gtex [$gpuTextureLib copyImageToGpuTexture $im]
+    set gtex [gpuTextureLib::copyImageToGpuTexture $im]
     Claim the GPU has loaded image $im as texture $gtex \
         -destructor [list $gpuTextureLib freeGpuTexture $gtex]
 }

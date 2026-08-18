@@ -20,7 +20,7 @@ When /someone/ wishes /p/ runs Unix command /command/ with arguments /args/ {
 	try {
 		# Start the process with STDERR merged into STDOUT
 		lappend pipeline 2>@1
-		set fd [open $pipeline r]
+		set fd [fopen $pipeline r]
 
 		fconfigure $fd -blocking 0 -buffering none
 
@@ -35,12 +35,12 @@ When /someone/ wishes /p/ runs Unix command /command/ with arguments /args/ {
 		return
 	}
 
-	On unmatch [list apply {{fd pid} {
+	On unmatch [list apply [fn {fd pid} {
 		catch {close $fd}
 		catch {kill SIGTERM $pid}
 		after 500
 		catch {kill SIGKILL $pid}
-	} } $fd $pid]
+	}] $fd $pid]
 
 	while true {
 		set newLines [list]
@@ -77,7 +77,7 @@ When /someone/ wishes /p/ runs Unix command /command/ with arguments /args/ {
 					Claim $p has Unix output lines $accumulatedLines
 			}
 
-			if {[catch {close $fd} err]} {
+			if {[catch {close $fd} err] != 0} {
 				puts "Close error for '$command': $err"
 
 				Hold! -key $errorKeyName \

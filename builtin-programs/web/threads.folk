@@ -1,9 +1,9 @@
-set threadMonitorLib [apply {{} {
-    set cc [C]
-    $cc cflags -I. -I./vendor/tracy/public
-    $cc include "workqueue.h"
-    $cc include "common.h"
-    $cc code {
+set threadMonitorLib [apply [fn {} {
+    set cc [dict link $C {}]
+    cc::addcflags -I. -I./vendor/tracy/public
+    cc::include "workqueue.h"
+    cc::include "common.h"
+    cc::addcode {
         extern ThreadControlBlock threads[];
         extern int _Atomic threadCount;
 
@@ -17,7 +17,7 @@ set threadMonitorLib [apply {{} {
             return Jim_NewStringObj(interp, buf, -1);
         }
     }
-    $cc proc workerTids {} Jim_Obj* {
+    cc::proc workerTids {} Jim_Obj* {
         // Fallback on macOS, where we don't have /proc to query all
         // threads of the Folk process.
         Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
@@ -29,7 +29,7 @@ set threadMonitorLib [apply {{} {
         }
         return ret;
     }
-    $cc proc workerInfo {int threadIndex} Jim_Obj* {
+    cc::proc workerInfo {int threadIndex} Jim_Obj* {
         if (threadIndex >= threadCount || threads[threadIndex].tid == 0) {
             return Jim_NewEmptyStringObj(interp);
         }
@@ -74,7 +74,7 @@ set threadMonitorLib [apply {{} {
 
         return ret;
     }
-    $cc proc workerInfoFromTid {int tid} Jim_Obj* {
+    cc::proc workerInfoFromTid {int tid} Jim_Obj* {
         for (int i = 0; i < threadCount; i++) {
             if (threads[i].tid == tid) {
                 return workerInfo(i);
@@ -83,16 +83,16 @@ set threadMonitorLib [apply {{} {
         return Jim_NewEmptyStringObj(interp);
     }
 
-    $cc code {
+    cc::addcode {
         #include "vendor/c11-queues/mpmc_queue.h"
         extern struct mpmc_queue globalWorkQueue;
         extern _Atomic int globalWorkQueueSize;
     }
-    $cc proc globalWorkQueueAvailable {} size_t {
+    cc::proc globalWorkQueueAvailable {} size_t {
         return mpmc_queue_available(&globalWorkQueue);
     }
     # Unsafely peeks at the queue.
-    $cc proc globalWorkQueueItems {} Jim_Obj* {
+    cc::proc globalWorkQueueItems {} Jim_Obj* {
         Jim_Obj *ret = Jim_NewListObj(interp, NULL, 0);
 
         size_t head = globalWorkQueue.head;
@@ -106,8 +106,8 @@ set threadMonitorLib [apply {{} {
         return ret;
     }
 
-    return [$cc compile]
-}}]
+    return [cc::compile]
+}]]
 
 Wish the web server handles route "/threads" with handler {
     set pid [pid]
@@ -127,7 +127,7 @@ Wish the web server handles route "/threads" with handler {
             }
         }
     } on error e {
-        set tids [$threadMonitorLib workerTids]
+        set tids [threadMonitorLib::workerTids]
     }
 
     set totalAllocsMinusFrees 0.0
@@ -147,13 +147,13 @@ Wish the web server handles route "/threads" with handler {
             set taskdir /proc/$pid/task/$tid
 
             try {
-                set statusFd [open $taskdir/status r]
+                set statusFd [fopen $taskdir/status r]
                 set status [read $statusFd]; close $statusFd
             } on error e {
                 set status "<status unknown>"
             }
 
-            set workerInfo [$threadMonitorLib workerInfoFromTid $tid]
+            set workerInfo [threadMonitorLib::workerInfoFromTid $tid]
 
             try {
                 set userStack [dict get $userStacks $tid]
@@ -161,7 +161,7 @@ Wish the web server handles route "/threads" with handler {
                 set userStack "<not found>"
             }
             try {
-                set stackFd [open $taskdir/stack r]
+                set stackFd [fopen $taskdir/stack r]
                 set kernelStack [read $stackFd]; close $stackFd
             } on error e {
                 set kernelStack "<not permitted>"
@@ -171,7 +171,7 @@ Wish the web server handles route "/threads" with handler {
             set frees [dict getdef $workerInfo _frees -1]
             subst {<li style="[expr {$workerInfo eq "" ? "color: gray" : ""}]">
                 $taskdir: [regexp -inline {State:[^\n]*\n} $status]
-                [expr {$workerInfo(isDeactivated) ? "(deactivated)" : "(active)"}]<br>
+                [expr {$workerInfo::isDeactivated ? "(deactivated)" : "(active)"}]<br>
                   [if {$workerInfo eq ""} {subst {
                       (Not a Folk worker thread)<br>
                   }} else {
@@ -197,9 +197,9 @@ Wish the web server handles route "/threads" with handler {
 
         <p>Total allocs - frees: [format "%.2f MB" [expr {$totalAllocsMinusFrees / 1000000.0}]]</p>
 
-        <h2>Global workqueue ([$threadMonitorLib globalWorkQueueAvailable])</h2>
+        <h2>Global workqueue ([threadMonitorLib::globalWorkQueueAvailable])</h2>
         <ol start="0">
-        [lmap item [$threadMonitorLib globalWorkQueueItems] {
+        [lmap item [threadMonitorLib::globalWorkQueueItems] {
             subst { <li>$item</li> }
         }]
         </ol>

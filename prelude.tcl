@@ -16,11 +16,11 @@ set folkPid [pid]
 
 # FIXME: zicl doesn't have channel handles like Jimtcl. Re-enable
 # buffering configuration when I/O is properly set up.
-# $::realStdout buffering line
-# $::realStderr buffering none
+# $realStdout buffering line
+# $realStderr buffering none
 # stdout buffering line
 
-set __exec exec
+set __exec $exec
 fn exec {args} {
     # For background exec (ending with &), redirect stdout and stderr
     # to the current thread-local output files so the subprocess's

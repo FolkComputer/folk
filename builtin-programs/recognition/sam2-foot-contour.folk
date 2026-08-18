@@ -1,10 +1,10 @@
-set cc [C]
-$cc cflags -I.
-$cc include <stdbool.h>
-$cc include <stdlib.h>
-$cc include "vendor/stb_ds.h"
+set cc [dict link $C {}]
+cc::addcflags -I.
+cc::include <stdbool.h>
+cc::include <stdlib.h>
+cc::include "vendor/stb_ds.h"
 
-$cc code {
+cc::addcode {
     typedef struct {
         int x;
         int y;
@@ -53,7 +53,7 @@ $cc code {
 
 # Returns the convex hull arc of a SAM2 mask that faces pp, where pp is the
 # camera optical axis projected into the viewport's local {x y} meter space.
-$cc proc maskFootContour {int width int height Jim_Obj* mask
+cc::proc maskFootContour {int width int height Jim_Obj* mask
                           double[2] pp double scaleX double scaleY} Jim_Obj* {
     int w = width;
     int h = height;
@@ -179,19 +179,13 @@ $cc proc maskFootContour {int width int height Jim_Obj* mask
     return ret;
 }
 
-set sam2FootContourLib [$cc compile]
+set sam2FootContourLib [cc::compile]
 Claim the SAM2 foot contour library is $sam2FootContourLib
 
 fn cameraPrincipalPointInQuad {ql qInCamera} {
-    package require linalg
-    namespace import \
-        ::math::linearalgebra::add \
-        ::math::linearalgebra::sub \
-        ::math::linearalgebra::scale \
-        ::math::linearalgebra::dotproduct \
-        ::math::linearalgebra::crossproduct
+    dict assign [import lib/linalg.tcl] add sub scale dotproduct crossproduct
 
-    lassign [$ql vertices $qInCamera] a b c d
+    lassign [ql::vertices $qInCamera] a b c d
     set n [crossproduct [sub $b $a] [sub $d $a]]
     set rayDir {0 0 1}
     set denom [dotproduct $n $rayDir]
@@ -199,7 +193,7 @@ fn cameraPrincipalPointInQuad {ql qInCamera} {
         return {}
     }
 
-    set t [expr {[dotproduct $n $a] / $denom}]
+    set t $([dotproduct $n $a] / $denom)
     if {$t <= 0} {
         return {}
     }
@@ -208,14 +202,9 @@ fn cameraPrincipalPointInQuad {ql qInCamera} {
 }
 
 fn pointInQuad {ql q xy} {
-    package require linalg
-    namespace import \
-        ::math::linearalgebra::add \
-        ::math::linearalgebra::sub \
-        ::math::linearalgebra::scale \
-        ::math::linearalgebra::unitLengthVector
+    dict assign [import lib/linalg.tcl] add sub scale unitLengthVector
 
-    lassign [$ql vertices $q] topLeft topRight bottomRight bottomLeft
+    lassign [ql::vertices $q] topLeft topRight bottomRight bottomLeft
     set xAxis [unitLengthVector [sub $topRight $topLeft]]
     set yAxis [unitLengthVector [sub $bottomLeft $topLeft]]
     lassign $xy x y
@@ -223,14 +212,9 @@ fn pointInQuad {ql q xy} {
 }
 
 fn pointToXYInQuad {ql q xyz} {
-    package require linalg
-    namespace import \
-        ::math::linearalgebra::sub \
-        ::math::linearalgebra::norm \
-        ::math::linearalgebra::dotproduct \
-        ::math::linearalgebra::unitLengthVector
+    dict assign [import lib/linalg.tcl] sub norm dotproduct unitLengthVector
 
-    lassign [$ql vertices $q] topLeft topRight bottomRight bottomLeft
+    lassign [ql::vertices $q] topLeft topRight bottomRight bottomLeft
     set xAxis [unitLengthVector [sub $topRight $topLeft]]
     set yAxis [unitLengthVector [sub $bottomLeft $topLeft]]
     set delta [sub $xyz $topLeft]
@@ -242,16 +226,9 @@ fn downprojectContourToPlane {ql qInCamera contour heightM} {
         return $contour
     }
 
-    package require linalg
-    namespace import \
-        ::math::linearalgebra::add \
-        ::math::linearalgebra::sub \
-        ::math::linearalgebra::scale \
-        ::math::linearalgebra::dotproduct \
-        ::math::linearalgebra::crossproduct \
-        ::math::linearalgebra::unitLengthVector
+    dict assign [import lib/linalg.tcl] add sub scale dotproduct crossproduct unitLengthVector
 
-    lassign [$ql vertices $qInCamera] a b c d
+    lassign [ql::vertices $qInCamera] a b c d
     set n [unitLengthVector [crossproduct [sub $b $a] [sub $d $a]]]
     if {[dotproduct $n [scale -1 $a]] < 0} {
         set n [scale -1 $n]
@@ -265,7 +242,7 @@ fn downprojectContourToPlane {ql qInCamera contour heightM} {
     set corrected [list]
     foreach xy $contour {
         set planeHit [pointInQuad $ql $qInCamera $xy]
-        set rayScale [expr {($planeD + $heightM) / $planeD}]
+        set rayScale $(($planeD + $heightM) / $planeD)
         set elevatedPoint [scale $rayScale $planeHit]
         set footPoint [sub $elevatedPoint [scale $heightM $n]]
         lappend corrected [pointToXYInQuad $ql $qInCamera $footPoint]
@@ -296,22 +273,22 @@ When the quad library is /ql/ &\
 
     set width [dict get $maskOpts width]
     set height [dict get $maskOpts height]
-    set scaleWidth [expr {$width > 1 ? $width - 1 : 1}]
-    set scaleHeight [expr {$height > 1 ? $height - 1 : 1}]
-    set scaleX [expr {double($geom(width)) / double($scaleWidth)}]
-    set scaleY [expr {double($geom(height)) / double($scaleHeight)}]
-    set footContour [$footContourLib maskFootContour \
-                         $width $height $mask $pp $scaleX $scaleY]
+    set scaleWidth $($width > 1 ? $width - 1 : 1)
+    set scaleHeight $($height > 1 ? $height - 1 : 1)
+    set scaleX $(double($geom::width) / double($scaleWidth))
+    set scaleY $(double($geom::height) / double($scaleHeight))
+    set footContour [footContourLib::maskFootContour \
+                         width::$height $mask $pp $scaleX $scaleY]
 
     set objectHeightCm 0
     set heightResults [Query! $obj has object height /heightCm/ cm in $v]
     if {[llength $heightResults] > 0} {
         set objectHeightCm [dict get [lindex $heightResults end] heightCm]
     }
-    set objectHeightM [expr {double($objectHeightCm) / 100.0}]
+    set objectHeightM $(double($objectHeightCm) / 100.0)
 
     set footContour [downprojectContourToPlane $ql $vqCamera \
-                         $footContour $objectHeightM]
+                         footContour::$objectHeightM]
 
     if {[llength $footContour] >= 2} {
         Claim $obj has foot contour $footContour in $v
@@ -320,15 +297,16 @@ When the quad library is /ql/ &\
 
 When the png library is /pngLib/ &\
      /v/ is a viewport {
+    set page $v
     Wish the web server handles route [format {/sam2-foot-contour/%s$} $v] \
-        with hidden true handler [list apply {{page pngLib} {
+        with hidden true handler [fn {} {
             local proc svgPoints {contour geom width height} {
                 set points [list]
                 foreach p $contour {
                     lassign $p x y
                     lappend points [format "%.3f,%.3f" \
-                                        [expr {$x / $geom(width) * $width}] \
-                                        [expr {$y / $geom(height) * $height}]]
+                                        $($x / $geom::width * $width) \
+                                        $($y / $geom::height * $height)]
                 }
                 return [join $points " "]
             }
@@ -378,10 +356,10 @@ When the png library is /pngLib/ &\
                         set filename [format "/tmp/sam2-foot-contour-%s-%s.png" \
                             [string map {/ _ { } _} $page] \
                             [string map {/ _ { } _} $id]]
-                        $pngLib saveAsPng $im $filename
+                        pngLib::saveAsPng $im $filename
 
                         set fsize [file size $filename]
-                        set fd [open $filename r]
+                        set fd [fopen $filename r]
                         fconfigure $fd -translation binary
                         set imageData [read $fd $fsize]
                         close $fd
@@ -401,7 +379,7 @@ When the png library is /pngLib/ &\
                     set body [subst {
                         <div class="overlay" data-object-id="[htmlEscape $id]"
                              data-width="$width" data-height="$height"
-                             data-geom-width="$geom(width)" data-geom-height="$geom(height)">
+                             data-geom-width="$geom::width" data-geom-height="$geom::height">
                             <img src="data:image/png;base64,$b64">
                             <svg viewBox="0 0 $width $height" preserveAspectRatio="none">
                                 <polyline class="foot-contour" points="$contourPoints"></polyline>
@@ -411,7 +389,7 @@ When the png library is /pngLib/ &\
                 }
 
                 lappend entries [format {<section><h2>%s</h2>%s</section>} \
-                    $id "$body\n$heightControl"]
+                    id::"$body\n$heightControl"]
             }
 
             html [subst {
@@ -478,5 +456,5 @@ When the png library is /pngLib/ &\
                 </body>
                 </html>
             }]
-        }} $v $pngLib]
+        }]
 }

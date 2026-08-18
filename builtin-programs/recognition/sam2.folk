@@ -12,7 +12,7 @@ When /someone/ wishes to load SAM2 &\
 
     defineImageArgtype $py
 
-    $py exec {
+    py::exec {
         import os
         import sys
         import importlib.util
@@ -97,7 +97,7 @@ When /someone/ wishes to load SAM2 &\
         print(f"sam2: Using device: {device}", file=sys.stderr, flush=True)
     }
 
-    $py def segment {Image image {list list num} pointCoords {list num} pointLabels} {
+    py::def segment {Image image {list list num} pointCoords {list num} pointLabels} {
         global predictor_initialized
         image_np = np.array(image.convert("RGB"))
         with predictor_lock, torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
@@ -132,7 +132,7 @@ When /someone/ wishes to load SAM2 &\
         return ret
     }
 
-    $py def addPrompt {Image image num objId {list list num} points {list num} labels num clearOldPoints} {
+    py::def addPrompt {Image image num objId {list list num} points {list num} labels num clearOldPoints} {
         global predictor_initialized
         image_np = np.array(image.convert("RGB"))
         objId = int(objId)
@@ -171,7 +171,7 @@ When /someone/ wishes to load SAM2 &\
         return ret
     }
 
-    $py def trackObjects {Image image} {
+    py::def trackObjects {Image image} {
         global predictor_initialized
         image_np = np.array(image.convert("RGB"))
 
@@ -218,7 +218,7 @@ When /someone/ wishes to load SAM2 &\
             if {[binary scan $bytes @${offset}i objId] != 1} {
                 error "SAM2: could not decode object id $i"
             }
-            set objId [expr {int($objId)}]
+            set objId $(int($objId))
             incr offset 4
 
             if {[binary scan $bytes @${offset}i maskLen] != 1} {
@@ -233,7 +233,7 @@ When /someone/ wishes to load SAM2 &\
                 error "SAM2: short mask payload $i: need $maskLen bytes at byte $offset of $byteLen"
             }
 
-            set maskEnd [expr {$offset + $maskLen - 1}]
+            set maskEnd $($offset + $maskLen - 1)
             set maskBytes [string byterange $bytes $offset $maskEnd]
             if {[string bytelength $maskBytes] != $maskLen} {
                 error "SAM2: short mask payload $i"
@@ -252,22 +252,22 @@ When /someone/ wishes to load SAM2 &\
     fn decodeSAM2Masks
 
     fn SAM2 args {
-        decodeSAM2Masks [$py segment {*}$args]
+        decodeSAM2Masks [py::segment {*}$args]
     }
     fn SAM2Track args {
-        decodeSAM2Masks [$py trackObjects {*}$args]
+        decodeSAM2Masks [py::trackObjects {*}$args]
     }
     fn SAM2AddPrompt args {
-        decodeSAM2Masks [$py addPrompt {*}$args]
+        decodeSAM2Masks [py::addPrompt {*}$args]
     }
     Claim the SAM2 segmenter is [fn SAM2]
     Claim the SAM2 object tracker is [fn SAM2Track]
     Claim the SAM2 prompt adder is [fn SAM2AddPrompt]
 
     When the image library is /imageLib/ {
-        set cc [C]
-        $cc extend $imageLib
-        $cc proc maskToBinaryImage {int width int height Jim_Obj* mask} Image {
+        set cc [dict link $C {}]
+        cc::extend $imageLib
+        cc::proc maskToBinaryImage {int width int height Jim_Obj* mask} Image {
             int maskLen = 0;
             const uint8_t *maskData = (const uint8_t *)Jim_GetString(mask, &maskLen);
             FOLK_ENSURE(maskLen == width * height);
@@ -279,7 +279,7 @@ When /someone/ wishes to load SAM2 &\
             }
             return result;
         }
-        $cc proc applyMaskToImage {Image im Jim_Obj* mask} Image {
+        cc::proc applyMaskToImage {Image im Jim_Obj* mask} Image {
             FOLK_ENSURE(im.components == 3); // hack for now.
 
             int maskLen = 0;
@@ -298,7 +298,7 @@ When /someone/ wishes to load SAM2 &\
             }
             return result;
         }
-        set maskToImageLib [$cc compile]
+        set maskToImageLib [cc::compile]
         Claim the SAM2 mask-to-image library is $maskToImageLib
     }
 }
@@ -320,7 +320,7 @@ When /someone/ wishes /page/ has a SAM2 object tracker &\
         set hash 0
         for {set i 0} {$i < [string length $id]} {incr i} {
             scan [string index $id $i] %c code
-            set hash [expr {(($hash * 131) + $code) & 0x7fffffff}]
+            set hash $((($hash * 131) + $code) & 0x7fffffff)
         }
         return $hash
     }
@@ -332,15 +332,15 @@ When /someone/ wishes /page/ has a SAM2 object tracker &\
         set labels [list]
         foreach result [Query! /anyone/ wishes $page tracks object $id using prompt /prompt/ in frame $slice] {
             set prompt [dict get $result prompt]
-            set x [expr {[lindex $prompt 0] / $geom(width) * $slice(width)}]
-            set y [expr {[lindex $prompt 1] / $geom(height) * $slice(height)}]
+            set x $([lindex $prompt 0] / $geom::width * $slice::width)
+            set y $([lindex $prompt 1] / $geom::height * $slice::height)
             lappend points [list $x $y]
             lappend labels 1
         }
         foreach result [Query! /anyone/ wishes $page tracks object $id using antiprompt /prompt/ in frame $slice] {
             set prompt [dict get $result prompt]
-            set x [expr {[lindex $prompt 0] / $geom(width) * $slice(width)}]
-            set y [expr {[lindex $prompt 1] / $geom(height) * $slice(height)}]
+            set x $([lindex $prompt 0] / $geom::width * $slice::width)
+            set y $([lindex $prompt 1] / $geom::height * $slice::height)
             lappend points [list $x $y]
             lappend labels 0
         }
@@ -385,9 +385,9 @@ When /someone/ wishes /page/ has a SAM2 object tracker &\
 
             Hold! -on $page -key [list sam2 track mask $id] \
                 Claim $id has mask $mask in $page \
-                    with width $slice(width) height $slice(height)
+                    with width $slice::width height $slice::height
 
-            set maskedIm [$mtiLib applyMaskToImage $slice $mask]
+            set maskedIm [mtiLib::applyMaskToImage $slice $mask]
             Hold! -on $page -key [list sam2 track masked-image $id] \
                 Claim $id has SAM2 masked image $maskedIm in $page \
                     -destructor [list $imageLib imageFree $maskedIm]
@@ -397,7 +397,7 @@ When /someone/ wishes /page/ has a SAM2 object tracker &\
     When the SAM2 mask-to-image library is /mtiLib/ &\
          the png library is /pngLib/ {
         Wish the web server handles route [format {/sam2/%s$} $page] \
-            with hidden true handler [list apply {{page pngLib} {
+            with hidden true handler [fn {page pngLib} {
                 set promptResults [Query! /anyone/ wishes $page tracks object /id/ using prompt /prompt/ in frame /frame/]
                 lappend promptResults {*}[Query! /anyone/ wishes $page tracks object /id/ using antiprompt /prompt/ in frame /frame/]
                 set ids [lsort -unique [lmap result $promptResults {
@@ -417,10 +417,10 @@ When /someone/ wishes /page/ has a SAM2 object tracker &\
                             set filename [format "/tmp/sam2-%s-%s.png" \
                                 [string map {/ _ { } _} $page] \
                                 [string map {/ _ { } _} $id]]
-                            $pngLib saveAsPng $im $filename
+                            pngLib::saveAsPng $im $filename
 
                             set fsize [file size $filename]
-                            set fd [open $filename r]
+                            set fd [fopen $filename r]
                             fconfigure $fd -translation binary
                             set imageData [read $fd $fsize]
                             close $fd
@@ -433,7 +433,7 @@ When /someone/ wishes /page/ has a SAM2 object tracker &\
                     }
 
                     lappend entries [format {<section><h2>%s</h2>%s</section>} \
-                        $id $body]
+                        id::$body]
                 }
 
                 html [subst {
@@ -457,6 +457,6 @@ When /someone/ wishes /page/ has a SAM2 object tracker &\
                     </body>
                     </html>
                 }]
-            }} $page $pngLib]
+            }] $page $pngLib]
     }
 }

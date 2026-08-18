@@ -2,21 +2,21 @@ When the GPU library is /gpuLib/ &\
      the image library is /imageLib/ &\
      the GPU pipeline library is /pipelineLib/ &\
      the GPU texture library is /gpuTextureLib/ {
-    set gpuc [C]
-    $gpuc include <pthread.h>
-    $gpuc cflags -I./vendor
-    $gpuc code {
+    set gpuc [dict link $C {}]
+    gpuc::include <pthread.h>
+    gpuc::addcflags -I./vendor
+    gpuc::addcode {
         #define VOLK_IMPLEMENTATION
         #include "volk/volk.h"
     }
 
-    $gpuc extend -noprocs $gpuLib
-    $gpuc import $gpuLib VkResultToString
-    $gpuc import $gpuLib getCommandBuffer
+    gpuc::extend -noprocs $gpuLib
+    gpuc::import $gpuLib VkResultToString
+    gpuc::import $gpuLib getCommandBuffer
 
-    $gpuc extend $imageLib
-    $gpuc extend -noprocs $pipelineLib
-    $gpuc extend $gpuTextureLib
+    gpuc::extend $imageLib
+    gpuc::extend -noprocs $pipelineLib
+    gpuc::extend $gpuTextureLib
 
     local proc vktry {call} { string map {\n " "} [csubst {{
         VkResult res = $call;
@@ -26,7 +26,7 @@ When the GPU library is /gpuLib/ &\
         }
     }}] }
 
-    $gpuc code {
+    gpuc::addcode {
         VkDevice device;
         // Canvas format must match the pipeline render pass format
         // (VK_FORMAT_B8G8R8A8_UNORM) so that shared pipelines are
@@ -36,7 +36,7 @@ When the GPU library is /gpuLib/ &\
         // This render pass is used to draw on all canvases.
         VkRenderPass renderPass;
     }
-    $gpuc proc init {} void {
+    gpuc::proc init {} void {
         $[vktry volkInitialize()]
         volkLoadInstanceOnly(*instance_ptr());
 
@@ -86,7 +86,7 @@ When the GPU library is /gpuLib/ &\
         }
     }
 
-    $gpuc code {
+    gpuc::addcode {
         typedef struct GpuCanvas {
             VkExtent2D extent;
 
@@ -96,11 +96,11 @@ When the GPU library is /gpuLib/ &\
             VkFence inFlightFence;
         } GpuCanvas;
     }
-    $gpuc proc gpuTexture {GpuCanvas* wi} GpuTextureHandle {
+    gpuc::proc gpuTexture {GpuCanvas* wi} GpuTextureHandle {
         return wi->gpuTexture;
     }
 
-    $gpuc proc create {int width int height} GpuCanvas* {
+    gpuc::proc create {int width int height} GpuCanvas* {
         GpuCanvas* wi = malloc(sizeof(GpuCanvas));
         wi->extent.width = width; wi->extent.height = height;
 
@@ -133,18 +133,18 @@ When the GPU library is /gpuLib/ &\
 
         return wi;
     }
-    $gpuc proc destroy {GpuCanvas* wi} void {
+    gpuc::proc destroy {GpuCanvas* wi} void {
         freeGpuTexture(wi->gpuTexture);
         vkDestroyFramebuffer(device, wi->framebuffer, NULL);
         vkDestroyFence(device, wi->inFlightFence, NULL);
         free(wi);
     }
-    $gpuc code {
+    gpuc::addcode {
         __thread GpuCanvas* boundCanvas;
         __thread VkPipeline boundPipeline;
         __thread VkDescriptorSet boundDescriptorSet;
     }
-    $gpuc proc drawStart {GpuCanvas* wi} void {
+    gpuc::proc drawStart {GpuCanvas* wi} void {
         FOLK_ENSURE(boundCanvas == NULL);
         boundCanvas = wi;
 
@@ -183,7 +183,7 @@ When the GPU library is /gpuLib/ &\
         boundPipeline = VK_NULL_HANDLE;
         boundDescriptorSet = VK_NULL_HANDLE;
     }
-    $gpuc proc draw {Pipeline pipeline Jim_Obj* argsObj} void {
+    gpuc::proc draw {Pipeline pipeline Jim_Obj* argsObj} void {
         VkCommandBuffer commandBuffer = getCommandBuffer();
 
         if (boundPipeline != pipeline.pipeline) {
@@ -230,7 +230,7 @@ When the GPU library is /gpuLib/ &\
         // 1 quad -> 2 triangles -> 6 vertices
         vkCmdDraw(commandBuffer, 6, 1, 0, 0);
     }
-    $gpuc proc drawEnd {} void {
+    gpuc::proc drawEnd {} void {
         VkCommandBuffer commandBuffer = getCommandBuffer();
 
         vkCmdEndRenderPass(commandBuffer);
@@ -259,10 +259,10 @@ When the GPU library is /gpuLib/ &\
         boundCanvas = NULL;
     }
 
-    set gpuCanvasLib [$gpuc compile]
+    set gpuCanvasLib [gpuc::compile]
     Claim the GPU canvas library is $gpuCanvasLib
 
-    $gpuCanvasLib init
+    gpuCanvasLib::init
 
     # `id` is arbitrarily chosen by the caller:
     When /someone/ wishes the GPU creates canvas /id/ with /...options/ {
@@ -272,21 +272,21 @@ When the GPU library is /gpuLib/ &\
         dict set options height [dict getdef $options height 1024]
         dict set options settle [dict getdef $options settle 3ms]
 
-        set wi [$gpuCanvasLib create $options(width) $options(height)]
+        set wi [gpuCanvasLib::create $options::width $options::height]
 
         Claim the GPU has created canvas $id with \
             {*}$options \
-            texture [$gpuCanvasLib gpuTexture $wi] \
+            texture [gpuCanvasLib::gpuTexture $wi] \
             writableInfo $wi \
             -destructor [list $gpuCanvasLib destroy $wi]
 
         Wish to collect results for \
             [list /wisher/ wishes the GPU draws pipeline /name/ \
                  onto canvas $id with /...options/] \
-            with settle $options(settle)
+            with settle $options::settle
     }
 
-    Wish the GPU runs frame prelude handler [list apply {{gpuCanvasLib gpuTextureLib} {
+    Wish the GPU runs frame prelude handler [fn {gpuCanvasLib gpuTextureLib} {
         upvar missingPipelines missingPipelines
         upvar mostRecentDrawListsByTexture mostRecentDrawListsByTexture
         if {![info exists missingCanvases]} {
@@ -334,7 +334,7 @@ When the GPU library is /gpuLib/ &\
 
             if {![dict exists $pipelines $pipelineName]} {
                 if {![dict exists $missingPipelines $pipelineName]} {
-                    puts stderr "canvases: Missing pipeline $pipelineName"
+                    puts $realStderr "canvases: Missing pipeline $pipelineName"
                     dict set missingPipelines $pipelineName true
                 }
                 continue
@@ -391,10 +391,10 @@ When the GPU library is /gpuLib/ &\
             foreach result $results { dict with result {
                 try {
                     addToDrawLists drawListsByTexture($id) \
-                        $name $options
+                        name::$options
                 } on error e {
-                    puts stderr "Error: GPU draws pipeline $name: [errorInfo $e]"
-                    Assert! $this claims $wisher has error $e with info [errorInfo $e]
+                    puts $realStderr "Error: GPU draws pipeline $name: [errorinfo $e]"
+                    Assert! $this claims $wisher has error $e with info [errorinfo $e]
                     # TODO: does this ever get disposed?
                 }
             } }
@@ -403,25 +403,25 @@ When the GPU library is /gpuLib/ &\
         # Image texture wishes can publish draw commands while their
         # descriptor writes are still queued. Drain before recording
         # canvas command buffers so those handles are drawable.
-        $gpuTextureLib drainDeferredTextureOps
+        gpuTextureLib::drainDeferredTextureOps
 
         dict for {id drawLists} $drawListsByTexture {
             if {[dict exists $mostRecentDrawListsByTexture $id] &&
-                ($drawLists eq $mostRecentDrawListsByTexture($id))} {
+                ($drawLists eq $mostRecentDrawListsByTexture::$id)} {
                 continue
             }
             set wi [dict get $canvases $id]
-            $gpuCanvasLib drawStart $wi
+            gpuCanvasLib::drawStart $wi
 
             foreach layer [lsort -real [dict keys $drawLists]] {
                 set layerDrawList [dict get $drawLists $layer]
                 foreach drawCommand $layerDrawList {
                     try { {*}$drawCommand } \
-                        on error e { puts stderr [errorInfo $e] }
+                        on error e { puts $realStderr [errorinfo $e] }
                 }
             }
 
-            $gpuCanvasLib drawEnd
+            gpuCanvasLib::drawEnd
 
             dict set mostRecentDrawListsByTexture $id $drawLists
         }
@@ -429,7 +429,7 @@ When the GPU library is /gpuLib/ &\
         foreach ref $acquiredRefs {
             StatementRelease! $ref
         }
-    }} $gpuCanvasLib $gpuTextureLib]
+    } $gpuCanvasLib $gpuTextureLib]
 
     When /someone/ wishes /p/ has a canvas {
         Wish $p has a canvas with width 1024 height 1024 settle 3ms
@@ -514,7 +514,7 @@ When the GPU library is /gpuLib/ &\
             set d [list 0 $dispHeight]
             Wish the GPU draws pipeline "composite-canvas" with arguments \
                 [list [list $dispWidth $dispHeight] \
-                     $surfaceToClip \
+                     surfaceToClip::\
                      [dict get $canvOpts texture] $a $b $c $d] \
                 layer [dict getdef $canvOpts layer 99]
         }

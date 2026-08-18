@@ -17,17 +17,13 @@ When the quad library is /quadLib/ &\
 
 When $rect has quad /quad/ {
 
-    package require linalg
-    namespace import \
-        ::math::linearalgebra::add \
-        ::math::linearalgebra::sub \
-        ::math::linearalgebra::scale
+    dict assign [import lib/linalg.tcl] add sub scale
 
     fn quadChange
     set scale $l
 
     set quad [quadChange $quad "display $disp"]
-    lassign [$quadLib vertices $quad] topLeft topRight bottomRight bottomLeft
+    lassign [quadLib::vertices $quad] topLeft topRight bottomRight bottomLeft
     if {$direction eq "up"} {
         set topCenter [scale 0.5 [add $topLeft $topRight]]
         set bottomCenter [scale 0.5 [add $bottomLeft $bottomRight]]
@@ -74,22 +70,22 @@ When $rect has quad /quad/ {
     # that.
 
     # Downproject the whisker to screen-space.
-    set from [$poseLib project $displayIntrinsics \
-                  $displayWidth $displayHeight \
+    set from [poseLib::project $displayIntrinsics \
+                  displayWidth::$displayHeight \
                   $from]
-    set to [$poseLib project $displayIntrinsics \
-                $displayWidth $displayHeight \
+    set to [poseLib::project $displayIntrinsics \
+                displayWidth::$displayHeight \
                 $to]
 
     When /target/ has quad /q2/ {
         if {$target eq $rect} { return }
 
-        set displayVertices [lmap v [$quadLib vertices [quadChange $q2 "display $disp"]] {
-            $poseLib project $displayIntrinsics \
-                $displayWidth $displayHeight $v
+        set displayVertices [lmap v [quadLib::vertices [quadChange $q2 "display $disp"]] {
+            poseLib::project $displayIntrinsics \
+                displayWidth::$displayHeight $v
         }]
 
-        if {[::math::geometry::pointInsidePolygon $to $displayVertices]} {
+        if {[math::geometry::pointInsidePolygon $to $displayVertices]} {
             Claim -keep 50ms $rect points $direction at $target
             Claim -keep 50ms $rect points $direction with length $l at $target
 

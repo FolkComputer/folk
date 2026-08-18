@@ -13,11 +13,11 @@ apply [fn {} {
             if {[string trim [exec ps -o state= -p $oldPid]] eq "Z"} {
                 error "Zombie Folk process exists (PID $oldPid)"
             }
-            puts $::realStderr "boot: ($::errorCode) ERROR: Another Folk (PID $oldPid) already running."
+            puts $realStderr "boot: ($::errorCode) ERROR: Another Folk (PID $oldPid) already running."
             Exit! 1
         } on error e {
             if {$e ne ""} {
-                puts stderr "boot: $e; this is OK; continuing."
+                puts $realStderr "boot: $e; this is OK; continuing."
             }
         }
     }
@@ -84,11 +84,11 @@ if {$tcl_platform::os eq "darwin"} {
     # HACK: We must run all the GPU and window setup stuff
     # synchronously in the main thread on macOS.
 
-    proc fake {s} {
+    fn fake {s} {
         set __envStack [list]
 
         rename When When'
-        proc When args {
+        fn When args {
             set pattern [lrange $args 0 end-1]
 
             # Await the dependencies being available.

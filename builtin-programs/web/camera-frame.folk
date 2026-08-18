@@ -2,7 +2,7 @@ When the jpeg library is /jpegLib/ {
     Wish the web server handles route {/camera-frame} with handler {
         set camera [dict getdef $QUERY camera /any/]
         ForEach! camera $camera has jpeg frame /jpeg/ at timestamp /any/ {
-            set data [$jpegLib jpegData $jpeg]
+            set data [jpegLib::jpegData $jpeg]
             set fsize [string bytelength $data]
             break
         }

@@ -15,43 +15,39 @@ When the image library is /imageLib/ &\
      /p/ has quad /q/ {
     fn quadChange
 
-    package require linalg
-    namespace import \
-        ::math::linearalgebra::sub \
-        ::math::linearalgebra::norm \
-
-    set fWidth [$imageLib Image_width $frame]
-    set fHeight [$imageLib Image_height $frame]
+    dict assign [import lib/linalg.tcl] sub norm
+    set fWidth [imageLib::Image_width $frame]
+    set fHeight [imageLib::Image_height $frame]
     # Convert quad to camera coordinates
     tracy zoneBegin
     tracy zoneName "quadChange"
     set q [quadChange $q $cam]
-    set vertices [lmap v [$quadLib vertices $q] {
-        $poseLib project $cameraIntrinsics \
-            $fWidth $fHeight $v
+    set vertices [lmap v [quadLib::vertices $q] {
+        poseLib::project $cameraIntrinsics \
+            fWidth::$fHeight $v
     }]
     tracy zoneEnd
 
-    lassign [$quadLib vertices $q] topLeft topRight bottomRight bottomLeft
+    lassign [quadLib::vertices $q] topLeft topRight bottomRight bottomLeft
     # These dimensions are in meters. We have to start from these quad
     # dimensions (not projected camera-plane dimensions) to maintain
     # aspect ratio.
-    set quadWidth [::math::max [norm [sub $topRight $topLeft]] \
+    set quadWidth [math::max [norm [sub $topRight $topLeft]] \
                         [norm [sub $bottomRight $bottomLeft]]]
-    set quadHeight [::math::max [norm [sub $bottomRight $topRight]] \
+    set quadHeight [math::max [norm [sub $bottomRight $topRight]] \
                         [norm [sub $bottomLeft $topLeft]]]
 
     # Scale quadWidth and quadHeight to appropriate pixel dimensions
     # by finding the scale factor from projected vertices
     lassign $vertices topLeftProj topRightProj bottomRightProj bottomLeftProj
-    set projectedWidth [::math::max [norm [sub $topRightProj $topLeftProj]] \
+    set projectedWidth [math::max [norm [sub $topRightProj $topLeftProj]] \
                             [norm [sub $bottomRightProj $bottomLeftProj]]]
-    set projectedHeight [::math::max [norm [sub $bottomRightProj $topRightProj]] \
+    set projectedHeight [math::max [norm [sub $bottomRightProj $topRightProj]] \
                              [norm [sub $bottomLeftProj $topLeftProj]]]
 
     # Use the larger dimension to determine pixels per meter
-    set maxProjected [::math::max $projectedWidth $projectedHeight]
-    set max3D [::math::max $quadWidth $quadHeight]
+    set maxProjected [math::max $projectedWidth $projectedHeight]
+    set max3D [math::max $quadWidth $quadHeight]
     set pixelsPerMeter [expr {$maxProjected / $max3D}]
 
     # Scale to pixels while maintaining aspect ratio
@@ -60,8 +56,8 @@ When the image library is /imageLib/ &\
 
     tracy zoneBegin
     tracy zoneName "warpQuad"
-    set slice [$imageLib warpQuad $frame $vertices \
-                   $sliceWidth $sliceHeight]
+    set slice [imageLib::warpQuad $frame $vertices \
+                   sliceWidth::$sliceHeight]
     tracy zoneEnd
     Claim $p has camera slice $slice \
         -destructor [list $imageLib imageFree $slice]

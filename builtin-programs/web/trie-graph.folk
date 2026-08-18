@@ -1,10 +1,10 @@
-set trieLib [apply {{} {
-    set cc [C]
-    $cc cflags -I. trie.o
-    $cc include <stdlib.h>
-    $cc include <string.h>
-    $cc include "trie.h"
-    $cc code {
+set trieLib [apply [fn {} {
+    set cc [dict link $C {}]
+    cc::addcflags -I. trie.o
+    cc::include <stdlib.h>
+    cc::include <string.h>
+    cc::include "trie.h"
+    cc::addcode {
         typedef struct Db Db;
         extern Db* db;
 
@@ -45,7 +45,7 @@ void tfree(void *ptr) {
 
 #endif
     }
-    $cc proc tclify {Trie* trie} Jim_Obj* {
+    cc::proc tclify {Trie* trie} Jim_Obj* {
         int objc = 3 + trie->branchesCount;
         Jim_Obj* objv[objc];
         objv[0] = Jim_ObjPrintf("x%" PRIxPTR, (uintptr_t) trie);
@@ -57,14 +57,14 @@ void tfree(void *ptr) {
         }
         return Jim_NewListObj(interp, objv, objc);
     }
-    $cc proc dbTrieTclify {} Jim_Obj* {
+    cc::proc dbTrieTclify {} Jim_Obj* {
         dbLockClauseToStatementRef(db);
         Trie* trie = dbGetClauseToStatementRef(db);
         Jim_Obj* ret = tclify(trie);
         dbUnlockClauseToStatementRef(db);
         return ret;
     }
-    $cc proc jimObjToClause {Jim_Obj* clauseObj} Clause* {
+    cc::proc jimObjToClause {Jim_Obj* clauseObj} Clause* {
         int nTerms = Jim_ListLength(interp, clauseObj);
         Clause* clause = clauseNew(nTerms);
         for (int i = 0; i < nTerms; i++) {
@@ -75,7 +75,7 @@ void tfree(void *ptr) {
         }
         return clause;
     }
-    $cc proc clauseToJimObj {Clause* clause} Jim_Obj* {
+    cc::proc clauseToJimObj {Clause* clause} Jim_Obj* {
         Jim_Obj* termObjs[clause->nTerms];
         for (int i = 0; i < clause->nTerms; i++) {
             termObjs[i] = Jim_NewStringObj(interp, termPtr(clause->terms[i]), 
@@ -83,14 +83,14 @@ void tfree(void *ptr) {
         }
         return Jim_NewListObj(interp, termObjs, clause->nTerms);
     }
-    $cc proc new {} Trie* {
+    cc::proc new {} Trie* {
         return (Trie *)trieNew();
     }
-    $cc proc add {Trie* trie Jim_Obj* patternObj uint64_t value} Trie* {
+    cc::proc add {Trie* trie Jim_Obj* patternObj uint64_t value} Trie* {
         Clause* pattern = jimObjToClause(patternObj);
         return (Trie *)trieAdd(trie, tmalloc, tfree, pattern, value);
     }
-    $cc proc lookup {Trie* trie Jim_Obj* patternObj} Jim_Obj* {
+    cc::proc lookup {Trie* trie Jim_Obj* patternObj} Jim_Obj* {
         uint64_t results[50];
         Clause* pattern = jimObjToClause(patternObj);
         int resultCount = trieLookup(trie, pattern, results, 50);
@@ -103,7 +103,7 @@ void tfree(void *ptr) {
 
         return Jim_NewListObj(interp, resultObjs, resultCount);
     }
-    $cc proc remove_ {Trie* trie Jim_Obj* patternObj} Trie* {
+    cc::proc remove_ {Trie* trie Jim_Obj* patternObj} Trie* {
         uint64_t results[50];
         Clause* pattern = jimObjToClause(patternObj);
         int resultCount;
@@ -113,8 +113,8 @@ void tfree(void *ptr) {
         return trie;
     }
 
-    return [$cc compile]
-}}]
+    return [cc::compile]
+}]]
 
 set trieDotify {{trieLib tclifiedTrie} {
     local proc idify {word} {
@@ -145,13 +145,13 @@ set trieDotify {{trieLib tclifiedTrie} {
 }}
 
 set getDotAsPdf {{dot} {
-    set fd [open |[list dot -Tpdf <<$dot] rb]
+    set fd [fopen |[list dot -Tpdf <<$dot] rb]
     set response [read $fd]
     try {
         close $fd
         return $response
     } on error e {
-        if {[catch {exec which dot}]} {
+        if {[catch {exec which dot}] != 0} {
             error "graphviz not installed!"
         }
     }
@@ -159,7 +159,7 @@ set getDotAsPdf {{dot} {
 
 Wish the web server handles route {/trie-graph\.pdf} with handler {
     set trie []
-    set dot [apply $trieDotify $trieLib [$trieLib dbTrieTclify]]
+    set dot [apply $trieDotify $trieLib [trieLib::dbTrieTclify]]
 
     dict create statusAndHeaders "HTTP/1.1 200 OK
 Connection: close

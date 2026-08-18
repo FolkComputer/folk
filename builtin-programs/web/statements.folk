@@ -5,9 +5,9 @@ When the db library is /dbLib/ {
     # You need to use the Simple form so it doesn't auto-claimize it.
     set results [QuerySimple! false /...terms/]
     foreach result $results { dict with result {
-        set childMatchRefs [$dbLib childMatches $db $__ref]
+        set childMatchRefs [dbLib::childMatches $db $__ref]
         set childMatchInfo [join [lmap childMatchRef $childMatchRefs {
-            set childStatementRefs [$dbLib childStatements $db $childMatchRef]
+            set childStatementRefs [dbLib::childStatements $db $childMatchRef]
             subst {
                 \[ $childMatchRef ($childStatementRefs) \]
             }
@@ -20,7 +20,7 @@ When the db library is /dbLib/ {
               [lsearch -exact $terms error] != -1
               ? "color: red"
               : ""}]">
-            $__ref ([$dbLib statementParentCount $db $__ref]): <code>[htmlEscape [string range $terms 0 100]]</code> ($childMatchInfo)</summary>
+            __ref::([dbLib::statementParentCount $db $__ref]): <code>[htmlEscape [string range $terms 0 100]]</code> ($childMatchInfo)</summary>
             <pre>[htmlEscape $terms]</pre>
             </details>
             </li>

@@ -406,11 +406,11 @@ Zicl_List* QuerySimple(bool isAtomically, Zicl_List* pattern) {
         }
 
         Environment* env = clauseUnify(pattern, statementClause(result));
-        defer { for (int j = 0; j < env->nBindings; j++) Zicl_Release(env->bindings[j].value); }
         if (env == NULL) {
             statementRelease(db, result);
             continue;
         }
+        defer { for (int j = 0; j < env->nBindings; j++) Zicl_Release(env->bindings[j].value); }
 
         Zicl_Dict* envDict = ziclNewDict(NULL, 0);
         defer { Zicl_ReleaseDict(envDict); }
@@ -1757,7 +1757,7 @@ int main(int argc, char** argv) {
     if (argc == 1) {
         // booting normal Folk (no script passed at command line); set
         // up output redirection.
-        outputRedirectionInit(true);
+        outputRedirectionInit(false);
     } else {
         outputRedirectionInit(false);
     }

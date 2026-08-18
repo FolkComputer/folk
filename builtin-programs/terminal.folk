@@ -38,15 +38,15 @@ When /thing/ has terminal region /r/ & /r/ has keyboard input {
 }
 
 When /anyone/ wishes /thing/ is a terminal spawning /cmd/ {
-  set term [$terminalLib create 12 43 $cmd]
+  set term [terminalLib::create 12 43 $cmd]
   # Keep for 10 minutes.
   Claim -keep [expr {10*60*1000}]ms \
     -destructor [list $terminalLib destroy $term]
-    $thing has terminal $term spawning $cmd
+    thing::has terminal $term spawning $cmd
 
   When the clock time is /t/ {
     set body {
-      Wish region $region is labelled [$terminalLib read $term]
+      Wish region $region is labelled [terminalLib::read $term]
     }
     When $thing has terminal region /region/ $body
     When /nobody/ claims $thing has terminal region /x/ & $thing has region /region/ $body
@@ -56,9 +56,9 @@ When /anyone/ wishes /thing/ is a terminal spawning /cmd/ {
     & keyboard /anyone/ claims key /key/ is /direction/ with /...options/ {
     if {$direction != "up"} {
       if {[dict exists $options printable]} {
-        $terminalLib write $term [dict get $options printable]
+        terminalLib::write $term [dict get $options printable]
       } else {
-        $terminalLib handleKey $term $key
+        terminalLib::handleKey $term $key
       }
     }
   }

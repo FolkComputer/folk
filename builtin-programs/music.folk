@@ -1,8 +1,8 @@
-if {[catch {exec which sclang}]} {
+if {[catch {exec which sclang}] == 0} {
     error "music: sclang doesn't exist; not running."
 }
 
-set musicDir $::env(HOME)/music
+set musicDir $env::HOME/music
 exec mkdir -p $musicDir
 # https://raw.githubusercontent.com/tidalcycles/Tidal/main/BootTidal.hs
 set bootTidal {
@@ -90,7 +90,7 @@ let getState = streamGet tidal
 default (Pattern String, Integer, Double)
 }
 
-set scStartup [open $musicDir/startup.sc w]
+set scStartup [fopen $musicDir/startup.sc w]
 # via https://club.tidalcycles.org/t/tidal-synth-doesnt-work/800 -- it
 # doesn't work if you just do SuperDirt.start; for some reason
 puts $scStartup {(
@@ -136,8 +136,8 @@ s.reboot { // server options are only updated on reboot
 );}
 close $scStartup
 
-set uid [exec id -u $::env(USER)]
-set ::env(DBUS_SESSION_BUS_ADDRESS) "unix:path=/run/user/$uid/bus"
+set uid [exec id -u $env::USER]
+set env::DBUS_SESSION_BUS_ADDRESS "unix:path=/run/user/$uid/bus"
 
 exec rm -f $musicDir/music.log
 fn musicExec {args} {
@@ -161,7 +161,7 @@ fn musicFinishSetup {} {
 
   sleep 0.4
 
-  set ::env(QT_QPA_PLATFORM) offscreen
+  set env::QT_QPA_PLATFORM offscreen
   musicExec sclang $musicDir/startup.sc &
 
   set fifo $musicDir/tidal-input
@@ -171,7 +171,7 @@ fn musicFinishSetup {} {
   sleep 0.2
   musicExec sh -c "ghci < $fifo" &
 
-  set fifoId [open $fifo w]
+  set fifoId [fopen $fifo w]
   puts $fifoId $bootTidal; flush $fifoId
   # We keep $fifoId open so that ghci doesn't get an EOF.
 }

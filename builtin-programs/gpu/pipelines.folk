@@ -11,17 +11,17 @@ When the GPU Vulkan handle type definer is /defineVulkanHandleType/ &\
 
 fn defineVulkanHandleType
 
-set cc [C]
-$cc cflags -I./vendor
-$cc include <pthread.h>
-$cc code {
+set cc [dict link $C {}]
+cc::addcflags -I./vendor
+cc::include <pthread.h>
+cc::addcode {
     #define VOLK_IMPLEMENTATION
     #include "volk/volk.h"
 }
 
-$cc extend $gpuLib
-$cc extend $imageLib
-$cc extend -noprocs $gpuTextureLib
+cc::extend $gpuLib
+cc::extend $imageLib
+cc::extend -noprocs $gpuTextureLib
 
 local proc vktry {call} { string map {\n " "} [csubst {{
     VkResult res = $call;
@@ -31,17 +31,17 @@ local proc vktry {call} { string map {\n " "} [csubst {{
     }
 }}] }
 
-$cc code {
+cc::addcode {
     VkDevice device;
 }
 
-$cc define {
+cc::define {
     VkRenderPass renderPass;
 }
 
 # Shader compilation:
 defineVulkanHandleType $cc VkShaderModule
-$cc proc createShaderModule {Jim_Obj* codeObj} VkShaderModule {
+cc::proc createShaderModule {Jim_Obj* codeObj} VkShaderModule {
     int codeObjc = Jim_ListLength(interp, codeObj);
     uint32_t* code = malloc(codeObjc * sizeof(uint32_t));
     for (int i = 0; i < codeObjc; i++) {
@@ -66,17 +66,17 @@ $cc proc createShaderModule {Jim_Obj* codeObj} VkShaderModule {
 defineVulkanHandleType $cc VkPipeline
 defineVulkanHandleType $cc VkPipelineLayout
 defineVulkanHandleType $cc VkDescriptorSet
-$cc typedef uint64_t VkDeviceSize
-$cc argtype VkDescriptorType { int $argname; __ENSURE_OK(Tcl_GetIntFromObj(interp, $obj, &$argname)); }
-$cc rtype VkDescriptorType { $robj = Tcl_NewIntObj($rvalue); }
+cc::typedef uint64_t VkDeviceSize
+cc::argtype VkDescriptorType { int $argname; __ENSURE_OK(Tcl_GetIntFromObj(interp, $obj, &$argname)); }
+cc::rtype VkDescriptorType { $robj = Tcl_NewIntObj($rvalue); }
 
-$cc code {
+cc::addcode {
     typedef struct PushConstantsEncoder {
         int (*encode)(Jim_Interp* interp, Jim_Obj* obj, uint8_t out[128]);
     } PushConstantsEncoder;
 } :extend ;# needs to be available for an extender in order for
            # Pipeline to be defined.
-$cc struct Pipeline {
+cc::struct Pipeline {
     VkPipeline pipeline;
     VkPipelineLayout pipelineLayout;
 
@@ -84,7 +84,7 @@ $cc struct Pipeline {
     PushConstantsEncoder* encodePushConstants;
 }
 
-$cc proc createPipeline {VkShaderModule vertShaderModule
+cc::proc createPipeline {VkShaderModule vertShaderModule
                            VkShaderModule fragShaderModule
                            PushConstantsEncoder* encodePushConstants
                            size_t pushConstantsSize} Pipeline {
@@ -233,15 +233,15 @@ $cc proc createPipeline {VkShaderModule vertShaderModule
 }
 
 # Bind the shared texture descriptor set on a command buffer.
-$cc proc bindTextureDescriptorSet {VkCommandBuffer commandBuffer VkPipelineLayout pipelineLayout} void {
+cc::proc bindTextureDescriptorSet {VkCommandBuffer commandBuffer VkPipelineLayout pipelineLayout} void {
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             pipelineLayout, 0, 1, textureDescriptorSet_ptr(), 0, NULL);
 }
-$cc proc getTextureDescriptorSet {} VkDescriptorSet {
+cc::proc getTextureDescriptorSet {} VkDescriptorSet {
     return *textureDescriptorSet_ptr();
 }
 
-$cc proc pipelinesInit {} void {
+cc::proc pipelinesInit {} void {
     $[vktry volkInitialize()]
     volkLoadInstanceOnly(*instance_ptr());
 
@@ -291,8 +291,8 @@ $cc proc pipelinesInit {} void {
     }
 }
 
-set pipelineLib [$cc compile]
-$pipelineLib pipelinesInit
+set pipelineLib [cc::compile]
+pipelineLib::pipelinesInit
 Claim the GPU pipeline library is $pipelineLib
 
 # Pipeline compiler: Tcl-level library that takes GLSL fragments,
@@ -304,7 +304,7 @@ set pipelineCompilerLib [library create pipelineCompiler {gpuLib pipelineLib} {
 
     # Construct a reusable GLSL function that can be linked into and
     # called from a shader/pipeline.
-    proc fn {fnDict arguments rtype body} {
+    fn fn {fnDict arguments rtype body} {
         set fnArgs [list]
         # We inline all dependent functions from the caller scope
         # immediately here, since we don't know if those dependencies
@@ -329,7 +329,7 @@ set pipelineCompilerLib [library create pipelineCompiler {gpuLib pipelineLib} {
 
     # Construct a shader pipeline that can be used to draw to the
     # screen.
-    proc pipeline {fnDict args} {
+    fn pipeline {fnDict args} {
         variable gpuLib
         variable pipelineLib
 
@@ -339,7 +339,7 @@ set pipelineCompilerLib [library create pipelineCompiler {gpuLib pipelineLib} {
         } elseif {[llength $args] == 4} {
             lassign $args vertArgs vertBody fragArgs fragBody
         } else {
-            error {pipelineCompiler pipeline: should be used as [$pipelineCompiler pipeline vertArgs vertBody fragBody], or [$pipelineCompiler pipeline vertArgs vertBody fragArgs fragBody]}
+            error {pipelineCompiler pipeline: should be used as [pipelineCompiler::pipeline vertArgs vertBody fragBody], or [pipelineCompiler::pipeline vertArgs vertBody fragArgs fragBody]}
         }
         set vertFnDict [dict create]
         set fragFnDict [dict create]
@@ -374,17 +374,17 @@ set pipelineCompilerLib [library create pipelineCompiler {gpuLib pipelineLib} {
 
         # Create a C subcompiler to create a fast routine to encode
         # the push constants on each draw call.
-        set cc [C]
-        $cc typedef int sampler2D
-        $cc struct vec2 { float x; float y; }
-        $cc struct vec3 { float x; float y; float z; }
-        $cc struct vec4 { float x; float y; float z; float w; }
-        $cc struct uvec4 { uint32_t x; uint32_t y; uint32_t z; uint32_t w; }
+        set cc [dict link $C {}]
+        cc::typedef int sampler2D
+        cc::struct vec2 { float x; float y; }
+        cc::struct vec3 { float x; float y; float z; }
+        cc::struct vec4 { float x; float y; float z; float w; }
+        cc::struct uvec4 { uint32_t x; uint32_t y; uint32_t z; uint32_t w; }
         # Note that mat3 is COLUMN-MAJOR and every column has 1 float
         # of padding at the end.
-        $cc struct mat3 { float data[12]; }
+        cc::struct mat3 { float data[12]; }
 
-        $cc argtype vec2 {
+        cc::argtype vec2 {
             vec2 $argname;
             {
                 int $[set argname]_objc = Jim_ListLength(interp, $obj);
@@ -392,10 +392,10 @@ set pipelineCompilerLib [library create pipelineCompiler {gpuLib pipelineLib} {
                 double x; double y;
                 __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 0), &x));
                 __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 1), &y));
-                $argname = (vec2) { (float)x, (float)y };
+                argname::= (vec2) { (float)x, (float)y };
             }
         }
-        $cc argtype vec3 {
+        cc::argtype vec3 {
             vec3 $argname;
             {
                 int $[set argname]_objc = Jim_ListLength(interp, $obj);
@@ -404,10 +404,10 @@ set pipelineCompilerLib [library create pipelineCompiler {gpuLib pipelineLib} {
                 __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 0), &x));
                 __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 1), &y));
                 __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 2), &z));
-                $argname = (vec3) { (float)x, (float)y, (float)z };
+                argname::= (vec3) { (float)x, (float)y, (float)z };
             }
         }
-        $cc argtype vec4 {
+        cc::argtype vec4 {
             vec4 $argname;
             {
                 int $[set argname]_objc = Jim_ListLength(interp, $obj);
@@ -417,10 +417,10 @@ set pipelineCompilerLib [library create pipelineCompiler {gpuLib pipelineLib} {
                 __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 1), &y));
                 __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 2), &z));
                 __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 3), &w));
-                $argname = (vec4) { (float)x, (float)y, (float)z, (float)w };
+                argname::= (vec4) { (float)x, (float)y, (float)z, (float)w };
             }
         }
-        $cc argtype uvec4 {
+        cc::argtype uvec4 {
             uvec4 $argname;
             {
                 int $[set argname]_objc = Jim_ListLength(interp, $obj);
@@ -430,12 +430,12 @@ set pipelineCompilerLib [library create pipelineCompiler {gpuLib pipelineLib} {
                 __ENSURE_OK(Jim_GetWide(interp, Jim_ListGetIndex(interp, $obj, 1), &y));
                 __ENSURE_OK(Jim_GetWide(interp, Jim_ListGetIndex(interp, $obj, 2), &z));
                 __ENSURE_OK(Jim_GetWide(interp, Jim_ListGetIndex(interp, $obj, 3), &w));
-                $argname = (uvec4) { (uint32_t)x, (uint32_t)y, (uint32_t)z, (uint32_t)w };
+                argname::= (uvec4) { (uint32_t)x, (uint32_t)y, (uint32_t)z, (uint32_t)w };
             }
         }
         # Note that we take matrices from Tcl in ROW-MAJOR form and
         # convert them to column-major form inline here.
-        $cc argtype mat3 {
+        cc::argtype mat3 {
             mat3 $argname;
             {
                 int $[set argname]_objc = Jim_ListLength(interp, $obj);
@@ -453,7 +453,7 @@ set pipelineCompilerLib [library create pipelineCompiler {gpuLib pipelineLib} {
                 }
             }
         }
-        $cc code [csubst {
+        cc::addcode [csubst {
             typedef struct Args {
                 $[join [lmap {argtype argname} $pushConstants {
                     set alignas [expr {$argtype eq "mat3" ? "16" : "sizeof($argtype)"}]
@@ -467,15 +467,15 @@ set pipelineCompilerLib [library create pipelineCompiler {gpuLib pipelineLib} {
 
             static uint8_t argsBuf[128];
         }]
-        $cc include <stddef.h>
-        $cc proc getArgsSize {} int { return sizeof(Args); }
-        $cc proc encodeArgs $pushConstants void {
+        cc::include <stddef.h>
+        cc::proc getArgsSize {} int { return sizeof(Args); }
+        cc::proc encodeArgs $pushConstants void {
             Args args = {$[join [lmap {argtype argname} $pushConstants { subst {.$argname = $argname} }] " ,"]};
             memcpy(argsBuf, &args, sizeof(args));
         }
         # This is what gets saved as the PushConstantsEncoder and
         # called at draw time.
-        $cc proc encodeObj {Jim_Interp* interp Jim_Obj* obj uint8_t* out} int {
+        cc::proc encodeObj {Jim_Interp* interp Jim_Obj* obj uint8_t* out} int {
             int objc = Jim_ListLength(interp, obj);
             Jim_Obj* objv[1 + objc];
             for (int i = 0; i < objc; i++) {
@@ -493,15 +493,15 @@ set pipelineCompilerLib [library create pipelineCompiler {gpuLib pipelineLib} {
             memcpy(out, argsBuf, sizeof(Args));
             return sizeof(Args);
         }
-        $cc proc makeEncoder {} PushConstantsEncoder* {
+        cc::proc makeEncoder {} PushConstantsEncoder* {
             PushConstantsEncoder* encoder = malloc(sizeof(PushConstantsEncoder));
             encoder->encode = encodeObj;
             return encoder;
         }
-        set encoderLib [$cc compile]
+        set encoderLib [cc::compile]
 
-        set encodePushConstants [$encoderLib makeEncoder]
-        set pushConstantsSize [$encoderLib getArgsSize]
+        set encodePushConstants [encoderLib::makeEncoder]
+        set pushConstantsSize [encoderLib::getArgsSize]
 
         set pushConstantsCode [if {[llength $pushConstants] > 0} {
             subst {
@@ -518,7 +518,7 @@ set pipelineCompilerLib [library create pipelineCompiler {gpuLib pipelineLib} {
             }
         }]
 
-        set vertShaderModule [$pipelineLib createShaderModule [glslc -fshader-stage=vert [csubst {
+        set vertShaderModule [pipelineLib::createShaderModule [glslc -fshader-stage=vert [csubst {
             #version 450
 
             $pushConstantsCode
@@ -526,7 +526,7 @@ set pipelineCompilerLib [library create pipelineCompiler {gpuLib pipelineLib} {
             $[join [lmap {fnName fn} $vertFnDict {
                 lassign $fn fnArgs _ fnRtype fnBody
                 subst {
-                    $fnRtype $fnName ([join [lmap {fnArgtype fnArgname} $fnArgs {subst {$fnArgtype $fnArgname}}] ", "]) {
+                    fnRtype::$fnName ([join [lmap {fnArgtype fnArgname} $fnArgs {subst {$fnArgtype $fnArgname}}] ", "]) {
                         $fnBody
                     }
                 }
@@ -562,11 +562,11 @@ set pipelineCompilerLib [library create pipelineCompiler {gpuLib pipelineLib} {
         # like that, we manually emit an if ladder that checks each
         # possible value of the push constant and uses the right
         # statically-indexed descriptor.
-        set gpuSupportsDynamicIndexing [$gpuLib getDoesSupportShaderSampledImageArrayDynamicIndexing]
-        set fragShaderModule [$pipelineLib createShaderModule [glslc -fshader-stage=frag [csubst {
+        set gpuSupportsDynamicIndexing [gpuLib::getDoesSupportShaderSampledImageArrayDynamicIndexing]
+        set fragShaderModule [pipelineLib::createShaderModule [glslc -fshader-stage=frag [csubst {
             #version 450
 
-            layout(set = 0, binding = 0) uniform sampler2D _samplers[$[$gpuLib getMaxTextures]];
+            layout(set = 0, binding = 0) uniform sampler2D _samplers[$[gpuLib::getMaxTextures]];
 
             $pushConstantsCode
 
@@ -575,7 +575,7 @@ set pipelineCompilerLib [library create pipelineCompiler {gpuLib pipelineLib} {
             $[join [lmap {fnName fn} $fragFnDict {
                 lassign $fn fnArgs _ fnRtype fnBody
                 subst {
-                    $fnRtype $fnName ([join [lmap {fnArgtype fnArgname} $fnArgs {subst {$fnArgtype $fnArgname}}] ", "]) {
+                    fnRtype::$fnName ([join [lmap {fnArgtype fnArgname} $fnArgs {subst {$fnArgtype $fnArgname}}] ", "]) {
                         $fnBody
                     }
                 }
@@ -590,7 +590,7 @@ set pipelineCompilerLib [library create pipelineCompiler {gpuLib pipelineLib} {
 
             $[eval {
                 set samplerIdxs [lsearch -all -exact $pushConstants sampler2D]
-                proc emitFragInvocation {gpuSupportsDynamicIndexing pushConstants} { subst {
+                fn emitFragInvocation {gpuSupportsDynamicIndexing pushConstants} { subst {
                     vec4 rawColor = frag([join [lmap {argtype argname} $pushConstants {
                         if {$argname eq "_"} continue
                         if {$argtype eq "sampler2D"} {
@@ -619,7 +619,7 @@ set pipelineCompilerLib [library create pipelineCompiler {gpuLib pipelineLib} {
                 } elseif {[llength $samplerIdxs] == 1} {
                     set samplerIdx [+ [lindex $samplerIdxs 0] 1]
                     set samplerName [lindex $pushConstants $samplerIdx]
-                    set maxTextures [$gpuLib getMaxTextures]
+                    set maxTextures [gpuLib::getMaxTextures]
                     set xs [list]
                     for {set i 0} {$i < $maxTextures} {incr i} {
                         set patchedPushConstants [lreplace $pushConstants $samplerIdx $samplerIdx \
@@ -639,18 +639,18 @@ set pipelineCompilerLib [library create pipelineCompiler {gpuLib pipelineLib} {
 
         # pipeline needs to contain a specification of push constants,
         # so they can be filled in at draw time.
-        set pipeline [$pipelineLib createPipeline \
-                          $vertShaderModule $fragShaderModule \
-                          $encodePushConstants \
+        set pipeline [pipelineLib::createPipeline \
+                          vertShaderModule::$fragShaderModule \
+                          encodePushConstants::\
                           $pushConstantsSize]
         return $pipeline
     }
 
-    proc glslc {args} {
+    fn glslc {args} {
         set cmdargs [lreplace $args end end]
         set glsl [lindex $args end]
         set glslfile [file tempfile /tmp/glslfileXXXXXX].glsl
-        set glslfd [open $glslfile w]; puts $glslfd $glsl; close $glslfd
+        set glslfd [fopen $glslfile w]; puts $glslfd $glsl; close $glslfd
         split [string map {\n ""} [exec glslc {*}$cmdargs -mfmt=num -o - $glslfile]] ","
     }
 }]

@@ -1,3 +1,5 @@
+set math [import lib/math.tcl]
+
 set drawShapeSides [dict create \
     triangle 3 square 4 pentagon 5 hexagon 6 septagon 7 octagon 8 nonagon 9]
 
@@ -125,7 +127,7 @@ fn drawShapeRegularPolygon {center radius sides radians} {
     lassign $center cx cy
     set points [list]
     for {set i 0} {$i < $sides} {incr i} {
-        set theta [expr {$radians + $i * $::TAU / $sides - $::PI / 2.0}]
+        set theta [expr {$radians + $i * $math::TAU / $sides - $math::PI / 2.0}]
         lappend points [list [expr {$cx + $radius * cos($theta)}] \
                              [expr {$cy + $radius * sin($theta)}]]
     }
@@ -177,7 +179,7 @@ When /someone/ wishes /p/ draws a /shape/ with /...options/ &\
     set geomWidth [dict get $geom width]
     set geomHeight [dict get $geom height]
     set thickness [drawShapeLengthOption $options thickness 0.002 \
-        $geomWidth $geomHeight min]
+        geomWidth::$geomHeight min]
     set layer [dict getdef $options layer 1]
     set radians [drawShapeRadians $options]
 
@@ -192,11 +194,11 @@ When /someone/ wishes /p/ draws a /shape/ with /...options/ &\
     if {$shape eq "rect"} {
         set radius [drawShapeRadius $options 0.025 $geomWidth $geomHeight]
         set size [drawShapeLengthOption $options size [expr {$radius * 2.0}] \
-            $geomWidth $geomHeight min]
+            geomWidth::$geomHeight min]
         set rectWidth [drawShapeLengthOption $options width $size \
-            $geomWidth $geomHeight width]
+            geomWidth::$geomHeight width]
         set rectHeight [drawShapeLengthOption $options height $rectWidth \
-            $geomWidth $geomHeight height]
+            geomWidth::$geomHeight height]
         set points [drawShapeRectPoints $center $rectWidth $rectHeight $radians]
     } else {
         if {$shape eq "polygon" || $shape eq "polyline"} { return }
@@ -254,17 +256,17 @@ When /someone/ wishes /p/ draws a polyline /points/ with /...options/ &\
     set geomWidth [dict get $geom width]
     set geomHeight [dict get $geom height]
     set width [drawShapeLengthOption $options thickness 0.002 \
-        $geomWidth $geomHeight min]
+        geomWidth::$geomHeight min]
     set width [drawShapeLengthOption $options width $width \
-        $geomWidth $geomHeight min]
+        geomWidth::$geomHeight min]
     set layer [dict getdef $options layer 1]
     set dashed [dict getdef $options dashed false]
 
     if {$dashed} {
         set dashlength [drawShapeLengthOption $options dashlength 0.01 \
-            $geomWidth $geomHeight min]
+            geomWidth::$geomHeight min]
         set dashoffset [drawShapeLengthOption $options dashoffset 0 \
-            $geomWidth $geomHeight min]
+            geomWidth::$geomHeight min]
         Wish to draw a dashed line onto $p with \
             points $points width $width color $color \
             dashlength $dashlength dashoffset $dashoffset layer $layer
@@ -299,7 +301,7 @@ When /someone/ wishes /p/ draws points /points/ with /...options/ &\
     set geomHeight [dict get $geom height]
     set radius [drawShapeRadius $options 0.003 $geomWidth $geomHeight]
     set thickness [drawShapeLengthOption $options thickness 0.001 \
-        $geomWidth $geomHeight min]
+        geomWidth::$geomHeight min]
     set color [dict getdef $options color white]
     set filled [dict getdef $options filled true]
     set layer [dict getdef $options layer 1]

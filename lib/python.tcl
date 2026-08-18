@@ -343,27 +343,27 @@ variable endpoint
 variable socket [$impl sockConnect $endpoint]
 if {$socket < 0} { error "Uvx: failed to connect to Python at $endpoint" }
 
-proc getFunctions {} {
+fn getFunctions {} {
     variable impl; variable endpoint
     return [$impl getFunctions $endpoint] }
-proc getRegisteredArgtypes {} {
+fn getRegisteredArgtypes {} {
     variable impl; variable endpoint
     return [$impl getRegisteredArgtypes $endpoint]
 }
-proc registerFunction {fnName fnInfo} {
+fn registerFunction {fnName fnInfo} {
     variable impl; variable endpoint
     set functions [$impl getFunctions $endpoint]
     dict set functions $fnName $fnInfo
     $impl setFunctions $endpoint $functions
 }
-proc registerArgtype {typeName serializer} {
+fn registerArgtype {typeName serializer} {
     variable impl; variable endpoint
     set argtypes [$impl getRegisteredArgtypes $endpoint]
     dict set argtypes $typeName $serializer
     $impl setRegisteredArgtypes $endpoint $argtypes
 }
 
-proc unknown {fnName args} {
+fn unknown {fnName args} {
     variable impl; variable socket; variable endpoint
     # We need normal `unknown` to call methods on $impl, so need to
     # pass it through to ::unknown.
@@ -415,20 +415,20 @@ proc unknown {fnName args} {
     }
     return [json::decode $value]
 }
-proc exec {code} {
+fn exec {code} {
     lassign [info source $code] file line
     if {$file eq ""} { set file "<unknown>"; set line 1 }
     return [unknown "__exec__" [undent $code] $file $line]
 }
-proc eval {code} { return [unknown "eval" $code] }
+fn eval {code} { return [unknown "eval" $code] }
 
-proc argtype {typeName serializer deserializer} {
+fn argtype {typeName serializer deserializer} {
     # Store the Tcl serializer:
     registerArgtype $typeName $serializer
     # Store the Python deserializer:
     __register_argtype__ $typeName $deserializer
 }
-proc def {fnName argSpec body} {
+fn def {fnName argSpec body} {
     lassign [info source $body] file line
     if {$file eq ""} { set file "<unknown>"; set line 1 }
 

@@ -11,13 +11,12 @@
 #     http://www.ok.sc.e.titech.ac.jp/res/PCS/publications/procams2009.pdf
 #
 
-package require linalg
 
 foreach p {add norm sub scale matmul
     getelem transpose determineSVD shape mkIdentity show
     solvePGauss crossproduct getcol setcol unitLengthVector det
 } {
-    namespace import ::math::linearalgebra::$p
+    dict assign [import lib/linalg.tcl] $p
 }
 
 Hold! -key {calibration poses max} \
@@ -32,7 +31,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      /someone/ wishes to calibrate camera /camera/ to display /display/ \
          using measurements /measurements/ {
 
-    set printedSideLengthMm [string trimright $measurements(tagSideLength) mm]
+    set printedSideLengthMm [string trimright $measurements::tagSideLength mm]
 
     fn makeAprilTagDetector
     set calibrationTagDetector [makeAprilTagDetector "tagStandard52h13" 2.0 3]
@@ -59,8 +58,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         }
     }
 
-    package require linalg
-    namespace import ::math::linearalgebra::scale
+    dict assign [import lib/linalg.tcl] scale
 
     set tagSideLength 1.0
     set tagOuterLength [expr {$tagSideLength * 10/6}]
@@ -69,10 +67,10 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     # Unit model's 2D coordinates have inner tag side length of 1.0:
     # scale it to real-world coordinates.
     set printedSideLengthM [/ $printedSideLengthMm 1000.0]
-    set baseModel [$modelLib scaleModel [$modelLib unitModel] \
+    set baseModel [modelLib::scaleModel [modelLib::unitModel] \
                        $printedSideLengthM]
-    set ROWS [$modelLib rows]
-    set COLS [$modelLib cols]
+    set ROWS [modelLib::rows]
+    set COLS [modelLib::cols]
 
     # A list of pose dictionaries. Each dictionary has entries `model`
     # and `H_modelToDisplay` ('prewarp' homography from model plane to
@@ -114,7 +112,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
         # This has been adjusted with a scaling factor
         # to account for the inclusion of labels on each side.
-        set tagSideLengthPixels [::math::min $(($displayWidth * 0.75)/($COLS * ($tagOuterLength + $pad))) \
+        set tagSideLengthPixels [math::min $(($displayWidth * 0.75)/($COLS * ($tagOuterLength + $pad))) \
                                      $(($displayHeight * 0.75)/($ROWS * ($tagOuterLength + $pad)))]
         set tagSideLengthPixels [expr {$tagSideLengthPixels * $scale}]
 
@@ -126,7 +124,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         set xOffset [expr {round(($displayWidth - $projWidthPixels) / 2)}]
         set yOffset [expr {round(($displayHeight - $projHeightPixels) / 2)}]
 
-        set H_modelToDisplay [$matLib estimateHomography [subst {
+        set H_modelToDisplay [matLib::estimateHomography [subst {
             {$printedSideLengthM $printedSideLengthM [expr {$tagSideLengthPixels + $xOffset}] [expr {$tagSideLengthPixels + $yOffset}]}
             {$printedSideLengthM 0 [expr {$tagSideLengthPixels + $xOffset}] $yOffset}
             {0 $printedSideLengthM $xOffset [expr {$tagSideLengthPixels + $yOffset}]}
@@ -158,10 +156,10 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             return
         }
         # Sort in ascending order to find the newest (highest frameTimestamp) model.
-        set calibrationState [lindex [lsort -command [list apply {{a b} {
+        set calibrationState [lindex [lsort -command [fn {a b} {
             expr {[dict get $a modelToDisplayOpts frameTimestamp] <
                   [dict get $b modelToDisplayOpts frameTimestamp]}
-        }}] $calibrationStates] end]
+        }] $calibrationStates] end]
         dict with calibrationState {}
 
         set model [dict get $modelToDisplayOpts model]
@@ -175,7 +173,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         }
 
         set aprilTime [time {
-            set tags [$calibrationTagDetector detect $frame]
+            set tags [calibrationTagDetector::detect $frame]
         }]
 
         package require linalg
@@ -189,7 +187,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         foreach tag $tags {
             set id [dict get $tag id]
             dict set allDetectedTags $id $tag
-            if {[$modelLib isPrintedTag $id]} { dict set printedTags $id $tag }
+            if {[modelLib::isPrintedTag $id]} { dict set printedTags $id $tag }
         }
         if {[dict size $printedTags] == 0} { return }
 
@@ -203,7 +201,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         }
         # Describes how tags from the model that were printed
         # ended up mapping to camera coordinates.
-        set H_modelToCameraViaPs [$matLib estimateHomography $printedPointPairs]
+        set H_modelToCameraViaPs [matLib::estimateHomography $printedPointPairs]
 
         # Map the bounds of the board to camera coordinates, so we can
         # check if projected tags are inside the board.
@@ -211,10 +209,10 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         set modelTopRight [lindex [dict get $model [expr {48600 + 0*$COLS + $COLS-1}] p] 2]
         set modelBottomRight [lindex [dict get $model [expr {48600 + ($ROWS-1)*$COLS + $COLS-1}] p] 1]
         set modelBottomLeft [lindex [dict get $model [expr {48600 + ($ROWS-1)*$COLS + 0}] p] 0]
-        set printedCalibrationBoard [list {*}[$matLib applyHomography $H_modelToCameraViaPs $modelTopLeft] \
-                                         {*}[$matLib applyHomography $H_modelToCameraViaPs $modelTopRight] \
-                                         {*}[$matLib applyHomography $H_modelToCameraViaPs $modelBottomRight] \
-                                         {*}[$matLib applyHomography $H_modelToCameraViaPs $modelBottomLeft]]
+        set printedCalibrationBoard [list {*}[matLib::applyHomography $H_modelToCameraViaPs $modelTopLeft] \
+                                         {*}[matLib::applyHomography $H_modelToCameraViaPs $modelTopRight] \
+                                         {*}[matLib::applyHomography $H_modelToCameraViaPs $modelBottomRight] \
+                                         {*}[matLib::applyHomography $H_modelToCameraViaPs $modelBottomLeft]]
         set boardMinX 100000; set boardMinY 100000
         set boardMaxX -100000; set boardMaxY -100000
         foreach {cornerX cornerY} $printedCalibrationBoard {
@@ -227,11 +225,11 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # We only count projected tags that are inside the board.
         set projectedTags [dict create]
         dict for {id tag} $allDetectedTags {
-            if {![$modelLib isProjectedTag $id]} { continue }
+            if {![modelLib::isProjectedTag $id]} { continue }
 
             lassign [dict get $tag c] x y
             if {$x > $boardMinX && $x < $boardMaxX &&
-                $y > $boardMinY && $y < $boardMaxY} {
+                y::> $boardMinY && $y < $boardMaxY} {
                 # This is a projected tag that we detected.
                 dict set projectedTags $id $tag
             }
@@ -239,7 +237,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         if {[dict size $projectedTags] == 0} { return }
 
         if {$version != -1} {
-            set detectedVersion [$modelLib detectVersionFromDetectedTags $tags]
+            set detectedVersion [modelLib::detectVersionFromDetectedTags $tags]
             # If the detected version does not correspond to version
             # mod 4, then we should abort and wait until a later
             # frame to proceed.
@@ -254,14 +252,14 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             set modelTag [dict get $model $id]
             foreach modelCorner [dict get $modelTag p] \
                 cameraCorner [dict get $projectedTag p] {
-                    set displayCorner [$matLib applyHomography $H_modelToDisplay $modelCorner]
+                    set displayCorner [matLib::applyHomography $H_modelToDisplay $modelCorner]
                     lappend projectedPointPairs [list {*}$cameraCorner {*}$displayCorner]
                 }
         }
 
         # puts "point pairs (camera -> display): {$projectedPointPairs}"
-        set H_cameraToDisplay [$matLib estimateHomography $projectedPointPairs]
-        if {abs([::math::linearalgebra::det $H_cameraToDisplay]) < 0.001} {
+        set H_cameraToDisplay [matLib::estimateHomography $projectedPointPairs]
+        if {abs([math::linearalgebra::det $H_cameraToDisplay]) < 0.001} {
             # Garbage homography that just shrinks the points way down
             # (https://stackoverflow.com/questions/10972438/detecting-garbage-homographies-from-findhomography-in-opencv).
             # It's sort of 'overfitted' and just has a big y-intercept
@@ -271,10 +269,10 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
         # Update H_modelToDisplay to project the tags into the right
         # spots on the board next frame.
-        set nextH_modelToDisplay [$matLib matdMul $H_cameraToDisplay $H_modelToCameraViaPs]
+        set nextH_modelToDisplay [matLib::matdMul $H_cameraToDisplay $H_modelToCameraViaPs]
         set nextModelFrameTimestamp $frameTimestamp
         set nextVersion [+ $version 1]
-        set nextModel [$modelLib updateModelVersion $baseModel $nextVersion]
+        set nextModel [modelLib::updateModelVersion $baseModel $nextVersion]
         set nextModelTimestamp [expr {[clock milliseconds] / 1000.0}]
 
         # Check if any tag corners will be outside display bounds.
@@ -282,7 +280,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             set tag [dict get $nextModel $tagId]
             set corners [dict get $tag p]
             foreach corner $corners {
-                lassign [$matLib applyHomography $nextH_modelToDisplay $corner] x y
+                lassign [matLib::applyHomography $nextH_modelToDisplay $corner] x y
                 if {$x < 0 || $x > $displayWidth || $y < 0 || $y > $displayHeight} {
                     # Tag corner is outside display bounds; skip this
                     # update.
@@ -322,7 +320,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                 cameraCorner [dict get $projectedTag p] {
                     lassign $cameraCorner cx cy
                     # Predicted camera x and y.
-                    lassign [$matLib applyHomography $H_modelToCameraViaPs $modelCorner] px py
+                    lassign [matLib::applyHomography $H_modelToCameraViaPs $modelCorner] px py
                     set dx [- $cx $px]; set dy [- $cy $py]
                     set err [expr {$dx*$dx + $dy*$dy}]
                     set totalError [+ $totalError $err]
@@ -367,7 +365,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         foreach seenPose [lrange $seenPoses 0 end-1] {
             # Decreasing this threshold to 1 helps with data
             # accuracy. TODO: Use an _older_ frame?
-            if {[$modelLib meanTagsDifference $pose(tags) $seenPose(tags)] > 5} {
+            if {[modelLib::meanTagsDifference $pose::tags $seenPose::tags] > 5} {
                 return
             }
         }
@@ -380,7 +378,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         Require! the calibration poses from camera $camera to display $display are /calibrationPoses/
         if {[llength $calibrationPoses] > 0} {
             set prevCalibrationPose [lindex $calibrationPoses end]
-            if {[$modelLib meanTagsDifference $pose(tags) $prevCalibrationPose(tags)] < 50} {
+            if {[modelLib::meanTagsDifference $pose::tags $prevCalibrationPose::tags] < 50} {
                 return
             }
         }
@@ -388,8 +386,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # Save the pose / camera image to a jpeg (for debugging
         # purposes).
         set imageName "pose-$calibrationId-[llength $calibrationPoses].jpeg"
-        exec mkdir -p "$::env(HOME)/folk-calibration-poses"
-        $jpegLib saveAsJpeg $frame "$::env(HOME)/folk-calibration-poses/$imageName"
+        exec mkdir -p "$env::HOME/folk-calibration-poses"
+        jpegLib::saveAsJpeg $frame "$env::HOME/folk-calibration-poses/$imageName"
         dict set pose imageName $imageName
 
         # OK, let's save this calibration pose.
@@ -421,9 +419,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 }
 
 fn processHomography {H} {
-    package require linalg
-    namespace import ::math::linearalgebra::getelem
-    namespace import ::math::linearalgebra::sub
+    dict assign [import lib/linalg.tcl] getelem
+    dict assign [import lib/linalg.tcl] sub
 
     fn h {i j} { getelem $H [- $j 1] [- $i 1] }
 
@@ -460,19 +457,7 @@ fn processHomography {H} {
 #         Hs     a list of N homographies from camera/projector image
 #                plane -> model plane (for N different poses).
 fn zhangUnrefinedCalibrate {name width height Hs} {
-    package require linalg
-    namespace import ::math::linearalgebra::shape \
-        ::math::linearalgebra::transpose \
-        ::math::linearalgebra::matmul \
-        ::math::linearalgebra::determineSVD \
-        ::math::linearalgebra::mkIdentity \
-        ::math::linearalgebra::solvePGauss \
-        ::math::linearalgebra::getcol \
-        ::math::linearalgebra::norm \
-        ::math::linearalgebra::scale \
-        ::math::linearalgebra::crossproduct \
-        ::math::linearalgebra::add \
-        ::math::linearalgebra::sub
+    dict assign [import lib/linalg.tcl] shape transpose matmul determineSVD mkIdentity solvePGauss getcol norm scale crossproduct add sub
 
     # Try to solve for the camera intrinsics:
 
@@ -574,7 +559,7 @@ fn setCameraToProjectorExtrinsics {modelLib calibrationVar calibrationPoses} {
 
         # TODO: Try using pose estimation instead?
         dict for {id tag} [dict get $calibrationPose model] {
-            if {![$modelLib isProjectedTag $id]} { continue }
+            if {![modelLib::isProjectedTag $id]} { continue }
             set k 0
             foreach v [dict get $tag p] {
                 incr k
@@ -621,9 +606,8 @@ fn setCameraToProjectorExtrinsics {modelLib calibrationVar calibrationPoses} {
 # from a camera detection, `model` with coordinates in meters,
 # `H_modelToDisplay`.
 fn unrefinedCalibrateCameraAndProjector {modelLib matLib calibrationPoses} {
-    package require linalg
-    namespace import ::math::linearalgebra::det
-    namespace import ::math::linearalgebra::scale
+    dict assign [import lib/linalg.tcl] det
+    dict assign [import lib/linalg.tcl] scale
 
     # Just used to get metadata about cam/proj:
     set pose0 [lindex $calibrationPoses 0]
@@ -638,7 +622,7 @@ fn unrefinedCalibrateCameraAndProjector {modelLib matLib calibrationPoses} {
         set tags [dict get $pose tags]
         set pointPairs [list]
         dict for {id cameraTag} $tags {
-            if {![$modelLib isPrintedTag $id]} continue
+            if {![modelLib::isPrintedTag $id]} continue
             set modelTag [dict get $model $id]
             foreach modelCorner [dict get $modelTag p] \
                 cameraCorner [dict get $cameraTag p] {
@@ -646,7 +630,7 @@ fn unrefinedCalibrateCameraAndProjector {modelLib matLib calibrationPoses} {
                 }
         }
 
-        set H [$matLib estimateHomography $pointPairs]
+        set H [matLib::estimateHomography $pointPairs]
         if {[det $H] < 0} {
             set H [scale -1 $H]
         }
@@ -658,7 +642,7 @@ fn unrefinedCalibrateCameraAndProjector {modelLib matLib calibrationPoses} {
     set cameraWidth [dict get $pose0 cameraWidth]
     set cameraHeight [dict get $pose0 cameraHeight]
     set cameraCalibration [zhangUnrefinedCalibrate \
-                               $cameraName $cameraWidth $cameraHeight \
+                               cameraName::$cameraWidth $cameraHeight \
                                $Hs_modelToCamera]
     puts "\n======================\n"
 
@@ -670,9 +654,9 @@ fn unrefinedCalibrateCameraAndProjector {modelLib matLib calibrationPoses} {
         set pointPairs [list]
         set model [dict get $pose model]
         dict for {id modelTag} $model {
-            if {![$modelLib isProjectedTag $id]} continue
+            if {![modelLib::isProjectedTag $id]} continue
             foreach modelCorner [dict get $modelTag p] {
-                set displayCorner [$matLib applyHomography $H_modelToDisplay $modelCorner]
+                set displayCorner [matLib::applyHomography $H_modelToDisplay $modelCorner]
                 lappend pointPairs [list {*}$modelCorner {*}$displayCorner]
             }
         }
@@ -688,8 +672,8 @@ fn unrefinedCalibrateCameraAndProjector {modelLib matLib calibrationPoses} {
     set projectorWidth [dict get $pose0 displayWidth]
     set projectorHeight [dict get $pose0 displayHeight]
     set projectorCalibration [zhangUnrefinedCalibrate \
-                                  $projectorName \
-                                  $projectorWidth $projectorHeight \
+                                  projectorName::\
+                                  projectorWidth::$projectorHeight \
                                   $Hs_modelToDisplay]
     puts "\n======================\n"
 
@@ -718,9 +702,9 @@ When the calibration model library is /modelLib/ &\
     puts ""
 
     set calibration [{*}$refineCalibration \
-                         $modelLib $matLib \
+                         modelLib::$matLib \
                          [fn setCameraToProjectorExtrinsics] \
-                         $calibrationPoses $calibration]
+                         calibrationPoses::$calibration]
     puts "======== Refined calibration intrinsics ========="
 
     puts "."

@@ -34,7 +34,7 @@ set defaults { textScale 0.01 }
 When /someone/ claims /editor/ is an editor {
     Claim $editor is an editor with {*}$defaults
     When /nobody/ has created editor $editor &\
-         $editor points up with length 0.3 at /program/ {
+         editor::points up with length 0.3 at /program/ {
         Wish tag $editor is stabilized
         Wish tag $program is stabilized
         Claim editor $editor has selected program $program
@@ -91,7 +91,7 @@ When /editor/ is an editor with /...options/ {
          editor $editor has margin /margin/ &\
          editor $editor has selected program /program/ &\
          editor $editor on program /program/ has font options with /...options/ {
-        Claim editor $editor has viewport size [$utils editorSizeInCharacters $margin $geom $options]
+        Claim editor $editor has viewport size [utils::editorSizeInCharacters $margin $geom $options]
     }
 
     # Load in defaults for the editor if it hasn't been initialized
@@ -172,16 +172,16 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                 set selEnd [max $selAnchor $cursor]
 
                 if {[dict exists $options printable]} {
-                    lassign [$utils replaceRange $code $selStart $selEnd [dict get $options printable]] code cursor maxCursorX
+                    lassign [utils::replaceRange $code $selStart $selEnd [dict get $options printable]] code cursor maxCursorX
                     set selAnchor ""
                     set selectionHandled true
                 } elseif {$key eq "Delete" || $key eq "Remove"} {
-                    lassign [$utils replaceRange $code $selStart $selEnd ""] code cursor maxCursorX
+                    lassign [utils::replaceRange $code $selStart $selEnd ""] code cursor maxCursorX
                     set selAnchor ""
                     set selectionHandled true
                 } elseif {$key eq "Return"} {
                     # Delete selection, then fall through to Return handler
-                    lassign [$utils replaceRange $code $selStart $selEnd ""] code cursor maxCursorX
+                    lassign [utils::replaceRange $code $selStart $selEnd ""] code cursor maxCursorX
                     set selAnchor ""
                 }
             }
@@ -190,32 +190,32 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                 if {$hasShift && $isNavKey} {
                     # Shift+Arrow: extend selection
                     if {$selAnchor eq ""} { set selAnchor $cursor }
-                    lassign [$utils handleNavigation $key $code $cursor $maxCursorX] cursor maxCursorX
+                    lassign [utils::handleNavigation $key $code $cursor $maxCursorX] cursor maxCursorX
                 } elseif {[dict exists $options printable]} {
-                    lassign [$utils insertText $code $cursor [dict get $options printable]] code cursor maxCursorX
+                    lassign [utils::insertText $code $cursor [dict get $options printable]] code cursor maxCursorX
                 } else {
                     # Regular navigation clears selection
                     if {$isNavKey} { set selAnchor "" }
 
                     # general editor functionality
-                    lassign [$utils handleNavigation $key $code $cursor $maxCursorX] cursor maxCursorX
-                    lassign [$utils handleRemovalAndReturn $key $code $cursor $maxCursorX] code cursor maxCursorX
+                    lassign [utils::handleNavigation $key $code $cursor $maxCursorX] cursor maxCursorX
+                    lassign [utils::handleRemovalAndReturn $key $code $cursor $maxCursorX] code cursor maxCursorX
 
                     # specific editor functionality
                     switch $key {
                         Control_c {
                             if {$selAnchor ne ""} {
-                                set clipText [$utils getSelectedText $code $selAnchor $cursor]
+                                set clipText [utils::getSelectedText $code $selAnchor $cursor]
                                 Hold! -key clipboard-of:$editor Claim editor $editor has clipboard $clipText
                             }
                         }
                         Control_x {
                             if {$selAnchor ne ""} {
-                                set clipText [$utils getSelectedText $code $selAnchor $cursor]
+                                set clipText [utils::getSelectedText $code $selAnchor $cursor]
                                 Hold! -key clipboard-of:$editor Claim editor $editor has clipboard $clipText
                                 set selStart [min $selAnchor $cursor]
                                 set selEnd [max $selAnchor $cursor]
-                                lassign [$utils replaceRange $code $selStart $selEnd ""] code cursor maxCursorX
+                                lassign [utils::replaceRange $code $selStart $selEnd ""] code cursor maxCursorX
                                 set selAnchor ""
                             }
                         }
@@ -224,10 +224,10 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                                 if {$selAnchor ne ""} {
                                     set selStart [min $selAnchor $cursor]
                                     set selEnd [max $selAnchor $cursor]
-                                    lassign [$utils replaceRange $code $selStart $selEnd $clipboard] code cursor maxCursorX
+                                    lassign [utils::replaceRange $code $selStart $selEnd $clipboard] code cursor maxCursorX
                                     set selAnchor ""
                                 } else {
-                                    lassign [$utils replaceRange $code $cursor $cursor $clipboard] code cursor maxCursorX
+                                    lassign [utils::replaceRange $code $cursor $cursor $clipboard] code cursor maxCursorX
                                 }
                             }
                         }
@@ -336,7 +336,7 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                     Claim editor buffer for $program is $code
             }
 
-            lassign [$utils cursorToXy $code $cursor] cursorX cursorY
+            lassign [utils::cursorToXy $code $cursor] cursorX cursorY
             # Be sure to have at least two characters on the left, so we can
             # see what we're removing.
             if {[- $cursorX 2] < $vpX} {
@@ -373,7 +373,7 @@ Subscribe: save code on editor /editor/ {
         set programBase [regsub {\.folk$} $program ""]
         set editedPath "$programDir/[set programBase].folk.edited"
         file mkdir [file dirname $editedPath]
-        set fp [open $editedPath w]
+        set fp [fopen $editedPath w]
         puts -nonewline $fp $programCode
         close $fp
 
@@ -394,10 +394,10 @@ When /editor/ is an editor with /...anything/ &\
      editor /editor/ on program /program/ has font options with /...textOptions/ {
     lassign $vpPos vpX vpY
 
-    lassign [$utils cursorToXy $code $cursor] cursorX cursorY
+    lassign [utils::cursorToXy $code $cursor] cursorX cursorY
 
     set textScale [dict get $textOptions scale]
-    set advance [$utils getAdvance $textScale]
+    set advance [utils::getAdvance $textScale]
 
     set offsetX $(($cursorX - $vpX) * $advance)
     set offsetY $(($cursorY - $vpY) * $textScale)

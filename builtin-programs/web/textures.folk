@@ -2,12 +2,12 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
      the GPU draw library is /drawLib/ &\
      the GPU VMA DLL is /vmaDll/ &\
      the GPU texture library is /gpuTextureLib/ {
-    set cc [C]
-    $cc endcflags -lpng
-    $cc cflags -I./vendor
-    $cc endcflags $vmaDll
-    $cc include <png.h>
-    $cc code {
+    set cc [dict link $C {}]
+    cc::addendcflags -lpng
+    cc::addcflags -I./vendor
+    cc::addendcflags $vmaDll
+    cc::include <png.h>
+    cc::addcode {
         #define VOLK_IMPLEMENTATION
         #include "volk/volk.h"
 
@@ -19,22 +19,22 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
     }
 
     # HACK: to make gpuLib extend properly
-    $cc typedef {struct PushConstantsEncoder} PushConstantsEncoder
-    $cc typedef {struct Pipeline} Pipeline
-    $cc typedef {struct VmaAllocation_T*} VmaAllocation
-    $cc argtype VmaAllocation {
+    cc::typedef {struct PushConstantsEncoder} PushConstantsEncoder
+    cc::typedef {struct Pipeline} Pipeline
+    cc::typedef {struct VmaAllocation_T*} VmaAllocation
+    cc::argtype VmaAllocation {
         VmaAllocation $argname;
         sscanf(Jim_String($obj), "(VmaAllocation) %p", &$argname);
     }
-    $cc rtype VmaAllocation {
+    cc::rtype VmaAllocation {
         char buf[100];
         snprintf(buf, 100, "(VmaAllocation) %p", $rvalue);
-        $robj = Jim_NewStringObj(interp, buf, -1);
+        robj::= Jim_NewStringObj(interp, buf, -1);
     }
-    $cc extend $gpuLib
-    $cc extend $imageLib
-    $cc extend $gpuTextureLib
-    $cc proc texturesLibInit {} void {
+    cc::extend $gpuLib
+    cc::extend $imageLib
+    cc::extend $gpuTextureLib
+    cc::proc texturesLibInit {} void {
         volkInitialize();
         volkLoadInstanceOnly(*instance_ptr());
 
@@ -42,7 +42,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         volkLoadDevice(device);
     }
 
-    $cc proc copyTextureFromGpu {GpuTextureHandle han} Image {
+    cc::proc copyTextureFromGpu {GpuTextureHandle han} Image {
         GpuTextureBlock* block = getGpuTexture(han);
         if (!block->alive) {
             return (Image){0};
@@ -145,7 +145,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         return im;
     }
 
-    $cc code {
+    cc::addcode {
         struct WriteState {
             uint8_t* buffer;
             size_t* size; 
@@ -156,7 +156,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
             *state->size += length;
         }
     }
-    $cc proc imageToPngBuffer {Image im size_t* outSize} uint8_t* {
+    cc::proc imageToPngBuffer {Image im size_t* outSize} uint8_t* {
         size_t bufferSize = im.width * im.height * im.components * 2; // max size estimate
         uint8_t* buffer = malloc(bufferSize);
         *outSize = 0;
@@ -209,7 +209,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         return buffer;
     }
 
-    $cc proc copyAllTexturesFromGpu {} Jim_Obj* {
+    cc::proc copyAllTexturesFromGpu {} Jim_Obj* {
         Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
         for (int i = 0; i < getMaxTextures(); i++) {
             if (getGpuTexture(i)->alive) {
@@ -226,13 +226,13 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         }
         return ret;
     }
-    set texturesLib [$cc compile]
-    $texturesLib texturesLibInit
+    set texturesLib [cc::compile]
+    texturesLib::texturesLibInit
 
     Wish the web server handles route {/textures} with handler {
         package require base64
 
-        set images [$texturesLib copyAllTexturesFromGpu]
+        set images [texturesLib::copyAllTexturesFromGpu]
 
         html [subst {
             <html>

@@ -165,10 +165,10 @@ Wish the web server handles route "/new" with nav "<button>New program</button>"
    `);
     ws.hold('quad', tcl`
       package require linalg
-      namespace import ::math::linearalgebra::add
-      namespace import ::math::linearalgebra::sub
-      namespace import ::math::linearalgebra::matmul
-      namespace import ::math::linearalgebra::scale
+      dict assign [import lib/linalg.tcl] add
+      dict assign [import lib/linalg.tcl] sub
+      dict assign [import lib/linalg.tcl] matmul
+      dict assign [import lib/linalg.tcl] scale
 
       Require! the quad library is /quadLib/
       Require! display /disp/ has width /displayWidth/ height /displayHeight/
@@ -235,7 +235,7 @@ Wish the web server handles route "/new" with nav "<button>New program</button>"
       ]
 
       Claim ${program} has quad \
-          [$quadLib create "display $disp" $rotated_vertices]
+          [quadLib::create "display $disp" $rotated_vertices]
   `);
   }
   function handleSave() {

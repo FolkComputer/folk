@@ -1,12 +1,12 @@
 When the image library is /imageLib/ {
-    set cc [C]
-    $cc extend $imageLib
-    $cc cflags -I./vendor/gifdec
-    $cc endcflags ./vendor/gifdec/gifdec.c -fPIC
-    $cc include "gifdec.h"
-    $cc include <stdlib.h>
+    set cc [dict link $C {}]
+    cc::extend $imageLib
+    cc::addcflags -I./vendor/gifdec
+    cc::addendcflags ./vendor/gifdec/gifdec.c -fPIC
+    cc::include "gifdec.h"
+    cc::include <stdlib.h>
 
-    $cc proc loadGif {char* filename} Jim_Obj* {
+    cc::proc loadGif {char* filename} Jim_Obj* {
         gd_GIF *gif = gd_open_gif(filename);
         if (!gif) {
             FOLK_ERROR("loadGif: Failed to open %s", filename);
@@ -28,7 +28,7 @@ When the image library is /imageLib/ {
 
             // Box the Image struct into a Tcl object
             Jim_Obj *imObj;
-            $[$cc ret Image imObj im]
+            $[cc::ret Image imObj im]
             Jim_ListAppendElement(interp, framesList, imObj);
 
             // gifdec delay is in 1/100s of a second. Convert to milliseconds.
@@ -47,6 +47,6 @@ When the image library is /imageLib/ {
         return result;
     }
 
-    set gifLib [$cc compile]
+    set gifLib [cc::compile]
     Claim the gif library is $gifLib
 }

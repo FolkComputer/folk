@@ -13,34 +13,34 @@
 #
 #    Wish to play audio /home/folk/sounds/drums.wav
 
-set cc [C]
-$cc cflags -I./vendor/miniaudio
+set cc [dict link $C {}]
+cc::addcflags -I./vendor/miniaudio
 
-if {![catch {exec which sclang}]} {
+if {[catch {exec which sclang}] == 0} {
     # HACK: We're running msuic.folk and therefore are running JACK,
     # so we should force miniaudio to not use ALSA directly (because
     # that won't work).
-    $cc code {
+    cc::addcode {
         #define MA_NO_ALSA
         #define MA_NO_PULSEAUDIO
     }
 }
-$cc code {
+cc::addcode {
    #define MINIAUDIO_IMPLEMENTATION
 }
 
-$cc include <pthread.h>
-$cc include <stdio.h>
-$cc include <stdint.h>
-$cc include <stdlib.h>
-$cc include <unistd.h>
-$cc include <miniaudio.h>
+cc::include <pthread.h>
+cc::include <stdio.h>
+cc::include <stdint.h>
+cc::include <stdlib.h>
+cc::include <unistd.h>
+cc::include <miniaudio.h>
 
-if {$::tcl_platform(os) ne "Darwin"} {
-    $cc endcflags -lpthread -lm -ldl
+if {$tcl_platform::os ne "Darwin"} {
+    cc::addendcflags -lpthread -lm -ldl
 }
 
-$cc code {
+cc::addcode {
     static ma_context     g_ctx;
     static ma_engine      g_engine;
     static ma_sound_group g_group;
@@ -241,7 +241,7 @@ $cc code {
     }
 }
 
-$cc proc audioInit {} bool {
+cc::proc audioInit {} bool {
     pthread_mutex_lock(&g_state_mtx);
     bool success = audio_init_impl();
     pthread_mutex_unlock(&g_state_mtx);
@@ -254,7 +254,7 @@ $cc proc audioInit {} bool {
     return false;
 }
 
-$cc proc audioStop {ma_sound* target} void {
+cc::proc audioStop {ma_sound* target} void {
     SoundNode* to_free = NULL;
     ma_sound* snd = NULL;
 
@@ -293,7 +293,7 @@ $cc proc audioStop {ma_sound* target} void {
     free(to_free);
 }
 
-$cc proc playSound {char* path} ma_sound* {
+cc::proc playSound {char* path} ma_sound* {
     ma_sound* snd = (ma_sound*)malloc(sizeof *snd);
 
     if (!snd) {
@@ -341,17 +341,17 @@ $cc proc playSound {char* path} ma_sound* {
 }
 
 try {
-    set audioLib [$cc compile]
-    set success [$audioLib audioInit]
+    set audioLib [cc::compile]
+    set success [audioLib::audioInit]
 
     if {!$success} {
-        puts stderr "audio: init failed"
+        puts $realStderr "audio: init failed"
         return
     }
 
     Claim the audio library is $audioLib
 } on error e {
-    puts stderr "audio: compile failed: $e"
+    puts $realStderr "audio: compile failed: $e"
 }
 
 When the audio library is /audioLib/ &\
@@ -360,7 +360,7 @@ When the audio library is /audioLib/ &\
     # Check if the sound file exists in the user-programs/$hostname/sounds directory
     # or in the working directory's assets/sounds subdirectory. Otherwise, assume
     # it's an absolute path.
-    proc resolveSoundPath {filename} {
+    fn resolveSoundPath {filename} {
         set scriptDir [file dirname [info script]]
         set projectRoot [pwd]
         set hostname [info hostname]
@@ -378,19 +378,19 @@ When the audio library is /audioLib/ &\
     set path [resolveSoundPath $sound]
 
     if {![file exists $path]} {
-        puts stderr "audio: File not found '$path'"
+        puts $realStderr "audio: File not found '$path'"
         return
     }
 
-    set handle [$audioLib playSound $path]
+    set handle [audioLib::playSound $path]
 
     if {$handle == 0} {
-        puts stderr "audio: Failed to play '$path'"
+        puts $realStderr "audio: Failed to play '$path'"
         return
     }
 
     On unmatch {
         puts "audio: stopping audio '$path'"
-        $audioLib audioStop $handle
+        audioLib::audioStop $handle
     }
 }

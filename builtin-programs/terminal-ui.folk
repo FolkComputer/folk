@@ -1,12 +1,12 @@
 # Manage terminal UI for Folk.
 puts $realStdout "Folk Computer (pid [pid])."
-set host $([string match "*.local" $::thisNode] ? $::thisNode : "$::thisNode.local")
+if {[string match "*.local" $::thisNode]} { set host $::thisNode } else { set host "$::thisNode.local" }
 puts $realStdout "Web interface at: http://$host:4273/"
 puts $realStdout ""
 
 # Don't run the watcher process if we're not literally at a terminal
 # (if we're running on systemd, for instance.)
-if {$::env(TERM) eq "dumb"} {
+if {$env::TERM eq "dumb"} {
     return
 }
 
@@ -26,11 +26,11 @@ set startMs [clock milliseconds]
 while true {
     set elapsedMs [expr {[clock milliseconds] - $startMs}]
     set settled [expr {$elapsedMs > 60000}]
-    after [expr {$settled ? 500 : 40}]
+    sleep [expr {$settled ? 0.5 : 0.04}]
 
-    set results [lsort -command {apply {{a b} {
+    set results [lsort -command {apply [fn {a b} {
         string compare [dict get $a program] [dict get $b program]
-    }}} [Query! /program/ has program code /programCode/]]
+    }]} [Query! /program/ has program code /programCode/]]
 
     # Build groups: dict mapping dirname -> list of {status basename}
     set groups [dict create]

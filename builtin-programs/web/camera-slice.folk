@@ -7,7 +7,7 @@ When the jpeg library is /jpegLib/ {
         set found false
         for {set i 0} {$i < 100} {incr i} {
             ForEach! $id has camera slice /slice/ {
-                $jpegLib saveAsJpeg $slice $filename
+                jpegLib::saveAsJpeg $slice $filename
                 set found true
 
                 # HACK: there's race risk here
@@ -22,7 +22,7 @@ When the jpeg library is /jpegLib/ {
         }
 
         set fsize [file size $filename]
-        set fd [open $filename r]
+        set fd [fopen $filename r]
         fconfigure $fd -translation binary
         set data [read $fd $fsize]
         close $fd

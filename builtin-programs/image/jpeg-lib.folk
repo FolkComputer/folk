@@ -1,16 +1,16 @@
 When the image library is /imageLib/ {
-set cc [C]
-$cc extend $imageLib
-$cc endcflags -lturbojpeg
-$cc include <stdlib.h>
-$cc include <string.h>
+set cc [dict link $C {}]
+cc::extend $imageLib
+cc::addendcflags -lturbojpeg
+cc::include <stdlib.h>
+cc::include <string.h>
 
-$cc struct Jpeg {
+cc::struct Jpeg {
     uint8_t* start;
     size_t length;
 }
 
-$cc code {
+cc::addcode {
     #undef EXTERN
     #include <turbojpeg.h>
     #include <stdint.h>
@@ -79,7 +79,7 @@ jpeg(FILE* dest, uint8_t* data, uint32_t components, uint32_t bytesPerRow, uint3
 
 }
 
-$cc proc jpegDimensions {Jpeg jpeg} Jim_Obj* {
+cc::proc jpegDimensions {Jpeg jpeg} Jim_Obj* {
     tjhandle handle = tjInitDecompress();
     if (handle == NULL) {
         FOLK_ERROR("jpegDimensions: Failed to initialize decompressor");
@@ -96,18 +96,18 @@ $cc proc jpegDimensions {Jpeg jpeg} Jim_Obj* {
     return Jim_NewListObj(interp, elems, 2);
 }
 
-$cc proc jpegData {Jpeg jpeg} Jim_Obj* {
+cc::proc jpegData {Jpeg jpeg} Jim_Obj* {
     return Jim_NewStringObj(interp, (char *)jpeg.start, jpeg.length);
 }
 
-$cc proc saveAsJpeg {Image im char* filename} void {
+cc::proc saveAsJpeg {Image im char* filename} void {
     FILE* out = fopen(filename, "w");
     FOLK_ENSURE(out != NULL);
     jpeg(out, im.data, im.components, im.bytesPerRow, im.width, im.height, 100);
     fclose(out);
 }
 
-$cc proc loadJpeg {char* filename} Image {
+cc::proc loadJpeg {char* filename} Image {
     FILE* file = fopen(filename, "rb");
     if (!file) {
         FOLK_ERROR("Error opening file: %s", filename);
@@ -164,7 +164,7 @@ $cc proc loadJpeg {char* filename} Image {
     return ret;
 }
 
-$cc proc jpegSubimage {Jpeg jpeg double x double y double subwidth double subheight} Jpeg {
+cc::proc jpegSubimage {Jpeg jpeg double x double y double subwidth double subheight} Jpeg {
     tjhandle handle = tjInitTransform();
     if (handle == NULL) {
         FOLK_ERROR("jpegSubimage: Failed to init transform");
@@ -245,7 +245,7 @@ $cc proc jpegSubimage {Jpeg jpeg double x double y double subwidth double subhei
     };
 }
 
-$cc proc jpegDecompressGray {Jpeg jpeg int width int height int uniq} Image {
+cc::proc jpegDecompressGray {Jpeg jpeg int width int height int uniq} Image {
     tjhandle handle = tjInitDecompress();
     if (handle == NULL) {
         FOLK_ERROR("cameraDecompressGray: Failed to initialize decompressor");
@@ -270,7 +270,7 @@ $cc proc jpegDecompressGray {Jpeg jpeg int width int height int uniq} Image {
     return dest;
 }
 
-$cc proc jpegDecompressRGB {Jpeg jpeg int width int height int uniq} Image {
+cc::proc jpegDecompressRGB {Jpeg jpeg int width int height int uniq} Image {
     tjhandle handle = tjInitDecompress();
     if (handle == NULL) {
         FOLK_ERROR("jpegDecompressRGB: Failed to initialize decompressor");
@@ -292,6 +292,6 @@ $cc proc jpegDecompressRGB {Jpeg jpeg int width int height int uniq} Image {
 }
 
 
-set jpegLib [$cc compile]
+set jpegLib [cc::compile]
 Claim the jpeg library is $jpegLib
 }

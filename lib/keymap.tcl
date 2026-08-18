@@ -1,7 +1,7 @@
 namespace eval keymap {
     # Tcl implementation using loadkeys/dumpkeys
     # needs debian packages: console-data
-    proc _fillRange {range} {
+    fn _fillRange {range} {
         lassign [split $range -] from to
         if {$to eq ""} {return $from}
 
@@ -12,7 +12,7 @@ namespace eval keymap {
         return $out
     }
 
-    proc _parseKey {key} {
+    fn _parseKey {key} {
         if {$key eq "VoidSymbol"} return
 
         if {[string index $key 0] eq "+"} {
@@ -22,7 +22,7 @@ namespace eval keymap {
         return $key
     }
 
-    proc _parseUnicode {key} {
+    fn _parseUnicode {key} {
         switch [string index $key 0] {
             "U" {
                 set key 0x[string range $key 2 end]
@@ -42,7 +42,7 @@ namespace eval keymap {
         return [format %c $key]
     }
 
-    proc load {name} {
+    fn load {name} {
         try {
             exec kbd_mode -u $name
         } on error e {
@@ -104,7 +104,7 @@ namespace eval keymap {
 
     # takes km, keycode and mod-bitfield, returns [ksym char] tuple
     # char is printable representation of ksym, or "" if unprintable
-    proc resolve {km code mod} {
+    fn resolve {km code mod} {
         lassign $km ksyms chars
         set kk "$code $mod"
 
@@ -112,7 +112,7 @@ namespace eval keymap {
         return [list [dict get $ksyms $kk] [dict getdef $chars $kk ""]]
     }
 
-    proc dump {km} {
+    fn dump {km} {
         lassign $km ksyms _
         set range 0-15
         puts "keymap $range"
@@ -124,7 +124,7 @@ namespace eval keymap {
         }
     }
 
-    proc destroy {km} {} ;# for compatibility with C impl
+    fn destroy {km} {} ;# for compatibility with C impl
     namespace export load dump resolve destroy
 
     variable modWeights {

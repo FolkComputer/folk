@@ -6,9 +6,9 @@ When the jpeg library is /jpegLib/ {
             StatementAcquire! $__ref
 
             set filename "/tmp/web-image-frame.jpg"
-            $jpegLib saveAsJpeg $im $filename
+            jpegLib::saveAsJpeg $im $filename
             set fsize [file size $filename]
-            set fd [open $filename r]
+            set fd [fopen $filename r]
             fconfigure $fd -translation binary
             set imageData [read $fd $fsize]
             close $fd

@@ -28,7 +28,7 @@ puts "apriltags: Building libapriltag..."
 exec cmake --build vendor/apriltag/build --target apriltag \
     >@stdout 2>@stderr
 
-if {$::tcl_platform(os) eq "darwin"} {
+if {$tcl_platform::os eq "darwin"} {
     if {![file exists vendor/apriltag/build/libapriltag.so]} {
         exec ln -sf libapriltag.dylib vendor/apriltag/build/libapriltag.so
     }
@@ -41,32 +41,32 @@ if {$::tcl_platform(os) eq "darwin"} {
 puts "apriltags: libapriltag built."
 
 fn configCcWithLibapriltag {cc} {
-    $cc cflags -I./vendor/apriltag
-    $cc endcflags -Wl,-rpath,[pwd]/vendor/apriltag/build \
+    cc::addcflags -I./vendor/apriltag
+    cc::addendcflags -Wl,-rpath,[pwd]/vendor/apriltag/build \
         ./vendor/apriltag/build/libapriltag.so
 }
 Claim libapriltag has been built with config [fn configCcWithLibapriltag]
 
 fn makeAprilTagDetector {TAG_FAMILY QUAD_DECIMATE NTHREADS} {
-    set cc [C]
-    $cc extend $imageLib
+    set cc [dict link $C {}]
+    cc::extend $imageLib
     configCcWithLibapriltag $cc
-    $cc include <apriltag.h>
-    $cc include <$TAG_FAMILY.h>
-    $cc include <math.h>
-    $cc code {
+    cc::include <apriltag.h>
+    cc::include <$TAG_FAMILY.h>
+    cc::include <math.h>
+    cc::addcode {
         static apriltag_detector_t *td;
         static apriltag_family_t *tf;
     }
 
-    $cc proc detectInit {} void {
+    cc::proc detectInit {} void {
         td = apriltag_detector_create();
         tf = ${TAG_FAMILY}_create();
         apriltag_detector_add_family_bits(td, tf, 3);
         td->quad_decimate = ${QUAD_DECIMATE};
         td->nthreads = ${NTHREADS};
     }
-    $cc proc detect {Image gray} Jim_Obj* {
+    cc::proc detect {Image gray} Jim_Obj* {
         FOLK_ENSURE(gray.components == 1 || gray.components == 3);
         uint8_t* grayBuf = gray.data;
         if (gray.components == 3) {
@@ -104,13 +104,13 @@ fn makeAprilTagDetector {TAG_FAMILY QUAD_DECIMATE NTHREADS} {
         Jim_Obj* result = Jim_NewListObj(interp, detectionObjs, detectionCount);
         return result;
     }
-    $cc proc detectCleanup {} void {
+    cc::proc detectCleanup {} void {
         ${TAG_FAMILY}_destroy(tf);
         apriltag_detector_destroy(td);
     }
 
-    set detector [$cc compile]
-    $detector detectInit
+    set detector [cc::compile]
+    detector::detectInit
     return $detector
 }
 Claim the AprilTag detector maker is [fn makeAprilTagDetector]
@@ -128,7 +128,7 @@ When /nobody/ wishes to calibrate camera /any/ to display /any/ /...etc/ &\
 
     try -signal {
         set aprilTime [time {
-            set tags [$entireFrameDetector detect $frame]
+            set tags [entireFrameDetector::detect $frame]
         }]
         Hold! -key [list $this entire-frame] \
             Claim [list $this entire-frame] detects tags $tags on camera $camera \
@@ -188,9 +188,9 @@ When /nobody/ wishes to calibrate camera /any/ to display /any/ /...etc/ &\
         set x1 [min [+ $x1 $width] $frameWidth]
         set y1 [min [+ $y1 $height] $frameHeight]
 
-        set subimage [$imageLib slice $frame $x $y [- $x1 $x] [- $y1 $y]]
+        set subimage [imageLib::slice $frame $x $y [- $x1 $x] [- $y1 $y]]
         set aprilTime [+ $aprilTime [baretime {
-            foreach tag [$incrementalDetector detect $subimage] {
+            foreach tag [incrementalDetector::detect $subimage] {
                 dict with tag {
                     set c [vec2 add $c [list $x $y]]
                     set p [lmap corner $p {vec2 add $corner [list $x $y]}]

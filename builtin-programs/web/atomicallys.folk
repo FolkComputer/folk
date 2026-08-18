@@ -1,7 +1,7 @@
 When the db library is /dbLib/ {
   set db [__db]
   Wish the web server handles route "/atomicallys" with handler {
-    set atomicallys [$dbLib atomicallys $db]
+    set atomicallys [dbLib::atomicallys $db]
 
     html [subst {
       <html>

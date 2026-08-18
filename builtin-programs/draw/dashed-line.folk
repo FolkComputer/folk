@@ -54,7 +54,7 @@ When the color map is /colorMap/ &\
         set from [lindex $points $i]
         set to [lindex $points [expr {$i+1}]]
         lappend instances [list $wiResolution $surfaceToClip \
-                               $from $to $width $color $dashlength $dashoffset]
+                               from::$to $width $color $dashlength $dashoffset]
     }
 
     set layer [dict getdef $options layer 0]
