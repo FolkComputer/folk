@@ -1,11 +1,10 @@
-When the GPU Vulkan handle type definer is /defineVulkanHandleType/ &\
+When the GPU Vulkan C prototype is /Vulkan/ &\
      the GPU library is /gpuLib/ &\
      the GPU VMA DLL is /vmaDll/ &\
      the image library is /imageLib/ {
 
-fn defineVulkanHandleType
 
-set gpuc [dict link $C {}]
+set gpuc [dict link $Vulkan {}]
 gpuc::addcflags -I./vendor
 gpuc::addendcflags $vmaDll
 gpuc::addcode {
@@ -34,15 +33,15 @@ gpuc::include <pthread.h>
 gpuc::typedef {struct VmaAllocation_T*} VmaAllocation
 gpuc::argtype VmaAllocation {
     VmaAllocation $argname;
-    sscanf(Jim_String($obj), "(VmaAllocation) %p", &$argname);
+    sscanf(ziclShimString($shim), "(VmaAllocation) %p", &$argname);
 }
 gpuc::rtype VmaAllocation {
     char buf[100];
     snprintf(buf, 100, "(VmaAllocation) %p", $rvalue);
-    robj::= Jim_NewStringObj(interp, buf, -1);
+    $robj = ziclNewString(buf, -1);
 }
 
-local proc vktry {call} { string map {\n " "} [csubst {{
+fn vktry {call} { string map {\n " "} [csubst {{
     VkResult res = $call;
     if (res != VK_SUCCESS) {
         fprintf(stderr, "Failed $call: %s (%d)\n",
@@ -74,8 +73,8 @@ gpuc::define {
     VkDescriptorSetLayout textureDescriptorSetLayout;
     VkDescriptorSet textureDescriptorSet;
 }
-defineVulkanHandleType $gpuc VkDescriptorSetLayout
-defineVulkanHandleType $gpuc VkDescriptorSet
+gpuc::defineHandleType VkDescriptorSetLayout
+gpuc::defineHandleType VkDescriptorSet
 
 gpuc::addcode {
     VkDevice device;
@@ -83,10 +82,10 @@ gpuc::addcode {
 }
 
 gpuc::typedef int GpuTextureHandle
-defineVulkanHandleType $gpuc VkImage
-defineVulkanHandleType $gpuc VkDeviceMemory
-defineVulkanHandleType $gpuc VkImageView
-defineVulkanHandleType $gpuc VkSampler
+gpuc::defineHandleType VkImage
+gpuc::defineHandleType VkDeviceMemory
+gpuc::defineHandleType VkImageView
+gpuc::defineHandleType VkSampler
 gpuc::struct GpuTextureBlock {
     bool _Atomic alive;
     bool _Atomic retiring;
@@ -288,8 +287,8 @@ gpuc::addcode [csubst {
     }
 }]
 
-defineVulkanHandleType $gpuc VkCommandBuffer
-defineVulkanHandleType $gpuc VkFence
+gpuc::defineHandleType VkCommandBuffer
+gpuc::defineHandleType VkFence
 gpuc::proc beginSingleTimeCommands {} VkCommandBuffer {
     VkCommandBuffer commandBuffer = getCommandBuffer();
 

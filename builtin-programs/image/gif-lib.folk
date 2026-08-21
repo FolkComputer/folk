@@ -6,14 +6,14 @@ When the image library is /imageLib/ {
     cc::include "gifdec.h"
     cc::include <stdlib.h>
 
-    cc::proc loadGif {char* filename} Jim_Obj* {
+    cc::proc loadGif {char* filename} Zicl_Value {
         gd_GIF *gif = gd_open_gif(filename);
         if (!gif) {
             FOLK_ERROR("loadGif: Failed to open %s", filename);
         }
 
-        Jim_Obj *framesList = Jim_NewListObj(interp, NULL, 0);
-        Jim_Obj *delaysList = Jim_NewListObj(interp, NULL, 0);
+        Zicl_List* framesList = ziclNewList(NULL, 0);
+        Zicl_List* delaysList = ziclNewList(NULL, 0);
 
         while (gd_get_frame(gif)) {
             Image im;
@@ -26,25 +26,38 @@ When the image library is /imageLib/ {
 
             gd_render_frame(gif, im.data);
 
-            // Box the Image struct into a Tcl object
-            Jim_Obj *imObj;
+            // Box the Image struct into a Zicl value.
+            Zicl_Value imObj;
             $[cc::ret Image imObj im]
-            Jim_ListAppendElement(interp, framesList, imObj);
+            ziclListAppend(framesList, imObj);
+            Zicl_Release(imObj);
 
             // gifdec delay is in 1/100s of a second. Convert to milliseconds.
-            Jim_ListAppendElement(interp, delaysList, Jim_NewIntObj(interp, gif->gce.delay * 10));
+            ziclListAppend(delaysList, Zicl_NewLong(gif->gce.delay * 10));
         }
 
         uint16_t w = gif->width;
         uint16_t h = gif->height;
         gd_close_gif(gif);
 
-        Jim_Obj *result = Jim_NewDictObj(interp, NULL, 0);
-        Jim_DictAddElement(interp, result, Jim_NewStringObj(interp, "frames", -1), framesList);
-        Jim_DictAddElement(interp, result, Jim_NewStringObj(interp, "delays", -1), delaysList);
-        Jim_DictAddElement(interp, result, Jim_NewStringObj(interp, "width", -1), Jim_NewIntObj(interp, w));
-        Jim_DictAddElement(interp, result, Jim_NewStringObj(interp, "height", -1), Jim_NewIntObj(interp, h));
-        return result;
+        Zicl_Dict* result = ziclNewDict(NULL, 0);
+        Zicl_Value framesKey = ziclNewString("frames", -1);
+        Zicl_Value delaysKey = ziclNewString("delays", -1);
+        Zicl_Value widthKey = ziclNewString("width", -1);
+        Zicl_Value heightKey = ziclNewString("height", -1);
+        Zicl_Value framesVal = Zicl_BoxList(framesList);
+        Zicl_Value delaysVal = Zicl_BoxList(delaysList);
+        ziclDictPut(result, framesKey, framesVal);
+        ziclDictPut(result, delaysKey, delaysVal);
+        ziclDictPut(result, widthKey, Zicl_NewLong(w));
+        ziclDictPut(result, heightKey, Zicl_NewLong(h));
+        Zicl_Release(framesKey);
+        Zicl_Release(delaysKey);
+        Zicl_Release(widthKey);
+        Zicl_Release(heightKey);
+        Zicl_Release(framesVal);
+        Zicl_Release(delaysVal);
+        return Zicl_BoxDict(result);
     }
 
     set gifLib [cc::compile]

@@ -4,7 +4,6 @@ When when the CRAFT text detector is /any/ /any/ {
 
 When /someone/ wishes to load the CRAFT text detector &\
      the image uvx argtype definer is /defineImageArgtype/ {
-    fn defineImageArgtype
 
     set py [Uvx --with pillow --with "git+https://github.com/osnr/craft-text-detector.git"]
     defineImageArgtype $py
@@ -39,6 +38,6 @@ When /someone/ wishes to load the CRAFT text detector &\
     }
 
     fn CRAFT {im} { return [py::detectTextBoxes $im] }
-    Claim the CRAFT text detector is [fn CRAFT]
+    Claim the CRAFT text detector is $CRAFT
 }
 

@@ -5,7 +5,6 @@ When the png library is /pngLib/ &\
      the image uvx argtype definer is /defineImageArgtype/ {
     set im [$pngLib loadPng "vendor/fonts/CourierPrimeCode.png"]
 
-    fn defineImageArgtype
 
     set uvx [Uvx --with pillow]
     defineImageArgtype $uvx

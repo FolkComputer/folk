@@ -1,8 +1,8 @@
-When the GPU Vulkan handle type definer is /defineVulkanHandleType/ {
+When the GPU Vulkan C prototype is /Vulkan/ {
 
 
 # VMA (Vulkan Memory Allocator) module:
-set vmac [C++]
+set vmac [C++ $Vulkan]
 vmac::addcflags -I./vendor \
     -Wno-nullability-completeness -Wno-unused-private-field \
     -Wno-unused-variable
@@ -17,9 +17,9 @@ vmac::addcode {
 
     VmaAllocator allocator = VK_NULL_HANDLE;
 }
-defineVulkanHandleType $vmac VkInstance
-defineVulkanHandleType $vmac VkPhysicalDevice
-defineVulkanHandleType $vmac VkDevice
+vmac::defineHandleType VkInstance
+vmac::defineHandleType VkPhysicalDevice
+vmac::defineHandleType VkDevice
 vmac::addcode { extern "C" {
 
 void vmaInit(VkInstance instance, VkPhysicalDevice physicalDevice, VkDevice device,

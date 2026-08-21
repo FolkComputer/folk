@@ -28,9 +28,9 @@ while true {
     set settled [expr {$elapsedMs > 60000}]
     sleep [expr {$settled ? 0.5 : 0.04}]
 
-    set results [lsort -command {apply [fn {a b} {
+    set results [lsort -command [fn {a b} {
         string compare [dict get $a program] [dict get $b program]
-    }]} [Query! /program/ has program code /programCode/]]
+    }] [Query! /program/ has program code /programCode/]]
 
     # Build groups: dict mapping dirname -> list of {status basename}
     set groups [dict create]
@@ -92,18 +92,18 @@ while true {
     }
 
     if {$prevLineCount > 0} {
-        puts $realStdout -nonewline "\033\[${prevLineCount}A\r"
+        puts -nonewline $realStdout "\033\[${prevLineCount}A\r"
     }
-    puts $realStdout -nonewline "\033\[?7l"
+    puts -nonewline $realStdout "\033\[?7l"
     foreach line $lines {
-        puts $realStdout -nonewline "$line\033\[K\n"
+        puts -nonewline $realStdout "$line\033\[K\n"
     }
     # Blank out leftover lines from a previously longer render.
     set extra [expr {$prevLineCount - [llength $lines]}]
     for {set i 0} {$i < $extra} {incr i} {
-        puts $realStdout -nonewline "\033\[K\n"
+        puts -nonewline $realStdout "\033\[K\n"
     }
-    puts $realStdout -nonewline "\033\[?7h"
+    puts -nonewline $realStdout "\033\[?7h"
     if {[llength $lines] > $prevLineCount} {
         set prevLineCount [llength $lines]
     }

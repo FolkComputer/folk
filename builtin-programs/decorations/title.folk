@@ -16,7 +16,6 @@ When the quad library is /quadLib/ &\
      display /disp/ has intrinsics /displayIntrinsics/ &\
      /thing/ has a quad {
 
-    fn quadChange
 
     foreach {label edge textAnchor} {
         titled         top    bottom

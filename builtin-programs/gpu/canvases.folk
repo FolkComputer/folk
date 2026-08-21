@@ -18,7 +18,7 @@ When the GPU library is /gpuLib/ &\
     gpuc::extend -noprocs $pipelineLib
     gpuc::extend $gpuTextureLib
 
-    local proc vktry {call} { string map {\n " "} [csubst {{
+    fn vktry {call} { string map {\n " "} [csubst {{
         VkResult res = $call;
         if (res != VK_SUCCESS) {
             fprintf(stderr, "Failed $call: %s (%d)\n",
@@ -327,7 +327,7 @@ When the GPU library is /gpuLib/ &\
             }
         }
 
-        local proc addToDrawLists {&drawLists pipelineName options} {
+        fn addToDrawLists {&drawLists pipelineName options} {
             upvar gpuCanvasLib gpuCanvasLib
             upvar pipelines pipelines
             upvar missingPipelines missingPipelines

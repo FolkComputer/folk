@@ -12,75 +12,97 @@ set threadMonitorLib [apply [fn {} {
         extern int unsafe_workQueueCopy(WorkQueueItem* into, int maxn, WorkQueue* q);
         extern void traceItem(char* buf, size_t bufsz, WorkQueueItem item);
 
-        Jim_Obj* itemToStringObj(WorkQueueItem item) {
+        Zicl_Value itemToStringObj(WorkQueueItem item) {
             char buf[10000]; traceItem(buf, sizeof(buf), item);
-            return Jim_NewStringObj(interp, buf, -1);
+            return ziclNewString(buf, -1);
         }
     }
-    cc::proc workerTids {} Jim_Obj* {
+    cc::proc workerTids {} Zicl_Value {
         // Fallback on macOS, where we don't have /proc to query all
         // threads of the Folk process.
-        Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
+        Zicl_List* ret = ziclNewList(NULL, 0);
         for (int i = 0; i < threadCount; i++) {
             if (threads[i].tid != 0) {
-                Jim_ListAppendElement(interp, ret,
-                                      Jim_NewIntObj(interp, threads[i].tid));
+                ziclListAppend(ret, Zicl_NewLong(threads[i].tid));
             }
         }
-        return ret;
+        return Zicl_BoxList(ret);
     }
-    cc::proc workerInfo {int threadIndex} Jim_Obj* {
+    cc::proc workerInfo {int threadIndex} Zicl_Value {
         if (threadIndex >= threadCount || threads[threadIndex].tid == 0) {
-            return Jim_NewEmptyStringObj(interp);
+            return ziclNewString("", 0);
         }
         ThreadControlBlock *thread = &threads[threadIndex];
 
-        Jim_Obj* ret = Jim_NewDictObj(interp, NULL, 0);
+        Zicl_Dict* ret = ziclNewDict(NULL, 0);
 
         WorkQueueItem item = thread->currentItem;
-        Jim_DictAddElement(interp, ret, Jim_NewStringObj(interp, "op", -1),
-                           itemToStringObj(item));
+        {
+            Zicl_Value key = ziclNewString("op", -1);
+            Zicl_Value val = itemToStringObj(item);
+            ziclDictPut(ret, key, val);
+            Zicl_Release(key);
+            Zicl_Release(val);
+        }
 
         WorkQueueItem items[100];
         int nitems = unsafe_workQueueCopy(items, 100, thread->workQueue);
-        Jim_Obj* workQueueObj = Jim_NewListObj(interp, NULL, 0);
+        Zicl_List* workQueueList = ziclNewList(NULL, 0);
         for (int i = 0; i < nitems; i++) {
-            Jim_ListAppendElement(interp, workQueueObj,
-                                  itemToStringObj(items[i]));
+            Zicl_Value s = itemToStringObj(items[i]);
+            ziclListAppend(workQueueList, s);
+            Zicl_Release(s);
         }
-        Jim_DictAddElement(interp, ret,
-                           Jim_NewStringObj(interp, "workQueue", -1),
-                           workQueueObj);
+        {
+            Zicl_Value key = ziclNewString("workQueue", -1);
+            Zicl_Value val = Zicl_BoxList(workQueueList);
+            ziclDictPut(ret, key, val);
+            Zicl_Release(key);
+            Zicl_Release(val);
+        }
 
-        Jim_DictAddElement(interp, ret,
-                           Jim_NewStringObj(interp, "isDeactivated", -1),
-                           Jim_NewIntObj(interp, thread->isDeactivated));
+        {
+            Zicl_Value key = ziclNewString("isDeactivated", -1);
+            ziclDictPut(ret, key, Zicl_NewLong(thread->isDeactivated));
+            Zicl_Release(key);
+        }
 
-        Jim_DictAddElement(interp, ret,
-                           Jim_NewStringObj(interp, "currentItemStartTimestamp", -1),
-                           Jim_ObjPrintf("%" PRId64, thread->currentItemStartTimestamp));
+        {
+            Zicl_Value key = ziclNewString("currentItemStartTimestamp", -1);
+            Zicl_Value val;
+            folkZiclAssert(Zicl_NewStringFormatted(&val, "%" PRId64, thread->currentItemStartTimestamp));
+            ziclDictPut(ret, key, val);
+            Zicl_Release(key);
+            Zicl_Release(val);
+        }
 
         int64_t now = timestamp_get(thread->clockid);
-        Jim_DictAddElement(interp, ret,
-                           Jim_NewStringObj(interp, "elapsed", -1),
-                           Jim_NewDoubleObj(interp, (double)(now - thread->currentItemStartTimestamp) / 1000.0));
+        {
+            Zicl_Value key = ziclNewString("elapsed", -1);
+            ziclDictPut(ret, key, Zicl_NewDouble((double)(now - thread->currentItemStartTimestamp) / 1000.0));
+            Zicl_Release(key);
+        }
 
-        Jim_DictAddElement(interp, ret,
-                           Jim_NewStringObj(interp, "_allocs", -1),
-                           Jim_NewDoubleObj(interp, thread->_allocs));
-        Jim_DictAddElement(interp, ret,
-                           Jim_NewStringObj(interp, "_frees", -1),
-                           Jim_NewDoubleObj(interp, thread->_frees));
+        {
+            Zicl_Value key = ziclNewString("_allocs", -1);
+            ziclDictPut(ret, key, Zicl_NewDouble(thread->_allocs));
+            Zicl_Release(key);
+        }
+        {
+            Zicl_Value key = ziclNewString("_frees", -1);
+            ziclDictPut(ret, key, Zicl_NewDouble(thread->_frees));
+            Zicl_Release(key);
+        }
 
-        return ret;
+        return Zicl_BoxDict(ret);
     }
-    cc::proc workerInfoFromTid {int tid} Jim_Obj* {
+    cc::proc workerInfoFromTid {int tid} Zicl_Value {
         for (int i = 0; i < threadCount; i++) {
             if (threads[i].tid == tid) {
                 return workerInfo(i);
             }
         }
-        return Jim_NewEmptyStringObj(interp);
+        return ziclNewString("", 0);
     }
 
     cc::addcode {
@@ -92,8 +114,8 @@ set threadMonitorLib [apply [fn {} {
         return mpmc_queue_available(&globalWorkQueue);
     }
     # Unsafely peeks at the queue.
-    cc::proc globalWorkQueueItems {} Jim_Obj* {
-        Jim_Obj *ret = Jim_NewListObj(interp, NULL, 0);
+    cc::proc globalWorkQueueItems {} Zicl_Value {
+        Zicl_List *ret = ziclNewList(NULL, 0);
 
         size_t head = globalWorkQueue.head;
         for (size_t i = head; i < globalWorkQueue.tail; i++) {
@@ -101,9 +123,11 @@ set threadMonitorLib [apply [fn {} {
             WorkQueueItem *ptr = cell->data;
             WorkQueueItem item = *ptr;
 
-            Jim_ListAppendElement(interp, ret, itemToStringObj(item));
+            Zicl_Value s = itemToStringObj(item);
+            ziclListAppend(ret, s);
+            Zicl_Release(s);
         }
-        return ret;
+        return Zicl_BoxList(ret);
     }
 
     return [cc::compile]

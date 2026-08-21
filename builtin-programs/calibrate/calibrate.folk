@@ -33,7 +33,6 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
     set printedSideLengthMm [string trimright $measurements::tagSideLength mm]
 
-    fn makeAprilTagDetector
     set calibrationTagDetector [makeAprilTagDetector "tagStandard52h13" 2.0 3]
 
     set calibrationId [clock milliseconds]
@@ -703,7 +702,7 @@ When the calibration model library is /modelLib/ &\
 
     set calibration [{*}$refineCalibration \
                          modelLib::$matLib \
-                         [fn setCameraToProjectorExtrinsics] \
+                         $setCameraToProjectorExtrinsics \
                          calibrationPoses::$calibration]
     puts "======== Refined calibration intrinsics ========="
 

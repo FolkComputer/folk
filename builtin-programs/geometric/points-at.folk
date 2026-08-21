@@ -19,7 +19,6 @@ When $rect has quad /quad/ {
 
     dict assign [import lib/linalg.tcl] add sub scale
 
-    fn quadChange
     set scale $l
 
     set quad [quadChange $quad "display $disp"]

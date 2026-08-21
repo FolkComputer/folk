@@ -31,16 +31,13 @@ Claim the db library is [apply [fn {} {
     cc::addcode [lindex [regexp -inline {typedef struct AtomicallyVersion \{.*\} AtomicallyVersion;} $dbC] 0]
     cc::addcode [lindex [regexp -inline {typedef struct Atomically \{.*\} Atomically;} $dbC] 0]
     cc::addcode [lindex [regexp -inline {typedef struct Db \{.*\} Db;} $dbC] 0]
-    cc::argtype StatementRef { StatementRef $argname; sscanf(Jim_String($obj), "s%d:%d", &$argname.idx, &$argname.gen); }
-    cc::argtype MatchRef { MatchRef $argname; sscanf(Jim_String($obj), "m%d:%d", &$argname.idx, &$argname.gen); }
+    cc::argtype StatementRef { StatementRef $argname; sscanf(ziclShimString($shim), "s%d:%d", &$argname.idx, &$argname.gen); }
+    cc::argtype MatchRef { MatchRef $argname; sscanf(ziclShimString($shim), "m%d:%d", &$argname.idx, &$argname.gen); }
 
-    cc::proc clauseToJimObj {Clause* clause} Jim_Obj* {
-        Jim_Obj* termObjs[clause->nTerms];
-        for (int i = 0; i < clause->nTerms; i++) {
-            termObjs[i] = Jim_NewStringObj(interp, termPtr(clause->terms[i]), 
-                                           termLen(clause->terms[i]));
+    cc::addcode {
+        static Zicl_Value clauseToJimObj(Zicl_List* clause) {
+            return Zicl_BoxList(Zicl_BorrowList(clause));
         }
-        return Jim_NewListObj(interp, termObjs, clause->nTerms);
     }
 
     cc::proc statementParentCount {Db* db StatementRef stmtRef} int {
@@ -58,34 +55,36 @@ Claim the db library is [apply [fn {} {
         statementRelease(db, stmt);
         return ret;
     }
-    cc::proc clause {Db* db StatementRef stmtRef} Jim_Obj* {
+    cc::proc clause {Db* db StatementRef stmtRef} Zicl_Value {
         Statement* stmt = statementAcquire(db, stmtRef);
-        if (stmt == NULL) { return Jim_NewStringObj(interp, "(null)", -1); }
-        Jim_Obj* ret = clauseToJimObj(statementClause(stmt));
+        if (stmt == NULL) { return ziclNewString("(null)", -1); }
+        Zicl_Value ret = clauseToJimObj(statementClause(stmt));
         statementRelease(db, stmt);
         return ret;
     }
-    cc::proc childMatches {Db* db StatementRef stmtRef} Jim_Obj* {
+    cc::proc childMatches {Db* db StatementRef stmtRef} Zicl_Value {
         Statement* stmt = statementAcquire(db, stmtRef);
-        if (stmt == NULL) { return Jim_NewEmptyStringObj(interp); }
+        if (stmt == NULL) { return ziclNewString("", 0); }
 
         pthread_mutex_lock(&stmt->childMatchesMutex);
         if (stmt->childMatches == NULL) {
             pthread_mutex_unlock(&stmt->childMatchesMutex);
             statementRelease(db, stmt);
-            return Jim_NewEmptyStringObj(interp);
+            return ziclNewString("", 0);
         }
 
-        int nChildren = 0;
-        Jim_Obj* childObjs[stmt->childMatches->nEdges];
+        Zicl_List* childList = ziclNewList(NULL, 0);
         for (int i = 0; i < stmt->childMatches->nEdges; i++) {
             MatchRef child = { .val = stmt->childMatches->edges[i] };
-            childObjs[nChildren++] = Jim_ObjPrintf("m%d:%d", child.idx, child.gen);
+            Zicl_Value childStr;
+            folkZiclAssert(Zicl_NewStringFormatted(&childStr, "m%d:%d", child.idx, child.gen));
+            ziclListAppend(childList, childStr);
+            Zicl_Release(childStr);
         }
 
         pthread_mutex_unlock(&stmt->childMatchesMutex);
         statementRelease(db, stmt);
-        return Jim_NewListObj(interp, childObjs, nChildren);
+        return Zicl_BoxList(childList);
     }
 
     cc::proc matchAcq {Db* db MatchRef matchRef} Match* {
@@ -111,9 +110,9 @@ Claim the db library is [apply [fn {} {
     cc::addcode {
         #define CHILD_STATEMENTS_REMOVING ((ListOfEdgeTo*)1)
     }
-    cc::proc childStatements {Db* db MatchRef matchRef} Jim_Obj* {
+    cc::proc childStatements {Db* db MatchRef matchRef} Zicl_Value {
         Match* match = matchAcquire(db, matchRef);
-        if (match == NULL) { return Jim_NewStringObj(interp, "", -1); }
+        if (match == NULL) { return ziclNewString("", 0); }
 
         pthread_mutex_lock(&match->childStatementsMutex);
         if (match->childStatements == NULL ||
@@ -121,19 +120,21 @@ Claim the db library is [apply [fn {} {
 
             pthread_mutex_unlock(&match->childStatementsMutex);
             matchRelease(db, match);
-            return Jim_NewEmptyStringObj(interp);
+            return ziclNewString("", 0);
         }
 
-        int nChildren = 0;
-        Jim_Obj* childObjs[match->childStatements->nEdges];
+        Zicl_List* childList = ziclNewList(NULL, 0);
         for (int i = 0; i < match->childStatements->nEdges; i++) {
             StatementRef child = { .val = match->childStatements->edges[i] };
-            childObjs[nChildren++] = Jim_ObjPrintf("s%d:%d", child.idx, child.gen);
+            Zicl_Value childStr;
+            folkZiclAssert(Zicl_NewStringFormatted(&childStr, "s%d:%d", child.idx, child.gen));
+            ziclListAppend(childList, childStr);
+            Zicl_Release(childStr);
         }
 
         pthread_mutex_unlock(&match->childStatementsMutex);
         matchRelease(db, match);
-        return Jim_NewListObj(interp, childObjs, nChildren);
+        return Zicl_BoxList(childList);
     }
 
     cc::proc countAliveStatements {Db* db} int {
@@ -147,8 +148,8 @@ Claim the db library is [apply [fn {} {
       return count;
     }
 
-    cc::proc holds {Db* db} Jim_Obj* {
-        Jim_Obj* retObj = Jim_NewListObj(interp, NULL, 0);
+    cc::proc holds {Db* db} Zicl_Value {
+        Zicl_List* retList = ziclNewList(NULL, 0);
 
         mutexLock(&db->holdsMutex);
         for (int i = 0; i < shlen(db->holds); i++) {
@@ -161,27 +162,29 @@ Claim the db library is [apply [fn {} {
                 continue;
             }
 
-            char* clauseStr = clauseToString(statementClause(stmt));
-            Jim_Obj* holdObjv[] = {
-                Jim_NewStringObj(interp, hold->key, -1),
-                Jim_NewIntObj(interp, hold->version),
-                Jim_ObjPrintf("s%d:%d", hold->statement.idx, hold->statement.gen),
-                Jim_NewStringObj(interp, clauseStr, -1)
-            };
+            const char* clauseStr = ziclListString(statementClause(stmt));
+            Zicl_Value keyStr = ziclNewString(hold->key, -1);
+            Zicl_Value refStr;
+            folkZiclAssert(Zicl_NewStringFormatted(&refStr, "s%d:%d", hold->statement.idx, hold->statement.gen));
+            Zicl_Value clauseValStr = ziclNewString(clauseStr, -1);
             statementRelease(db, stmt);
-            free(clauseStr);
 
-            Jim_Obj* holdObj = Jim_NewListObj(interp, holdObjv,
-                                              sizeof(holdObjv)/sizeof(holdObjv[0]));
-            Jim_ListAppendElement(interp, retObj, holdObj);
+            Zicl_Value holdItems[] = { keyStr, Zicl_NewLong(hold->version), refStr, clauseValStr };
+            Zicl_Value holdVal = Zicl_BoxList(ziclNewList(holdItems, sizeof(holdItems)/sizeof(holdItems[0])));
+            Zicl_Release(keyStr);
+            Zicl_Release(refStr);
+            Zicl_Release(clauseValStr);
+
+            ziclListAppend(retList, holdVal);
+            Zicl_Release(holdVal);
         }
         mutexUnlock(&db->holdsMutex);
 
-        return retObj;
+        return Zicl_BoxList(retList);
     }
 
-    cc::proc atomicallys {Db* db} Jim_Obj* {
-        Jim_Obj* retObj = Jim_NewListObj(interp, NULL, 0);
+    cc::proc atomicallys {Db* db} Zicl_Value {
+        Zicl_List* retList = ziclNewList(NULL, 0);
 
         mutexLock(&db->atomicallysMutex);
         for (int i = 0; i < sizeof(db->atomicallys)/sizeof(db->atomicallys[0]); i++) {
@@ -202,19 +205,21 @@ Claim the db library is [apply [fn {} {
                 latestConvergedNumber = atomically->latestConvergedVersion->number;
             }
 
-            Jim_Obj* atomicallyObjv[] = {
-                Jim_NewStringObj(interp, atomically->key, -1),
-                Jim_NewIntObj(interp, latestConvergedNumber),
-                Jim_NewIntObj(interp, versionCount)
+            Zicl_Value keyStr = ziclNewString(atomically->key, -1);
+            Zicl_Value atomicallyItems[] = {
+                keyStr,
+                Zicl_NewLong(latestConvergedNumber),
+                Zicl_NewLong(versionCount)
             };
+            Zicl_Value atomicallyVal = Zicl_BoxList(ziclNewList(atomicallyItems, sizeof(atomicallyItems)/sizeof(atomicallyItems[0])));
+            Zicl_Release(keyStr);
 
-            Jim_Obj* atomicallyObj = Jim_NewListObj(interp, atomicallyObjv,
-                                              sizeof(atomicallyObjv)/sizeof(atomicallyObjv[0]));
-            Jim_ListAppendElement(interp, retObj, atomicallyObj);
+            ziclListAppend(retList, atomicallyVal);
+            Zicl_Release(atomicallyVal);
         }
         mutexUnlock(&db->atomicallysMutex);
 
-        return retObj;
+        return Zicl_BoxList(retList);
     }
 
     return [cc::compile]

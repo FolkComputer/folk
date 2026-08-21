@@ -107,7 +107,6 @@ static void workQueueResize(WorkQueue* q) {
 #ifdef __SANITIZE_THREAD__
     __tsan_release(q);
 #endif
-    free(a);
     /* printf("resize\n"); */
 }
 

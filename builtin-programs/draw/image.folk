@@ -50,15 +50,17 @@ When the collected results for {/loader/ is an image loader} are /loaders/ {
                 exec curl -s -L -o$im $impath
             }
         }
-        set path [expr {[string index $im 0] eq "/" ?
-                        im::: "$env::HOME/folk-images/$im"}]
+        if {[string index $im 0] eq "/"} {
+            set path $im
+        } else {
+            set path "$env::HOME/folk-images/$im"
+        }
         if {![file exists $path]} {
             set path [file join [pwd] $im]
         }
 
         foreach loaderResult $loaders {
-            set loader [dict get $loaderResult loader]
-            set result [{*}$loader $path]
+            set result [loaderResult::loader $path]
             if {$result ne {}} {
                 Hold! -key [list cache $impath] \
                     Claim the image path $impath maps to cached image $result
@@ -155,7 +157,6 @@ When the image library is /imageLib/ &\
     # HACK: because we match partially
     if {![info exists options]} { return }
 
-    fn loadImage
     try {
         set im [loadImage $impath 0]
     } on error {e opts} {

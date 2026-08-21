@@ -4,7 +4,6 @@ When the quad library is /quadLib/ &\
      display /proj/ has width /projWidth/ height /projHeight/ &\
      display /proj/ has intrinsics /projectorIntrinsics/ {
         
-    fn quadChange
 
     When tag /id/ has quad /q/ {
     When -atomicallyWithKey [list $id quad] {

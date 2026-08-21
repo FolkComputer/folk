@@ -16,10 +16,10 @@ When the image library is /imageLib/ {
     # (unless minLength is very small).
     cc::proc findImageContours {Image im int threshold double epsilon
                                 double scaleX double scaleY
-                                double minLength} Jim_Obj* {
+                                double minLength} Zicl_Value {
         int w = (int)im.width;
         int h = (int)im.height;
-        if (w < 3 || h < 3) return Jim_NewListObj(interp, NULL, 0);
+        if (w < 3 || h < 3) return Zicl_BoxList(ziclNewList(NULL, 0));
 
         int *F = malloc(sizeof(int) * (size_t)w * (size_t)h);
         for (int y = 0; y < h; y++) {
@@ -33,7 +33,7 @@ When the image library is /imageLib/ {
         Contour *contours = findContours(F, w, h);
         free(F);
 
-        Jim_Obj *outer = Jim_NewListObj(interp, NULL, 0);
+        Zicl_List *outer = ziclNewList(NULL, 0);
         for (ptrdiff_t c = 0; c < arrlen(contours); c++) {
             Point *pts = (epsilon > 0)
                 ? approxPolyDP(contours[c].points, (float)epsilon)
@@ -62,14 +62,15 @@ When the image library is /imageLib/ {
                                 k == 0 ? "{%g %g}" : " {%g %g}",
                                 pts[k].x * scaleX, pts[k].y * scaleY);
             }
-            // Jim_NewStringObjNoAlloc takes ownership of buf.
-            Jim_ListAppendElement(interp, outer,
-                Jim_NewStringObjNoAlloc(interp, buf, (int)off));
+            Zicl_Value contourStr = ziclNewString(buf, (int)off);
+            free(buf);
+            ziclListAppend(outer, contourStr);
+            Zicl_Release(contourStr);
 
             if (epsilon > 0) arrfree(pts);
         }
         freeContours(contours);
-        return outer;
+        return Zicl_BoxList(outer);
     }
 
     set contourLib [cc::compile]

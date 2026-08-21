@@ -39,7 +39,7 @@ When the default program geometry is /defaultGeom/ &\
             set geom [dict get [lindex $results 0] geom]
         }
 
-        local proc dim {x} {
+        fn dim {x} {
             return [expr {[string map {mm ""} $x] / 1000.0}]
         }
         dict for {k v} $geom { dict set geom $k [dim $v] }

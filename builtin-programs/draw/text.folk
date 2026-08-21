@@ -26,9 +26,9 @@ cc::proc vec2f_rotate {vec2f a float radians} vec2f {
         -a.x*sinf(radians) + a.y*cosf(radians)
     };
 }
-cc::proc vec2f_toObj {vec2f a} Jim_Obj* {
-    Jim_Obj *v[] = { Jim_NewDoubleObj(interp, a.x), Jim_NewDoubleObj(interp, a.y) };
-    return Jim_NewListObj(interp, v, 2);
+cc::proc vec2f_toObj {vec2f a} Zicl_Value {
+    Zicl_Value v[] = { Zicl_NewDouble(a.x), Zicl_NewDouble(a.y) };
+    return Zicl_BoxList(ziclNewList(v, 2));
 }
 cc::proc charOrFallback {Font* font int ch} int {
     if (ch < ' ' || ch >= sizeof(font->glyphInfos)/sizeof(font->glyphInfos[0])) {
@@ -52,11 +52,11 @@ cc::proc textExtent {Font* font char* text float scale} vec2f {
     }
     return (vec2f) { width, y };
 }
-cc::proc textShape {Jim_Obj* viewport Jim_Obj* surfaceToClip
+cc::proc textShape {Zicl_Value viewport Zicl_Value surfaceToClip
                     Font* font char* text
                     float x0 float y0 float scale
                     float blockAnchorX float blockAnchorY float lineAnchorX float lineAnchorY
-                    float radians Jim_Obj* color} Jim_Obj* {
+                    float radians Zicl_Value color} Zicl_Value {
     vec2f extent = textExtent(font, text, scale);
     float em = scale;
 
@@ -78,17 +78,17 @@ cc::proc textShape {Jim_Obj* viewport Jim_Obj* surfaceToClip
     }
 
     // Get the string representations of the shared per-label args once,
-    // before the loop, so we don't call Jim_GetString (which may trigger
-    // UpdateStringOfDouble for every float) N times per glyph.
-    const char* sc_str    = Jim_GetString(surfaceToClip, NULL);
-    const char* color_str = Jim_GetString(color, NULL);
-    const char* vp_str    = Jim_GetString(viewport, NULL);
+    // before the loop, so we don't re-render each value's string form N
+    // times per glyph.
+    const char* sc_str    = ziclString(surfaceToClip);
+    const char* color_str = ziclString(color);
+    const char* vp_str    = ziclString(viewport);
     float atlas_w = (float)font->atlasImage.width;
     float atlas_h = (float)font->atlasImage.height;
 
     // Build the instances list as a pre-formatted Tcl list string.
     // Each element is a brace-enclosed instance: {{sc} {atlas} {color} {vp} {a} {b} {c} {d} n}
-    // This avoids Jim ever calling UpdateStringOfList / ListElementQuotingType on instances.
+    // This avoids ever building a real list object out of the instances.
     int textLen = strlen(text);
     int bufSize = (textLen + 1) * 320;
     char* buf = (char*)malloc(bufSize);
@@ -155,7 +155,7 @@ cc::proc textShape {Jim_Obj* viewport Jim_Obj* surfaceToClip
         relCharX += glyphInfo->advance * em;
     }
 
-    Jim_Obj* result = Jim_NewStringObj(interp, buf, pos);
+    Zicl_Value result = ziclNewString(buf, pos);
     free(buf);
     return result;
 }
@@ -172,7 +172,6 @@ cc::proc fontFree {Font* font} void {
 set fontLib [cc::compile]
 
 When the image loader is /loadImage/ {
-    fn loadImage
     fn loadFont {name} {
         set csvFd [fopen "vendor/fonts/$name.csv" r]; set csv [read $csvFd]; close $csvFd
         set fields [list ]
@@ -202,7 +201,7 @@ When the image loader is /loadImage/ {
             }
         }
 
-        set im [{*}$loadImage "[pwd]/vendor/fonts/$name.png"]
+        set im [loadImage "[pwd]/vendor/fonts/$name.png"]
         Wish the GPU loads image $im as texture
         When the GPU has loaded image $im as texture /gim/ {
             puts "text: Loaded $name as GPU texture $gim"

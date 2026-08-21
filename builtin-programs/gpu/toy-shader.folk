@@ -2,15 +2,15 @@
 set cc [dict link $C {}]
 cc::include <string.h>
 cc::include <openssl/sha.h>
-cc::proc sha1 {char* d} Jim_Obj* {
+cc::proc sha1 {char* d} Zicl_Value {
     unsigned char md[20];
     SHA1((unsigned char *)d, strlen(d), md);
-    return Jim_NewStringObj(interp, (char *)md, 20);
+    return ziclNewString((char *)md, 20);
 }
 cc::addendcflags -lssl -lcrypto
 set sha1Lib [cc::compile]
 
-When the GPU Vulkan handle type definer is /defineVulkanHandleType/ &\
+When the GPU Vulkan C prototype is /Vulkan/ &\
      the GPU pipeline library is /pipelineLib/ {
 
 # Custom push-constants encoder for ShaderToy uniforms.

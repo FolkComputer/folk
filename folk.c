@@ -386,11 +386,13 @@ static int NotifyFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv) {
 extern int statementParentCount(Statement* stmt);
 Zicl_List* QuerySimple(bool isAtomically, Zicl_List* pattern) {
     ResultSet* rs = dbQuery(db, pattern);
+    defer { free(rs); }
 
     Zicl_List* ret = ziclNewList(NULL, 0);
     for (size_t i = 0; i < rs->nResults; i++) {
         Statement* result = statementAcquire(db, rs->results[i]);
         if (result == NULL) { continue; }
+        defer { statementRelease(db, result); }
 
         // If `isAtomically` is on, then throw away any
         // statement that has an AtomicallyVersion _and_ that
@@ -401,16 +403,17 @@ Zicl_List* QuerySimple(bool isAtomically, Zicl_List* pattern) {
 
             /* fprintf(stderr, "DISCARD %.100s\n", */
             /*         clauseToString(statementClause(result))); */
-            statementRelease(db, result);
             continue;
         }
 
         Environment* env = clauseUnify(pattern, statementClause(result));
         if (env == NULL) {
-            statementRelease(db, result);
             continue;
         }
-        defer { for (int j = 0; j < env->nBindings; j++) Zicl_Release(env->bindings[j].value); }
+        defer {
+            for (int j = 0; j < env->nBindings; j++) Zicl_Release(env->bindings[j].value);
+            free(env);
+        }
 
         Zicl_Dict* envDict = ziclNewDict(NULL, 0);
         defer { Zicl_ReleaseDict(envDict); }
@@ -422,12 +425,8 @@ Zicl_List* QuerySimple(bool isAtomically, Zicl_List* pattern) {
         }
 
         ziclListAppend(ret, Zicl_BoxDict(envDict));
-
-        statementRelease(db, result);
-        free(env);
     }
 
-    free(rs);
     return ret;
 }
 
@@ -652,8 +651,8 @@ static void interpSetupEnv(Zicl_Interp *interp) {
     }
 
     Zicl_SetVariableString(interp, "env", Zicl_BoxDict(envDict));
-    Zicl_Value stdoutValue; Zicl_NewFileFromDescriptor(realStdout, &stdoutValue);
-    Zicl_Value stderrValue; Zicl_NewFileFromDescriptor(realStderr, &stderrValue);
+    Zicl_Value stdoutValue; folkZiclAssert(Zicl_NewFileFromDescriptor(realStdout, &stdoutValue));
+    Zicl_Value stderrValue; folkZiclAssert(Zicl_NewFileFromDescriptor(realStderr, &stderrValue));
     Zicl_SetVariableString(interp, "realStdout", stdoutValue);
     Zicl_SetVariableString(interp, "realStderr", stderrValue);
 }

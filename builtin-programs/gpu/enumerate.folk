@@ -5,7 +5,7 @@ cc::addcode {
     #include "volk/volk.h"
 }
 
-cc::proc enumerateDisplays {} Jim_Obj* {
+cc::proc enumerateDisplays {} Zicl_Value {
     FOLK_ENSURE(volkInitialize() == VK_SUCCESS);
 
     // Create a minimal Vulkan instance for display enumeration.
@@ -43,13 +43,13 @@ cc::proc enumerateDisplays {} Jim_Obj* {
     vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, NULL);
     if (physicalDeviceCount == 0) {
         vkDestroyInstance(instance, NULL);
-        return Jim_NewListObj(interp, NULL, 0);
+        return Zicl_BoxList(ziclNewList(NULL, 0));
     }
 
     VkPhysicalDevice physicalDevices[physicalDeviceCount];
     vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, physicalDevices);
 
-    Jim_Obj *allDisplaysList = Jim_NewListObj(interp, NULL, 0);
+    Zicl_List *allDisplaysList = ziclNewList(NULL, 0);
 
     // Enumerate displays for each physical device
     for (uint32_t devIdx = 0; devIdx < physicalDeviceCount; devIdx++) {
@@ -70,33 +70,39 @@ cc::proc enumerateDisplays {} Jim_Obj* {
             vkGetDisplayModePropertiesKHR(physicalDevice, displayProps[i].display,
                                           &modeCount, modeProps);
 
-            Jim_Obj *modesList = Jim_NewListObj(interp, NULL, 0);
+            Zicl_List *modesList = ziclNewList(NULL, 0);
             for (uint32_t j = 0; j < modeCount; j++) {
-                Jim_Obj *modeDict = Jim_ObjPrintf("visibleRegion {%u %u} refreshRate %u",
+                Zicl_Value modeDict;
+                folkZiclAssert(Zicl_NewStringFormatted(&modeDict,
+                    "visibleRegion {%u %u} refreshRate %u",
                     modeProps[j].parameters.visibleRegion.width,
                     modeProps[j].parameters.visibleRegion.height,
-                    modeProps[j].parameters.refreshRate);
-                Jim_ListAppendElement(interp, modesList, modeDict);
+                    modeProps[j].parameters.refreshRate));
+                ziclListAppend(modesList, modeDict);
+                Zicl_Release(modeDict);
             }
 
-            int modesLen;
-            const char *modesStr = Jim_GetString(modesList, &modesLen);
-            Jim_Obj *displayDict = Jim_ObjPrintf("name {%s} physicalDimensions {%u %u} "
-                                                 "physicalResolution {%u %u} modes {%s}",
+            const char *modesStr = ziclListString(modesList);
+            Zicl_Value displayDict;
+            folkZiclAssert(Zicl_NewStringFormatted(&displayDict,
+                "name {%s} physicalDimensions {%u %u} "
+                "physicalResolution {%u %u} modes {%s}",
                 displayProps[i].displayName ? displayProps[i].displayName : "",
                 displayProps[i].physicalDimensions.width,
                 displayProps[i].physicalDimensions.height,
                 displayProps[i].physicalResolution.width,
                 displayProps[i].physicalResolution.height,
-                modesStr);
+                modesStr));
+            Zicl_ReleaseList(modesList);
 
-            Jim_ListAppendElement(interp, allDisplaysList, displayDict);
+            ziclListAppend(allDisplaysList, displayDict);
+            Zicl_Release(displayDict);
         }
     }
 
     vkDestroyInstance(instance, NULL);
 
-    return allDisplaysList;
+    return Zicl_BoxList(allDisplaysList);
 }
 
 set displayLib [cc::compile]

@@ -15,7 +15,6 @@ When the image library is /imageLib/ &\
   set columns [dict get $options columns]
   set fps [dict getdef $options fps 60]
 
-  fn loadImage
   set im [loadImage $path]
 
   set sheetWidth [imageLib::Image_width $im]

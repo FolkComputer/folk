@@ -16,15 +16,13 @@ Claim the paper formats are {
     indexcard {tagInnerSideLength 70 pageSize {612 792}}
 }
 
-When libapriltag has been built with config /configCcWithLibapriltag/ &\
+When libapriltag has been built with C prototype /Apriltag/ &\
      the image library is /imageLib/ &\
      the program save directory is /saveDir/ {
-fn configCcWithLibapriltag
 
-set cc [dict link $C {}]
+set cc [dict link $Apriltag {}]
 cc::extend $imageLib
 cc::addcflags -Wall -Werror
-configCcWithLibapriltag $cc
 
 cc::addcode {
     #include <apriltag.h>
@@ -190,7 +188,7 @@ fn codeToPostScript {id code opts {marginsVar {}}} {
     }
     return [join $outPages "\n"]
 }
-Claim the codeToPostScript is [fn codeToPostScript]
+Claim the codeToPostScript is $codeToPostScript
 
 fn nextId {} {
     set idResults [Query! the next program id is /id/]

@@ -11,7 +11,7 @@ if {[info exists this] && $tcl_platform::os eq "darwin"} {
 }
 
 When the GPU library is /gpuLib/ &\
-     the GPU Vulkan handle type definer is /defineVulkanHandleType/ &\
+     the GPU Vulkan C prototype is /Vulkan/ &\
      the GPU texture library is /gpuTextureLib/ &\
      the GPU pipeline library is /pipelineLib/ &\
      the GPU pipeline compiler library is /pipelineCompilerLib/ {
@@ -22,7 +22,6 @@ When the GPU library is /gpuLib/ &\
 sleep 1
 set useDisplays [Query! /someone/ wishes $::thisNode uses display /display/ with /...displayOpts/]
 
-fn defineVulkanHandleType
 
 set useGlfw false
 foreach result $useDisplays {
@@ -51,7 +50,7 @@ if {$useGlfw} {
 cc::extend $gpuLib
 cc::extend $pipelineLib
 
-local proc vktry {call} { string map {\n " "} [csubst {{
+fn vktry {call} { string map {\n " "} [csubst {{
     VkResult res = $call;
     if (res != VK_SUCCESS) {
         /* TODO: We also need to unwind all the GPU state. */

@@ -79,7 +79,7 @@ jpeg(FILE* dest, uint8_t* data, uint32_t components, uint32_t bytesPerRow, uint3
 
 }
 
-cc::proc jpegDimensions {Jpeg jpeg} Jim_Obj* {
+cc::proc jpegDimensions {Jpeg jpeg} Zicl_Value {
     tjhandle handle = tjInitDecompress();
     if (handle == NULL) {
         FOLK_ERROR("jpegDimensions: Failed to initialize decompressor");
@@ -90,14 +90,14 @@ cc::proc jpegDimensions {Jpeg jpeg} Jim_Obj* {
         FOLK_ERROR("jpegDimensions: Failed to read header: %s", tjGetErrorStr());
     }
     tjDestroy(handle);
-    Jim_Obj* elems[2];
-    elems[0] = Jim_NewIntObj(interp, width);
-    elems[1] = Jim_NewIntObj(interp, height);
-    return Jim_NewListObj(interp, elems, 2);
+    Zicl_Value elems[2];
+    elems[0] = Zicl_NewLong(width);
+    elems[1] = Zicl_NewLong(height);
+    return Zicl_BoxList(ziclNewList(elems, 2));
 }
 
-cc::proc jpegData {Jpeg jpeg} Jim_Obj* {
-    return Jim_NewStringObj(interp, (char *)jpeg.start, jpeg.length);
+cc::proc jpegData {Jpeg jpeg} Zicl_Value {
+    return ziclNewString((char *)jpeg.start, jpeg.length);
 }
 
 cc::proc saveAsJpeg {Image im char* filename} void {

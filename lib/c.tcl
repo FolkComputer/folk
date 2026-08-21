@@ -48,14 +48,32 @@ fn csubst {s} {
     }
     join $result ""
 }
+# Translates a *base* type name (no array suffix) to literal C type text:
+# passes through unchanged, except a capability-pair type ("Foo@") becomes
+# the name of its generated {ptr,cap} struct ("Foo_capPair").
+fn cBaseType {basetype} {
+    if {[string index $basetype end] eq "@"} {
+        subst {[string range $basetype 0 end-1]_capPair}
+    } else {
+        set basetype
+    }
+}
+# Whether a (typestyle-canonicalized, e.g. "float[4]") field type is a fixed-size
+# array type. Deliberately kept out of any csubst-scanned code block: its
+# regex's raw '[]' characters would desync csubst's own (escaping-unaware)
+# bracket counting if inlined there.
+fn isArrayFieldType {fieldtype} {
+    regexp {\[[^\]]*\]$} $fieldtype
+}
 fn cstyle {type name} {
     if {[regexp {([^\[]+)(\[[^\]]*\](\[[^\]]*\])?)$} $type -> basetype arraysuffix]} {
         # Normalize any named dimension (identifier) to [] for the C declaration.
         regsub {\[[a-zA-Z_]\w*\]} $arraysuffix {[]} arraysuffix
-        list $basetype $name$arraysuffix
     } else {
-        list $type $name
+        set basetype $type
+        set arraysuffix ""
     }
+    list [cBaseType $basetype] $name$arraysuffix
 }
 # Converts something like {int x[10]} to {int[10] x}. That way the array type
 # is moved out of the name and into the type.
@@ -123,6 +141,8 @@ set C {
     procs {}
 
     objtypes {}
+    extendedObjtypes {}
+    captypes {}
 
     extends {}
 
@@ -155,8 +175,13 @@ set C {
         Zicl_Shimmerable* { identity { Zicl_Shimmerable* $argname = $shim; }}
         default {
             if {[string index $argtype end] eq "*"} {
-                set basetype [string range $argtype 0 end-1]
-                error "Need to port this to the capability framework"
+                # We use `argtype` to ensure that we don't accidentally return a pointer
+                # of the wrong type.
+                identity {
+                    void* $[set argname]_raw;
+                    __ENSURE_OK(Zicl_GetPointerCapability($shim, "$argtype", &$[set argname]_raw));
+                    $argtype $argname = ($argtype)$[set argname]_raw;
+                }
             } elseif {[regexp {(^[^\[]+)\[([^\]]*)\]$} $argtype -> basetype arraylen]} {
                 # note: arraylen can be "" or a named identifier
                 if {$basetype eq "char"} { identity {
@@ -169,16 +194,18 @@ set C {
                     } else {
                         set countvar ${argname}_objc
                     }
+                    set basetypeC [cBaseType $basetype]
                     identity {
-                    const Zicl_List *$[set argname]_list = __ENSURE(Zicl_ListShimmer(interp, $shim, &$[set argname]_list));
+                    const Zicl_List *$[set argname]_list;
+                    __ENSURE_OK(Zicl_ListShimmer(interp, $shim, &$[set argname]_list));
                     int $countvar = Zicl_ListLength($[set argname]_list);
                     const Zicl_Value *$[set argname]_objv = Zicl_ListItems($[set argname]_list);
-                    $basetype $argname[$countvar];
+                    $basetypeC $argname[$countvar];
                     {
                         for (int i = 0; i < $countvar; i++) {
                             Zicl_Shimmerable $[set argname]_shim = Zicl_NewShimmerable($[set argname]_objv[i]);
                             defer { Zicl_ShimDiscardChanges(&$[set argname]_shim); }
-                            $[self::arg $basetype ${argname}_i "&$[set argname]_shim"]
+                            $[self::arg $basetype ${argname}_i "&[set argname]_shim"]
                             $argname[i] = $[set argname]_i;
                         }
                     }
@@ -190,16 +217,18 @@ set C {
                 } else {
                     set countvar ${argname}_objc
                 }
+                set basetypeC [cBaseType $basetype]
                 identity {
-                    const Zicl_List *$[set argname]_list = __ENSURE(Zicl_ListShimmer(interp, $shim, &$[set argname]_list_2));
+                    const Zicl_List *$[set argname]_list;
+                    __ENSURE_OK(Zicl_ListShimmer(interp, $shim, &$[set argname]_list));
                     int $countvar = Zicl_ListLength($[set argname]_list);
                     const Zicl_Value *$[set argname]_objv = Zicl_ListItems($[set argname]_list);
-                    $basetype $argname[$countvar][$arraylen2];
+                    $basetypeC $argname[$countvar][$arraylen2];
                     {
                         for (int j = 0; j < $countvar; j++) {
                             Zicl_Shimmerable $[set argname]_shim = Zicl_NewShimmerable($[set argname]_objv[j]);
                             defer { Zicl_ShimDiscardChanges(&$[set argname]_shim); }
-                            $[self::arg $basetype\[\] ${argname}_j "&$[set argname]_shim"]
+                            $[self::arg $basetype\[\] ${argname}_j "&[set argname]_shim"]
                             memcpy(${argname}[j], ${argname}_j, sizeof(${argname}_j));
                         }
                     }
@@ -231,7 +260,15 @@ set C {
         Zicl_Value { identity { $robj = $rvalue; }}
         default {
             if {[string index $rtype end] eq "*"} {
-                identity { folkZiclAssert(Zicl_NewStringFormatted(&$robj, "($rtype) 0x%" PRIxPTR, (uintptr_t) $rvalue));  }
+                # Capabilities encapsulate the pointer to avoid passing around raw
+                # pointer addresses in Zicl. TODO figure out destructors.
+                # A NULL $rvalue is boxed like any other pointer rather than
+                # treated as failure: the capability's identity is independent
+                # of the pointer value it carries, and some C APIs use NULL as
+                # a meaningful, non-error pointer value (e.g. an empty Trie*).
+                identity {
+                    folkZiclAssert(Zicl_NewPointerCapability((void*)$rvalue, "$rtype", NULL, &$robj));
+                }
             } elseif {[regexp {(^[^\[]+)\[(\d*)\]$} $rtype -> basetype arraylen]} {
                 if {$basetype eq "char"} { identity {
                     $robj = ziclValuePrintf($rvalue);
@@ -244,11 +281,13 @@ set C {
                         $robj = Zicl_BoxList(ziclNewList(objv, $arraylen));
                     }
                 } }
-            } elseif {[regexp {(^[^\[]+)\[(\d*)\]\[(\d*)\]$} $rtype -> basetype arraylen arraylen2]} { identity {
+            } elseif {[regexp {(^[^\[]+)\[(\d*)\]\[(\d*)\]$} $rtype -> basetype arraylen arraylen2]} {
+                set basetypeC [cBaseType $basetype]
+                identity {
                     {
                         Zicl_Value objv[$arraylen];
                         for (int i = 0; i < $arraylen; i++) {
-                            $basetype* rrow = $rvalue[i];
+                            $basetypeC* rrow = $rvalue[i];
                             Zicl_Value* objrow = &objv[i];
                             $[self::ret ${basetype}\[${arraylen2}\] *objrow rrow]
                         }
@@ -274,7 +313,7 @@ set C {
 
 # Registers a new argtype.
 method C::argtype {self t h} {
-    dict set argtypes $t [csubst {identity {$h}}]
+    dict set self::argtypes $t [csubst {identity {$h}}]
 }
 # Looks up the argtype and returns C code to convert it.
 method C::arg {self argtype argname shim} {
@@ -284,7 +323,7 @@ method C::arg {self argtype argname shim} {
 
 # Registers a new rtype.
 method C::rtype {self t h} {
-    dict set rtypes $t [csubst {identity {$h}}]
+    dict set self::rtypes $t [csubst {identity {$h}}]
 }
 method C::ret {self rtype robj rvalue} {
     csubst [eval [dict getdef $self::rtypes $rtype \
@@ -316,7 +355,7 @@ method C::addcode {self newcode {extendArg {:noextend}}} {
 }
 
 method C::define {self newvars} {
-    lappend code $newvars :noextend
+    lappend self::code $newvars :noextend
 
     regsub -all -line {/\*.*?\*/} $newvars "" newvars
     regsub -all -line {//.*$} $newvars "" newvars
@@ -324,12 +363,12 @@ method C::define {self newvars} {
     set newvars [string map {";" ""} $newvars]
 
     foreach {vartype varname} $newvars {
-        if {[dict exists $vars $varname]} {
+        if {[dict exists $self::vars $varname]} {
             error "var already exists: $varname"
         }
-        dict set vars $varname $vartype
+        dict set self::vars $varname $vartype
 
-        lappend code [subst {
+        lappend self::code [subst {
             $vartype *${varname}_ptr() {
                 return &$varname;
             }
@@ -344,8 +383,8 @@ method C::enum {self type values} {
     }] :extend
 
     regsub -all {,} $values "" values
-    argtype $type [dict get $argtypes int]
-    rtype $type [dict get $self::rtypes int]
+    self::argtype $type [dict get $self::argtypes int]
+    self::rtype $type [dict get $self::rtypes int]
 }
 
 method C::typedef {self t newt {emitC true}} {
@@ -358,8 +397,8 @@ method C::typedef {self t newt {emitC true}} {
     # opaque pointers where c.tcl doesn't know the actual struct
     # definition.
     try {
-        self::argtype $newt [eval [dict getdef $argtypes $argtype \
-                                       [dict get $argtypes default]]]
+        self::argtype $newt [eval [dict getdef $self::argtypes $argtype \
+                                       [dict get $self::argtypes default]]]
     } on error e {
         # puts stderr "C typedef: $e"
     }
@@ -369,6 +408,89 @@ method C::typedef {self t newt {emitC true}} {
     } on error e {
         # puts stderr "C typedef: $e"
     }
+}
+
+method C::addcap {self basetype {urlsegment {}}} {
+    if {[dict exists $self::captypes $basetype]} { return }
+    dict set self::captypes $basetype 1
+
+    if {$urlsegment eq {}} {
+        set urlsegment [string tolower $basetype]
+    } else {
+        set urlsegment [string trimleft $urlsegment /]
+    }
+
+    self::include <stdlib.h>
+    self::addcode [csubst {
+        typedef struct { $basetype* ptr; Zicl_Value cap; } ${basetype}_capPair;
+
+        typedef struct {
+            Zicl_CapabilityHead head;
+            $basetype* ptr;
+        } ${basetype}_capBacking;
+
+        static void ${basetype}_deinitBody(Zicl_CapabilityHead* head) {
+            // TODO: figure out destructors.
+            (void)head;
+        }
+        static void ${basetype}_destroyBacking(Zicl_CapabilityHead* head) {
+            free(Zicl_ContainerOf(head, ${basetype}_capBacking, head));
+        }
+        static const Zicl_CapabilityHeadVTable ${basetype}_capVtable = {
+            .name = "$urlsegment",
+            .deinit_body = ${basetype}_deinitBody,
+            .destroy_backing = ${basetype}_destroyBacking,
+        };
+        static Zicl_Value ${basetype}_wrapFresh($basetype* ptr) {
+            ${basetype}_capBacking* backing = malloc(sizeof(${basetype}_capBacking));
+            backing->head = (Zicl_CapabilityHead){ .vtable = &${basetype}_capVtable };
+            backing->ptr = ptr;
+            Zicl_Value out;
+            folkZiclAssert(Zicl_CapabilityNew(&out, &backing->head));
+            return out;
+        }
+    }]
+
+    self::argtype ${basetype}* [csubst {
+        Zicl_CapabilityHead* \$[set argname]_head = Zicl_ResolveCapability(\$shim, &${basetype}_capVtable);
+        __ENSURE(\$[set argname]_head != NULL);
+        $basetype* \$argname = Zicl_ContainerOf(\$[set argname]_head, ${basetype}_capBacking, head)->ptr;
+    }]
+    self::rtype ${basetype}* [csubst {
+        \$robj = ${basetype}_wrapFresh(\$rvalue);
+    }]
+
+    self::argtype ${basetype}@ [csubst {
+        Zicl_CapabilityHead* \$[set argname]_head = Zicl_ResolveCapability(\$shim, &${basetype}_capVtable);
+        __ENSURE(\$[set argname]_head != NULL);
+        ${basetype}_capPair \$argname = {
+            .ptr = Zicl_ContainerOf(\$[set argname]_head, ${basetype}_capBacking, head)->ptr,
+            .cap = Zicl_Current(\$shim),
+        };
+    }]
+    self::rtype ${basetype}@ [csubst {
+        if (Zicl_IsNone(Zicl_Wrap(\$rvalue.cap))) {
+            \$robj = ${basetype}_wrapFresh(\$rvalue.ptr);
+        } else {
+            \$robj = Zicl_Borrow(\$rvalue.cap);
+        }
+    }]
+}
+
+# Registers a hand-written native object type: `code` must define
+# `${type}_ObjectVTable` (a `Zicl_ObjectVTable*` global) and a
+# `void ${type}_init(void)` that fills it in. `C::compile` emits `code` and
+# calls `${type}_init()` from the library's load-time init, and `C::extend`
+# knows to borrow this unit's vtable pointer rather than build a second one.
+#
+# `C::struct` is the generated-code path onto the same hook; this is the
+# hand-written one, for a type whose marshaling `C::struct` can't express --
+# e.g. a variable-size struct behind a pointer, like AprilTag's `matd_t*`.
+method C::objtype {self type code} {
+    if {[dict exists $self::objtypes $type]} {
+        error "C objtype: already registered: $type"
+    }
+    dict set self::objtypes $type $code
 }
 
 method C::struct {self type fields} {
@@ -391,6 +513,9 @@ method C::struct {self type fields} {
     for {set i 0} {$i < [llength $fields]} {incr i 2} {
         set fieldtype [lindex $fields $i]
         set fieldname [lindex $fields $($i+1)]
+        if {[string index $fieldtype end] eq "@"} {
+            error "C struct $type: capability-pair-typed fields are not supported"
+        }
         # Canonicalize type.
         lassign [typestyle $fieldtype $fieldname] fieldtype fieldname
         lappend fieldnames $fieldname
@@ -399,7 +524,7 @@ method C::struct {self type fields} {
     }
 
     self::include <string.h>
-    dict set objtypes $type [csubst {
+    dict set self::objtypes $type [csubst {
         Zicl_ObjectVTable* $[set type]_ObjectVTable;
 
         void $[set type]_freeIntRepProc(Zicl_Object* objPtr) {
@@ -428,7 +553,7 @@ method C::struct {self type fields} {
                 struct_size = sizeof($type*);
             }
 
-            uint8_t* body = NULL;
+            void* body = NULL;
             Zicl_Object* new_object = Zicl_NewObject($[set type]_ObjectVTable, struct_size, &body);
 
             $type* dest_struct;
@@ -442,6 +567,7 @@ method C::struct {self type fields} {
                 dest_struct = ($type*)body;
             }
 
+            (void)dest_struct; // unused if $fields has no Zicl_Value field
             $[foreachZiclValueField $fields "dest_struct" {%V = Zicl_Borrow(%V);}]
 
             return new_object;
@@ -454,6 +580,7 @@ method C::struct {self type fields} {
                 struct_ptr = ($type*)&objPtr->body_backing;
             }
 
+            (void)struct_ptr; // unused if $fields has no Zicl_Value field
             $[foreachZiclValueField $fields "struct_ptr" {Zicl_MakeCrossthread(%V);}]
         }
         int $[set type]_updateStringProc(Zicl_Object* objPtr) {
@@ -500,7 +627,11 @@ method C::struct {self type fields} {
                     Zicl_Shimmerable shim_$fieldname = Zicl_NewShimmerable(Zicl_Unwrap(obj_$fieldname));
                     defer { Zicl_ShimDiscardChanges(&shim_$fieldname); }
                     $[self::arg $fieldtype robj_$fieldname "&shim_$fieldname"]
-                    robj.$fieldname = robj_$fieldname;
+                    $[if {[isArrayFieldType $fieldtype]} {
+                        subst {memcpy(robj.$fieldname, robj_$fieldname, sizeof(robj.$fieldname));}
+                    } else {
+                        subst {robj.$fieldname = robj_$fieldname;}
+                    }]
                 }
             }] "\n"]
 
@@ -518,8 +649,10 @@ method C::struct {self type fields} {
             return ZICL_OK;
         }
 
-        /* Returns a list of addresses for all the vtable functions. */
-        Zicl_Dict* $[set type]_init(Zicl_Interp* interp, const char* cid) {
+        /* Constructs the vtable. Must run once, before any value of this
+           type is created or shimmered -- the library's generated init
+           function calls this for every objtype right after load. */
+        void $[set type]_init(void) {
             $[set type]_ObjectVTable = malloc(sizeof(Zicl_ObjectVTable));
             *$[set type]_ObjectVTable = (Zicl_ObjectVTable) {
                 .is_c_vtable = true,
@@ -531,18 +664,6 @@ method C::struct {self type fields} {
                 .enumerate_struct = NULL
                 // .shimmerFrom = $[set type]_shimmerFrom
             };
-
-            Zicl_Dict* addresses = Zicl_NewDict(NULL, 0);
-
-            Zicl_Value shimmer_from_ptr; folkZiclAssert(Zicl_NewStringFormatted(&shimmer_from_ptr, "%p", &$[set type]_shimmerFrom));
-            defer { Zicl_Release(shimmer_from_ptr); }
-            Zicl_Value object_vtable_ptr; folkZiclAssert(Zicl_NewStringFormatted(&object_vtable_ptr, "%p", $[set type]_ObjectVTable));
-            defer { Zicl_Release(object_vtable_ptr); }
-
-            ziclDictPut(addresses, Zicl_InternStr("$[set type]_shimmerFrom"), shimmer_from_ptr);
-            ziclDictPut(addresses, Zicl_InternStr("$[set type]_ObjectVTable"), object_vtable_ptr);
-
-            return addresses;
         }
     }]
 
@@ -660,7 +781,13 @@ method C::proc {self name arguments rtype body} {
         set res [typestyle $argtype $argname]
         lappend loadargs [self::arg {*}$res $obj]
     }
-    regsub {\[\d*\]} $rtype * decayedRtype
+    if {[regexp {^([^\[]+)(\[.*)?$} $rtype -> rtypeBase rtypeBrackets]} {
+        set decayedRtype [cBaseType $rtypeBase]
+        if {$rtypeBrackets ne ""} {
+            regsub {\[\d*\]} $rtypeBrackets * rtypeBrackets
+            append decayedRtype $rtypeBrackets
+        }
+    }
     if {$rtype eq "void"} {
         set saverv [subst {
             $cname ([join $argnames ", "]);
@@ -678,7 +805,7 @@ method C::proc {self name arguments rtype body} {
     dict set self::procs $name rtype $rtype
     dict set self::procs $name arglist $arglist
     dict set self::procs $name code [subst {
-        static $decayedRtype $cname ([join $arglist ", "]) {
+        $decayedRtype $cname ([join $arglist ", "]) {
             [if {$filename ne ""} {
                 subst {}
             } else {list}]
@@ -738,7 +865,7 @@ method C::compile {self args} {
     if {$nProcs == 0} { set nProcs 1 }
 
     set init [subst {
-        static void ${cid}_register(void* intp_raw) {
+        void ${cid}_register(void* intp_raw) {
             interp = (Zicl_Interp*) intp_raw;
 
             [join [lmap srcid $self::extends {
@@ -754,6 +881,15 @@ method C::compile {self args} {
         Zicl_Dict* Zicl_${cid}Init(Zicl_Interp* intp) {
             Zicl_Value __pairs\[$nProcs * 2\];
             int __n = 0;
+
+            [join [lmap type [dict keys $self::objtypes] {
+                if {[dict exists $self::extendedObjtypes $type]} {
+                    set addr [dynlib lookup [dict get $self::extendedObjtypes $type] ${type}_ObjectVTable]
+                    subst {${type}_ObjectVTable = *(Zicl_ObjectVTable**) ${addr}UL;}
+                } else {
+                    subst {${type}_init();}
+                }
+            }] "\n"]
 
             [join [lmap name [dict keys $self::procs] {
                 subst {
@@ -805,7 +941,7 @@ extern "C" \{
         lappend self::cflags -DTRACY_ENABLE=1 -I./vendor/tracy/public
     }
     set asan_flags {}
-    if {[info exists env::ASAN_ENABLE] && $env::ASAN_ENABLE != ""} {
+    if {[info exists env::ASAN_ENABLE] && $env::ASAN_ENABLE ne ""} {
         set asan_flags "-fsanitize=address -fsanitize-recover=address"
     }
     set out [exec $self::compiler {*}$asan_flags -Wall \
@@ -842,29 +978,62 @@ extern "C" \{
         return /tmp/$cid.so
     }
 
-    return [load /tmp/$cid.so]
-}
-
-# STALE: relies on `__getCInfo`/`__addrs`, which `C::compile` no longer
-# generates now that a library is a plain dict (see `load`). Nothing in the
-# current tree calls `C::import`/`C::extend`; porting them means deciding how
-# cross-compilation-unit direct-calling should work against the new dict
-# shape, not a mechanical fix.
-method C::import {self srclib srcname {_as {}} {destname {}}} {
-    if {$destname eq ""} { set destname $srcname }
-
-    set procinfo [dict get [$srclib __getCInfo] procs $srcname]
-    set rtype [dict get $procinfo rtype]
-    set arglist [dict get $procinfo arglist]
-
-    set addr [dict get [set "::$srclib __addrs"] $srcname]
-    regsub {\[\d*\]} $rtype * decayedRtype
-    self::addcode "$decayedRtype (*$destname) ([join $arglist {, }]) = ($decayedRtype (*) ([join $arglist {, }])) $addr;"
+    set dynlibCap [load /tmp/$cid.so]
+    set fns [dynlib fns $dynlibCap]
+    dict set fns __dynlib $dynlibCap
+    # Snapshot of this compilation's own type/proc/var registrations, so a
+    # later, separate compilation unit can `cc::extend` this one -- see
+    # `C::extend`.
+    dict set fns __cinfo [dict create \
+        cid $cid \
+        argtypes $self::argtypes \
+        rtypes $self::rtypes \
+        objtypes $self::objtypes \
+        procs $self::procs \
+        vars $self::vars \
+        code $self::code]
+    return $fns
 }
 
 method C::string_toupper_first {self s} {
     return [string toupper [string index $s 0]][string range $s 1 end]
 }
+
+# Declares a function pointer named $destname (default: $srcname) pointing
+# at $srclib's already-compiled $srcname, resolved via `dynlib lookup`
+# against $srclib's __dynlib capability. Requires $srclib's proc's actual C
+# function to be externally visible (see C::proc: it no longer declares
+# these `static`, precisely so this can dlsym them).
+method C::import {self srclib srcname {destname {}}} {
+    if {$destname eq ""} { set destname $srcname }
+
+    set srcinfo [dict get $srclib __cinfo]
+    set srcCap [dict get $srclib __dynlib]
+    set procinfo [dict get $srcinfo procs $srcname]
+    set rtype [dict get $procinfo rtype]
+    set arglist [dict get $procinfo arglist]
+
+    set cname [string map {":" "_" "!" "_"} $srcname]
+    set addr [dynlib lookup $srcCap $cname]
+    if {[regexp {^([^\[]+)(\[.*)?$} $rtype -> rtypeBase rtypeBrackets]} {
+        set decayedRtype [cBaseType $rtypeBase]
+        if {$rtypeBrackets ne ""} {
+            regsub {\[\d*\]} $rtypeBrackets * rtypeBrackets
+            append decayedRtype $rtypeBrackets
+        }
+    }
+    self::addcode "$decayedRtype (*$destname) ([join $arglist {, }]) = ($decayedRtype (*) ([join $arglist {, }])) ${addr}UL;"
+}
+
+# Shares another compiled library's types, procs, and vars with this one, so
+# both refer to the exact same underlying vtables/functions/globals instead
+# of each independently (and incompatibly) reconstructing their own copies
+# -- see `C::struct`'s per-type vtable and `Zicl_ResolveCapability`'s
+# vtable-identity check for why that matters. Everything this needs (symbol
+# addresses, via `dynlib lookup`; type/proc/var metadata, via $srclib's
+# __cinfo -- see C::compile) is resolved right now, at this Tcl-eval time,
+# and baked into the generated C as literal constants -- so `cc::extend`
+# must run before `cc::compile`, same as any other cc:: registration.
 method C::extend {self args} {
     set noprocs false
     foreach arg $args {
@@ -874,45 +1043,64 @@ method C::extend {self args} {
             set srclib $arg
         }
     }
-    set srcinfo [$srclib __getCInfo]
-    set srcaddrs [set "::$srclib __addrs"]
+    set srcinfo [dict get $srclib __cinfo]
+    set srcCap [dict get $srclib __dynlib]
 
     foreach {snippet extend} [dict get $srcinfo code] {
         if {$extend eq ":extend"} {
-            lappend code $snippet :noextend
+            lappend self::code $snippet :noextend
         }
     }
 
-    set argtypes [dict merge [dict get $srcinfo argtypes] $argtypes]
-    set rtypes [dict merge [dict get $srcinfo rtypes] $self::rtypes]
-    dict for {objtype _} [dict get $srcinfo objtypes] {
-        self::addcode "int (*${objtype}_setFromAnyProc)(Jim_Interp *interp, Zicl_Value objPtr) = \
-(int (*)(Jim_Interp *interp, Zicl_Value objPtr)) \
-[dict get $srcaddrs ${objtype}_setFromAnyProc];"
-        self::addcode "Jim_ObjType* ${objtype}_ObjType = (Jim_ObjType*) [dict get $srcaddrs ${objtype}_ObjType];"
+    dict for {k v} [dict get $srcinfo argtypes] {
+        if {![dict exists $self::argtypes $k]} { dict set self::argtypes $k $v }
+    }
+    dict for {k v} [dict get $srcinfo rtypes] {
+        if {![dict exists $self::rtypes $k]} { dict set self::rtypes $k $v }
+    }
+
+    # Re-declare each objtype's struct/marshaling functions locally (needed
+    # so this unit's own C code can use the type), but don't let this unit's
+    # init construct its OWN vtable for it -- self::extendedObjtypes tells
+    # C::compile's init codegen to instead borrow $srclib's existing vtable
+    # via `dynlib lookup`, so values round-trip correctly between the two
+    # units.
+    dict for {objtype code} [dict get $srcinfo objtypes] {
+        if {![dict exists $self::objtypes $objtype]} {
+            dict set self::objtypes $objtype $code
+            dict set self::extendedObjtypes $objtype $srcCap
+        }
     }
 
     if {!$noprocs} {
-        foreach procName [dict keys [dict get $srcinfo procs]] {
-            self::import $srclib $procName
+        dict for {name _} [dict get $srcinfo procs] {
+            self::import $srclib $name
         }
     }
 
     dict for {varname vartype} [dict get $srcinfo vars] {
-        set addr [dict get $srcaddrs ${varname}_ptr]
-        self::addcode "$vartype* (*${varname}_ptr)() = ($vartype* (*)()) $addr;"
+        set addr [dynlib lookup $srcCap ${varname}_ptr]
+        self::addcode "$vartype* (*${varname}_ptr)() = ($vartype* (*)()) ${addr}UL;"
     }
 
-    regexp {<C:([^ ]+)>} $srclib -> srcid
-    set addr [dict get $srcaddrs Zicl_${srcid}Init]
-    self::addcode "int (*Zicl_${srcid}Init)(Zicl_Interp* intp) =
-                     (int (*)(Zicl_Interp* intp)) $addr;"
-
-    lappend extends $srcid
+    # Chain $srclib's own per-thread command registration into this unit's,
+    # so a thread that only ever touches the NEW library still gets
+    # $srclib's commands (e.g. imageLib::slice) registered on itself too --
+    # required since Zicl_RegisterLazyFn is per-interp-thread.
+    set srcid [dict get $srcinfo cid]
+    if {[lsearch $self::extends $srcid] < 0} {
+        set addr [dynlib lookup $srcCap ${srcid}_register]
+        self::addcode "void (*${srcid}_register)(void*) = (void (*)(void*)) ${addr}UL;"
+        lappend self::extends $srcid
+    }
 }
 
-fn C++ {} {
-    set cpp [dict link $C {}]
+# A C++ flavor of a C prototype. Defaults to the base `$C`, but takes any
+# prototype linked off it (e.g. gpu.folk's `$Vulkan`) so a C++ module can
+# still inherit that prototype's extra methods.
+fn C++ {{proto {}}} {
+    if {$proto eq {}} { set proto $C }
+    set cpp [dict link $proto {}]
     set cpp::compiler c++
     cpp::addcflags -Wno-write-strings
     return $cpp

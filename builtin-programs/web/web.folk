@@ -10,7 +10,11 @@ if {![file exists vendor/wslay/Makefile]} {
         >@stdout 2>@stderr
 }
 puts "web: Building libwslay..."
-exec make -C vendor/wslay >@stdout 2>@stderr
+# Only the library, not the whole tree: wslay's examples pull in extra
+# dependencies we don't have or need (fork-echoserv.c wants <nettle/sha.h>),
+# and a failure building one of those would otherwise take the web server
+# down with it. We only ever use vendor/wslay/lib (see lib/ws.tcl).
+exec make -C vendor/wslay/lib >@stdout 2>@stderr
 puts "web: libwslay built."
 
 source "lib/ws.tcl"

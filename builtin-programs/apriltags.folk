@@ -40,17 +40,24 @@ if {$tcl_platform::os eq "darwin"} {
 }
 puts "apriltags: libapriltag built."
 
-fn configCcWithLibapriltag {cc} {
-    cc::addcflags -I./vendor/apriltag
-    cc::addendcflags -Wl,-rpath,[pwd]/vendor/apriltag/build \
-        ./vendor/apriltag/build/libapriltag.so
-}
-Claim libapriltag has been built with config [fn configCcWithLibapriltag]
+# A C prototype (in the `$C` sense -- see lib/c.tcl) preconfigured to build
+# against the libapriltag we just built. Modules that need it link their own
+# cc off this instead of off `$C` and inherit the flags.
+#
+# This is a prototype rather than a `fn configCcWithLibapriltag {cc} {...}`
+# taking the cc as an argument: `cc::addcflags` appends to `self`, and a
+# plain function only ever saw a copy, so the flags landed in a local that
+# was discarded on return -- which is why every apriltag-using module was
+# compiling without `-I./vendor/apriltag` and failing to find <apriltag.h>.
+set Apriltag [dict link $C {}]
+Apriltag::addcflags -I./vendor/apriltag
+Apriltag::addendcflags -Wl,-rpath,[pwd]/vendor/apriltag/build \
+    ./vendor/apriltag/build/libapriltag.so
+Claim libapriltag has been built with C prototype $Apriltag
 
 fn makeAprilTagDetector {TAG_FAMILY QUAD_DECIMATE NTHREADS} {
-    set cc [dict link $C {}]
+    set cc [dict link $Apriltag {}]
     cc::extend $imageLib
-    configCcWithLibapriltag $cc
     cc::include <apriltag.h>
     cc::include <$TAG_FAMILY.h>
     cc::include <math.h>
@@ -66,7 +73,7 @@ fn makeAprilTagDetector {TAG_FAMILY QUAD_DECIMATE NTHREADS} {
         td->quad_decimate = ${QUAD_DECIMATE};
         td->nthreads = ${NTHREADS};
     }
-    cc::proc detect {Image gray} Jim_Obj* {
+    cc::proc detect {Image gray} Zicl_Value {
         FOLK_ENSURE(gray.components == 1 || gray.components == 3);
         uint8_t* grayBuf = gray.data;
         if (gray.components == 3) {
@@ -81,27 +88,29 @@ fn makeAprilTagDetector {TAG_FAMILY QUAD_DECIMATE NTHREADS} {
         zarray_t *detections = apriltag_detector_detect(td, &im);
         int detectionCount = zarray_size(detections);
 
-        Jim_Obj* detectionObjs[detectionCount];
+        Zicl_Value detectionObjs[detectionCount];
         for (int i = 0; i < detectionCount; i++) {
             apriltag_detection_t *det;
             zarray_get(detections, i, &det);
 
             int size = sqrt((det->p[0][0] - det->p[1][0])*(det->p[0][0] - det->p[1][0]) + (det->p[0][1] - det->p[1][1])*(det->p[0][1] - det->p[1][1]));
             double angle = atan2(-1 * (det->p[1][1] - det->p[0][1]), det->p[1][0] - det->p[0][0]);
-            detectionObjs[i] = Jim_ObjPrintf("id %d c {%f %f} p {{%f %f} {%f %f} {%f %f} {%f %f}} size %d angle %f",
+            folkZiclAssert(Zicl_NewStringFormatted(&detectionObjs[i],
+                                             "id %d c {%f %f} p {{%f %f} {%f %f} {%f %f} {%f %f}} size %d angle %f",
                                              det->id,
                                              det->c[0], det->c[1],
                                              det->p[0][0], det->p[0][1],
                                              det->p[1][0], det->p[1][1],
                                              det->p[2][0], det->p[2][1],
                                              det->p[3][0], det->p[3][1],
-                                             size, angle);
+                                             size, angle));
         }
 
         zarray_destroy(detections);
         if (gray.components == 3) free(grayBuf);
 
-        Jim_Obj* result = Jim_NewListObj(interp, detectionObjs, detectionCount);
+        Zicl_Value result = Zicl_BoxList(ziclNewList(detectionObjs, detectionCount));
+        for (int i = 0; i < detectionCount; i++) Zicl_Release(detectionObjs[i]);
         return result;
     }
     cc::proc detectCleanup {} void {
@@ -113,7 +122,7 @@ fn makeAprilTagDetector {TAG_FAMILY QUAD_DECIMATE NTHREADS} {
     detector::detectInit
     return $detector
 }
-Claim the AprilTag detector maker is [fn makeAprilTagDetector]
+Claim the AprilTag detector maker is $makeAprilTagDetector
 
 set tagFamily "tagStandard52h13"
 set entireFrameDetector [makeAprilTagDetector $tagFamily 2.0 1]

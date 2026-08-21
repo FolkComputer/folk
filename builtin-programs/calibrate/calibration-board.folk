@@ -200,7 +200,7 @@ fn makeCalibrationBoardPs {} {
 
     return $ps
 }
-Claim the makeCalibrationBoardPs is [fn makeCalibrationBoardPs]
+Claim the makeCalibrationBoardPs is $makeCalibrationBoardPs
 
 fn makeCalibrationBoardPdf {} {
     set ps [makeCalibrationBoardPs]
@@ -208,7 +208,7 @@ fn makeCalibrationBoardPdf {} {
     set pdf [read $fp]; close $fp
     return $pdf
 }
-Claim the makeCalibrationBoardPdf is [fn makeCalibrationBoardPdf]
+Claim the makeCalibrationBoardPdf is $makeCalibrationBoardPdf
 
 fn makeCalibrationBoardPng {} {
     set ps [makeCalibrationBoardPs]
@@ -222,7 +222,7 @@ fn makeCalibrationBoardPng {} {
     set png [read $fp]; close $fp
     return $png
 }
-Claim the makeCalibrationBoardPng is [fn makeCalibrationBoardPng]
+Claim the makeCalibrationBoardPng is $makeCalibrationBoardPng
 
 Wish the web server handles route {/calibrate/board.pdf} with hidden true handler {
     dict create statusAndHeaders "HTTP/1.1 200 OK

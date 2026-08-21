@@ -99,3 +99,31 @@ Write new modules meant for `import` as flat files (`fn add {...}`,
 `fn sub {...}`, no `::` qualification) -- since they all land in one
 frame together, unqualified sibling calls just work, unlike trying to
 replicate real Tcl namespace-scoped command resolution.
+
+## `expr` comparisons are strict -- intentionally not backwards-compatible
+
+In real Tcl (and JimTcl), `==`/`!=`/`<`/`>`/`<=`/`>=` fall back to a
+lexicographic string compare when an operand isn't a valid number, so
+`expr {"foo" == "bar"}` quietly works. zicl does **not** do this: those
+operators are strictly numeric, and comparing a non-numeric operand is an
+error ("expected float but got ..."). This is a deliberate design choice,
+not a gap to "fix" by porting Tcl's fallback behavior -- implicit casting
+in comparisons is a footgun. Code that means string comparison should say
+so explicitly with `eq`/`ne`/`lt`/`gt`/`le`/`ge`.
+
+Booleans (`true`/`false`) are also intentionally **not** numbers, and are
+kept distinguishable from `0`/`1`. The one exception: `==`/`!=` (and
+only those two operators) special-case boolean-vs-boolean comparison,
+where a string operand must be spelled exactly `true`/`false`:
+
+```tcl
+expr {true == true}      ;# true
+expr {true == "false"}   ;# false
+expr {true == 1}         ;# error: expected float but got "true"
+```
+
+Anything else falls through to the strict numeric path and errors as
+usual, rather than silently coercing. zicl code relying on Tcl's loose
+comparison semantics (e.g. `==` between two arbitrary strings, or a
+boolean compared against a non-boolean) is a bug in the *calling* code
+to fix, not a signal to add a compatibility fallback to `expr` itself.

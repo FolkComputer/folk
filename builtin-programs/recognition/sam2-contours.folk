@@ -5,15 +5,15 @@ cc::include "vendor/CContour.c"
 # Returns contours for a SAM2 mask byte string. Each contour is a Tcl list of
 # {x y} pairs, with the same epsilon/scale/minLength behavior as
 # findImageContours.
-cc::proc findMaskContours {int width int height Jim_Obj* mask
+cc::proc findMaskContours {int width int height Zicl_Value mask
                            double epsilon
-                           double scaleX double scaleY} Jim_Obj* {
+                           double scaleX double scaleY} Zicl_Value {
     int w = width;
     int h = height;
-    if (w < 3 || h < 3) return Jim_NewListObj(interp, NULL, 0);
+    if (w < 3 || h < 3) return Zicl_BoxList(ziclNewList(NULL, 0));
 
     int maskLen = 0;
-    const uint8_t *maskData = (const uint8_t *)Jim_GetString(mask, &maskLen);
+    const uint8_t *maskData = (const uint8_t *)ziclGetString(mask, &maskLen);
     FOLK_ENSURE(maskLen == w * h);
 
     int *F = malloc(sizeof(int) * (size_t)w * (size_t)h);
@@ -28,7 +28,7 @@ cc::proc findMaskContours {int width int height Jim_Obj* mask
     Contour *contours = findContours(F, w, h);
     free(F);
 
-    Jim_Obj *outer = Jim_NewListObj(interp, NULL, 0);
+    Zicl_List *outer = ziclNewList(NULL, 0);
     for (ptrdiff_t c = 0; c < arrlen(contours); c++) {
         Point *pts = (epsilon > 0)
             ? approxPolyDP(contours[c].points, (float)epsilon)
@@ -43,13 +43,15 @@ cc::proc findMaskContours {int width int height Jim_Obj* mask
                             k == 0 ? "{%g %g}" : " {%g %g}",
                             pts[k].x * scaleX, pts[k].y * scaleY);
         }
-        Jim_ListAppendElement(interp, outer,
-            Jim_NewStringObjNoAlloc(interp, buf, (int)off));
+        Zicl_Value contourStr = ziclNewString(buf, (int)off);
+        free(buf);
+        ziclListAppend(outer, contourStr);
+        Zicl_Release(contourStr);
 
         if (epsilon > 0) arrfree(pts);
     }
     freeContours(contours);
-    return outer;
+    return Zicl_BoxList(outer);
 }
 Claim the SAM2 contours library is [cc::compile]
 

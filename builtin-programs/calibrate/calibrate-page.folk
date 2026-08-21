@@ -1,6 +1,5 @@
 When the codeToPostScript is /codeToPostScript/ {
 
-fn codeToPostScript
 
 Wish the web server handles route "/calibrate" with hidden true handler {
 

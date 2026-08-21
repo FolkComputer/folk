@@ -5,8 +5,7 @@
 #     cmpfit.
 #
 
-When libapriltag has been built with config /configCcWithLibapriltag/ {
-fn configCcWithLibapriltag
+When libapriltag has been built with C prototype /Apriltag/ {
 
 # From https://courses.cs.duke.edu/cps274/fall13/notes/rodrigues.pdf:
 fn rotationMatrixToRotationVector {R} {
@@ -62,9 +61,8 @@ fn rotationVectorToRotationMatrix {r} {
 
 set NUM_TAGS_IN_MODEL 20
 
-set cc [dict link $C {}]
+set cc [dict link $Apriltag {}]
 cc::addcflags -I./vendor/cmpfit -Wall -Werror
-configCcWithLibapriltag $cc
 
 cc::include <math.h>
 cc::include <string.h>
@@ -297,7 +295,7 @@ cc::proc monoComputeError {double[paramsCount] params} double {
     printf("RMSE: %f\n", rmse);
     return rmse;
 }
-cc::proc monoRefineCalibrationOptimize {double[paramsCount] params} Jim_Obj* {
+cc::proc monoRefineCalibrationOptimize {double[paramsCount] params} Zicl_Value {
     setvbuf(stdout, NULL, _IONBF, BUFSIZ);
 
     mp_result result = {0};
@@ -320,13 +318,13 @@ cc::proc monoRefineCalibrationOptimize {double[paramsCount] params} Jim_Obj* {
     printf("Refined -------------------\n");
     double rmse = monoComputeError(paramsCount, params);
 
-    Jim_Obj* paramObjs[1 + paramsCount];
-    paramObjs[0] = Jim_NewDoubleObj(interp, rmse);
+    Zicl_Value paramObjs[1 + paramsCount];
+    paramObjs[0] = Zicl_NewDouble(rmse);
     for (int i = 0; i < paramsCount; i++) {
         FOLK_ENSURE(!isnan(params[i]));
-        paramObjs[1 + i] = Jim_NewDoubleObj(interp, params[i]);
+        paramObjs[1 + i] = Zicl_NewDouble(params[i]);
     }
-    return Jim_NewListObj(interp, paramObjs, 1 + paramsCount);
+    return Zicl_BoxList(ziclNewList(paramObjs, 1 + paramsCount));
 }
 
 # Stereo calibration
@@ -467,7 +465,7 @@ cc::proc stereoComputeError {double[paramsCount] params} double {
     printf("RMSE: %f\n", rmse);
     return rmse;
 }
-cc::proc stereoRefineCalibrationOptimize {double[paramsCount] params} Jim_Obj* {
+cc::proc stereoRefineCalibrationOptimize {double[paramsCount] params} Zicl_Value {
     mp_result result = {0};
 
     FOLK_ENSURE(paramsCount == 6 + StereoPoseCount*6);
@@ -488,12 +486,12 @@ cc::proc stereoRefineCalibrationOptimize {double[paramsCount] params} Jim_Obj* {
     printf("Refined -------------------\n");
     double rmse = stereoComputeError(paramsCount, params);
 
-    Jim_Obj* paramObjs[1 + paramsCount];
-    paramObjs[0] = Jim_NewDoubleObj(interp, rmse);
+    Zicl_Value paramObjs[1 + paramsCount];
+    paramObjs[0] = Zicl_NewDouble(rmse);
     for (int i = 0; i < paramsCount; i++) {
-        paramObjs[1 + i] = Jim_NewDoubleObj(interp, params[i]);
+        paramObjs[1 + i] = Zicl_NewDouble(params[i]);
     }
-    return Jim_NewListObj(interp, paramObjs, 1 + paramsCount);
+    return Zicl_BoxList(ziclNewList(paramObjs, 1 + paramsCount));
 }
 
 # Folk level
@@ -563,7 +561,6 @@ fn refineMonoCalibration {calibration} {
 
 fn refineCalibration {modelLib matLib setCameraToProjectorExtrinsics
                       calibrationPoses calibration} {
-    fn setCameraToProjectorExtrinsics
     # We start by individually refining the mono calibration of
     # the camera and the mono calibration of the projector.
 
@@ -725,6 +722,6 @@ fn refineCalibration {modelLib matLib setCameraToProjectorExtrinsics
 
     return $calibration
 }
-Claim the calibration refiner is [fn refineCalibration]
+Claim the calibration refiner is $refineCalibration
 
 }

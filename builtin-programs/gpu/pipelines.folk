@@ -4,14 +4,13 @@
 #     Created once (not per-display). Pipelines use dynamic viewport/scissor
 #     so they work across displays of different sizes.
 
-When the GPU Vulkan handle type definer is /defineVulkanHandleType/ &\
+When the GPU Vulkan C prototype is /Vulkan/ &\
      the GPU library is /gpuLib/ &\
      the image library is /imageLib/ &\
      the GPU texture library is /gpuTextureLib/ {
 
-fn defineVulkanHandleType
 
-set cc [dict link $C {}]
+set cc [dict link $Vulkan {}]
 cc::addcflags -I./vendor
 cc::include <pthread.h>
 cc::addcode {
@@ -23,7 +22,7 @@ cc::extend $gpuLib
 cc::extend $imageLib
 cc::extend -noprocs $gpuTextureLib
 
-local proc vktry {call} { string map {\n " "} [csubst {{
+fn vktry {call} { string map {\n " "} [csubst {{
     VkResult res = $call;
     if (res != VK_SUCCESS) {
         fprintf(stderr, "Failed $call: %s (%d)\n",
@@ -40,7 +39,7 @@ cc::define {
 }
 
 # Shader compilation:
-defineVulkanHandleType $cc VkShaderModule
+cc::defineHandleType VkShaderModule
 cc::proc createShaderModule {Jim_Obj* codeObj} VkShaderModule {
     int codeObjc = Jim_ListLength(interp, codeObj);
     uint32_t* code = malloc(codeObjc * sizeof(uint32_t));
@@ -63,9 +62,9 @@ cc::proc createShaderModule {Jim_Obj* codeObj} VkShaderModule {
 }
 
 # Pipeline creation:
-defineVulkanHandleType $cc VkPipeline
-defineVulkanHandleType $cc VkPipelineLayout
-defineVulkanHandleType $cc VkDescriptorSet
+cc::defineHandleType VkPipeline
+cc::defineHandleType VkPipelineLayout
+cc::defineHandleType VkDescriptorSet
 cc::typedef uint64_t VkDeviceSize
 cc::argtype VkDescriptorType { int $argname; __ENSURE_OK(Tcl_GetIntFromObj(interp, $obj, &$argname)); }
 cc::rtype VkDescriptorType { $robj = Tcl_NewIntObj($rvalue); }

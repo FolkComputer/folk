@@ -1,26 +1,34 @@
-proc Wish {args} {}; source builtin-programs/web/trie-graph.folk;
-proc snap {trie} {trieDotify trieLib getDotAsPdf} {
-    set dot [apply $trieDotify $trieLib [$trieLib tclify $trie]];
+fn Wish {args} {}
+source builtin-programs/web/trie-graph.folk
+
+fn snap {trie} {
+    set dot [apply $trieDotify $trieLib [trieLib::tclify $trie]];
     set filename trie-[exec uuidgen].pdf
     set fd [open $filename w]; puts $fd [apply $getDotAsPdf $dot]; close $fd;
     puts $filename
 }
 
-set trie [$trieLib new]
-set trie [$trieLib add $trie [list hello i am here] 1003]
-set trie [$trieLib add $trie [list hello i am there] 1004]
+set trie [trieLib::new]
+set trie [trieLib::add $trie [list hello i am here] 1003]
+set trie [trieLib::add $trie [list hello i am there] 1004]
 
-set trie1 [$trieLib add $trie [list hello i am there] 1005] ;# this should not do anything
-assert {$trie eq $trie1}
-set trie $trie1
+# Adding a clause that's already present is a no-op value-wise: trieAdd
+# hands back the same underlying pointer (see its "return the original
+# trie if the clause is already present" comment), and `add`'s Trie@
+# capability-pair type (lib/c.tcl's cc::addcap) reuses the input's own
+# capability in that case rather than minting an unrelated new one, so the
+# result really is `eq` to what went in.
+set trieBefore $trie
+set trie [trieLib::add $trie [list hello i am there] 1005] ;# this should not do anything
+assert {$trie eq $trieBefore}
 
-assert {[$trieLib lookup $trie [list hello i am /x/]] eq {1003 1004}}
+assert {[trieLib::lookup $trie [list hello i am /x/]] eq {1003 1004}}
 
-set trie [$trieLib remove_ $trie [list hello i am here]]
-assert {[$trieLib lookup $trie [list hello i am /x/]] eq {1004}}
+set trie [trieLib::remove_ $trie [list hello i am here]]
+assert {[trieLib::lookup $trie [list hello i am /x/]] eq {1004}}
 
 # This is testing memory leak.
-set trie [$trieLib remove_ $trie [list hello i am there]]
+set trie [trieLib::remove_ $trie [list hello i am there]]
 # TODO: check alloc count
 
 # snap $trie

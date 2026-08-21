@@ -68,7 +68,7 @@ When the collected results for {/somebody/ claims the default program geometry i
     set shouldClaim false
 
     if {[llength $results] == 0 ||
-        [llength $results] == 1 && [dict get [lindex $results 0] geom] == $defaultGeometry} {
+        [llength $results] == 1 && [dict get [lindex $results 0] geom] eq $defaultGeometry} {
         Claim the default program geometry is $defaultGeometry
     }
 }

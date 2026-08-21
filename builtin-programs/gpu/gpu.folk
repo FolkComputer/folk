@@ -8,34 +8,45 @@ if {[info exists this] && $tcl_platform::os eq "darwin"} {
     return
 }
 
-fn defineVulkanHandleType {cc type} {
-    cc::argtype $type [format {
+# A C prototype (in the `$C` sense -- see lib/c.tcl) that additionally knows
+# how to register Vulkan handle types. Vulkan-using modules link their own cc
+# off this instead of off `$C`, then call `theircc::defineHandleType VkFoo`.
+#
+# This has to be a `method` on a prototype, rather than a plain
+# `fn defineVulkanHandleType {cc type}` taking the cc as an argument:
+# `cc::argtype`/`cc::rtype` register into `self`, and a method's writeback
+# only reaches the caller's own variable. Passing a cc in by value meant the
+# registrations landed in a local copy that was discarded on return, so no
+# Vulkan handle type was ever actually registered.
+set Vulkan [dict link $C {}]
+method Vulkan::defineHandleType {self type} {
+    self::argtype $type [format {
 #ifdef VK_USE_64_BIT_PTR_DEFINES
-        %s $argname; sscanf(Jim_String($obj), "(%s) 0x%%p", &$argname);
+        %s $argname; sscanf(ziclShimString($shim), "(%s) 0x%%p", &$argname);
 #else
-        %s $argname; sscanf(Jim_String($obj), "(%s) 0x%%llx", &$argname);
+        %s $argname; sscanf(ziclShimString($shim), "(%s) 0x%%llx", &$argname);
 #endif
     } $type $type $type $type]
     # Tcl_ObjPrintf doesn't work with %lld/%llx for some reason,
     # so we do it by hand.
-    cc::rtype $type [format {
+    self::rtype $type [format {
 #ifdef VK_USE_64_BIT_PTR_DEFINES
-        robj::= Jim_ObjPrintf("(%s) 0x%%" PRIxPTR, (uintptr_t) $rvalue);
+        folkZiclAssert(Zicl_NewStringFormatted(&$robj, "(%s) 0x%%" PRIxPTR, (uintptr_t) $rvalue));
 #else
         {
           char buf[100]; snprintf(buf, 100, "(%s) 0x%%llx", $rvalue);
-          robj::= Jim_NewStringObj(buf, -1);
+          $robj = ziclNewString(buf, -1);
         }
 #endif
     } $type $type]
 }
-Claim the GPU Vulkan handle type definer is $defineVulkanHandleType
+Claim the GPU Vulkan C prototype is $Vulkan
 
 fn gpuInit {useGlfw} {
     # First, we build the C GPU library, which can make direct calls into
     # Vulkan -- this library then exposes functions that we can call from
     # Tcl.
-    set gpuc [dict link $C {}]
+    set gpuc [dict link $Vulkan {}]
     gpuc::addcflags -I./vendor
     gpuc::include <pthread.h>
     gpuc::addcode {
@@ -65,7 +76,7 @@ fn gpuInit {useGlfw} {
         }
     }
 
-    gpuc::argtype VkResult { long $argname; __ENSURE_OK(Jim_GetLong(interp, $obj, &$argname)); }
+    gpuc::argtype VkResult { long $argname; __ENSURE_OK(Zicl_GetLong(interp, $shim, &$argname)); }
     gpuc::proc VkResultToString {VkResult res} char* {
                 switch (res) {
         #define CASE(x) case VK_##x: return #x;
@@ -102,7 +113,7 @@ fn gpuInit {useGlfw} {
                 }
         #undef CASE
     }
-    local proc vktry {call} { string map {\n " "} [csubst {{
+    fn vktry {call} { string map {\n " "} [csubst {{
         VkResult res = $call;
         if (res != VK_SUCCESS) {
             FOLK_ERROR("Failed vkCreateInstance: %s (%d)\n",
@@ -131,8 +142,8 @@ fn gpuInit {useGlfw} {
 
         pthread_mutex_t displaySurfaceMutex;
     }
-    defineVulkanHandleType $gpuc VkPhysicalDevice
-    defineVulkanHandleType $gpuc VkDevice
+    gpuc::defineHandleType VkPhysicalDevice
+    gpuc::defineHandleType VkDevice
     gpuc::proc getPhysicalDevice {} VkPhysicalDevice { return physicalDevice; }
     gpuc::proc getDevice {} VkDevice { return device; }
 
@@ -288,8 +299,8 @@ fn gpuInit {useGlfw} {
         __thread VkCommandPool _commandPool;
         __thread VkCommandBuffer _commandBuffer;
     }
-    defineVulkanHandleType $gpuc VkCommandPool
-    defineVulkanHandleType $gpuc VkCommandBuffer
+    gpuc::defineHandleType VkCommandPool
+    gpuc::defineHandleType VkCommandBuffer
     gpuc::proc getCommandPool {} VkCommandPool {
         if (_commandPool == 0) {
             VkCommandPoolCreateInfo poolInfo = {0};

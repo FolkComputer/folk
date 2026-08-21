@@ -4,7 +4,6 @@ When when the TrOCR text recognizer is /any/ /any/ {
 
 When /someone/ wishes to load the TrOCR text recognizer &\
      the image uvx argtype definer is /defineImageArgtype/ {
-    fn defineImageArgtype
 
     set py [Uvx --with transformers --with pillow --with torch --with protobuf]
     defineImageArgtype $py
@@ -58,6 +57,6 @@ When /someone/ wishes to load the TrOCR text recognizer &\
     }
 
     fn TrOCR {im} { return [py::ocrImage $im] }
-    Claim the TrOCR text recognizer is [fn TrOCR]
+    Claim the TrOCR text recognizer is $TrOCR
 }
 

@@ -1,8 +1,7 @@
 When the quad library is /quadLib/ &\
-     libapriltag has been built with config /configCcWithLibapriltag/ {
-fn configCcWithLibapriltag
+     libapriltag has been built with C prototype /Apriltag/ {
 
-set cc [dict link $C {}]
+set cc [dict link $Apriltag {}]
 
 # Represents camera or projector intrinsics, including the classic
 # intrinsic matrix but also dimensions at which the matrix was created
@@ -43,7 +42,7 @@ cc::proc distort {double fx double fy double cx double cy
     out[1] = (y * (1.0 + radial) + dy)*fy + cy;
 }
 cc::proc project {Intrinsics intr double width double height
-                  double[3] v} Jim_Obj* {
+                  double[3] v} Zicl_Value {
     double out[3] = {
         v[0]*intr.fx +  v[1]*intr.s + v[2]*intr.cx,
                    0 + v[1]*intr.fy + v[2]*intr.cy,
@@ -55,11 +54,11 @@ cc::proc project {Intrinsics intr double width double height
             out, out);
     out[0] *= width / intr.width;
     out[1] *= height / intr.height;
-    Jim_Obj* retObjs[2] = {
-        Jim_NewDoubleObj(interp, out[0]),
-        Jim_NewDoubleObj(interp, out[1])
+    Zicl_Value retObjs[2] = {
+        Zicl_NewDouble(out[0]),
+        Zicl_NewDouble(out[1])
     };
-    return Jim_NewListObj(interp, retObjs, 2);
+    return Zicl_BoxList(ziclNewList(retObjs, 2));
 }
 cc::proc rescaleAndUndistort {Intrinsics intr
                               double cameraWidth double cameraHeight
@@ -82,7 +81,6 @@ cc::proc rescaleAndUndistort {Intrinsics intr
     out[0] = x*intr.fx + intr.cx;
     out[1] = y*intr.fy + intr.cy;
 }
-configCcWithLibapriltag $cc
 
 cc::include <apriltag_pose.h>
 cc::include <math.h>
@@ -381,7 +379,7 @@ When the collected results for [list the changer from space /sourceSpace/ to spa
             {*}$changer $v
         }]
     }
-    Claim the quad changer is [fn quadChange]
+    Claim the quad changer is $quadChange
 }
 
 When camera /camera/ to display /display/ has extrinsics /extrinsics/ {
@@ -524,7 +522,6 @@ When the quad changer is /quadChange/ &\
      display /disp/ has intrinsics /displayIntrinsics/ &\
      /tag/ has canvas /writableTextureId/ with /...wiOptions/ {
 
-    fn quadChange
 
     # Composite each quad's canvas onto the screen based on
     # its quad.

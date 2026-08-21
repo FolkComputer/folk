@@ -29,17 +29,19 @@ cc::proc slice {Image im double x double y double subwidth double subheight} Ima
     };
 }
 
-cc::proc get {Image im double x double y} Jim_Obj* {
+cc::proc get {Image im double x double y} Zicl_Value {
     int i = y * im.bytesPerRow + x * im.components;
     FOLK_ENSURE(x >= 0 && y >= 0 &&
                 x < im.width && y < im.height);
     uint8_t r = im.data[i];
     uint8_t g = im.data[i + 1];
     uint8_t b = im.data[i + 2];
-    return Jim_ObjPrintf("%g %g %g",
+    Zicl_Value ret;
+    folkZiclAssert(Zicl_NewStringFormatted(&ret, "%g %g %g",
                          (double)r / 255.0,
                          (double)g / 255.0,
-                         (double)b / 255.0);
+                         (double)b / 255.0));
+    return ret;
 }
 
 cc::proc imageNew {int width int height int components int uniq} Image {
@@ -272,4 +274,4 @@ fn defineImageArgtype {uvx} {
         return img
     }
 }
-Claim the image uvx argtype definer is [fn defineImageArgtype]
+Claim the image uvx argtype definer is $defineImageArgtype
