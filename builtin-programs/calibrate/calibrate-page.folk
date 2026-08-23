@@ -116,7 +116,7 @@ Wish the web server handles route "/calibrate" with hidden true handler {
                   Require! the makeCalibrationBoardPdf is /maker/
                   set boardPdf [{*}\$maker]
                   set boardPdfFile [file tempfile /tmp/folk-calibration-board-XXXXXX].pdf
-                  set fd [fopen \$boardPdfFile wb]; puts \$fd \$boardPdf; close \$fd
+                  set fd [file open \$boardPdfFile wb]; puts \$fd \$boardPdf; close \$fd
                   Notify: print pdf \$boardPdfFile
                 `);
               });
@@ -346,9 +346,8 @@ Wish the web server handles route {/calibration-poses/([^/]+)$} with handler {
     set filename "$env::HOME/folk-calibration-poses/$1"
 
     set fsize [file size $filename]
-    set fd [fopen $filename r]
-    fconfigure $fd -translation binary
-    set body [read $fd $fsize]
+    set fd [file open $filename r]
+    set body [stream read $fd $fsize]
     close $fd
     dict create statusAndHeaders "HTTP/1.1 200 OK
 Connection: close

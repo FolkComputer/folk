@@ -110,7 +110,7 @@ fn makeAprilTagDetector {TAG_FAMILY QUAD_DECIMATE NTHREADS} {
         if (gray.components == 3) free(grayBuf);
 
         Zicl_Value result = Zicl_BoxList(ziclNewList(detectionObjs, detectionCount));
-        for (int i = 0; i < detectionCount; i++) Zicl_Release(detectionObjs[i]);
+        for (int i = 0; i < detectionCount; i++) Zicl_DropRef(detectionObjs[i]);
         return result;
     }
     cc::proc detectCleanup {} void {

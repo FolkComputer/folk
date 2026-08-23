@@ -22,8 +22,6 @@ set websocat [exec websocat --null-terminated "ws://127.0.0.1:4273/ws" <@$chWrit
 close $chRead2
 close $chWrite2
 
-fconfigure $chWrite -buffering none
-
 proc wsSend {code} {chRead chWrite} {
     puts -nonewline $chWrite "$code\0"
     flush $chWrite

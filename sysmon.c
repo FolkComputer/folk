@@ -33,9 +33,9 @@ extern void installLocalStdoutAndStderr(int stdoutfd, int stderrfd);
 extern ThreadControlBlock threads[];
 extern Db* db;
 extern void trace(const char* format, ...);
-extern void HoldStatementGlobally(const char *key, double version,
-                                  Zicl_List *clause, long keepMs, const char *destructorCode,
-                                  const char *sourceFileName, int sourceLineNumber);
+void HoldStatementGlobally(const char *key, double version,
+                           Zicl_List *clause, long keepMs, Zicl_OptionalValue destructorCode,
+                           const char *sourceFileName, int sourceLineNumber);
 
 extern void workerReactivateOrSpawn(int64_t msSinceBoot, int targetNotBlockedWorkersCount);
 extern void initSysmonInterp();
@@ -167,18 +167,18 @@ void sysmon() {
         "sysmon.c claims the internal time is %f",
         (double)timeNs / 1000000000.0);
     HoldStatementGlobally("internal-time", currentTick,
-                          internalTimeClause, 0, NULL,
+                          internalTimeClause, 0, ZICL_NONE,
                           "sysmon.c", __LINE__);
-    Zicl_ReleaseList(internalTimeClause);
+    Zicl_DropRefList(internalTimeClause);
 
     if (currentTick % 3 == 0) {
         Zicl_List* clockTimeClause = clauseFormat(
             "sysmon.c claims the clock time is %f",
             (double)timeNs / 1000000000.0);
         HoldStatementGlobally("clock-time", currentTick,
-                              clockTimeClause, 0, NULL,
+                              clockTimeClause, 0, ZICL_NONE,
                               "sysmon.c", __LINE__);
-        Zicl_ReleaseList(clockTimeClause);
+        Zicl_DropRefList(clockTimeClause);
     }
 }
 
@@ -246,11 +246,11 @@ static void checkRam() {
     HoldStatementGlobally("selfRam", tick,
                           clauseFormat("sysmon.c claims %s has self RAM usage %d MB",
                                        thisNode, selfRamMb),
-                          0, NULL, "sysmon.c", __LINE__);
+                          0, ZICL_NONE, "sysmon.c", __LINE__);
     HoldStatementGlobally("totalRam", tick,
                           clauseFormat("sysmon.c claims %s has available RAM %d MB of %d MB",
                                        thisNode, freeRamMb, totalRamMb),
-                          0, NULL, "sysmon.c", __LINE__);
+                          0, ZICL_NONE, "sysmon.c", __LINE__);
 
     if (freeRamMb < 200) {
         // Hard die if we are likely to run out of RAM

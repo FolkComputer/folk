@@ -290,9 +290,9 @@ Subscribe: print program /id/ with /...options/ {
     if {[file exists "$saveDir/$id.folk"]} {
         error "Program $id already exists on disk. Aborting print."
     }
-    set fp [fopen "$saveDir/$id.folk" w]; puts $fp $code; close $fp
+    set fp [file open "$saveDir/$id.folk" w]; puts $fp $code; close $fp
 
-    set fp [fopen "$saveDir/$id.ps" w]; puts $fp $ps; close $fp
+    set fp [file open "$saveDir/$id.ps" w]; puts $fp $ps; close $fp
     exec ps2pdf -dPDFSETTINGS=/prepress -sFONTPATH=vendor/fonts \
         $saveDir/$id.ps $saveDir/$id.pdf
 
@@ -336,7 +336,7 @@ Subscribe: print program /id/ with /...options/ {
         $($printedMargins::bottom * $ptmm) \
         $($printedMargins::left * $ptmm)]
 
-    set fp [fopen "$saveDir/$id.meta.folk" w]
+    set fp [file open "$saveDir/$id.meta.folk" w]
     puts $fp "Claim tag \$this has geometry \{$geomStr\}"
     close $fp
 

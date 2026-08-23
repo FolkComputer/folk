@@ -12,7 +12,6 @@ When the print library is /printLib/ &\
         Require! $printer is at /address/
         set printerSocket [socket stream ${address}:9100]
 
-        fconfigure $printerSocket -translation binary -buffering none
         set template {
             [init]
             [tag $id]
@@ -23,7 +22,7 @@ When the print library is /printLib/ &\
             [feed 3]
             [cut]
         }
-        puts -nonewline $printerSocket [render $template]
+        socket write $printerSocket [render $template]
         close $printerSocket
     }
 
@@ -34,14 +33,14 @@ When the print library is /printLib/ &\
     }
 
     fn writeFolkFile {id code} {
-        set folkFile [fopen "$saveDir/$id.folk" w]
+        set folkFile [file open "$saveDir/$id.folk" w]
         puts $folkFile $code
         close $folkFile
     }
 
     fn writeMetaFile {printer id} {
         Require! $printer has tag geometry /geometry/
-        set metaFile [fopen "$saveDir/$id.meta.folk" w]
+        set metaFile [file open "$saveDir/$id.meta.folk" w]
         puts $metaFile [subst {Claim tag \$this has geometry {$geometry}}]
         close $metaFile
     }

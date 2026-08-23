@@ -41,8 +41,8 @@ set threadMonitorLib [apply [fn {} {
             Zicl_Value key = ziclNewString("op", -1);
             Zicl_Value val = itemToStringObj(item);
             ziclDictPut(ret, key, val);
-            Zicl_Release(key);
-            Zicl_Release(val);
+            Zicl_DropRef(key);
+            Zicl_DropRef(val);
         }
 
         WorkQueueItem items[100];
@@ -51,20 +51,20 @@ set threadMonitorLib [apply [fn {} {
         for (int i = 0; i < nitems; i++) {
             Zicl_Value s = itemToStringObj(items[i]);
             ziclListAppend(workQueueList, s);
-            Zicl_Release(s);
+            Zicl_DropRef(s);
         }
         {
             Zicl_Value key = ziclNewString("workQueue", -1);
             Zicl_Value val = Zicl_BoxList(workQueueList);
             ziclDictPut(ret, key, val);
-            Zicl_Release(key);
-            Zicl_Release(val);
+            Zicl_DropRef(key);
+            Zicl_DropRef(val);
         }
 
         {
             Zicl_Value key = ziclNewString("isDeactivated", -1);
             ziclDictPut(ret, key, Zicl_NewLong(thread->isDeactivated));
-            Zicl_Release(key);
+            Zicl_DropRef(key);
         }
 
         {
@@ -72,26 +72,26 @@ set threadMonitorLib [apply [fn {} {
             Zicl_Value val;
             folkZiclAssert(Zicl_NewStringFormatted(&val, "%" PRId64, thread->currentItemStartTimestamp));
             ziclDictPut(ret, key, val);
-            Zicl_Release(key);
-            Zicl_Release(val);
+            Zicl_DropRef(key);
+            Zicl_DropRef(val);
         }
 
         int64_t now = timestamp_get(thread->clockid);
         {
             Zicl_Value key = ziclNewString("elapsed", -1);
             ziclDictPut(ret, key, Zicl_NewDouble((double)(now - thread->currentItemStartTimestamp) / 1000.0));
-            Zicl_Release(key);
+            Zicl_DropRef(key);
         }
 
         {
             Zicl_Value key = ziclNewString("_allocs", -1);
             ziclDictPut(ret, key, Zicl_NewDouble(thread->_allocs));
-            Zicl_Release(key);
+            Zicl_DropRef(key);
         }
         {
             Zicl_Value key = ziclNewString("_frees", -1);
             ziclDictPut(ret, key, Zicl_NewDouble(thread->_frees));
-            Zicl_Release(key);
+            Zicl_DropRef(key);
         }
 
         return Zicl_BoxDict(ret);
@@ -125,7 +125,7 @@ set threadMonitorLib [apply [fn {} {
 
             Zicl_Value s = itemToStringObj(item);
             ziclListAppend(ret, s);
-            Zicl_Release(s);
+            Zicl_DropRef(s);
         }
         return Zicl_BoxList(ret);
     }
@@ -171,8 +171,8 @@ Wish the web server handles route "/threads" with handler {
             set taskdir /proc/$pid/task/$tid
 
             try {
-                set statusFd [fopen $taskdir/status r]
-                set status [read $statusFd]; close $statusFd
+                set statusFd [file open $taskdir/status r]
+                set status [stream read $statusFd]; close $statusFd
             } on error e {
                 set status "<status unknown>"
             }
@@ -185,8 +185,8 @@ Wish the web server handles route "/threads" with handler {
                 set userStack "<not found>"
             }
             try {
-                set stackFd [fopen $taskdir/stack r]
-                set kernelStack [read $stackFd]; close $stackFd
+                set stackFd [file open $taskdir/stack r]
+                set kernelStack [stream read $stackFd]; close $stackFd
             } on error e {
                 set kernelStack "<not permitted>"
             }

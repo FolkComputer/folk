@@ -649,7 +649,7 @@ set pipelineCompilerLib [library create pipelineCompiler {gpuLib pipelineLib} {
         set cmdargs [lreplace $args end end]
         set glsl [lindex $args end]
         set glslfile [file tempfile /tmp/glslfileXXXXXX].glsl
-        set glslfd [fopen $glslfile w]; puts $glslfd $glsl; close $glslfd
+        set glslfd [file open $glslfile w]; puts $glslfd $glsl; close $glslfd
         split [string map {\n ""} [exec glslc {*}$cmdargs -mfmt=num -o - $glslfile]] ","
     }
 }]

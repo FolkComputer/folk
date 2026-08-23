@@ -122,7 +122,7 @@ fn Hold! {args} {
             lappend clause $arg
         }
     }
-    if {[llength $clause] == 1 && [lindex $clause 0] == ""} {
+    if {[llength $clause] == 1 && [lindex $clause 0] eq ""} {
         set clause ""
     } elseif {[llength $clause] == 1} {
         # Hold! { ... body ... }
@@ -339,12 +339,10 @@ fn When {args} {
         # Serial prologue: find this When itself; see if that
         # statement ref has any match children that are incomplete. If
         # so, then die.
-        set prologue {
-            if {[__whenOfCurrentMatchIncompleteChildMatchesCount] > 1} {
-                return
-            }
-        }
-        set body "$prologue\n$body"
+        # Kept on one line and joined with `;` (not a newline) so that
+        # prepending it doesn't shift every line number in $body.
+        set prologue {if {[__whenOfCurrentMatchIncompleteChildMatchesCount] > 1} { return }}
+        set body "$prologue;$body"
     }
 
     if {[llength $atomicallyVersion] == 2 &&
@@ -372,7 +370,16 @@ fn When {args} {
     # generically by applyBlock from the merged environment) is now handled
     # by runBlock in C, reading `this` straight out of the closure's own
     # captured scope.
-    set closure [uplevel 1 [list fn $boundVars $bodyToWrap]]
+    #
+    # `list` stringifies the body and `uplevel` re-parses it, which throws
+    # away the Source objects carrying the body's file and line. Tracebacks
+    # are built from those, so without re-stamping, every error inside a
+    # When block reports an empty file name and a line counted from 1 rather
+    # than from the top of the file. `list` puts everything ahead of the
+    # body on a single line, so the body still starts on line 0 of this
+    # script, exactly where it started in the original -- which means
+    # $sourceInfo applies unchanged.
+    set closure [uplevel 1 [info source [list fn $boundVars $bodyToWrap] {*}$sourceInfo]]
 
     tailcall SayWithSource {*}$sourceInfo \
         0 $atomicallyVersion {} \
@@ -391,10 +398,9 @@ fn Subscribe: {args} {
 fn Notify: {args} {
     NotifyImpl {*}$args
 }
-fn On {event args} {
+fn On {event fn} {
     if {$event eq "unmatch"} {
-        set body [lindex $args 0]
-        Destructor [list applyBlock $body {}]
+        Destructor [list apply $fn]
     } else {
         error "On: Unknown '$event' (called with: [string range $args 0 50]...)"
     }

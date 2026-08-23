@@ -3,25 +3,25 @@
 #     Implements a virtual terminal with basic read/write procs.
 #
 
-set cc [C]
-$cc cflags -I./vendor/libtmt
-$cc endcflags -lutil ./vendor/libtmt/tmt.c
+set cc [dict link $C {}]
+cc::addcflags -I./vendor/libtmt
+cc::addendcflags -lutil ./vendor/libtmt/tmt.c
 
-$cc include <sys/types.h>
-$cc include <stdlib.h>
-$cc include <unistd.h>
+cc::include <sys/types.h>
+cc::include <stdlib.h>
+cc::include <unistd.h>
 if {$::tcl_platform(os) eq "darwin"} {
-    $cc include <util.h>
+    cc::include <util.h>
 } else {
-    $cc include <pty.h>
+    cc::include <pty.h>
 }
-$cc include <fcntl.h>
-$cc include <string.h>
-$cc include <sys/time.h>
-$cc include <signal.h>
-$cc include "tmt.h"
+cc::include <fcntl.h>
+cc::include <string.h>
+cc::include <sys/time.h>
+cc::include <signal.h>
+cc::include "tmt.h"
 
-$cc struct VTerminal {
+cc::struct VTerminal {
   TMT* tmt;
   int pty_fd;
   int pid;
@@ -33,7 +33,7 @@ $cc struct VTerminal {
   int ncols;
 };
 
-$cc code {
+cc::code {
   #define PTYBUF 4096
   char iobuf[PTYBUF];
 
@@ -77,7 +77,7 @@ $cc code {
   }
 }
 
-$cc proc termCreate {int rows int cols char* cmd[]} VTerminal* {
+cc::proc termCreate {int rows int cols char* cmd[]} VTerminal* {
   int i = 0;
   while (true) {
     // execvp requires cmd array to be terminated by null pointer
@@ -115,14 +115,14 @@ $cc proc termCreate {int rows int cols char* cmd[]} VTerminal* {
   return vt;
 }
 
-$cc proc termDestroy {VTerminal* vt} void {
+cc::proc termDestroy {VTerminal* vt} void {
   kill(vt->pid, SIGTERM);
   close(vt->pty_fd);
   free(vt->display);
   free(vt);
 }
 
-$cc proc termRead {VTerminal* vt} char* {
+cc::proc termRead {VTerminal* vt} char* {
   ssize_t r = read(vt->pty_fd, iobuf, PTYBUF);
   if (r > 0) {
     tmt_write(vt->tmt, iobuf, r);
@@ -132,7 +132,7 @@ $cc proc termRead {VTerminal* vt} char* {
   return vt->display;
 }
 
-$cc proc termWrite {VTerminal* vt char* key} void {
+cc::proc termWrite {VTerminal* vt char* key} void {
   write(vt->pty_fd, key, strlen(key));
 }
 

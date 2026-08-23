@@ -549,7 +549,7 @@ proc ::sha1::Chunk {token channel {chunksize 4096}} {
         set state(reading) 0
     }
         
-    SHA1Update $token [read $channel $chunksize]
+    SHA1Update $token [stream read channel $chunksize]
 }
 
 # -------------------------------------------------------------------------

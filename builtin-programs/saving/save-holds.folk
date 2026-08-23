@@ -42,8 +42,8 @@ cc::proc loadHolds {char* canonicalName char* holdStr} void {
     Zicl_Value key = ziclNewString(canonicalName, -1);
     Zicl_Value val = ziclNewString(holdStr, -1);
     ziclDictPut(holds, key, val);
-    Zicl_Release(key);
-    Zicl_Release(val);
+    Zicl_DropRef(key);
+    Zicl_DropRef(val);
     pthread_mutex_unlock(&holdMutex);
 }
 
@@ -75,7 +75,7 @@ cc::proc saveHold {char* canonical Zicl_Value tclEscaped char* filename Zicl_Val
 
     Zicl_Value newHoldVal = Zicl_BoxDict(holdDict);
     ziclDictPut(holds, canonicalKey, newHoldVal);
-    Zicl_Release(canonicalKey);
+    Zicl_DropRef(canonicalKey);
 
     pthread_mutex_unlock(&holdMutex);
 
@@ -104,7 +104,7 @@ cc::proc saveHold {char* canonical Zicl_Value tclEscaped char* filename Zicl_Val
             fwrite(pairStr, 1, pairLen, file);
             fwrite("\n", 1, 1, file);
 
-            Zicl_Release(pairList);
+            Zicl_DropRef(pairList);
         }
 
         fclose(file);
@@ -113,7 +113,7 @@ cc::proc saveHold {char* canonical Zicl_Value tclEscaped char* filename Zicl_Val
         remove(filename); // no need to check error
     }
 
-    Zicl_ReleaseDict(holdDict);
+    Zicl_DropRefDict(holdDict);
 }
 
 set savedHoldsLib [cc::compile]
@@ -123,8 +123,8 @@ When /someone/ wishes to deserialize namespace hold with directory /directory/ {
     set holdFiles [glob -nocomplain $directory/*]
 
     foreach holdFile $holdFiles {
-        set fd [fopen $holdFile r]
-        set holds [read $fd]
+        set fd [file open $holdFile r]
+        set holds [stream read $fd]
         close $fd
 
         # the hold file's first line is its canonical name (since

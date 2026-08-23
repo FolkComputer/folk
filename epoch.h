@@ -24,9 +24,9 @@ void *epochAlloc(size_t sz);
 // 'Pseudo-free' a pointer (mark it for potential retirement at the
 // end of the epoch).
 void epochFree(void *ptr);
-// Defer Zicl_Release on a Zicl_Object until after all concurrent
+// Defer Zicl_DropRef on a Zicl_Object until after all concurrent
 // epoch-protected readers have finished. Use this instead of
-// Zicl_Release when retiring trie nodes whose keys must outlive
+// Zicl_DropRef when retiring trie nodes whose keys must outlive
 // the epoch-protected window.
 void epochDecrRef(struct Zicl_Object* value);
 

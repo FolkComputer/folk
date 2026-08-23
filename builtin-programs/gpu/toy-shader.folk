@@ -70,7 +70,7 @@ set toyArgsSize [toyEncoderLib::getToyArgsSize]
 # Run glslc as a subprocess to turn GLSL into SPIR-V words.
 fn toyGlslc {stage glsl} {
     set glslfile [file tempfile /tmp/toyshaderXXXXXX].glsl
-    set glslfd [fopen $glslfile w]; puts $glslfd $glsl; close $glslfd
+    set glslfd [file open $glslfile w]; puts $glslfd $glsl; close $glslfd
     split [string map {\n ""} [exec glslc -fshader-stage=$stage -mfmt=num -o - $glslfile]] ","
 }
 

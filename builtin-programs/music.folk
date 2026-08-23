@@ -90,7 +90,7 @@ let getState = streamGet tidal
 default (Pattern String, Integer, Double)
 }
 
-set scStartup [fopen $musicDir/startup.sc w]
+set scStartup [file open $musicDir/startup.sc w]
 # via https://club.tidalcycles.org/t/tidal-synth-doesnt-work/800 -- it
 # doesn't work if you just do SuperDirt.start; for some reason
 puts $scStartup {(
@@ -171,7 +171,7 @@ fn musicFinishSetup {} {
   sleep 0.2
   musicExec sh -c "ghci < $fifo" &
 
-  set fifoId [fopen $fifo w]
+  set fifoId [file open $fifo w]
   puts $fifoId $bootTidal; flush $fifoId
   # We keep $fifoId open so that ghci doesn't get an EOF.
 }

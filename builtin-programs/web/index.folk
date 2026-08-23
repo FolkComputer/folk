@@ -1,7 +1,7 @@
 Wish the web server handles route "/" with handler {
     fn readOutputFile {path} {
-        if {[catch {set fp [fopen $path r]}] != 0} { return "" }
-        set content [read $fp]
+        if {[catch {set fp [file open $path r]}] != 0} { return "" }
+        set content [stream read $fp]
         close $fp
         return $content
     }

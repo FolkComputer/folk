@@ -8,9 +8,8 @@ When the jpeg library is /jpegLib/ {
             set filename "/tmp/web-image-frame.jpg"
             jpegLib::saveAsJpeg $im $filename
             set fsize [file size $filename]
-            set fd [fopen $filename r]
-            fconfigure $fd -translation binary
-            set imageData [read $fd $fsize]
+            set fd [file open $filename r]
+            set imageData [stream read $fd $fsize]
             close $fd
 
             set tags [Query! tag /id/ has detection /det/ on camera $cam \

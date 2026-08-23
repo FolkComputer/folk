@@ -25,7 +25,7 @@ Zicl_List* clauseFormat(const char* fmt, ...) {
     while (token != NULL) {
         Zicl_Value tokenValue = ziclNewString(token, -1);
         Zicl_ListAppend(list, tokenValue);
-        Zicl_Release(tokenValue);
+        Zicl_DropRef(tokenValue);
         token = strtok_r(NULL, " ", &saveptr);
     }
 
@@ -84,7 +84,7 @@ static const Trie* trieAddImpl(const Trie* trie,
     if (j == trie->branchesCount) {
         // Need to add a new branch.
         newBranch = allocator->alloc(SIZEOF_TRIE(0));
-        newBranch->key = Zicl_Borrow(term);
+        newBranch->key = Zicl_Ref(term);
         newBranch->value = 0;
         newBranch->hasValue = false;
         newBranch->branchesCount = 0;
@@ -101,7 +101,7 @@ static const Trie* trieAddImpl(const Trie* trie,
         // Subtrie was unchanged by the addition (meaning that the
         // clause is already in the trie). Return the original trie.
         if (newBranch != NULL) {
-            Zicl_Release(newBranch->key);
+            Zicl_DropRef(newBranch->key);
             allocator->retire(newBranch);
         }
         return trie;

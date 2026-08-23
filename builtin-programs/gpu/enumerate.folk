@@ -79,7 +79,7 @@ cc::proc enumerateDisplays {} Zicl_Value {
                     modeProps[j].parameters.visibleRegion.height,
                     modeProps[j].parameters.refreshRate));
                 ziclListAppend(modesList, modeDict);
-                Zicl_Release(modeDict);
+                Zicl_DropRef(modeDict);
             }
 
             const char *modesStr = ziclListString(modesList);
@@ -93,10 +93,10 @@ cc::proc enumerateDisplays {} Zicl_Value {
                 displayProps[i].physicalResolution.width,
                 displayProps[i].physicalResolution.height,
                 modesStr));
-            Zicl_ReleaseList(modesList);
+            Zicl_DropRefList(modesList);
 
             ziclListAppend(allDisplaysList, displayDict);
-            Zicl_Release(displayDict);
+            Zicl_DropRef(displayDict);
         }
     }
 

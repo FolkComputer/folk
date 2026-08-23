@@ -334,7 +334,7 @@ When the GPU library is /gpuLib/ &\
 
             if {![dict exists $pipelines $pipelineName]} {
                 if {![dict exists $missingPipelines $pipelineName]} {
-                    puts $realStderr "canvases: Missing pipeline $pipelineName"
+                    stream write "canvases: Missing pipeline $pipelineName\n"
                     dict set missingPipelines $pipelineName true
                 }
                 continue
@@ -393,7 +393,7 @@ When the GPU library is /gpuLib/ &\
                     addToDrawLists drawListsByTexture($id) \
                         name::$options
                 } on error e {
-                    puts $realStderr "Error: GPU draws pipeline $name: [errorinfo $e]"
+                    stream write $realStderr "Error: GPU draws pipeline $name: [errorinfo $e]\n"
                     Assert! $this claims $wisher has error $e with info [errorinfo $e]
                     # TODO: does this ever get disposed?
                 }
@@ -417,7 +417,7 @@ When the GPU library is /gpuLib/ &\
                 set layerDrawList [dict get $drawLists $layer]
                 foreach drawCommand $layerDrawList {
                     try { {*}$drawCommand } \
-                        on error e { puts $realStderr [errorinfo $e] }
+                        on error e { stream write $realStderr "[errorinfo $e]\n" }
                 }
             }
 

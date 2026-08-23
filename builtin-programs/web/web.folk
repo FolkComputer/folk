@@ -29,13 +29,13 @@ fn htmlEscape {s} {
 fn handleRead {chan addr} {
     chan::buffering none
 
-    gets $chan line; set line [string range $line 0 end-1]
+    set line [stream gets $chan]; set line [string range $line 0 end-1]
     set firstline $line
 
     # puts "Http ([clock format [clock seconds] -format "%H:%M:%S"]): $chan $addr: $line"
     set headers [list]
     while true {
-        gets $chan line; set line [string range $line 0 end-1]
+        set line [stream gets $chan]; set line [string range $line 0 end-1]
         if {$line eq ""} { break }
 
         # puts "  Http: ($line)"
@@ -78,7 +78,7 @@ fn handleRead {chan addr} {
         } on error {err opts} {
             set errorInfo [dict get $opts -errorinfo]
             set src [lindex $errorInfo 1]
-            puts $realStderr "Web error in $src ($path): $err\n  [errorinfo $err $errorInfo]"
+            stream write $realStderr "Web error in $src ($path): $err\n  [errorinfo $err $errorInfo]\n"
 
             set contentType "text-html; charset=utf-8"
             set body [subst {
@@ -140,8 +140,8 @@ fn handleConnect {chan addr} {
 
 fn readFile {filename contentTypeVar} {
     upvar $contentTypeVar contentType
-    set fd [fopen $filename rb]
-    set response [read $fd]; close $fd; return $response
+    set fd [file open $filename rb]
+    set response [stream read $fd]; close $fd; return $response
 }
 
 fn headerGet {headers name args} {
@@ -281,16 +281,16 @@ while true {
         break
     } on error e {
         # Handles failure to bind to :4273. We try again in a second.
-        puts $realStderr "web: $e"
+        stream write $realStderr "web: $e\n"
         sleep 1
     }
 }
 
 } on error {e opts} {
-    puts $realStderr "WARNING: web.folk failed to initialize;
+    stream write $realStderr "WARNING: web.folk failed to initialize;
 the web server is probably down; check /var/tmp/folk-[pid]/ for log files.
 (Make sure libtool and autoconf-archive are installed.)
 ------------------------------------------
-[errorinfo $e]"
+[errorinfo $e]\n"
     return -options $opts $e
 }

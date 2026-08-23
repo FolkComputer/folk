@@ -74,9 +74,9 @@ int __blockRuntimeStatsFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *arg
             ziclNewString(ewma_buf, -1),
             ziclNewString(count_buf, -1),
         };
-        defer { Zicl_ReleaseArrayItems(items, sizeof(items)/sizeof(Zicl_Value)); };
+        defer { Zicl_DropRefArrayItems(items, sizeof(items)/sizeof(Zicl_Value)); };
         Zicl_Value entry = Zicl_BoxList(ziclNewList(items, 3));
-        defer { Zicl_Release(entry); }
+        defer { Zicl_DropRef(entry); }
         ziclListAppend(result, entry);
     }
     pthread_rwlock_unlock(&blockStatsLock);

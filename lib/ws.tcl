@@ -1,5 +1,8 @@
+error "Need to fix"
+
 set cc [C]
 $cc cflags -I./vendor/wslay/lib/includes
+
 
 $cc include <errno.h>
 $cc include <sys/socket.h>

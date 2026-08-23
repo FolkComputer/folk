@@ -30,7 +30,7 @@ When the image library is /imageLib/ {
             Zicl_Value imObj;
             $[cc::ret Image imObj im]
             ziclListAppend(framesList, imObj);
-            Zicl_Release(imObj);
+            Zicl_DropRef(imObj);
 
             // gifdec delay is in 1/100s of a second. Convert to milliseconds.
             ziclListAppend(delaysList, Zicl_NewLong(gif->gce.delay * 10));
@@ -51,12 +51,12 @@ When the image library is /imageLib/ {
         ziclDictPut(result, delaysKey, delaysVal);
         ziclDictPut(result, widthKey, Zicl_NewLong(w));
         ziclDictPut(result, heightKey, Zicl_NewLong(h));
-        Zicl_Release(framesKey);
-        Zicl_Release(delaysKey);
-        Zicl_Release(widthKey);
-        Zicl_Release(heightKey);
-        Zicl_Release(framesVal);
-        Zicl_Release(delaysVal);
+        Zicl_DropRef(framesKey);
+        Zicl_DropRef(delaysKey);
+        Zicl_DropRef(widthKey);
+        Zicl_DropRef(heightKey);
+        Zicl_DropRef(framesVal);
+        Zicl_DropRef(delaysVal);
         return Zicl_BoxDict(result);
     }
 

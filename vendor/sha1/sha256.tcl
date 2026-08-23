@@ -660,7 +660,7 @@ proc ::sha2::Pop {varname {nth 0}} {
 proc ::sha2::Chunk {token channel {chunksize 4096}} {
     upvar #0 $token state
     
-    SHA256Update $token [read $channel $chunksize]
+    SHA256Update $token [stream read channel $chunksize]
 
     if {[eof $channel]} {
         fileevent $channel readable {}

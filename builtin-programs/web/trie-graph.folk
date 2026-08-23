@@ -47,7 +47,7 @@ void tfree(void *ptr) {
 #endif
 
         static void trieRetireValue(Zicl_Object* obj) {
-            Zicl_Release(Zicl_BoxObject(obj));
+            Zicl_DropRef(Zicl_BoxObject(obj));
         }
         static const TrieAllocator trieAllocator = {
             .alloc = tmalloc,
@@ -79,7 +79,7 @@ void tfree(void *ptr) {
             objv[3+i] = trie->branches[i] ? tclify((Trie *)trie->branches[i]) : ziclNewString("", 0);
         }
         Zicl_Value result = Zicl_BoxList(ziclNewList(objv, objc));
-        for (int i = 0; i < objc; i++) Zicl_Release(objv[i]);
+        for (int i = 0; i < objc; i++) Zicl_DropRef(objv[i]);
         return result;
     }
     cc::proc dbTrieTclify {} Zicl_Value {
@@ -95,7 +95,7 @@ void tfree(void *ptr) {
     cc::proc add {Trie@ trie Zicl_Value patternObj uint64_t value} Trie@ {
         Zicl_List* pattern = jimObjToClause(interp, patternObj);
         const Trie* result = trieAdd(trie.ptr, &trieAllocator, pattern, value);
-        Zicl_ReleaseList(pattern);
+        Zicl_DropRefList(pattern);
         if (result == trie.ptr) {
             // trieAdd is a no-op when the clause is already present (see its
             // own comment): the returned pointer is byte-identical to the
@@ -109,7 +109,7 @@ void tfree(void *ptr) {
         uint64_t results[50];
         Zicl_List* pattern = jimObjToClause(interp, patternObj);
         int resultCount = trieLookup(trie, pattern, results, 50);
-        Zicl_ReleaseList(pattern);
+        Zicl_DropRefList(pattern);
 
         Zicl_Value resultObjs[resultCount];
         for (int i = 0; i < resultCount; i++) {
@@ -117,7 +117,7 @@ void tfree(void *ptr) {
         }
 
         Zicl_Value result = Zicl_BoxList(ziclNewList(resultObjs, resultCount));
-        for (int i = 0; i < resultCount; i++) Zicl_Release(resultObjs[i]);
+        for (int i = 0; i < resultCount; i++) Zicl_DropRef(resultObjs[i]);
         return result;
     }
     cc::proc remove_ {Trie* trie Zicl_Value patternObj} Trie* {
@@ -126,7 +126,7 @@ void tfree(void *ptr) {
         int resultCount;
         trie = (Trie *)trieRemove(trie, &trieAllocator,
                                   pattern, results, 50, &resultCount);
-        Zicl_ReleaseList(pattern);
+        Zicl_DropRefList(pattern);
         return trie;
     }
 
@@ -162,8 +162,8 @@ set trieDotify {{trieLib tclifiedTrie} {
 }}
 
 set getDotAsPdf {{dot} {
-    set fd [fopen |[list dot -Tpdf <<$dot] rb]
-    set response [read $fd]
+    set fd [file open |[list dot -Tpdf <<$dot] rb]
+    set response [stream read $fd]
     try {
         close $fd
         return $response

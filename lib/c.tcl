@@ -472,7 +472,7 @@ method C::addcap {self basetype {urlsegment {}}} {
         if (Zicl_IsNone(Zicl_Wrap(\$rvalue.cap))) {
             \$robj = ${basetype}_wrapFresh(\$rvalue.ptr);
         } else {
-            \$robj = Zicl_Borrow(\$rvalue.cap);
+            \$robj = Zicl_Ref(\$rvalue.cap);
         }
     }]
 }
@@ -535,7 +535,7 @@ method C::struct {self type fields} {
                 struct_ptr = ($type*)&objPtr->body_backing;
             }
 
-            $[foreachZiclValueField $fields "struct_ptr" {Zicl_Release(%V);}]
+            $[foreachZiclValueField $fields "struct_ptr" {Zicl_DropRef(%V);}]
 
             if (sizeof($type) > ZICL_OBJECT_BODY_MAX_SIZE) {
                 // The body is a pointer to the struct we allocated, since it was
@@ -568,7 +568,7 @@ method C::struct {self type fields} {
             }
 
             (void)dest_struct; // unused if $fields has no Zicl_Value field
-            $[foreachZiclValueField $fields "dest_struct" {%V = Zicl_Borrow(%V);}]
+            $[foreachZiclValueField $fields "dest_struct" {%V = Zicl_Ref(%V);}]
 
             return new_object;
         }
@@ -607,7 +607,7 @@ method C::struct {self type fields} {
             snprintf(bytes, bytes_len + 1, format, $[join [lmap fieldname $fieldnames {subst {ziclString(struct_$fieldname)}}] ", "]);
             folkZiclAssert(Zicl_SetObjectString(objPtr, bytes, bytes_len));
             $[join [lmap {fieldtype fieldname} $fields {
-                subst {Zicl_Release(struct_$fieldname);}
+                subst {Zicl_DropRef(struct_$fieldname);}
             }] "\n"]
             return ZICL_OK;
         }
@@ -693,7 +693,7 @@ method C::struct {self type fields} {
             }
             *dest_struct = \$rvalue;
 
-            $[foreachZiclValueField $fields {dest_struct} {%V = Zicl_Borrow(%V);}]
+            $[foreachZiclValueField $fields {dest_struct} {%V = Zicl_Ref(%V);}]
 
             \$robj = Zicl_BoxObject(obj);
         }
@@ -735,11 +735,11 @@ method C::struct {self type fields} {
                 # duplicate whose lifetime we don't own (see argtypes.Zicl_Value),
                 # and self::ret's Zicl_Value conversion is a bare alias that
                 # expects an already-owned reference, same as elsewhere in this
-                # codebase (e.g. folk.c's `Zicl_Borrow(bTerms[i])`).
+                # codebase (e.g. folk.c's `Zicl_Ref(bTerms[i])`).
                 self::proc ${type}_$fieldname {Zicl_Interp* interp Zicl_Shimmerable* shim} $fieldtype {
                     $type* struct_ptr;
                     __ENSURE_OK($[set type]_shimmerFrom(interp, shim, &struct_ptr));
-                    return Zicl_Borrow(struct_ptr->$fieldname);
+                    return Zicl_Ref(struct_ptr->$fieldname);
                 }
             } else {
                 self::proc ${type}_$fieldname {Zicl_Interp* interp Zicl_Shimmerable* shim} $fieldtype {
@@ -931,7 +931,7 @@ extern "C" \{
 
     # puts "=====================\n$sourcecode\n====================="
 
-    set cfd [fopen $cfile w]; puts $cfd $sourcecode; close $cfd
+    set cfd [file open $cfile w]; stream write $cfd $sourcecode; close $cfd
     set ignoreUnresolved {}; if {$tcl_platform::os eq "linux"} {
         set ignoreUnresolved -Wl,--unresolved-symbols=ignore-all
     } elseif {$tcl_platform::os eq "darwin"} {

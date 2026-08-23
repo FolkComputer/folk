@@ -98,12 +98,12 @@ static void destructorHelper(void* arg) {
     // this function can be invoked from sysmon (which doesn't have
     // its own Tcl interpreter & work queue).
 
-    char* code = (char*) arg;
+    Zicl_Object* obj = (Zicl_Object*) arg;
 
     globalWorkQueuePush((WorkQueueItem) {
-            .op = EVAL,
-            .eval = { .code = code }
-        });
+        .op = EVAL,
+        .eval = { .code = obj }
+    });
 }
 
 typedef struct EnvironmentBinding {
@@ -140,7 +140,7 @@ Environment* clauseUnify(const Zicl_List* a, const Zicl_List* b) {
             } else if (!trieVariableNameIsNonCapturing(aVarName)) {
                 EnvironmentBinding* binding = &env->bindings[env->nBindings++];
                 memcpy(binding->name, aVarName, sizeof(binding->name));
-                binding->value = Zicl_Borrow(bTerms[i]);
+                binding->value = Zicl_Ref(bTerms[i]);
             }
         } else if (trieScanVariable(bTerms[i], bVarName, sizeof(bVarName))) {
             if (bVarName[0] == '.' && bVarName[1] == '.' && bVarName[2] == '.') {
@@ -150,7 +150,7 @@ Environment* clauseUnify(const Zicl_List* a, const Zicl_List* b) {
             } else if (!trieVariableNameIsNonCapturing(bVarName)) {
                 EnvironmentBinding* binding = &env->bindings[env->nBindings++];
                 memcpy(binding->name, bVarName, sizeof(binding->name));
-                binding->value = Zicl_Borrow(aTerms[i]);
+                binding->value = Zicl_Ref(aTerms[i]);
             }
         } else if (!ziclEquals(aTerms[i], bTerms[i])) {
             free(env);
@@ -207,7 +207,7 @@ static void reactToNewStatement(StatementRef ref);
 int64_t _Atomic latestVersion = 0; // TODO: split by key?
 // Note: returns an acquired statement that the caller should release.
 Statement* HoldStatementGloballyAcquiring(const char *key, double version,
-                                          Zicl_List *clause, long keepMs, const char *destructorCode,
+                                          Zicl_List *clause, long keepMs, Zicl_OptionalValue destructorCode,
                                           const char *sourceFileName, int sourceLineNumber) {
 /* #ifdef TRACY_ENABLE */
 /*     char *s = clauseToString(clause); */
@@ -222,8 +222,9 @@ Statement* HoldStatementGloballyAcquiring(const char *key, double version,
                               &oldRef);
 
     Destructor* destructor = NULL;
-    if (destructorCode != NULL) {
-        destructor = destructorNew(destructorHelper, strdup(destructorCode));
+    if (Zicl_IsSome(destructorCode)) {
+        Zicl_Object* duped = Zicl_DuplicateAsBoxed(Zicl_Unwrap(destructorCode));
+        destructor = destructorNew(destructorHelper, duped);
     }
 
     if (newStmt != NULL) {
@@ -251,7 +252,7 @@ Statement* HoldStatementGloballyAcquiring(const char *key, double version,
     return newStmt;
 }
 void HoldStatementGlobally(const char *key, double version,
-                           Zicl_List *clause, long keepMs, const char *destructorCode,
+                           Zicl_List *clause, long keepMs, Zicl_OptionalValue destructorCode,
                            const char *sourceFileName, int sourceLineNumber) {
     Statement* stmt = HoldStatementGloballyAcquiring(key, version,
                                                      clause, keepMs, destructorCode,
@@ -270,13 +271,18 @@ static int HoldStatementGloballyFunc(Zicl_Interp *interp, int argc, Zicl_Shimmer
     const char *key = ziclShimString(&argv[1]);
     double version; ZICL_TRY(Zicl_GetDouble(interp, &argv[2], &version), rc);
     long keepMs; ZICL_TRY(Zicl_GetLong(interp, &argv[4], &keepMs), rc);
-    int destructorCodeLen;
-    const char* destructorCode = ziclShimGetString(&argv[5], &destructorCodeLen);
-    if (destructorCodeLen == 0) destructorCode = NULL;
+
+    Zicl_Value destructorCodeValue = Zicl_Current(&argv[5]);
+    int destructorCodeLen; Zicl_GetString(destructorCodeValue, &destructorCodeLen);
+    Zicl_OptionalValue destructorCodePassedIn = ZICL_NONE;
+    if (destructorCodeLen > 0) {
+        destructorCodePassedIn = Zicl_Wrap(destructorCodeValue);
+    }
+
     Zicl_List* dupedClause; ZICL_TRY(Zicl_DupAsList(interp, Zicl_Current(&argv[3]), &dupedClause), rc);
 
     HoldStatementGlobally(key, version,
-                          dupedClause, keepMs, destructorCode,
+                          dupedClause, keepMs, destructorCodePassedIn,
                           sourceFileName, sourceLineNumber);
 
     return ZICL_OK;
@@ -285,7 +291,7 @@ static int HoldStatementGloballyFunc(Zicl_Interp *interp, int argc, Zicl_Shimmer
 /* Takes ownership of `clause`. */
 static StatementRef Say(Zicl_List* clause, long keepMs,
                         AtomicallyVersion* atomicallyVersion,
-                        const char *destructorCode,
+                        Zicl_OptionalValue destructorCode,
                         const char *sourceFileName, int sourceLineNumber) {
     MatchRef parent;
     if (self->currentMatch) {
@@ -304,8 +310,9 @@ static StatementRef Say(Zicl_List* clause, long keepMs,
                                     parent, NULL);
 
     Destructor* destructor = NULL;
-    if (destructorCode != NULL) {
-        destructor = destructorNew(destructorHelper, strdup(destructorCode));
+    if (Zicl_IsSome(destructorCode)) {
+        Zicl_Object* duped = Zicl_DuplicateAsBoxed(Zicl_Unwrap(destructorCode));
+        destructor = destructorNew(destructorHelper, duped);
     }
 
     if (stmt != NULL) {
@@ -346,10 +353,11 @@ static int SayWithSourceFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *ar
         sscanf(atomicallyVersionStr, "(AtomicallyVersion*) %p", &atomicallyVersion);
     }
 
-    int destructorCodeLen;
-    const char* destructorCode = ziclShimGetString(&argv[5], &destructorCodeLen);
-    if (destructorCodeLen == 0) {
-        destructorCode = NULL;
+    Zicl_Value destructorCodeValue = Zicl_Current(&argv[5]);
+    int destructorCodeLen; Zicl_GetString(destructorCodeValue, &destructorCodeLen);
+    Zicl_OptionalValue destructorCodePassedIn = ZICL_NONE;
+    if (destructorCodeLen > 0) {
+        destructorCodePassedIn = Zicl_Wrap(destructorCodeValue);
     }
 
     if (self->inSubscription) {
@@ -358,7 +366,7 @@ static int SayWithSourceFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *ar
     }
 
     Say(clause, keepMs,
-        atomicallyVersion, destructorCode,
+        atomicallyVersion, destructorCodePassedIn,
         sourceFileName, (int) sourceLineNumber);
     return ZICL_OK;
 }
@@ -369,8 +377,7 @@ static int DestructorFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv)
         return Zicl_SetErrorString(interp, "Cannot create destructor in a subscribe block", -1);
     }
 
-    Destructor* d = destructorNew(destructorHelper,
-                                  strdup(ziclShimString(&argv[1])));
+    Destructor* d = destructorNew(destructorHelper, Zicl_DuplicateAsBoxed(Zicl_Current(&argv[1])));
     matchAddDestructor(self->currentMatch, d);
     return ZICL_OK;
 }
@@ -411,12 +418,12 @@ Zicl_List* QuerySimple(bool isAtomically, Zicl_List* pattern) {
             continue;
         }
         defer {
-            for (int j = 0; j < env->nBindings; j++) Zicl_Release(env->bindings[j].value);
+            for (int j = 0; j < env->nBindings; j++) Zicl_DropRef(env->bindings[j].value);
             free(env);
         }
 
         Zicl_Dict* envDict = ziclNewDict(NULL, 0);
-        defer { Zicl_ReleaseDict(envDict); }
+        defer { Zicl_DropRefDict(envDict); }
         char buf[100]; snprintf(buf, 100,  "s%d:%d", rs->results[i].idx, rs->results[i].gen);
         ziclDictPut(envDict, ziclNewString("__ref", -1), ziclNewString(buf, -1));
 
@@ -437,7 +444,7 @@ static int QuerySimpleFunc(Zicl_Interp* interp, int argc, Zicl_Shimmerable *argv
     int isAtomically; ZICL_TRY(Zicl_GetBoolean(interp, &argv[1], &isAtomically), rc);
 
     Zicl_List* pattern = ziclNewListFromShimmerables(argv + 2, argc - 2);
-    defer { Zicl_ReleaseList(pattern); }
+    defer { Zicl_DropRefList(pattern); }
 
     Zicl_List* queried = QuerySimple(isAtomically, pattern);
     Zicl_SetResultOwning(interp, Zicl_BoxList(queried));
@@ -494,7 +501,7 @@ static int __statementOfCurrentMatchSourceInfoFunc(Zicl_Interp *interp, int argc
         Zicl_NewLong(lineNumber),
     };
     int resultN = sizeof(result)/sizeof(Zicl_Value);
-    defer { Zicl_ReleaseArrayItems(result, resultN); }
+    defer { Zicl_DropRefArrayItems(result, resultN); }
     Zicl_SetResultOwning(interp, Zicl_BoxList(ziclNewList(result, resultN)));
 
     return ZICL_OK;
@@ -641,7 +648,7 @@ static void interpSetupEnv(Zicl_Interp *interp) {
     extern char **environ;
 
     Zicl_Dict *envDict = ziclNewDict(NULL, 0);
-    defer { Zicl_ReleaseDict(envDict); }
+    defer { Zicl_DropRefDict(envDict); }
 
     for (char **e = environ; *e != NULL; e++) {
         char *eq = strchr(*e, '=');
@@ -747,7 +754,7 @@ void workerExit();
 
 // Looks up "this" in closure's captured scope (following ~parent links, so
 // this reaches enclosing scopes too), falling back to "<unknown>" if there's
-// no scope or no "this" in it. Owned; caller must Zicl_Release the result.
+// no scope or no "this" in it. Owned; caller must Zicl_DropRef the result.
 static Zicl_Value closureGetThis(Zicl_Closure* closure) {
     Zicl_Dict* scope = Zicl_ClosureGetScope(closure);
     if (scope != NULL) {
@@ -756,7 +763,7 @@ static Zicl_Value closureGetThis(Zicl_Closure* closure) {
         Zicl_OptionalValue out;
         if (Zicl_ShimDictGet(interp, &scopeShim, Zicl_InternStr("this"), &out) == ZICL_OK &&
             Zicl_IsSome(out)) {
-            return Zicl_Borrow(Zicl_Unwrap(out));
+            return Zicl_Ref(Zicl_Unwrap(out));
         }
     }
     return Zicl_InternStr("<unknown>");
@@ -773,10 +780,10 @@ static Zicl_Value closureGetThis(Zicl_Closure* closure) {
 static void runBlockReportError(Zicl_Value thisValue, const char* sourceFileName, int sourceLineNumber) {
     // Grab the raw message and structured stack before
     // Zicl_MakeErrorMessage consumes/reformats the interpreter's result.
-    Zicl_Value errValue = Zicl_Borrow(Zicl_GetResult(interp));
-    defer { Zicl_Release(errValue); }
-    Zicl_Value stackTrace = Zicl_Borrow(Zicl_GetErrorStack(interp));
-    defer { Zicl_Release(stackTrace); }
+    Zicl_Value errValue = Zicl_Ref(Zicl_GetResult(interp));
+    defer { Zicl_DropRef(errValue); }
+    Zicl_Value stackTrace = Zicl_Ref(Zicl_GetErrorStack(interp));
+    defer { Zicl_DropRef(stackTrace); }
 
     Zicl_MakeErrorMessage(interp);
     fprintf(stderr, "\nError while running %s: %s\n",
@@ -784,7 +791,7 @@ static void runBlockReportError(Zicl_Value thisValue, const char* sourceFileName
 
     Zicl_Value infoObjs[] = { Zicl_InternStr("-errorinfo"), stackTrace };
     Zicl_Value infoValue = Zicl_BoxDict(ziclNewDict(infoObjs, 2));
-    defer { Zicl_Release(infoValue); }
+    defer { Zicl_DropRef(infoValue); }
 
     Zicl_Value clauseObjs[] = {
         thisValue, Zicl_InternStr("has"), Zicl_InternStr("error"), errValue,
@@ -802,12 +809,12 @@ static void runBlockReportError(Zicl_Value thisValue, const char* sourceFileName
         snprintf(suffix, sizeof(suffix), "%s-error", ziclString(thisValue));
         Zicl_Value keyObjs[] = { thisValue, ziclNewString(suffix, -1) };
         Zicl_List* keyList = ziclNewList(keyObjs, 2);
-        defer { Zicl_ReleaseList(keyList); }
+        defer { Zicl_DropRefList(keyList); }
 
-        HoldStatementGlobally(ziclListString(keyList), -1, errorClause, 0, NULL,
+        HoldStatementGlobally(ziclListString(keyList), -1, errorClause, 0, ZICL_NONE,
                               sourceFileName, sourceLineNumber);
     } else {
-        Say(errorClause, 0, NULL, NULL, sourceFileName, sourceLineNumber);
+        Say(errorClause, 0, NULL, ZICL_NONE, sourceFileName, sourceLineNumber);
     }
 }
 
@@ -821,7 +828,7 @@ static int runBlock(const Zicl_List* bodyPattern, const Zicl_List* toUnifyWith,
         return ZICL_OK;
     }
     defer {
-        for (int i = 0; i < env->nBindings; i++) Zicl_Release(env->bindings[i].value);
+        for (int i = 0; i < env->nBindings; i++) Zicl_DropRef(env->bindings[i].value);
         free(env);
     }
 
@@ -833,13 +840,13 @@ static int runBlock(const Zicl_List* bodyPattern, const Zicl_List* toUnifyWith,
 
     int rc = ZICL_OK;
     Zicl_Closure* closure; ZICL_TRY(Zicl_GetClosure(interp, closureObj, &closure), rc);
-    defer { Zicl_ReleaseClosure(closure); }
+    defer { Zicl_DropRefClosure(closure); }
 
     // Install this block's output redirection before running it -- applyBlock
     // used to do this generically from the merged environment; now `this`
     // comes straight out of the closure's own captured scope.
     Zicl_Value thisValue = closureGetThis(closure);
-    defer { Zicl_Release(thisValue); }
+    defer { Zicl_DropRef(thisValue); }
     fflush(stdout);
     installLocalStdoutAndStderrForProgram(ziclString(thisValue));
 
@@ -1008,7 +1015,7 @@ static void pushRunWhenBlock(StatementRef whenRef, Zicl_List* whenPattern, State
     // Make sure whenPattern is immutable, as it's about to become crossthread.
     // This also freezes it as a list.
     Zicl_MakeCrossthread(Zicl_BoxList(whenPattern));
-    Zicl_Borrow(Zicl_BoxList(whenPattern)); // Take ownership.
+    Zicl_Ref(Zicl_BoxList(whenPattern)); // Take ownership.
 
     // TODO: Ideally we wouldn't re-acquire.
     Statement* stmt = statementAcquire(db, whenRef);
@@ -1034,8 +1041,8 @@ static void pushRunSubscriptionBlock(StatementRef subscribeRef, Zicl_List* subsc
                               Zicl_List* notifyClause) {
     Zicl_MakeCrossthread(Zicl_BoxList(subscribePattern));
     Zicl_MakeCrossthread(Zicl_BoxList(notifyClause));
-    Zicl_Borrow(Zicl_BoxList(subscribePattern));
-    Zicl_Borrow(Zicl_BoxList(notifyClause));
+    Zicl_Ref(Zicl_BoxList(subscribePattern));
+    Zicl_Ref(Zicl_BoxList(notifyClause));
 
     appropriateWorkQueuePush((WorkQueueItem) {
        .op = RUN_SUBSCRIBE,
@@ -1065,7 +1072,7 @@ Zicl_List* claimizeClause(Zicl_List* clause) {
         if (ziclEquals(terms[1], Zicl_InternStr("claims")) ||
             ziclEquals(terms[1], Zicl_InternStr("wishes"))) {
             // Already a claim or wish, so we don't need to claimize it.
-            Zicl_ReleaseList(ret);
+            Zicl_DropRefList(ret);
             return NULL;
         }
     }
@@ -1173,7 +1180,7 @@ static void reactToNewStatement(StatementRef ref) {
     if (nTerms >= 1 && ziclEquals(terms[0], Zicl_InternStr("when"))) {
         // Find the query pattern of the when:
         Zicl_List* pattern = unwhenizeClause(clause);
-        defer { Zicl_ReleaseList(pattern); }
+        defer { Zicl_DropRefList(pattern); }
 
         if (Zicl_ListLength(pattern) == 0) {
             // Empty pattern: When { ... }
@@ -1196,7 +1203,7 @@ static void reactToNewStatement(StatementRef ref) {
             }
 
             Zicl_List* claimizedPattern = claimizeClause(pattern);
-            defer { if (claimizedPattern) Zicl_ReleaseList(claimizedPattern); }
+            defer { if (claimizedPattern) Zicl_DropRefList(claimizedPattern); }
             if (claimizedPattern) {
                 ResultSet* claimizedExistingMatchingStatements = dbQuery(db, claimizedPattern);
                 defer { free(claimizedExistingMatchingStatements); }
@@ -1235,7 +1242,7 @@ static void reactToNewStatement(StatementRef ref) {
         // the time is 3
         //   -> when the time is 3 /__lambda/
         Zicl_List* whenizedClause = whenizeClause(clause);
-        defer { Zicl_ReleaseList(whenizedClause); }
+        defer { Zicl_DropRefList(whenizedClause); }
         ResultSet* existingReactingWhens = dbQuery(db, whenizedClause);
         defer { free(existingReactingWhens); }
         /* trace("Adding stmt: existing reacting whens (%d)", */
@@ -1248,7 +1255,7 @@ static void reactToNewStatement(StatementRef ref) {
             defer { if (when) statementRelease(db, when); }
             if (when) {
                 Zicl_List* whenPattern = unwhenizeClause(statementClause(when));
-                defer { Zicl_ReleaseList(whenPattern); }
+                defer { Zicl_DropRefList(whenPattern); }
 
                 pushRunWhenBlock(
                     whenRef,
@@ -1269,8 +1276,8 @@ static void reactToNewStatement(StatementRef ref) {
 
         ResultSet* existingReactingWhens = dbQuery(db, whenizedUnclaimizedClause);
         defer { free(existingReactingWhens); }
-        Zicl_ReleaseList(unclaimizedClause);
-        Zicl_ReleaseList(whenizedUnclaimizedClause);
+        Zicl_DropRefList(unclaimizedClause);
+        Zicl_DropRefList(whenizedUnclaimizedClause);
 
         for (size_t i = 0; i < existingReactingWhens->nResults; i++) {
             StatementRef whenRef = existingReactingWhens->results[i];
@@ -1280,9 +1287,9 @@ static void reactToNewStatement(StatementRef ref) {
             defer { if (when) statementRelease(db, when); }
             if (when) {
                 Zicl_List* unwhenizedWhenPattern = unwhenizeClause(statementClause(when));
-                defer { Zicl_ReleaseList(unwhenizedWhenPattern); }
+                defer { Zicl_DropRefList(unwhenizedWhenPattern); }
                 Zicl_List* claimizedUnwhenizedWhenPattern = claimizeClause(unwhenizedWhenPattern);
-                defer { Zicl_ReleaseList(claimizedUnwhenizedWhenPattern); }
+                defer { Zicl_DropRefList(claimizedUnwhenizedWhenPattern); }
 
                 pushRunWhenBlock(
                     whenRef,
@@ -1299,7 +1306,7 @@ static void Notify(Zicl_List* toNotify) {
     // key x was pressed
     // -> subscribe key x was pressed /lambda/
     Zicl_List* clauseQuery = subscriptionizeClause(toNotify);
-    defer { Zicl_ReleaseList(clauseQuery); }
+    defer { Zicl_DropRefList(clauseQuery); }
     ResultSet* rs = dbQuery(db, clauseQuery);
     defer { free(rs); }
 
@@ -1309,7 +1316,7 @@ static void Notify(Zicl_List* toNotify) {
         defer { statementRelease(db, subscription); }
 
         Zicl_List* subscriptionPattern = unsubscriptionizeClause(statementClause(subscription));
-        defer { Zicl_ReleaseList(subscriptionPattern); }
+        defer { Zicl_DropRefList(subscriptionPattern); }
         pushRunSubscriptionBlock(rs->results[i], subscriptionPattern, toNotify);
     }
 }
@@ -1357,7 +1364,7 @@ void workerRun(WorkQueueItem item) {
         }
 
         // incremented when pushed to the queue
-        Zicl_ReleaseList(item.assert.clause);
+        Zicl_DropRefList(item.assert.clause);
         free(item.assert.sourceFileName);
 
     } else if (item.op == RETRACT) {
@@ -1365,32 +1372,32 @@ void workerRun(WorkQueueItem item) {
         dbRetractStatements(db, item.retract.pattern);
 
         // incremented when pushed to the queue
-        Zicl_ReleaseList(item.retract.pattern);
+        Zicl_DropRefList(item.retract.pattern);
 
     } else if (item.op == RUN_WHEN) {
         /* printf("  when: %d:%d; stmt: %d:%d\n", item.run.when.idx, item.run.when.gen, */
         /*        item.run.stmt.idx, item.run.stmt.gen); */
         runWhenBlock(item.runWhen.when, item.runWhen.whenPattern, item.runWhen.stmt);
-        Zicl_ReleaseList(item.runWhen.whenPattern);
+        Zicl_DropRefList(item.runWhen.whenPattern);
 
     } else if (item.op == RUN_SUBSCRIBE) {
         runSubscribeBlock(item.runSubscribe.subscribeRef, item.runSubscribe.subscribePattern,
                           item.runSubscribe.notifyClause);
-        Zicl_ReleaseList(item.runSubscribe.subscribePattern);
-        Zicl_ReleaseList(item.runSubscribe.notifyClause);
+        Zicl_DropRefList(item.runSubscribe.subscribePattern);
+        Zicl_DropRefList(item.runSubscribe.notifyClause);
 
     } else if (item.op == EVAL) {
         // Used for destructors.
-        char* code = item.eval.code;
-        defer { free(code); }
+        Zicl_Value code = Zicl_BoxObject(item.eval.code);
+        defer { Zicl_DropRef(code); }
 
-        int error = Zicl_Eval(interp, code);
+        int error = Zicl_EvalValue(interp, code);
         if (error == ZICL_EXIT) {
             workerExit();
         } else if (error != ZICL_OK) {
             Zicl_MakeErrorMessage(interp);
             fprintf(stderr, "destructorHelper: (%s) -> (%s)\n",
-                    code, ziclString(Zicl_GetResult(interp)));
+                    ziclString(code), ziclString(Zicl_GetResult(interp)));
         }
 
     } else {

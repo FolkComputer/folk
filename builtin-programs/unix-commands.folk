@@ -20,7 +20,7 @@ When /someone/ wishes /p/ runs Unix command /command/ with arguments /args/ {
 	try {
 		# Start the process with STDERR merged into STDOUT
 		lappend pipeline 2>@1
-		set fd [fopen $pipeline r]
+		set fd [file open $pipeline r]
 
 		fconfigure $fd -blocking 0 -buffering none
 
@@ -68,7 +68,7 @@ When /someone/ wishes /p/ runs Unix command /command/ with arguments /args/ {
 
 		if {[eof $fd]} {
 			# Emit any last partial unterminated lines
-			set tail [read $fd]
+			set tail [stream read $fd]
 
 			if {$tail ne ""} {
 				set accumulatedLines [concat $accumulatedLines [list $tail]]

@@ -22,8 +22,8 @@ fn walkInputEventPaths {} {
     set keyboards [list]
     foreach device $allDevices {
         if {[isKeyboard $device]} {
-            if {[file readable $device] == 0} {
-                puts $realStderr "keyboard: Device $device is not readable. Attempting to change permissions."
+            if {[file readable $device] == false} {
+                stream write $realStderr "keyboard: Device $device is not readable. Attempting to change permissions.\n"
                 # Attempt to change permissions so that the file can be read
                 exec chmod +r $device
             }
@@ -74,8 +74,7 @@ When /keyboard/ is a keyboard device {
 
     set KEY_STATES [list up down repeat]
 
-    set keyboardChannel [fopen $keyboard r]
-    fconfigure $keyboardChannel -translation binary
+    set keyboardChannel [file open $keyboard r]
 
     set keyboardFileno [grabber::getFileno $keyboardChannel]
     # $grabber setGrabDevice $keyboardFileno 1
@@ -122,7 +121,7 @@ When /keyboard/ is a keyboard device {
         dict set modifiers $k 0
     }
     while 1 {
-        binary scan [read $keyboardChannel $evtBytes] $evtFormat \
+        binary scan [stream read $keyboardChannel $evtBytes] $evtFormat \
             tvSec tvUsec type code value
 
         if {$type == 0x01} { ;# EV_KEY

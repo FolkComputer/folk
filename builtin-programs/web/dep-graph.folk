@@ -34,9 +34,8 @@ set dbDotify {{dbLib db} {
 }}
 
 set getDotAsPdf {{dot} {
-    set fd [fopen |[list dot -Tpdf <<$dot] r]
-    fconfigure $fd -translation binary
-    set response [read $fd]
+    set fd [file open |[list dot -Tpdf <<$dot] r]
+    set response [stream read $fd]
     try {
         close $fd
         return $response

@@ -3,7 +3,9 @@
 Folk is being ported from a Jim Tcl-based interpreter to a custom one,
 **zicl** (`vendor/zicl`, its own Zig project/git repo). This file exists
 mainly to explain zicl's module/scoping system, since it's easy to get
-wrong by assuming it works like real Tcl.
+wrong by assuming it works like real Tcl. Note that we're co-developing
+Zicl with Folk, so if you hit a bug, it's probably best to fix it in the
+interpreter.
 
 ## The module system
 

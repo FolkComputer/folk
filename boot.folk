@@ -7,23 +7,23 @@ apply [fn {} {
     catch { setpgrp }
 
     catch {
-        set fp [fopen "folk.pid" r]
-        set oldPid [read $fp]; close $fp
+        set fp [file open "folk.pid" r]
+        set oldPid [stream read $fp]; close $fp
         try {
             if {[string trim [exec ps -o state= -p $oldPid]] eq "Z"} {
                 error "Zombie Folk process exists (PID $oldPid)"
             }
-            puts $realStderr "boot: ($::errorCode) ERROR: Another Folk (PID $oldPid) already running."
+            stream write $realStderr "boot: ($::errorCode) ERROR: Another Folk (PID $oldPid) already running.\n"
             Exit! 1
         } on error e {
             if {$e ne ""} {
-                puts $realStderr "boot: $e; this is OK; continuing."
+                stream write $realStderr "boot: $e; this is OK; continuing.\n"
             }
         }
     }
 
-    set fp [fopen "folk.pid" w]
-    puts -nonewline $fp [pid]; close $fp
+    set fp [file open "folk.pid" w]
+    stream write $fp [pid]; close $fp
     # in case we're running as root:
     catch { exec chown folk folk.pid }
 }]
@@ -31,6 +31,13 @@ apply [fn {} {
 __installLocalStdoutAndStderr "boot.folk"
 
 Assert! when /this/ has program code /programCode/ [fn {this programCode} {
+    # Program code arrives as a bare string (read off disk, out of the
+    # editor, off a printed page), so it carries no source location and
+    # every error inside it would report an empty file name. Stamp the
+    # program's own name and line 1 on it here, at the one place all of
+    # those producers funnel through.
+    set programCode [info source $programCode $this 1]
+
     if {$this eq "builtin-programs/collect.folk"} {
         # We don't have Collect available in boot.folk yet, since it's
         # implemented in userspace, so we can't do the queries. Just
@@ -47,20 +54,20 @@ Assert! when /this/ has program code /programCode/ [fn {this programCode} {
         }
         When /someone/ wishes program $this is replaced with /...replacedOpts/ {
             SayWithSource $this 1 0 {} {} \
-                when [fn {} [dict get $replacedOpts code]]
+                when [fn {} [info source [dict get $replacedOpts code] $this 1]]
         }
     }
 }]
 
 fn LoadProgram! {programFilename} {
-    set fp [fopen $programFilename r]
-    set code [read $fp]
+    set fp [file open $programFilename r]
+    set code [stream read $fp]
     close $fp
 
     set editedPath "$env::HOME/folk-data/program/[regsub {\.folk$} $programFilename {}].folk.edited"
     if {[file exists $editedPath]} {
-        set efd [fopen $editedPath r]
-        set code [read $efd]
+        set efd [file open $editedPath r]
+        set code [stream read $efd]
         close $efd
     }
 

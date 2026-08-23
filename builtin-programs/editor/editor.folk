@@ -373,7 +373,7 @@ Subscribe: save code on editor /editor/ {
         set programBase [regsub {\.folk$} $program ""]
         set editedPath "$programDir/[set programBase].folk.edited"
         file mkdir [file dirname $editedPath]
-        set fp [fopen $editedPath w]
+        set fp [file open $editedPath w]
         puts -nonewline $fp $programCode
         close $fp
 

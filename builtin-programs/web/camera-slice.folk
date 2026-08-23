@@ -22,9 +22,8 @@ When the jpeg library is /jpegLib/ {
         }
 
         set fsize [file size $filename]
-        set fd [fopen $filename r]
-        fconfigure $fd -translation binary
-        set data [read $fd $fsize]
+        set fd [file open $filename r]
+        set data [stream read $fd $fsize]
         close $fd
 
         dict create statusAndHeaders "HTTP/1.1 200 OK

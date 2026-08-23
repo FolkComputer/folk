@@ -204,8 +204,8 @@ Claim the makeCalibrationBoardPs is $makeCalibrationBoardPs
 
 fn makeCalibrationBoardPdf {} {
     set ps [makeCalibrationBoardPs]
-    set fp [fopen [list |ps2pdf - - <<$ps] rb]
-    set pdf [read $fp]; close $fp
+    set fp [file open [list |ps2pdf - - <<$ps] rb]
+    set pdf [stream read $fp]; close $fp
     return $pdf
 }
 Claim the makeCalibrationBoardPdf is $makeCalibrationBoardPdf
@@ -213,13 +213,13 @@ Claim the makeCalibrationBoardPdf is $makeCalibrationBoardPdf
 fn makeCalibrationBoardPng {} {
     set ps [makeCalibrationBoardPs]
     set psFile [file tempfile].ps
-    set fp [fopen $psFile w]; puts $fp $ps; close $fp
+    set fp [file open $psFile w]; puts $fp $ps; close $fp
     set pngFile [file tempfile].png
     exec gs -dNOPAUSE -dBATCH -sFONTPATH=vendor/fonts \
         -sDEVICE=png16m -r144 \
         -sOutputFile=$pngFile $psFile
-    set fp [fopen $pngFile rb]
-    set png [read $fp]; close $fp
+    set fp [file open $pngFile rb]
+    set png [stream read $fp]; close $fp
     return $png
 }
 Claim the makeCalibrationBoardPng is $makeCalibrationBoardPng

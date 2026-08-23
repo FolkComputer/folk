@@ -25,8 +25,8 @@ When the hold save directory is /holdDirectory/ &\
         set contents ""
 
         try {
-            set fd [fopen $filename rb]
-            set contents [read $fd]
+            set fd [file open $filename rb]
+            set contents [stream read $fd]
             close $fd
         } on error e {}
 

@@ -344,14 +344,14 @@ try {
     set audioLib [cc::compile]
     set success [audioLib::audioInit]
 
-    if {!$success} {
-        puts $realStderr "audio: init failed"
+    if {$success == 0} {
+        stream write $realStderr "audio: init failed\n"
         return
     }
 
     Claim the audio library is $audioLib
 } on error e {
-    puts $realStderr "audio: compile failed: $e"
+    stream write $realStderr "audio: compile failed: $e\n"
 }
 
 When the audio library is /audioLib/ &\
@@ -378,19 +378,19 @@ When the audio library is /audioLib/ &\
     set path [resolveSoundPath $sound]
 
     if {![file exists $path]} {
-        puts $realStderr "audio: File not found '$path'"
+        stream write $realStderr "audio: File not found '$path'\n"
         return
     }
 
     set handle [audioLib::playSound $path]
 
     if {$handle == 0} {
-        puts $realStderr "audio: Failed to play '$path'"
+        stream write $realStderr "audio: Failed to play '$path'\n"
         return
     }
 
     On unmatch {
-        puts "audio: stopping audio '$path'"
+        stream write "audio: stopping audio '$path'\n"
         audioLib::audioStop $handle
     }
 }

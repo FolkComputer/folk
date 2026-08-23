@@ -4,9 +4,6 @@ set python_pid [exec python3 -i <@$ch_write2 >@$ch_read2 &]
 close $ch_read2
 close $ch_write2
 
-fconfigure $ch_write -buffering line
-fconfigure $ch_read -buffering line
-
 proc eval_python {write_handle read_handle command} {
     puts $write_handle $command
     flush $write_handle

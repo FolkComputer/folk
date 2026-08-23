@@ -10,8 +10,8 @@ Wish the web server handles route {/page/(.*)$} with handler {
 
     foreach filename $filenames {
         if [file exists $filename] {
-            set fp [fopen $filename r]
-            set file_data [read $fp]
+            set fp [file open $filename r]
+            set file_data [stream read $fp]
             close $fp
             break
         }
@@ -72,7 +72,7 @@ Wish the web server handles route {/page/(.*)$} with handler {
           function handleSave() {
             const code = document.getElementById("code").value;
             ws.send(tcl`
-              set fp [fopen file_name w]
+              set fp [file open file_name w]
               puts -nonewline $fp ${code}
               close $fp
               puts "Saved program_id.folk"

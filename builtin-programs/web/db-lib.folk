@@ -20,7 +20,7 @@ Claim the db library is [apply [fn {} {
 
         #include <pthread.h>
     }
-    set dbCFd [fopen "db.c" r]; set dbC [read $dbCFd]; close $dbCFd
+    set dbCFd [file open "db.c" r]; set dbC [stream read $dbCFd]; close $dbCFd
     cc::addcode [lindex [regexp -inline {typedef struct Destructor \{.*\} Destructor;} $dbC] 0]
     cc::addcode [lindex [regexp -inline {typedef struct DestructorSet \{.*\} DestructorSet;} $dbC] 0]
     cc::addcode [lindex [regexp -inline {typedef struct Statement \{.*\} Statement;} $dbC] 0]
@@ -36,7 +36,7 @@ Claim the db library is [apply [fn {} {
 
     cc::addcode {
         static Zicl_Value clauseToJimObj(Zicl_List* clause) {
-            return Zicl_BoxList(Zicl_BorrowList(clause));
+            return Zicl_BoxList(Zicl_RefList(clause));
         }
     }
 
@@ -79,7 +79,7 @@ Claim the db library is [apply [fn {} {
             Zicl_Value childStr;
             folkZiclAssert(Zicl_NewStringFormatted(&childStr, "m%d:%d", child.idx, child.gen));
             ziclListAppend(childList, childStr);
-            Zicl_Release(childStr);
+            Zicl_DropRef(childStr);
         }
 
         pthread_mutex_unlock(&stmt->childMatchesMutex);
@@ -129,7 +129,7 @@ Claim the db library is [apply [fn {} {
             Zicl_Value childStr;
             folkZiclAssert(Zicl_NewStringFormatted(&childStr, "s%d:%d", child.idx, child.gen));
             ziclListAppend(childList, childStr);
-            Zicl_Release(childStr);
+            Zicl_DropRef(childStr);
         }
 
         pthread_mutex_unlock(&match->childStatementsMutex);
@@ -171,12 +171,12 @@ Claim the db library is [apply [fn {} {
 
             Zicl_Value holdItems[] = { keyStr, Zicl_NewLong(hold->version), refStr, clauseValStr };
             Zicl_Value holdVal = Zicl_BoxList(ziclNewList(holdItems, sizeof(holdItems)/sizeof(holdItems[0])));
-            Zicl_Release(keyStr);
-            Zicl_Release(refStr);
-            Zicl_Release(clauseValStr);
+            Zicl_DropRef(keyStr);
+            Zicl_DropRef(refStr);
+            Zicl_DropRef(clauseValStr);
 
             ziclListAppend(retList, holdVal);
-            Zicl_Release(holdVal);
+            Zicl_DropRef(holdVal);
         }
         mutexUnlock(&db->holdsMutex);
 
@@ -212,10 +212,10 @@ Claim the db library is [apply [fn {} {
                 Zicl_NewLong(versionCount)
             };
             Zicl_Value atomicallyVal = Zicl_BoxList(ziclNewList(atomicallyItems, sizeof(atomicallyItems)/sizeof(atomicallyItems[0])));
-            Zicl_Release(keyStr);
+            Zicl_DropRef(keyStr);
 
             ziclListAppend(retList, atomicallyVal);
-            Zicl_Release(atomicallyVal);
+            Zicl_DropRef(atomicallyVal);
         }
         mutexUnlock(&db->atomicallysMutex);
 

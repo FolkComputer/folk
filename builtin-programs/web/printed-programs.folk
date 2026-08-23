@@ -1,8 +1,8 @@
 Wish the web server handles route {/printed-programs/([^/]+)\.folk$} with handler {
     Require! the program save directory is /programDir/
     set filename "$programDir/$1.folk"
-    set fp [fopen $filename r]
-    set data [read $fp]
+    set fp [file open $filename r]
+    set data [stream read $fp]
     close $fp
 
     dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: text/plain; charset=utf-8\n\n" body $data

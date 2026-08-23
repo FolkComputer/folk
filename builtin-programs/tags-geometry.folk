@@ -35,7 +35,7 @@ When the default program geometry is /defaultGeom/ &\
         } elseif {[llength $results] == 0} {
             set geom $defaultGeom
         } else {
-            puts $realStderr "tags-to-quads: WARNING: Multiple geometries for $tag"
+            stream write $realStderr "tags-to-quads: WARNING: Multiple geometries for $tag\n"
             set geom [dict get [lindex $results 0] geom]
         }
 

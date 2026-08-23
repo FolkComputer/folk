@@ -65,7 +65,7 @@ When the image library is /imageLib/ {
             Zicl_Value contourStr = ziclNewString(buf, (int)off);
             free(buf);
             ziclListAppend(outer, contourStr);
-            Zicl_Release(contourStr);
+            Zicl_DropRef(contourStr);
 
             if (epsilon > 0) arrfree(pts);
         }

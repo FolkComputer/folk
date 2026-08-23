@@ -1,8 +1,7 @@
 # Manage terminal UI for Folk.
-puts $realStdout "Folk Computer (pid [pid])."
+stream write $realStdout "Folk Computer (pid [pid]).\n"
 if {[string match "*.local" $::thisNode]} { set host $::thisNode } else { set host "$::thisNode.local" }
-puts $realStdout "Web interface at: http://$host:4273/"
-puts $realStdout ""
+stream write $realStdout "Web interface at: http://$host:4273/\n\n"
 
 # Don't run the watcher process if we're not literally at a terminal
 # (if we're running on systemd, for instance.)
@@ -92,18 +91,18 @@ while true {
     }
 
     if {$prevLineCount > 0} {
-        puts -nonewline $realStdout "\033\[${prevLineCount}A\r"
+        stream write $realStdout "\033\[${prevLineCount}A\r"
     }
-    puts -nonewline $realStdout "\033\[?7l"
+    stream write $realStdout "\033\[?7l"
     foreach line $lines {
-        puts -nonewline $realStdout "$line\033\[K\n"
+        stream write $realStdout "$line\033\[K\n"
     }
     # Blank out leftover lines from a previously longer render.
     set extra [expr {$prevLineCount - [llength $lines]}]
     for {set i 0} {$i < $extra} {incr i} {
-        puts -nonewline $realStdout "\033\[K\n"
+        stream write $realStdout "\033\[K\n"
     }
-    puts -nonewline $realStdout "\033\[?7h"
+    stream write $realStdout "\033\[?7h"
     if {[llength $lines] > $prevLineCount} {
         set prevLineCount [llength $lines]
     }

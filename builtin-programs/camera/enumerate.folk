@@ -16,8 +16,8 @@ cc::proc getInfoForCamera {char* camera} Zicl_Value {
         Zicl_Value cardKey = ziclNewString("card", -1);
         Zicl_Value cardVal = ziclNewString((const char *)cap.card, -1);
         ziclDictPut(infoObj, cardKey, cardVal);
-        Zicl_Release(cardKey);
-        Zicl_Release(cardVal);
+        Zicl_DropRef(cardKey);
+        Zicl_DropRef(cardVal);
     }
 
     Zicl_List *formatsList = ziclNewList(NULL, 0);
@@ -62,7 +62,7 @@ cc::proc getInfoForCamera {char* camera} Zicl_Value {
                         Zicl_Value rangeDict;
                         folkZiclAssert(Zicl_NewStringFormatted(&rangeDict, "min %f max %f", min_fps, max_fps));
                         ziclListAppend(frameratesList, rangeDict);
-                        Zicl_Release(rangeDict);
+                        Zicl_DropRef(rangeDict);
                     }
                     frm_interval.index++;
                 }
@@ -73,10 +73,10 @@ cc::proc getInfoForCamera {char* camera} Zicl_Value {
                     frm_size.discrete.width,
                     frm_size.discrete.height,
                     frameratesStr));
-                Zicl_ReleaseList(frameratesList);
+                Zicl_DropRefList(frameratesList);
 
                 ziclListAppend(resolutionsList, resDict);
-                Zicl_Release(resDict);
+                Zicl_DropRef(resDict);
             }
             frm_size.index++;
         }
@@ -87,18 +87,18 @@ cc::proc getInfoForCamera {char* camera} Zicl_Value {
             fourcc_str,
             (char*)fmt_desc.description,
             resolutionsStr));
-        Zicl_ReleaseList(resolutionsList);
+        Zicl_DropRefList(resolutionsList);
 
         ziclListAppend(formatsList, formatDict);
-        Zicl_Release(formatDict);
+        Zicl_DropRef(formatDict);
 
         fmt_desc.index++;
     }
     Zicl_Value formatsKey = ziclNewString("formats", -1);
     Zicl_Value formatsVal = Zicl_BoxList(formatsList);
     ziclDictPut(infoObj, formatsKey, formatsVal);
-    Zicl_Release(formatsKey);
-    Zicl_Release(formatsVal);
+    Zicl_DropRef(formatsKey);
+    Zicl_DropRef(formatsVal);
 
     close(fd);
     return Zicl_BoxDict(infoObj);

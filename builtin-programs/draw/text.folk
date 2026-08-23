@@ -173,7 +173,7 @@ set fontLib [cc::compile]
 
 When the image loader is /loadImage/ {
     fn loadFont {name} {
-        set csvFd [fopen "vendor/fonts/$name.csv" r]; set csv [read $csvFd]; close $csvFd
+        set csvFd [file open "vendor/fonts/$name.csv" r]; set csv [stream read $csvFd]; close $csvFd
         set fields [list ]
         # HACK: Create list of null glyphs to initialize.
         set glyphInfos [list]

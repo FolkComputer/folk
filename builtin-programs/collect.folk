@@ -17,13 +17,11 @@ cc::addcode {
     extern Db* db;
     extern Zicl_List* claimizeClause(Zicl_List* clause);
     extern void HoldStatementGlobally(const char *key, double version,
-                                      Zicl_List *clause, long keepMs,
-                                      const char *destructorCode,
+                                      Zicl_List *clause, long keepMs, Zicl_OptionalValue destructorCode,
                                       const char *sourceFileName, int sourceLineNumber);
     extern Statement* HoldStatementGloballyAcquiring(const char *key, double version,
-                                                     Zicl_List *clause, long keepMs,
-                                                     const char *destructorCode,
-                                                     const char *sourceFileName, int sourceLineNumber);
+                                          Zicl_List *clause, long keepMs, Zicl_OptionalValue destructorCode,
+                                          const char *sourceFileName, int sourceLineNumber);
 
     typedef struct EnvironmentBinding {
         char name[100];
@@ -84,7 +82,7 @@ cc::proc Recollect! {Zicl_Value patternObj bool isAtomically} void {
     collectorTerms[8] = ziclNewString("settle", -1);
     collectorTerms[9] = ziclNewString("/settle/", -1);
     Zicl_List* collectorPattern = ziclNewList(collectorTerms, 10);
-    for (int i = 0; i < 10; i++) { if (i != 6) Zicl_Release(collectorTerms[i]); }
+    for (int i = 0; i < 10; i++) { if (i != 6) Zicl_DropRef(collectorTerms[i]); }
 
     char* collectKey = makeCollectKey(patternObj);
 
@@ -92,7 +90,7 @@ cc::proc Recollect! {Zicl_Value patternObj bool isAtomically} void {
     if (collectorsSet->nResults == 0) {
         Zicl_List* emptyClause = ziclNewList(NULL, 0);
         HoldStatementGlobally(collectKey, version++,
-                              emptyClause, 0, NULL, NULL, 0);
+                              emptyClause, 0, ZICL_NONE, NULL, 0);
     } else {
         Zicl_List* pattern; folkZiclAssert(Zicl_DupAsList(interp, patternObj, &pattern));
 
@@ -145,17 +143,17 @@ cc::proc Recollect! {Zicl_Value patternObj bool isAtomically} void {
             Zicl_Dict* envDict = ziclNewDict(NULL, 0);
             for (int j = 0; j < env->nBindings; j++) {
                 ziclDictPut(envDict, ziclNewString(env->bindings[j].name, -1), env->bindings[j].value);
-                Zicl_Release(env->bindings[j].value);
+                Zicl_DropRef(env->bindings[j].value);
             }
             ziclListAppend(resultsList, Zicl_BoxDict(envDict));
-            Zicl_ReleaseDict(envDict);
+            Zicl_DropRefDict(envDict);
 
             free(env);
         }
         if (claimizedPattern != NULL) {
-            Zicl_ReleaseList(claimizedPattern);
+            Zicl_DropRefList(claimizedPattern);
         }
-        Zicl_ReleaseList(pattern);
+        Zicl_DropRefList(pattern);
         free(rs);
 
         // Note that at this point, we've still acquired all the
@@ -174,12 +172,12 @@ cc::proc Recollect! {Zicl_Value patternObj bool isAtomically} void {
         collectedTerms[7] = ziclNewString("are", -1);
         collectedTerms[8] = resultsVal;
         Zicl_List* collectedClause = ziclNewList(collectedTerms, 9);
-        for (int i = 0; i < 9; i++) { if (i != 6 && i != 8) Zicl_Release(collectedTerms[i]); }
-        Zicl_Release(resultsVal);
+        for (int i = 0; i < 9; i++) { if (i != 6 && i != 8) Zicl_DropRef(collectedTerms[i]); }
+        Zicl_DropRef(resultsVal);
 
         Statement* stmt =
             HoldStatementGloballyAcquiring(collectKey, version++,
-                                           collectedClause, 0, NULL,
+                                           collectedClause, 0, ZICL_NONE,
                                            NULL, 0);
 
         // Now inherit the destructors of all the statements in rs
@@ -202,7 +200,7 @@ cc::proc Recollect! {Zicl_Value patternObj bool isAtomically} void {
     }
 
     free(collectKey);
-    Zicl_ReleaseList(collectorPattern);
+    Zicl_DropRefList(collectorPattern);
     free(collectorsSet);
 }
 # If the recollect doesn't have a settle time, we should recollect
@@ -253,7 +251,7 @@ cc::proc RunScheduledRecollects! {} void {
 
             Zicl_Value patternObj = ziclNewString(collects[i].patternStr, -1);
             Recollect_(patternObj, true);
-            Zicl_Release(patternObj);
+            Zicl_DropRef(patternObj);
 
             free(collects[i].patternStr);
             collects[i].patternStr = NULL;
@@ -278,10 +276,10 @@ When /someone/ wishes to collect results for /pattern/ with settle /settle/ {
     }
     When {*}$pattern {
         collectLib::ScheduleRecollect! $pattern $settleNs
-        On unmatch [list collectLib::ScheduleRecollect! $pattern $settleNs]
+        On unmatch [fn {} { collectLib::ScheduleRecollect! $pattern $settleNs }]
     }
     collectLib::ScheduleRecollect! $pattern $settleNs
-    On unmatch [list collectLib::ScheduleRecollect! $pattern $settleNs]
+    On unmatch [fn {} { collectLib::ScheduleRecollect! $pattern $settleNs }]
 }
 
 When the internal time is /t/ {

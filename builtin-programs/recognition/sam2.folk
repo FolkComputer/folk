@@ -416,9 +416,8 @@ When /someone/ wishes /page/ has a SAM2 object tracker &\
                             pngLib::saveAsPng $im $filename
 
                             set fsize [file size $filename]
-                            set fd [fopen $filename r]
-                            fconfigure $fd -translation binary
-                            set imageData [read $fd $fsize]
+                            set fd [file open $filename r]
+                            set imageData [stream read $fd $fsize]
                             close $fd
 
                             StatementRelease! $__ref

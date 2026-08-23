@@ -506,7 +506,7 @@ static StatementRef statementNew(Db* db, Zicl_List* clause,
 
     // We should now have exclusive access to stmt, as its rc
     // is 0 and we were the ones who made it alive.
-    Zicl_Borrow(Zicl_BoxList(clause));
+    Zicl_Ref(Zicl_BoxList(clause));
 
     stmt->clause = clause;
     stmt->keepMs = keepMs;
@@ -552,7 +552,7 @@ static void statementDestroy(Statement* stmt) {
     Zicl_List* stmtClause = statementClause(stmt);
     // Marks this statement slot as being fully free and ready for reuse.
     atomic_store(&(stmt->clause), NULL);
-    Zicl_ReleaseList(stmtClause);
+    Zicl_DropRefList(stmtClause);
 }
 
 Zicl_List* statementClause(Statement* stmt) {
@@ -1212,7 +1212,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Zicl_List* clause, long keepMs,
     }
 
     Zicl_Value clauseAsValue = Zicl_BoxList(clause);
-    Zicl_Borrow(clauseAsValue);
+    Zicl_Ref(clauseAsValue);
     Zicl_MakeCrossthread(clauseAsValue);
 
     Match* parentMatch = NULL;
@@ -1221,7 +1221,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Zicl_List* clause, long keepMs,
         parentMatch = matchAcquire(db, parentMatchRef);
         if (parentMatch == NULL) {
             setReusedStatementRef(STATEMENT_REF_NULL);
-            Zicl_Release(clauseAsValue);
+            Zicl_DropRef(clauseAsValue);
             return NULL; // Abort!
         }
 
@@ -1232,7 +1232,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Zicl_List* clause, long keepMs,
             matchRelease(db, parentMatch);
 
             setReusedStatementRef(STATEMENT_REF_NULL);
-            Zicl_Release(clauseAsValue);
+            Zicl_DropRef(clauseAsValue);
             return NULL; // Abort!
         }
 
@@ -1306,7 +1306,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Zicl_List* clause, long keepMs,
                     }
 
                     setReusedStatementRef(existingRefs[0]);
-                    Zicl_Release(clauseAsValue);
+                    Zicl_DropRef(clauseAsValue);
                     return NULL;
                 } else {
                     // Reuse failed, but not for operation-aborting
@@ -1356,7 +1356,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Zicl_List* clause, long keepMs,
     }
 
     setReusedStatementRef(STATEMENT_REF_NULL);
-    Zicl_Release(clauseAsValue);
+    Zicl_DropRef(clauseAsValue);
 
     return newStmt;
 
@@ -1456,8 +1456,8 @@ Statement* dbHoldStatement(Db* db, const char* key, double version,
 
     mutexLock(&db->holdsMutex);
     defer { mutexUnlock(&db->holdsMutex); }
-    Zicl_BorrowList(clause);
-    defer { Zicl_ReleaseList(clause); }
+    Zicl_RefList(clause);
+    defer { Zicl_DropRefList(clause); }
 
     Hold* hold = shgetp_null(db->holds, key);
     if (hold == NULL) {
