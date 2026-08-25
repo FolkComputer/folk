@@ -78,7 +78,7 @@ gpuc::defineHandleType VkDescriptorSet
 
 gpuc::addcode {
     VkDevice device;
-    static void initPlaceholderTexture();
+    void initPlaceholderTexture();
 }
 
 gpuc::typedef int GpuTextureHandle

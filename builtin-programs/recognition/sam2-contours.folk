@@ -68,6 +68,6 @@ When /someone/ wishes /obj/ has contours in /v/ &\
 
     Claim $obj has contours \
         [sam2ContoursLib::findMaskContours $width $height $mask \
-             epsilon::$scaleX $scaleY] \
+             $epsilon $scaleX $scaleY] \
         in $v
 }

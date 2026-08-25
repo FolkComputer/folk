@@ -22,7 +22,7 @@ fn walkInputEventPaths {} {
     set keyboards [list]
     foreach device $allDevices {
         if {[isKeyboard $device]} {
-            if {[file readable $device] == false} {
+            if {![file readable $device]} {
                 stream write $realStderr "keyboard: Device $device is not readable. Attempting to change permissions.\n"
                 # Attempt to change permissions so that the file can be read
                 exec chmod +r $device
@@ -116,7 +116,7 @@ When /keyboard/ is a keyboard device {
         set evtFormat wwssi
     }
 
-    set modifiers $::keymap::modWeights
+    set modifiers $keymap::modWeights
     foreach k [dict keys $modifiers] {
         dict set modifiers $k 0
     }
@@ -139,8 +139,8 @@ When /keyboard/ is a keyboard device {
             set keyState [lindex $KEY_STATES $value]
 
             set isDown [expr {$keyState != "up"}]
-            if {[dict exists $::keymap::modWeights $key]} {
-                set weight [dict get $::keymap::modWeights $key]
+            if {[dict exists $keymap::modWeights $key]} {
+                set weight [dict get $keymap::modWeights $key]
                 dict set modifiers $key [expr {$isDown * $weight}]
             }
 

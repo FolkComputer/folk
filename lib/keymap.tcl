@@ -136,7 +136,7 @@ namespace eval keymap {
     namespace ensemble create
 }
 
-if {[info exists ::argv0] && $::argv0 eq [info script]} {
+if {[info exists argv0] && $argv0 eq [info script]} {
     set tkm [keymap load "us"]
 
     keymap dump $tkm

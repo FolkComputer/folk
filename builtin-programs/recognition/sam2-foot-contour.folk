@@ -277,7 +277,7 @@ When the quad library is /ql/ &\
     set scaleX $(double($geom::width) / double($scaleWidth))
     set scaleY $(double($geom::height) / double($scaleHeight))
     set footContour [footContourLib::maskFootContour \
-                         width::$height $mask $pp $scaleX $scaleY]
+                         $width $height $mask $pp $scaleX $scaleY]
 
     set objectHeightCm 0
     set heightResults [Query! $obj has object height /heightCm/ cm in $v]
@@ -287,7 +287,7 @@ When the quad library is /ql/ &\
     set objectHeightM $(double($objectHeightCm) / 100.0)
 
     set footContour [downprojectContourToPlane $ql $vqCamera \
-                         footContour::$objectHeightM]
+                         $footContour $objectHeightM]
 
     if {[llength $footContour] >= 2} {
         Claim $obj has foot contour $footContour in $v

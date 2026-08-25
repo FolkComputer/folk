@@ -113,10 +113,7 @@ Wish the web server handles route "/new" with nav "<button>New program</button>"
     Wish ${program} has a canvas
   `);
 
-  function formatErrorInfo(errorInfoDict) {
-    errorInfoDict = loadDict(errorInfoDict);
-    const stacktrace = errorInfoDict['-errorinfo'];
-
+  function formatErrorInfo(stacktrace) {
     // Parse the stacktrace list (simplified Tcl list parser)
     // Format: [proc file line cmd proc file line cmd ...]
     const frames = [];
@@ -128,7 +125,7 @@ Wish the web server handles route "/new" with nav "<button>New program</button>"
       frames.push({ proc, file, line, cmd });
     }
 
-    if (frames.length === 0) return errorInfoDict;
+    if (frames.length === 0) return stacktrace;
 
     // Format like Jim's errorInfo: "file:line: Error: msg\nstackdump"
     const firstFrame = frames[0];

@@ -276,7 +276,7 @@ set camLib [camc::compile]
 When camera /cameraPath/ has width /decompWidth/ height /decompHeight/ {
     When camera $cameraPath has jpeg frame /jpeg/ at timestamp /ts/ {
         set grayImage [jpegLib::jpegDecompressGray $jpeg \
-                           decompWidth::$decompHeight \
+                           $decompWidth $decompHeight \
                            [expr {int($ts * 1000)}]]
         Hold! -key [list camera $cameraPath gray-frame] \
             Claim camera $cameraPath has gray frame $grayImage at timestamp $ts \
@@ -284,7 +284,7 @@ When camera /cameraPath/ has width /decompWidth/ height /decompHeight/ {
     }
     When camera $cameraPath has jpeg frame /jpeg/ at timestamp /ts/ {
         set frameImage [jpegLib::jpegDecompressRGB $jpeg \
-                            decompWidth::$decompHeight \
+                            $decompWidth $decompHeight \
                             [expr {int($ts * 1000)}]]
         Hold! -key [list camera $cameraPath frame] \
             Claim camera $cameraPath has frame $frameImage at timestamp $ts \
@@ -292,7 +292,7 @@ When camera /cameraPath/ has width /decompWidth/ height /decompHeight/ {
     }
 }
 
-When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
+When /someone/ wishes $thisNode uses camera /camera/ with /...options/ {
     if {![string match "/dev/*" $camera]} { return }
 
     set width [dict get $options width]

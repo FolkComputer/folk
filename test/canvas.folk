@@ -73,18 +73,18 @@ When {
     Exit! 0
 }
 
-Assert! when /__this/ has program code /__programCode/ {
+Assert! when /__this/ has program code /__programCode/ [fn {__this __programCode} {
     SayWithSource $__this 1 0 {} {} \
         when [fn {} $__programCode]
-}
-local proc LoadProgram! {programFilename} {
-    set fp [open $programFilename r]
+}]
+fn LoadProgram! {programFilename} {
+    set fp [file open $programFilename r]
     Hold! -keep 100ms -on boot.folk -key [list $programFilename code] \
         Claim $programFilename has program code [stream read $fp]
     close $fp
 }
 
-apply {{} {
+fn loadPrograms {} {
     set __envStack [list]
     LoadProgram! builtin-programs/gpu/textures.folk
     LoadProgram! builtin-programs/gpu/canvases.folk
@@ -94,5 +94,6 @@ apply {{} {
     LoadProgram! builtin-programs/draw/image.folk
     LoadProgram! builtin-programs/gpu/gpu-fns.folk
     source builtin-programs/gpu/gpu.folk
-}}
+}
+loadPrograms
 

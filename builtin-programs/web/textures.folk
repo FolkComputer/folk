@@ -24,12 +24,12 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
     cc::typedef {struct VmaAllocation_T*} VmaAllocation
     cc::argtype VmaAllocation {
         VmaAllocation $argname;
-        sscanf(Jim_String($obj), "(VmaAllocation) %p", &$argname);
+        sscanf(ziclShimString($shim), "(VmaAllocation) %p", &$argname);
     }
     cc::rtype VmaAllocation {
         char buf[100];
         snprintf(buf, 100, "(VmaAllocation) %p", $rvalue);
-        robj::= Jim_NewStringObj(interp, buf, -1);
+        $robj = ziclNewString(buf, -1);
     }
     cc::extend $gpuLib
     cc::extend $imageLib
@@ -209,22 +209,28 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         return buffer;
     }
 
-    cc::proc copyAllTexturesFromGpu {} Jim_Obj* {
-        Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
+    cc::proc copyAllTexturesFromGpu {} Zicl_Value {
+        Zicl_List* ret = ziclNewList(NULL, 0);
         for (int i = 0; i < getMaxTextures(); i++) {
             if (getGpuTexture(i)->alive) {
                 Image im = copyTextureFromGpu(i);
                 size_t pngSize;
                 uint8_t* pngData = imageToPngBuffer(im, &pngSize);
 
-                Jim_ListAppendElement(interp, ret, Jim_ObjPrintf("Image %d (%d x %d)", i, im.width, im.height));
-                Jim_ListAppendElement(interp, ret, Jim_NewStringObj(interp, (char*)pngData, pngSize));
+                Zicl_Value label;
+                folkZiclAssert(Zicl_NewStringFormatted(&label, "Image %d (%d x %d)", i, im.width, im.height));
+                ziclListAppend(ret, label);
+                Zicl_DropRef(label);
+
+                Zicl_Value png = ziclNewString((char*)pngData, pngSize);
+                ziclListAppend(ret, png);
+                Zicl_DropRef(png);
 
                 free(pngData);
                 free(im.data);
             }
         }
-        return ret;
+        return Zicl_BoxList(ret);
     }
     set texturesLib [cc::compile]
     texturesLib::texturesLibInit

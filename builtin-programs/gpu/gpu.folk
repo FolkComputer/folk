@@ -356,13 +356,13 @@ if {$tcl_platform::os eq "darwin"} {
     return
 }
 
-When $::thisNode has had displays enumerated {
+When $thisNode has had displays enumerated {
     # so we know that there isn't an extant Vulkan instance already.
 
-    When /nobody/ wishes $::thisNode uses display "glfw" with /...any/ {
+    When /nobody/ wishes $thisNode uses display "glfw" with /...any/ {
         gpuInit false
     }
-    When /someone/ wishes $::thisNode uses display "glfw" with /...any/ {
+    When /someone/ wishes $thisNode uses display "glfw" with /...any/ {
         gpuInit true
     }
 }

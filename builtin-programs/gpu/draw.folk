@@ -20,7 +20,7 @@ When the GPU library is /gpuLib/ &\
 # block because all the weird GPU initialization stuff, and 2. on
 # macOS, the reactivity is fake and wouldn't work.
 sleep 1
-set useDisplays [Query! /someone/ wishes $::thisNode uses display /display/ with /...displayOpts/]
+set useDisplays [Query! /someone/ wishes $thisNode uses display /display/ with /...displayOpts/]
 
 
 set useGlfw false
@@ -85,12 +85,12 @@ cc::addcode [subst {
 
 cc::argtype DisplayState* {
     DisplayState* $argname;
-    sscanf(Jim_String($obj), "(DisplayState*) %p", &$argname);
+    sscanf(ziclShimString($shim), "(DisplayState*) %p", &$argname);
 }
 cc::rtype DisplayState* {
     char buf[100];
     snprintf(buf, 100, "(DisplayState*) %p", $rvalue);
-    robj::= Jim_NewStringObj(interp, buf, -1);
+    $robj = ziclNewString(buf, -1);
 }
 
 cc::proc initDisplay {char* display uint32_t width uint32_t height uint32_t refreshRate} DisplayState* {
@@ -410,7 +410,7 @@ cc::proc drawStart {DisplayState* ds} void {
 # Draw to the screen using pipeline `pipeline`. Each arg in `args`
 # should be a push-constant parameter of the pipeline. Can only be
 # called between `drawStart` and `drawEnd`.
-cc::proc draw {Pipeline pipeline Jim_Obj* argsObj} void {
+cc::proc draw {Zicl_Interp* interp Pipeline pipeline Zicl_Value argsObj} void {
     VkCommandBuffer commandBuffer = getCommandBuffer();
 
     if (boundPipeline != pipeline.pipeline) {
@@ -519,28 +519,10 @@ cc::proc poll {} void {
     $[expr { $useGlfw ? { glfwPollEvents(); } : {} }]
 }
 
-fn makeGpu {gpuLib pipelineLib drawLib} { return [library create gpu {gpuLib pipelineLib drawLib} {
-    variable gpuLib
-    variable pipelineLib
-    variable drawLib
-
-    if {![exists -command $drawLib]} {
-        # Load manually so we don't need to call a command.
-        $drawLib
-    }
-
-    foreach drawLibCmd [info commands "$drawLib *"] {
-        lassign $drawLibCmd _ drawLibCmd
-        fn $drawLibCmd {args} {drawLib drawLibCmd} {
-            tailcall "$drawLib $drawLibCmd" {*}$args
-        }
-    }
-}] }
-
 set drawLib [cc::compile]
 Claim the GPU draw library is $drawLib
 
-set gpu [makeGpu $gpuLib $pipelineLib $drawLib]
+set gpu $drawLib
 
 tracy setThreadName "gpu"
 
@@ -555,32 +537,37 @@ set kDrawCount [tracy makeString "drawCount"]
 
 fn QueryAllFns! {} {
     set fns [dict create]
-    ForEach! /someone/ claims the GPU compiles function /name/ to /fn/ {
-        dict set fns $name $fn
+    ForEach! /someone/ claims the GPU compiles function /name/ to /compiledFn/ {
+        dict set fns $name $compiledFn
     }
     return $fns
 }
-fn tryCompileFn {wisher name source} {
+# Both of these retry themselves once the function they were waiting on
+# shows up, so they go in a scope of their own and come back out through
+# [letrec select] -- a plain [fn] captures its scope before its own name is
+# bound, so the recursive call would not resolve.
+fn compileScope::tryCompileFn {wisher name source} {
     try {
         set fns [QueryAllFns!]
-        set fn [pipelineCompilerLib::fn $fns {*}$source]
+        set compiledFn [pipelineCompilerLib::fn $fns {*}$source]
 
         # Technically a misnomer: the function is just stored, not
         # compiled until it's been inlined into a shader.
-        Claim the GPU compiles function $name to $fn
+        Claim the GPU compiles function $name to $compiledFn
 
-    } on 99 notFoundName {
+    } trap {GPU FN_NOT_COMPILED} {_ notFoundOpts} {
+        set notFoundName [lindex [dict get $notFoundOpts -errorcode] 2]
         puts "gpu fn $name: Waiting for $notFoundName"
         When the GPU compiles function $notFoundName to /anything/ {
             puts "Did compile $notFoundName"
             tryCompileFn $wisher $name $source
         }
-    } on error e {
-        puts stderr "Error: GPU compiles function $name: [errorinfo $e]"
-        Claim $wisher has error $e with info [errorinfo $e]
+    } on error {e opts} {
+        puts stderr "Error: GPU compiles function $name: [errorInfoFor $e $opts]"
+        Claim $wisher has error $e with info [dict get $opts -errorstack]
     }
 }
-fn tryCompilePipeline {wisher name source} {
+fn compileScope::tryCompilePipeline {wisher name source} {
     try {
         set fns [QueryAllFns!]
         set pipeline [pipelineCompilerLib::pipeline $fns {*}$source]
@@ -588,17 +575,20 @@ fn tryCompilePipeline {wisher name source} {
         puts "gpu: tryCompilePipeline: Compiled $name"
         Claim the GPU compiles pipeline $name to $pipeline
 
-    } on 99 notFoundName {
+    } trap {GPU FN_NOT_COMPILED} {_ notFoundOpts} {
+        set notFoundName [lindex [dict get $notFoundOpts -errorcode] 2]
         puts "gpu pipeline $name: Waiting for $notFoundName"
         When the GPU compiles function $notFoundName to /anything/ {
             puts "Did compile $notFoundName"
             tryCompilePipeline $wisher $name $source
         }
-    } on error e {
-        puts stderr "Error: GPU compiles pipeline $name: [errorinfo $e]"
-        Claim $wisher has error $e with info [errorinfo $e]
+    } on error {e opts} {
+        puts stderr "Error: GPU compiles pipeline $name: [errorInfoFor $e $opts]"
+        Claim $wisher has error $e with info [dict get $opts -errorstack]
     }
 }
+set tryCompileFn [letrec select $compileScope tryCompileFn]
+set tryCompilePipeline [letrec select $compileScope tryCompilePipeline]
 
 When /wisher/ wishes the GPU compiles function /name/ /source/ {
     tryCompileFn $wisher $name $source
@@ -612,13 +602,16 @@ while true {
     # Advance texture retirement once per frame, then run canvas redraw work.
     gpuTextureLib::beginTextureFrame
     ForEach! /someone/ wishes the GPU runs frame prelude handler /hd/ {
-        {*}$hd
+        hd
     }
 
     # Query draw commands once (shared across all displays).
     set results [Query! /someone/ claims the GPU compiles pipeline /name/ to /pipeline/]
     set pipelines [dict create]
-    foreach result $results { dict with result { dict set pipelines $name $pipeline } }
+    foreach result $results {
+        dict assign $result name pipeline
+        dict set pipelines $name $pipeline
+    }
 
     set displayList [dict create]
     foreach result [Query! /wisher/ wishes the GPU draws pipeline /name/ with /...options/] {
@@ -644,11 +637,11 @@ while true {
             }
             foreach instance $instances {
                 dict lappend displayList $layer \
-                    [list $gpu draw $pipeline $instance]
+                    [list gpu::draw $pipeline $instance]
             }
-        } on error e {
-            puts stderr "Error: GPU draws pipeline $name: [errorinfo $e]"
-            Assert! $this claims [dict get $result wisher] has error $e with info [errorinfo $e]
+        } on error {e opts} {
+            puts stderr "Error: GPU draws pipeline $name: [errorInfoFor $e $opts]"
+            Assert! $this claims [dict get $result wisher] has error $e with info [dict get $opts -errorstack]
             # TODO: does this ever get disposed?
         }
     }
@@ -659,7 +652,7 @@ while true {
         set displayOpts [dict get $result displayOpts]
 
         if {![dict exists $displays $display]} {
-            if {[llength [Query! $::thisNode has display $display with /...any/]] == 0} {
+            if {[llength [Query! $thisNode has display $display with /...any/]] == 0} {
                 puts stderr "gpu/draw: Display '$display' is wished but not enumerated; skipping"
                 dict set displays $display missing
                 continue
@@ -692,7 +685,7 @@ while true {
             foreach displayCommand $layerDisplayList {
                 incr drawCount
                 try { {*}$displayCommand } \
-                    on error e { puts stderr [errorinfo $e] }
+                    on error {e opts} { puts stderr [errorInfoFor $e $opts] }
             }
         }
 
@@ -701,7 +694,7 @@ while true {
 
     tracy frameMarkNamed $kGpu
 
-    if {$useGlfw} { $drawLib poll }
+    if {$useGlfw} { drawLib::poll }
     # TODO: sleep for 5ms or something?
 }
 

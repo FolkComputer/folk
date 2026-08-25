@@ -519,7 +519,7 @@ fn refineMonoCalibration {calibration} {
         lappend posePointsCount [llength $points]
     }
     refineLib::monoSetPoints [llength [dict get $calibration poses]] \
-        posePointsCount::$poseModelPoints $posePoints
+        $posePointsCount $poseModelPoints $posePoints
 
     set intrNames {fx cx fy cy k1 k2 p1 p2}
 

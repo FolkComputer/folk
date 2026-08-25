@@ -1,6 +1,6 @@
 # Comment out the main builtin-programs/Camera.folk before running this
 
-if {$::isLaptop} return
+if {$isLaptop} return
 
 namespace eval ::Camera {
     variable WIDTH 1280

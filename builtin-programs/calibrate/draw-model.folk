@@ -125,7 +125,7 @@ When display /display/ has width /displayWidth/ height /displayHeight/ &\
 
         Wish the GPU draws pipeline "image" with arguments \
             [list [list $displayWidth $displayHeight] \
-                 displayToClip::\
+                 $displayToClip \
                  [dict get $wiOpts texture] \
                  [list -1 -1] [list 1 -1] [list 1 1] [list -1 1]] \
             layer 100

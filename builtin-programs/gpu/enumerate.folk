@@ -108,14 +108,14 @@ cc::proc enumerateDisplays {} Zicl_Value {
 set displayLib [cc::compile]
 
 if {[catch {exec pkg-config --exists glfw3}] == 0} {
-    Claim $::thisNode has display glfw with info {name "GLFW (windowed)"}
+    Claim $thisNode has display glfw with info {name "GLFW (windowed)"}
 }
 
 try {
     foreach display [displayLib::enumerateDisplays] {
-        Claim $::thisNode has display $display::name with info $display
+        Claim $thisNode has display $display::name with info $display
     }
 } finally {
-    Claim $::thisNode has had displays enumerated
+    Claim $thisNode has had displays enumerated
 }
 

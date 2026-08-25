@@ -309,9 +309,9 @@ When the color map is /colorMap/ &\
 
         set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
         set instances [fontLib::textShape \
-                           wiResolution::$surfaceToClip \
-                           fontData::\
-                           text::$x0 $y0 $scale {*}$anchor $radians $color]
+                           $wiResolution $surfaceToClip \
+                           $fontData \
+                           $text $x0 $y0 $scale {*}$anchor $radians $color]
 
         # We need to batch into one wish so we don't deal with n^2
         # checks for existing statements for n glyphs.

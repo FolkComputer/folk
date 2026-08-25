@@ -428,7 +428,7 @@ When /someone/ wishes /page/ has a SAM2 object tracker &\
                     }
 
                     lappend entries [format {<section><h2>%s</h2>%s</section>} \
-                        id::$body]
+                        $id $body]
                 }
 
                 html [subst {

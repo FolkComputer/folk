@@ -167,8 +167,8 @@ set C {
         }}
         size_t { identity { size_t $argname; __ENSURE_OK(Zicl_GetLong(interp, $shim, (long *)&$argname)); }}
         intptr_t { identity { intptr_t $argname; __ENSURE_OK(Zicl_GetLong(interp, $shim, (long *)&$argname)); }}
-        uint16_t { identity { uint16_t $argname; __ENSURE_OK(Zicl_GetLong(interp, $shim, (int *)&$argname)); }}
-        uint32_t { identity { uint32_t $argname; __ENSURE(sscanf(ziclShimString($shim), "%" PRIu32, &$argname) == 1); }}
+        uint16_t { identity { uint16_t $argname; { long _wide_$argname; __ENSURE_OK(Zicl_GetLong(interp, $shim, &_wide_$argname)); $argname = (uint16_t)_wide_$argname; } }}
+        uint32_t { identity { uint32_t $argname; { long _wide_$argname; __ENSURE_OK(Zicl_GetLong(interp, $shim, &_wide_$argname)); $argname = (uint32_t)_wide_$argname; } }}
         uint64_t { identity { uint64_t $argname; __ENSURE(sscanf(ziclShimString($shim), "%" PRIu64, &$argname) == 1); }}
         char* { identity { char* $argname = (char*) ziclShimString($shim); } }
         Zicl_Value { identity { Zicl_Value $argname = Zicl_Current($shim); }}
@@ -179,7 +179,9 @@ set C {
                 # of the wrong type.
                 identity {
                     void* $[set argname]_raw;
-                    __ENSURE_OK(Zicl_GetPointerCapability($shim, "$argtype", &$[set argname]_raw));
+                    struct Zicl_CapabilityHead* $[set argname]_cap;
+                    __ENSURE_OK(Zicl_GetPointerCapability($shim, "$argtype", &$[set argname]_raw, &$[set argname]_cap));
+                    (void)$[set argname]_cap;
                     $argtype $argname = ($argtype)$[set argname]_raw;
                 }
             } elseif {[regexp {(^[^\[]+)\[([^\]]*)\]$} $argtype -> basetype arraylen]} {
@@ -249,7 +251,7 @@ set C {
         double { identity { $robj = Zicl_NewLong($rvalue); }}
         float { identity { $robj = Zicl_NewLong($rvalue); }}
         char { identity { $robj = ziclNewString(&$rvalue, 1); }}
-        bool { identity { $robj = Zicl_NewLong($rvalue); }}
+        bool { identity { $robj = Zicl_NewBool($rvalue); }}
         uint8_t { identity { $robj = Zicl_NewLong($rvalue); }}
         uint16_t { identity { $robj = Zicl_NewLong($rvalue); }}
         uint32_t { identity { $robj = Zicl_NewLong($rvalue); }}
@@ -1047,8 +1049,12 @@ method C::extend {self args} {
     set srcCap [dict get $srclib __dynlib]
 
     foreach {snippet extend} [dict get $srcinfo code] {
-        if {$extend eq ":extend"} {
-            lappend self::code $snippet :noextend
+        # Stays :extend so a unit extending *this* one gets it too (a struct
+        # typedef has to reach every unit that inherited its objtype code, not
+        # just the first). The lsearch is what keeps a diamond from emitting
+        # the same declaration twice.
+        if {$extend eq ":extend" && [lsearch -exact $self::code $snippet] < 0} {
+            lappend self::code $snippet :extend
         }
     }
 

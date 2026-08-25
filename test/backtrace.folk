@@ -12,7 +12,7 @@ When we are on {
     }
 
     When /someone/ has error /err/ with info /info/ {
-        set stacktrace [dict get $info -errorinfo]
+        set stacktrace $info
         set filename [lindex $stacktrace 1]
         set lineno [lindex $stacktrace 2]
         assert {$filename eq "test/backtrace.folk"}

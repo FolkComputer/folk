@@ -18,7 +18,7 @@ When /p/ has canvas /id/ with /...wiOptions/ &\
             set from [lindex $contour $i]
             set to [lindex $contour [expr {($i + 1) % $n}]]
             lappend instances [list $wiResolution $surfaceToClip \
-                                   from::$to $thickness \
+                                   $from $to $thickness \
                                    color::0 0]
         }
     }

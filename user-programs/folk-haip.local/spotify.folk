@@ -16,7 +16,7 @@ package require json
 
 http::register https 443 [list ::tls::socket -autoservername true]
 
-proc ::handleConnectSpotify {chan addr port} {
+proc handleConnectSpotify {chan addr port} {
     fileevent $chan readable [list ::handleReadSpotify $chan $addr $port]
 }
 # TODO: Catch errors & return 501
@@ -170,8 +170,8 @@ proc ::handleReadSpotify {chan addr port} {
     set hostnameWithoutDotLocal [string map {".local" ""} $tclHostname]
     set redirectUrl "http://$hostnameWithoutDotLocal.local:8888/callback"
     set redirectUrlEncoded "http%3A%2F%2F$hostnameWithoutDotLocal.local%3A8888%2Fcallback"
-    set clientId $::env(SPOTIFY_CLIENT_ID)
-    set clientSecret $::env(SPOTIFY_CLIENT_SECRET)
+    set clientId $env::SPOTIFY_CLIENT_ID
+    set clientSecret $env::SPOTIFY_CLIENT_SECRET
     if {[regexp {GET ([^ ]*) HTTP/1.1} $firstline -> path]} {
         set contentType "text/html; charset=utf-8"
         puts "Path: $path"
@@ -200,7 +200,7 @@ proc ::handleReadSpotify {chan addr port} {
             set resultData [::json::json2dict $responseBody]
             set accessToken [dict get $resultData access_token]
             set refreshToken [dict get $resultData refresh_token]
-            set ::spotifyAccessToken $accessToken
+            set spotifyAccessToken $accessToken
             puts -nonewline $chan "HTTP/1.1 302 Found\nSet-Cookie: spotify_auth_state=0; Max-Age=0\nLocation: /?access_token=$accessToken&refresh_token=$refreshToken"
         } elseif {[string match "/refresh_token*" $path]} {
             regexp {/?refresh_token=(.+)} $path qpFullMatch qpRefreshToken
@@ -213,7 +213,7 @@ proc ::handleReadSpotify {chan addr port} {
             puts $responseBody
             set resultData [::json::json2dict $responseBody]
             set accessToken [dict get $resultData access_token]
-            set ::spotifyAccessToken $accessToken
+            set spotifyAccessToken $accessToken
             set response "{\"access_token\": \"$accessToken\"}"
             puts -nonewline $chan "HTTP/1.1 200 OK\nConnection: close\nContent-Type: application/json; charset=utf-8\n\n"
             chan configure $chan -encoding binary -translation binary
@@ -223,17 +223,17 @@ proc ::handleReadSpotify {chan addr port} {
     } else { puts "Closing: $chan $addr $port $headers"; close $chan }
 }
 
-if {[catch {set ::serverSockSpotify [socket -server ::handleConnectSpotify 8888]}] == 1} {
+if {[catch {set serverSockSpotify [socket -server handleConnectSpotify 8888]}] == 1} {
     error "There's already a Web-capable Folk node running on this machine."
 }
 
-set ::spotifyAccessToken ""
+set spotifyAccessToken ""
 When /someone/ wishes /uri/ would be played on spotify {
-    if {$::spotifyAccessToken eq ""} {
+    if {$spotifyAccessToken eq ""} {
         puts "spotifyAccessToken is empty"
     } else {
         dict set hd "Content-Type" "application/json"
-        dict set hd Authorization "Bearer $::spotifyAccessToken"
+        dict set hd Authorization "Bearer $spotifyAccessToken"
         puts "Requesting play of $uri on Spotify"
         # "spotify:album:04HMMwLmjkftjWy7xc6Bho"
         set queryParam "{\"context_uri\": \"$uri\"}"
@@ -250,11 +250,11 @@ When /someone/ wishes /uri/ would be played on spotify {
 
 proc ::pollCurrentSong {} {
     puts "Polling current song"
-    if {$::spotifyAccessToken eq ""} {
+    if {$spotifyAccessToken eq ""} {
         puts "spotifyAccessToken is empty"
     } else {
         dict set hd "Content-Type" "application/json"
-        dict set hd Authorization "Bearer $::spotifyAccessToken"
+        dict set hd Authorization "Bearer $spotifyAccessToken"
         set token [::http::geturl "https://api.spotify.com/v1/me/player/currently-playing" -headers $hd]
         set responseBody [::http::data $token]
         puts $responseBody

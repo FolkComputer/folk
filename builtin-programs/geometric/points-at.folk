@@ -70,10 +70,10 @@ When $rect has quad /quad/ {
 
     # Downproject the whisker to screen-space.
     set from [poseLib::project $displayIntrinsics \
-                  displayWidth::$displayHeight \
+                  $displayWidth $displayHeight \
                   $from]
     set to [poseLib::project $displayIntrinsics \
-                displayWidth::$displayHeight \
+                $displayWidth $displayHeight \
                 $to]
 
     When /target/ has quad /q2/ {
@@ -81,7 +81,7 @@ When $rect has quad /quad/ {
 
         set displayVertices [lmap v [quadLib::vertices [quadChange $q2 "display $disp"]] {
             poseLib::project $displayIntrinsics \
-                displayWidth::$displayHeight $v
+                $displayWidth $displayHeight $v
         }]
 
         if {[math::geometry::pointInsidePolygon $to $displayVertices]} {

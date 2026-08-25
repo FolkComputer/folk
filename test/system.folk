@@ -1,5 +1,5 @@
 Assert! we are on
-Assert! when we are on {
+Assert! when we are on [fn {} {
     When we are on {
         set tick 0
         while true {
@@ -18,7 +18,7 @@ Assert! when we are on {
     # }
     # When we are on {
     #     set this SELF
-    #     source "$::env(HOME)/folk-live/setup.folk"
+    #     source "$env::HOME/folk-live/setup.folk"
     #     source "builtin-programs/gpu.folk"
     # }
     # source "builtin-programs/draw/color-map.folk"
@@ -47,4 +47,4 @@ Assert! when we are on {
             }
         }
     }
-}
+}]

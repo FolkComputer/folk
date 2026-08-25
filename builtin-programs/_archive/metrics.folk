@@ -1,4 +1,4 @@
-When $::thisNode has step count /c/ {
+When $thisNode has step count /c/ {
   Wish $this is labelled [string trim "
 
 Metrics

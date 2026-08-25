@@ -76,9 +76,12 @@ fn handleRead {chan addr} {
                 error "Response not generated"
             }
         } on error {err opts} {
-            set errorInfo [dict get $opts -errorinfo]
-            set src [lindex $errorInfo 1]
-            stream write $realStderr "Web error in $src ($path): $err\n  [errorinfo $err $errorInfo]\n"
+            # -errorstack is the flat {name file line args ...} frame list;
+            # index 1 is the innermost frame's file.
+            set errorStack [expr {[dict exists $opts -errorstack] ?
+                                  [dict get $opts -errorstack] : {}}]
+            set src [lindex $errorStack 1]
+            stream write $realStderr "Web error in $src ($path): $err\n  [errorInfoFor $err $opts]\n"
 
             set contentType "text-html; charset=utf-8"
             set body [subst {
@@ -88,7 +91,7 @@ fn handleRead {chan addr} {
                 </head>
                 <body>
                 <pre>[htmlEscape $err]:
-[htmlEscape [errorinfo $err $errorInfo]]</pre>
+[htmlEscape [errorInfoFor $err $opts]]</pre>
                 </body>
                 </html>
             }]
@@ -291,6 +294,6 @@ while true {
 the web server is probably down; check /var/tmp/folk-[pid]/ for log files.
 (Make sure libtool and autoconf-archive are installed.)
 ------------------------------------------
-[errorinfo $e]\n"
-    return -options $opts $e
+[errorInfoFor $e $opts]\n"
+    return -code error -errorstack [dict get $opts -errorstack] $e
 }

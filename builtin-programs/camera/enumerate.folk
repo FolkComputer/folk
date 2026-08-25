@@ -127,5 +127,5 @@ foreach camera $cameras {
     dict set camerasByCanonicalName $canonicalName $camera
 
     set info [formatsLib::getInfoForCamera $camera]
-    Claim $::thisNode has camera $camera with {*}$info
+    Claim $thisNode has camera $camera with {*}$info
 }

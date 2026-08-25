@@ -148,9 +148,9 @@ fn musicExec {args} {
   }
 }
 fn musicFinishSetup {} {
-  if {$::thisNode eq "folk-hex"} {
+  if {$thisNode eq "folk-hex"} {
       exec jackd -d alsa -d hdmi:CARD=NVidia -r 48000 -p 1024 -n 2 &
-  } elseif {$::thisNode eq "folk-sva"} {
+  } elseif {$thisNode eq "folk-sva"} {
       exec jackd -d alsa -d hdmi:CARD=Generic,DEV=1 -r 48000 -p 1024 -n 2 &
   }
 

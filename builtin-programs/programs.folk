@@ -20,7 +20,7 @@ When -noncapturing the program save directory is /saveDir/ {
             set fd [file open "$saveDir/$obj.folk.temp" r]
         } else {
             if {![file exists "$saveDir/$obj.folk"] &&
-                ($::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial" || $::thisNode eq "gadget-platinum" || $::thisNode eq "gadget-pink")} {
+                ($thisNode eq "folk-beads" || $thisNode eq "folk-convivial" || $thisNode eq "gadget-platinum" || $thisNode eq "gadget-pink")} {
                 # HACK: 'Page fault' to folk-hex, try getting page from
                 # there. Ideally we would have some general (Avahi?)
                 # way of finding the 'authoritative' node on the local
@@ -35,8 +35,8 @@ When -noncapturing the program save directory is /saveDir/ {
 
             try {
                 set fd [file open "$saveDir/$obj.folk" r]
-            } on error err {
-                stream write $realStderr "No code for $type $obj ($err):\n  [errorinfo $err]\n"
+            } on error {err opts} {
+                stream write $realStderr "No code for $type $obj ($err):\n  [errorInfoFor $err $opts]\n"
                 return
             }
         }

@@ -771,7 +771,8 @@ static Zicl_Value closureGetThis(Zicl_Closure* closure) {
 
 // Reports an error raised while running a block: prints it to stderr, and
 // asserts (or, inside a subscription, holds) a "<this> has error <err> with
-// info {-errorinfo <stack>}" statement, so other parts of a Folk program can
+// info <stack>" statement -- <stack> being the flat {name file line args ...}
+// frame list -- so other parts of a Folk program can
 // react to it (see builtin-programs/errors.folk). This used to be a Tcl-level
 // `try`/`on error` wrapper around applyBlock, reading $::this out of the
 // merged environment; now that runBlock calls the closure directly, it's
@@ -789,13 +790,9 @@ static void runBlockReportError(Zicl_Value thisValue, const char* sourceFileName
     fprintf(stderr, "\nError while running %s: %s\n",
             ziclString(thisValue), ziclString(Zicl_GetResult(interp)));
 
-    Zicl_Value infoObjs[] = { Zicl_InternStr("-errorinfo"), stackTrace };
-    Zicl_Value infoValue = Zicl_BoxDict(ziclNewDict(infoObjs, 2));
-    defer { Zicl_DropRef(infoValue); }
-
     Zicl_Value clauseObjs[] = {
         thisValue, Zicl_InternStr("has"), Zicl_InternStr("error"), errValue,
-        Zicl_InternStr("with"), Zicl_InternStr("info"), infoValue,
+        Zicl_InternStr("with"), Zicl_InternStr("info"), stackTrace,
     };
     // Takes ownership of this list -- Say/HoldStatementGlobally below.
     Zicl_List* errorClause = ziclNewList(clauseObjs, 7);
@@ -881,7 +878,10 @@ static int runBlock(const Zicl_List* bodyPattern, const Zicl_List* toUnifyWith,
         blockStatsUpdate(sourceFileName ? sourceFileName : "<unknown>", sourceLineNumber, timestamp_get(CLOCK_MONOTONIC) - t0);
     }
 
-    if (error != ZICL_OK) {
+    // ZICL_EXIT here means this match was deliberately stopped (see
+    // workerSigusr1Handler), not that the block failed -- reporting it would
+    // publish a bogus `has error` statement for the program.
+    if (error != ZICL_OK && error != ZICL_EXIT) {
         runBlockReportError(thisValue, sourceFileName, sourceLineNumber);
     }
 
@@ -1487,9 +1487,46 @@ WorkQueueItem workerSteal() {
 
     return workQueueSteal(threads[stealee].workQueue);
 }
+// A match that overruns gets SIGUSR1 from db.c, thread-directed via tgkill so
+// it lands on the worker that is stuck.
+//
+// Zicl deliberately does not install signal handlers of its own, so this is
+// Folk's: all it does is ask the interpreter to stop, which is a relaxed
+// atomic store and therefore async-signal-safe. `interp` is __thread, so the
+// handler naturally reaches the interpreter belonging to the signalled
+// worker. Zicl's eval loop checks the flag at the next command boundary and
+// unwinds the running script with ZICL_EXIT; workerLoop then tears the worker
+// down. Before the port this was Jim's `interp->sigmask & (1 << SIGUSR1)`
+// check; with Jim gone nothing installed a handler at all, so SIGUSR1 fell
+// back to its default disposition and killed the whole process.
+static void workerSigusr1Handler(int sig) {
+    (void) sig;
+    if (interp != NULL) { Zicl_RequestStop(interp); }
+}
+// Installed once from main(); signal dispositions are process-wide, and
+// workers inherit an unblocked SIGUSR1 from the thread that spawns them.
+// Deliberately no SA_RESTART: a worker parked in a blocking syscall should
+// come back with EINTR rather than sit there ignoring the stop request.
+static void workerSignalsInit(void) {
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = workerSigusr1Handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    if (sigaction(SIGUSR1, &sa, NULL) != 0) {
+        fprintf(stderr, "folk: warning: could not install SIGUSR1 handler; "
+                "an overrunning match will kill the process\n");
+    }
+}
+
 void workerLoop() {
     int64_t schedtick = 0;
     for (;;) {
+        // The stop flag outlives the script that was unwound, so check it
+        // here rather than at each call site: whichever work item was running
+        // has already been abandoned, and this worker is meant to go away.
+        if (Zicl_StopRequested(interp)) { workerExit(); }
+
         Zicl_ArenaSnapshot snapshot = Zicl_LocalArenaSnapshot();
         defer { Zicl_LocalArenaRewind(snapshot); }
 
@@ -1563,20 +1600,6 @@ void workerInit(int index) {
 void workerExit() {
     // Need this so that this worker doesn't count as still being
     // alive and count toward the worker cap.
-
-    // Donate any remaining items in our local workQueue to the global
-    // queue. Otherwise they'd be stranded: workerSteal skips workers
-    // whose tid == 0. This matters for self-kill scenarios like a
-    // When body whose Hold!/Say replaces its own match's parent —
-    // reactToNewStatement pushes the follow-up RUN_WHEN onto the
-    // local queue right before SIGUSR1 tears the worker down.
-    if (self->workQueue != NULL) {
-        while (true) {
-            WorkQueueItem item = workQueueTake(self->workQueue);
-            if (item.op == NONE) { break; }
-            globalWorkQueuePush(item);
-        }
-    }
 
     // Donate any remaining items in our local workQueue to the global
     // queue. Otherwise they'd be stranded: workerSteal skips workers
@@ -1770,6 +1793,8 @@ int main(int argc, char** argv) {
 
     // Set up database.
     db = dbNew();
+
+    workerSignalsInit();
 
     workQueueInit();
 

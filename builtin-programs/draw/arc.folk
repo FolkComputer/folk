@@ -50,6 +50,6 @@ When the color map is /colorMap/ &\
         set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
         Wish the GPU draws pipeline "arc" onto canvas $id with arguments \
             [list $wiResolution $surfaceToClip \
-            center::$radius $thickness $start $arclen $color] \
+            $center $radius $thickness $start $arclen $color] \
             layer $layer
     }

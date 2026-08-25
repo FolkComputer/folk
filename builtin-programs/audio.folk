@@ -344,7 +344,7 @@ try {
     set audioLib [cc::compile]
     set success [audioLib::audioInit]
 
-    if {$success == 0} {
+    if {!$success} {
         stream write $realStderr "audio: init failed\n"
         return
     }

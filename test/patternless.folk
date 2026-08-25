@@ -1,9 +1,9 @@
 Assert! we are on
-Assert! when we are on {
+Assert! when we are on [fn {} {
     puts hello
 
     When {
         puts inside
         Exit! 0
     }
-}
+}]

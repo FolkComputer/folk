@@ -70,7 +70,7 @@ fn makeCalibrationBoardPs {} {
 
     set ps [subst {
         %!PS
-        << /PageSize \[PageWidth::$PageHeight\] >> setpagedevice
+        << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
 
         gsave
         marginLeft::[- $PageHeight [/ $marginTop 2]] translate

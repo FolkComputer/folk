@@ -103,7 +103,7 @@ When tag /nobody/ has a program & display /disp/ has width /displayWidth/ height
     set cx [/ $displayWidth 2.0]
     set cy [* $displayHeight 0.3]
     set host [info hostname]
-    set user $::env(USER)
+    set user $env::USER
     set uid [exec id -u $user]
     set msg "Welcome to Roops Folk\n$user@$host ($uid)"
 

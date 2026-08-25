@@ -144,8 +144,8 @@ When the image library is /imageLib/ &\
     When the GPU has loaded image $im as texture /gim/ {
         Wish the GPU draws pipeline "image" onto canvas $id with arguments \
             [list $wiResolution $surfaceToClip \
-                 gim::\
-                 a::$b $c $d]
+                 $gim \
+                 $a $b $c $d]
     }
 }
 
@@ -160,7 +160,7 @@ When the image library is /imageLib/ &\
     try {
         set im [loadImage $impath 0]
     } on error {e opts} {
-        Say $p has error $e with info $opts
+        Say $p has error $e with info [dict get $opts -errorstack]
         return
     }
     if {[string match "*gif" $impath]} {

@@ -1,4 +1,5 @@
-Assert! when {
+puts here
+Assert! when [fn {} {
     puts "when: [__threadId]"
     set this [__threadId]
 
@@ -20,8 +21,11 @@ Assert! when {
             }
 
             Retract! we are active
+            puts "after retract"
             Hold! {sleep 1; When {
+                puts "first hold"
                 Hold! {
+                    puts "second hold"
                     hello $t
                 }
             }}
@@ -30,4 +34,4 @@ Assert! when {
     }
     sleep 1
  
-}
+}]

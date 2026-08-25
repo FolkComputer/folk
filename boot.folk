@@ -13,7 +13,7 @@ apply [fn {} {
             if {[string trim [exec ps -o state= -p $oldPid]] eq "Z"} {
                 error "Zombie Folk process exists (PID $oldPid)"
             }
-            stream write $realStderr "boot: ($::errorCode) ERROR: Another Folk (PID $oldPid) already running.\n"
+            stream write $realStderr "boot: ERROR: Another Folk (PID $oldPid) already running.\n"
             Exit! 1
         } on error e {
             if {$e ne ""} {

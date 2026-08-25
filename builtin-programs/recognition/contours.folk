@@ -91,8 +91,8 @@ When the contour library is /contourLib/ &\
         set epsilon [dict getdef $opts epsilon 3.0]
         set minLength [dict getdef $opts minLength 0.0]
         Claim $p has contours [contourLib::findImageContours $s \
-                                   threshold::$epsilon \
-                                   scaleX::$scaleY \
+                                   $threshold $epsilon \
+                                   $scaleX $scaleY \
                                    $minLength] \
             with {*}$opts
     }

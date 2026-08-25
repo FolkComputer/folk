@@ -1,4 +1,4 @@
-Assert! when {
+Assert! when [fn {} {
     Wish to blah blah
 
     When {
@@ -19,4 +19,4 @@ Assert! when {
         puts stderr "OKAY"
         Exit! 0
     }
-}
+}]

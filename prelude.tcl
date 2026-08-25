@@ -26,25 +26,25 @@ fn exec {args} {
     # to the current thread-local output files so the subprocess's
     # output lands in the right per-program /tmp/ file.
     if {[lindex $args end] eq "&"} {
-        if {[info exists ::_folk_localStdout] && [info exists ::_folk_localStderr]} {
+        if {[info exists _folk_localStdout] && [info exists _folk_localStderr]} {
             set hasStdout [lsearch -regexp $args {^>@}]
             set hasStderr [lsearch -regexp $args {^2>@}]
             set insertions {}
-            if {$hasStdout == -1} { lappend insertions >@ $::_folk_localStdout }
-            if {$hasStderr == -1} { lappend insertions 2>@ $::_folk_localStderr }
+            if {$hasStdout == -1} { lappend insertions >@ $_folk_localStdout }
+            if {$hasStderr == -1} { lappend insertions 2>@ $_folk_localStderr }
             set args [lreplace $args end end {*}$insertions &]
         }
     } else {
         # For non-background exec, replace >@stdout / 2>@stderr with
         # the thread-local output channels so subprocess output lands
         # in the right per-program /tmp/ file.
-        if {[info exists ::_folk_localStdout]} {
+        if {[info exists _folk_localStdout]} {
             set i [lsearch -exact $args {>@stdout}]
-            if {$i != -1} { set args [lreplace $args $i $i >@ $::_folk_localStdout] }
+            if {$i != -1} { set args [lreplace $args $i $i >@ $_folk_localStdout] }
         }
-        if {[info exists ::_folk_localStderr]} {
+        if {[info exists _folk_localStderr]} {
             set i [lsearch -exact $args {2>@stderr}]
-            if {$i != -1} { set args [lreplace $args $i $i 2>@ $::_folk_localStderr] }
+            if {$i != -1} { set args [lreplace $args $i $i 2>@ $_folk_localStderr] }
         }
     }
     tailcall __exec {*}$args
@@ -57,14 +57,18 @@ fn applyBlock {body envStack} {
     dict set env __env $env
 
     set newThis [dict getdef $env this <unknown>]
-    if {![info exists ::this] || $newThis ne $::this} {
+    # `__this` tracks which program's redirection is currently installed. It
+    # can't just be `this` -- that would collide with the per-block `this`
+    # every Folk program body binds -- hence the __ prefix, matching the other
+    # internals here (__result, __body, __ref).
+    if {![info exists __this] || $newThis ne $__this} {
         # Flush before switching so any buffered data from the previous
         # program drains to the correct fd before we switch.
-        if {[info exists ::this]} { stdout flush }
-        set ::this $newThis
+        if {[info exists __this]} { stdout flush }
+        set __this $newThis
         # Install thread-local stdout/stderr so all subsequent write()/puts/
         # fprintf/printf calls go to the local files for this $this.
-        __installLocalStdoutAndStderr $::this
+        __installLocalStdoutAndStderr $__this
     }
 
     set names [dict keys $env]
@@ -127,9 +131,10 @@ fn Hold! {args} {
     } elseif {[llength $clause] == 1} {
         # Hold! { ... body ... }
         set body [lindex $clause 0]
-
         lassign [info source $body] filename lineno
-        set clause [list when [fn {} $body]]
+
+        set closure [uplevel 1 [info source [list fn {} $body] $filename $lineno]]
+        set clause [list when $closure]
     } elseif {[llength $clause] > 1} {
         if {[lindex $clause 0] eq "Claim"} {
             set clause [list $this claims {*}[lrange $clause 1 end]]
@@ -330,18 +335,9 @@ fn When {args} {
         }
     }
 
-    # TODO: -noncapturing isn't wired up to anything yet (it wasn't in the
-    # pre-port code either -- both branches just produced an empty
-    # envStack). With real closures, the natural meaning would be building
-    # the closure with no captured scope.
-
     if {$isSerially} {
-        # Serial prologue: find this When itself; see if that
-        # statement ref has any match children that are incomplete. If
-        # so, then die.
-        # Kept on one line and joined with `;` (not a newline) so that
-        # prepending it doesn't shift every line number in $body.
         set prologue {if {[__whenOfCurrentMatchIncompleteChildMatchesCount] > 1} { return }}
+        # The prologue is kept on one line so that adding it doesn't shift line numbers.
         set body "$prologue;$body"
     }
 
@@ -358,27 +354,7 @@ fn When {args} {
 
     lassign [desugarWhen $pattern $body] clauseFront bodyToWrap boundVars
 
-    # Build the closure one level up, in our caller's frame -- not here in
-    # When's own frame, which only has our own parsing internals (pattern,
-    # term, i, ...), and not desugarWhen's frame either, which is already
-    # gone by the time we get its return value. `fn` captures whatever's
-    # actually in scope where the `When {...}` call was written (this, any
-    # outer fns), and boundVars becomes its formal parameter list --
-    # clauseUnify binds exactly those names, in this order, on every match,
-    # so the C side just calls this same closure directly with the bound
-    # values on every match. Output redirection (this used to be installed
-    # generically by applyBlock from the merged environment) is now handled
-    # by runBlock in C, reading `this` straight out of the closure's own
-    # captured scope.
-    #
-    # `list` stringifies the body and `uplevel` re-parses it, which throws
-    # away the Source objects carrying the body's file and line. Tracebacks
-    # are built from those, so without re-stamping, every error inside a
-    # When block reports an empty file name and a line counted from 1 rather
-    # than from the top of the file. `list` puts everything ahead of the
-    # body on a single line, so the body still starts on line 0 of this
-    # script, exactly where it started in the original -- which means
-    # $sourceInfo applies unchanged.
+    # Note that by using `uplevel` on fn, we capture the parent's lexical scope.
     set closure [uplevel 1 [info source [list fn $boundVars $bodyToWrap] {*}$sourceInfo]]
 
     tailcall SayWithSource {*}$sourceInfo \
@@ -406,13 +382,28 @@ fn On {event fn} {
     }
 }
 
+# Rendering an error together with its stack trace.
+#
+# [errorinfo $msg] on its own reads the interpreter's *live* stack trace, but
+# by the time an `on error` body runs there isn't one: try/catch moves the
+# trace out into the options dict before dispatching to any handler, so the
+# one-argument form renders a bare message with no traceback at all. Pass it
+# back in explicitly, from the `opts` of `on error {e opts}` (or
+# `catch ... opts`), where it lives under -errorstack.
+fn errorInfoFor {message opts} {
+    if {[dict exists $opts -errorstack]} {
+        return [errorinfo $message [dict get $opts -errorstack]]
+    }
+    return [errorinfo $message]
+}
+
 # Synchronous, sampling query of the db. Returns a list of dicts where
 # each dict is a statement matching the pattern.
 #
 # Query! is like QuerySimple! but with added support for & joins, and
 # it'll automatically also query the claimized pattern (the pattern
 # with `/someone/ claims` prepended).
-fn Query! {args} {
+fn queryScope::Query! {args} {
     # HACK: this (parsing &s and filling resolved vars) is mostly
     # copy-and-pasted from When.
 
@@ -488,15 +479,21 @@ fn Query! {args} {
 
     set results [list]
     foreach result0 $results0 {
-        dict with result0 {
-            foreach result [Query! {*}[if $isAtomically [list -atomically] else list] \
-                                {*}$remainingPattern] {
-                lappend results [dict merge $result0 $result]
-            }
+        # Bring this result's bound variables into scope, so the `$a`-style
+        # back-references desugarWhen wrote into $remainingPattern resolve
+        # when the nested Query! substitutes them. The key set is whatever
+        # the outer pattern happened to bind, hence [dict keys].
+        if {[dict size $result0] > 0} {
+            dict assign $result0 {*}[dict keys $result0]
+        }
+        foreach result [Query! {*}[if $isAtomically [list -atomically] else list] \
+                            {*}$remainingPattern] {
+            lappend results [dict merge $result0 $result]
         }
     }
     return $results
 }
+set Query! [letrec select $queryScope Query!]
 
 # Synchronous, sampling query of the db. Throws unless there is
 # exactly 1 statement result. Returns a dict whose keys are bound keys
@@ -569,7 +566,6 @@ fn ForEach! {args} {
     set pattern [lreplace $args end end]
 
     set results [Query! {*}$pattern]
-    upvar __result result
     foreach result $results {
         if {[dict exists $result __ref]} {
             set ref [dict get $result __ref]
@@ -580,36 +576,52 @@ fn ForEach! {args} {
             }
         }
 
-        # This is so that the filename/linenum information in $body is
-        # preserved at the caller level.
-        upvar __body __body; set __body $body
-
-        set code [catch {uplevel {dict with __result $__body}} \
-                      ret opts]
+        # Bind this result's variables in the caller's frame, then run the
+        # body there too. [dict assign] takes the dict by value, where
+        # [dict with] took it by name and so had to be handed an alias that
+        # existed in the frame it ran in -- passing the value means neither
+        # the dict nor the body needs an upvar to be reachable from there.
+        # Handing $body straight to [uplevel] also keeps its file/line info,
+        # which wrapping it in a script string would discard.
+        #
+        # A negated pattern yields a single result with no bindings at all,
+        # and [dict assign] wants at least one name, so skip it when empty.
+        if {[dict size $result] > 0} {
+            uplevel [list dict assign $result {*}[dict keys $result]]
+        }
+        set code [catch {uplevel $body} ret opts]
 
         if {[dict exists $result __ref]} {
             StatementRelease! $ref
         }
 
-        if {$code == 2} {
-            # TCL_RETURN: the body did an early return; propagate it
-            # to the caller of ForEach!
-            return -code return $ret
+        # These are zicl's return codes, not Tcl's: zicl inserts `oom` at 2,
+        # which pushes return/break/continue to 3/4/5 (see ReturnCode in
+        # heap.zig). Comparing against Tcl's 2 here matched `oom` instead,
+        # so early returns fell through as if the body had completed.
+        if {$code == 3} {
+            # The body did an early return; propagate it to the caller of
+            # ForEach!. `-level` counts closure calls in zicl, so 2 means
+            # "leave ForEach!, then leave whoever called it" -- Tcl's
+            # `-code return` idiom only unwinds ForEach! itself here.
+            return -level 2 $ret
         } elseif {$code == 1} {
-            # TCL_ERROR: an error occurred; preserve the original
-            # stack trace.
-            return -code error -errorinfo [dict get $opts -errorinfo] $ret
+            # TCL_ERROR: an error occurred; propagate it with the original
+            # stack trace, which [catch] parked under -errorstack. Without
+            # handing that back, the re-raise rebuilds a trace from whatever
+            # frames are still live here, losing the body's own frames.
+            return -code error -errorstack [dict get $opts -errorstack] $ret
         }
         # code == 0: normal completion; continue to next iteration.
     }
 }
 
-set ::thisNode [info hostname]
+set thisNode [info hostname]
 # TODO: Save ::thisNode and check if it's changed.
 
 if {[__isTracyEnabled]} {
     set tracyCid "tracy_$folkPid"
-    set ::tracyLib "<C:$tracyCid>"
+    set tracyLib "<C:$tracyCid>"
     set tracySo "/tmp/$tracyCid.so"
     fn tracyCompile {} {
         # We should only compile this once, then load the same library
@@ -688,28 +700,28 @@ if {[__isTracyEnabled]} {
         if {![file exists $tracySo]} {
             return false
         }
-        $::tracyLib init
-        unset ::tracy
-        set ::tracy $::tracyLib
+        $tracyLib init
+        unset tracy
+        set tracy $tracyLib
         return true
     }
 
     if {[__threadId] == 0} {
         set tracyTemp [tracyCompile]
         $tracyTemp init
-        set ::tracy $tracyTemp
+        set tracy $tracyTemp
     } else {
-        fn ::tracy {args} {
+        fn tracy {args} {
             # HACK: We pretty much just throw away all tracing calls
             # until tracy is loaded.
             if {[tracyTryLoad]} {
-                ::tracy {*}$args
+                tracy {*}$args
             }
         }
     }
 
 } else {
-    fn ::tracy {args} {}
+    fn tracy {args} {}
 }
 
 # FIXME: zicl doesn't have [signal] yet.

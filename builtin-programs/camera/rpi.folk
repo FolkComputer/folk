@@ -214,7 +214,7 @@ set makeCamera {
 }
 
 When the image library is /imageLib/ &\
-     /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
+     /someone/ wishes $thisNode uses camera /cameraPath/ with /...options/ {
     if {![string match "/base*" $cameraPath]} { return }
 
     puts "camera/rpi: Running."

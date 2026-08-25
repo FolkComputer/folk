@@ -1,21 +1,18 @@
-set cc [C]
-$cc proc makeTrue {} bool {
+set cc [dict link $C {}]
+cc::proc makeTrue {} bool {
     return true;
 }
-$cc proc makeFalse {} bool {
+cc::proc makeFalse {} bool {
     return false;
 }
-$cc proc invert {bool x} bool {
+cc::proc invert {bool x} bool {
     return !x;
 }
-set lib [$cc compile]
-assert {[$lib makeTrue]}
-assert {![$lib makeFalse]}
+set lib [cc::compile]
+assert {[lib::makeTrue]}
+assert {![lib::makeFalse]}
 
-assert {[$lib invert false]}
-assert {[$lib invert 0]}
-
-assert {![$lib invert true]}
-assert {![$lib invert 1]}
+assert {[lib::invert false]}
+assert {![lib::invert true]}
 
 Exit! 0

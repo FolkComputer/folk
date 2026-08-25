@@ -23,7 +23,7 @@ When the image library is /imageLib/ &\
     set q [quadChange $q $cam]
     set vertices [lmap v [quadLib::vertices $q] {
         poseLib::project $cameraIntrinsics \
-            fWidth::$fHeight $v
+            $fWidth $fHeight $v
     }]
     tracy zoneEnd
 
@@ -56,7 +56,7 @@ When the image library is /imageLib/ &\
     tracy zoneBegin
     tracy zoneName "warpQuad"
     set slice [imageLib::warpQuad $frame $vertices \
-                   sliceWidth::$sliceHeight]
+                   $sliceWidth $sliceHeight]
     tracy zoneEnd
     Claim $p has camera slice $slice \
         -destructor [list $imageLib imageFree $slice]

@@ -50,6 +50,6 @@ Wish the GPU compiles pipeline "circle" {
 
             Wish the GPU draws pipeline "circle" onto canvas $id with arguments \
                 [list $wiResolution $surfaceToClip \
-                center::$innerRadius $outerRadius $color] \
+                $center $innerRadius $outerRadius $color] \
                 layer $layer
         }

@@ -41,13 +41,13 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     catch { exec v4l2-ctl --device=$camera --set-ctrl=focus_automatic_continuous=0 }
 
     if {$cameraWidth < 1920} {
-        set camResults [Query! /someone/ wishes $::thisNode uses camera $camera with /...camOpts/]
+        set camResults [Query! /someone/ wishes $thisNode uses camera $camera with /...camOpts/]
         if {[llength $camResults] == 1} {
             set camOpts [dict get [lindex $camResults 0] camOpts]
             if {![dict exists $camOpts crops]} {
-                Retract! /someone/ wishes $::thisNode uses camera $camera \
+                Retract! /someone/ wishes $thisNode uses camera $camera \
                     with width $cameraWidth height $cameraHeight
-                Assert! $this wishes $::thisNode uses camera $camera \
+                Assert! $this wishes $thisNode uses camera $camera \
                     with width 1920 height 1080
                 # TODO: restore old camera resolution later
             }
@@ -641,7 +641,7 @@ fn unrefinedCalibrateCameraAndProjector {modelLib matLib calibrationPoses} {
     set cameraWidth [dict get $pose0 cameraWidth]
     set cameraHeight [dict get $pose0 cameraHeight]
     set cameraCalibration [zhangUnrefinedCalibrate \
-                               cameraName::$cameraWidth $cameraHeight \
+                               $cameraName $cameraWidth $cameraHeight \
                                $Hs_modelToCamera]
     puts "\n======================\n"
 
@@ -671,8 +671,8 @@ fn unrefinedCalibrateCameraAndProjector {modelLib matLib calibrationPoses} {
     set projectorWidth [dict get $pose0 displayWidth]
     set projectorHeight [dict get $pose0 displayHeight]
     set projectorCalibration [zhangUnrefinedCalibrate \
-                                  projectorName::\
-                                  projectorWidth::$projectorHeight \
+                                  $projectorName \
+                                  $projectorWidth $projectorHeight \
                                   $Hs_modelToDisplay]
     puts "\n======================\n"
 
@@ -701,9 +701,9 @@ When the calibration model library is /modelLib/ &\
     puts ""
 
     set calibration [{*}$refineCalibration \
-                         modelLib::$matLib \
+                         $modelLib $matLib \
                          $setCameraToProjectorExtrinsics \
-                         calibrationPoses::$calibration]
+                         $calibrationPoses $calibration]
     puts "======== Refined calibration intrinsics ========="
 
     puts "."

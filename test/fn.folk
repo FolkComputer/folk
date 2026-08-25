@@ -12,12 +12,11 @@ When we are \
     awake {
         try {
             hello
-        } on error e {
-            set st [info stacktrace]
+        } on error {e opts} {
+            set st ${opts::-errorstack}
             assert {[lindex $st 2] == 3}
             assert {[lindex $st 6] == 7}
             Exit! 0
         }
     }
 Claim we are awake
-

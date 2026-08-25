@@ -160,7 +160,7 @@ When the hold save directory is /holdDirectory/ {
         set escapedFilename "$holdDirectory/$escapedFilename"
 
         savedHoldsLib::saveHold $canonical $tclEscaped $escapedFilename \
-            key::$clause
+            $key $clause
     }
 
     Claim saving is ready

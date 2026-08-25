@@ -26,7 +26,7 @@ cc::include <stdint.h>
 cc::addcode {
     // HACK: copied from pipelines.folk
     typedef struct PushConstantsEncoder {
-        int (*encode)(Jim_Interp* interp, Jim_Obj* obj, uint8_t out[128]);
+        int (*encode)(Zicl_Interp* interp, Zicl_Value obj, uint8_t out[128]);
     } PushConstantsEncoder;
 
     typedef struct Args {
@@ -34,26 +34,48 @@ cc::addcode {
         float iTime;
     } Args;
 
-    static int encodeToy(Jim_Interp* interp, Jim_Obj* obj, uint8_t out[128]) {
+    // Reads item `index` of `list` as a double. Returns 0 on success.
+    static int toyGetDouble(Zicl_Interp* interp, const Zicl_List* list, int index, double* out) {
+        if (index >= Zicl_ListLength(list)) return -1;
+        Zicl_Shimmerable el = Zicl_NewShimmerable(Zicl_ListItems(list)[index]);
+        int rc = Zicl_GetDouble(interp, &el, out);
+        Zicl_ShimDiscardChanges(&el);
+        return rc == ZICL_OK ? 0 : -1;
+    }
+
+    static int encodeToy(Zicl_Interp* interp, Zicl_Value obj, uint8_t out[128]) {
         Args args = {0};
+        int ret = -1;
+
+        Zicl_Shimmerable objShim = Zicl_NewShimmerable(obj);
+        const Zicl_List* items;
+        if (Zicl_ListShimmer(interp, &objShim, &items) != ZICL_OK) goto done;
+        if (Zicl_ListLength(items) < 2) goto done;
 
         // iResolution: caller passes {width height}; we synthesize z=1.
-        Jim_Obj* resObj = Jim_ListGetIndex(interp, obj, 0);
-        if (Jim_ListLength(interp, resObj) != 2) return -1;
-        double w, h;
-        if (Jim_GetDouble(interp, Jim_ListGetIndex(interp, resObj, 0), &w) != JIM_OK) return -1;
-        if (Jim_GetDouble(interp, Jim_ListGetIndex(interp, resObj, 1), &h) != JIM_OK) return -1;
-        args.iResolution[0] = (float)w;
-        args.iResolution[1] = (float)h;
-        args.iResolution[2] = 1.0f;
+        Zicl_Shimmerable resShim = Zicl_NewShimmerable(Zicl_ListItems(items)[0]);
+        const Zicl_List* res;
+        if (Zicl_ListShimmer(interp, &resShim, &res) == ZICL_OK &&
+            Zicl_ListLength(res) == 2) {
+            double w, h, t;
+            if (toyGetDouble(interp, res, 0, &w) == 0 &&
+                toyGetDouble(interp, res, 1, &h) == 0 &&
+                toyGetDouble(interp, items, 1, &t) == 0) {
+                args.iResolution[0] = (float)w;
+                args.iResolution[1] = (float)h;
+                args.iResolution[2] = 1.0f;
+                // iTime: seconds since shader load.
+                args.iTime = (float)t;
 
-        // iTime: seconds since shader load.
-        double t;
-        if (Jim_GetDouble(interp, Jim_ListGetIndex(interp, obj, 1), &t) != JIM_OK) return -1;
-        args.iTime = (float)t;
+                memcpy(out, &args, sizeof(args));
+                ret = sizeof(args);
+            }
+        }
+        Zicl_ShimDiscardChanges(&resShim);
 
-        memcpy(out, &args, sizeof(args));
-        return sizeof(args);
+    done:
+        Zicl_ShimDiscardChanges(&objShim);
+        return ret;
     }
 }
 cc::proc makeToyEncoder {} PushConstantsEncoder* {
@@ -134,14 +156,14 @@ When /wisher/ wishes /p/ draws toy shader /shaderCode/ {
     try {
         set vertShaderModule [pipelineLib::createShaderModule [toyGlslc vert $vertGlsl]]
         set fragShaderModule [pipelineLib::createShaderModule [toyGlslc frag $fragGlsl]]
-    } on error e {
-        puts stderr "Error compiling toy shader: [errorinfo $e]"
-        Claim $wisher has error $e with info [errorinfo $e]
+    } on error {e opts} {
+        puts stderr "Error compiling toy shader: [errorInfoFor $e $opts]"
+        Claim $wisher has error $e with info [dict get $opts -errorstack]
     }
 
     set pipeline [pipelineLib::createPipeline \
-                      vertShaderModule::$fragShaderModule \
-                      toyEncoder::$toyArgsSize]
+                      $vertShaderModule $fragShaderModule \
+                      $toyEncoder $toyArgsSize]
 
     Claim the GPU compiles pipeline $sha1 to $pipeline
 

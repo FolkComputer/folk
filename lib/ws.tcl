@@ -248,7 +248,7 @@ WsConnection method onMsgRecv {msg} {
 }
 
 WsConnection method destroy {} {
-    dict unset ::wsConnections $ctx
+    dict unset wsConnections $ctx
     close $chan
     $wsLib wsDestroy $ctx
     {*}$destructor
@@ -259,13 +259,13 @@ $wsPipeRead readable [lambda {} {wsLib} {
     try {
         while true {
             set ctx [$wsLib wsPipeReadMsg]
-            set conn [dict get $::wsConnections $ctx]
+            set conn [dict get $wsConnections $ctx]
             $conn updateChanReadableWritable
         }
     } on error e {}
 }]
 
-set ::wsConnections [dict create]
+set wsConnections [dict create]
 
 # This class method creates a new WsConnection from an active HTTP
 # channel and key from /ws upgrade request header.
@@ -291,6 +291,6 @@ Sec-WebSocket-Accept: $acceptKey\r
     $conn eval [list set ctx $ctx]
 
     $conn updateChanReadableWritable
-    dict set ::wsConnections $ctx $conn
+    dict set wsConnections $ctx $conn
     return $conn
 }

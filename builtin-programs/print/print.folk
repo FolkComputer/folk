@@ -2,7 +2,7 @@
 #
 # Start by adding a printer to CUPS. You can do this from the Web UI, or declare it using Folk:
 #
-#     Assert $::thisNode claims printer "printer-name" is a cups printer with url "http://url/ipp/print" driver "everywhere"
+#     Assert $thisNode claims printer "printer-name" is a cups printer with url "http://url/ipp/print" driver "everywhere"
 #
 # Lastly, you need to declare a default printer and default paper format:
 # (make sure that the default printer supports the default paper format)
@@ -139,7 +139,7 @@ fn codeToPostScript {id code opts {marginsVar {}}} {
         # layout in the editor.
         lappend outPages [subst {
             %!PS
-            << /PageSize \[PageWidth::$PageHeight\] >> setpagedevice
+            << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
 
             \[calibScale::0 0 $calibScale $calibTx $calibTy\] concat
 
@@ -155,7 +155,7 @@ fn codeToPostScript {id code opts {marginsVar {}}} {
                 incr lineIdx
                 incr pageLineIdx
                 subst {
-                    lineNumbersRight::$($PageHeight-$effMargins::top-$pageLineIdx*$lineHeight) moveto
+                    $lineNumbersRight $($PageHeight-$effMargins::top-$pageLineIdx*$lineHeight) moveto
                     0.6 setgray ([format "% 3s" $lineIdx])
                     dup stringwidth pop neg 0 rmoveto
                     show
@@ -169,7 +169,7 @@ fn codeToPostScript {id code opts {marginsVar {}}} {
             [expr {[llength $outPages] > 0 ? {} : [subst {
                 gsave
                 $($PageWidth-$effMargins::right-$tagWidth-$tagInset) $($PageHeight-$effMargins::top-$tagHeight-$tagInset) translate
-                tagWidth::$tagHeight scale
+                $tagWidth $tagHeight scale
                 $image
                 grestore
 
@@ -208,7 +208,7 @@ fn nextId {} {
 
     set id
 }
-When $::thisNode claims printer /name/ is a cups printer with /...options/ {
+When $thisNode claims printer /name/ is a cups printer with /...options/ {
     set command [list /usr/sbin/lpadmin -p $name -E]
     if {[dict exists $options url]} {
         lappend command -v [dict get $options url]
@@ -248,7 +248,7 @@ Subscribe: print code /code/ {
 }
 
 Subscribe: print a new program with /...options/ {
-    if {$::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial"} {
+    if {$thisNode eq "folk-beads" || $thisNode eq "folk-convivial"} {
         # HACK: Forward the print request to folk-hex.
         exec curl -X POST "http://folk-hex.local:4273/" \
                 -H "Content-Type: text/plain" \
@@ -340,7 +340,7 @@ Subscribe: print program /id/ with /...options/ {
     puts $fp "Claim tag \$this has geometry \{$geomStr\}"
     close $fp
 
-    puts "Printing program $id on $::thisNode"
+    puts "Printing program $id on $thisNode"
     Notify: print pdf $saveDir/$id.pdf with {*}$options
 }
 

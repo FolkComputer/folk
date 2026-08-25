@@ -74,6 +74,6 @@ When the color map is /colorMap/ &\
 
     Wish the GPU draws pipeline "curve" onto canvas $id with arguments \
         [list $wiResolution $surfaceToClip \
-              p0::$p1 $p2 $p3 $thickness $color] \
+              $p0 $p1 $p2 $p3 $thickness $color] \
         layer $layer
 }

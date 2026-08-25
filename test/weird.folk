@@ -1,44 +1,33 @@
-# set classvars [dict create inner {}]
+# Ported off Jim's `oo` package: dict sugar replaces it. An "object" is just a
+# dict, its methods are `method` closures stored in that dict, and calling
+# `obj::m` passes the dict in as `self` and writes any mutation back.
 
-# proc okay {} {classvars} {
-#     proc blah {} {classvars} {
-#         set instvars $classvars
+set C [dict create procs {} name C]
 
-#         proc method {} {instvars} {
-#             puts "METHOD"
-#             upvar 1 instvars(inner) inner
-#             dict set inner stuff STUFF
-#         }
-#         method
-
-#         puts "classvars: $classvars"
-#         puts "instvars: $instvars"
-#     }
-
-#     blah
-# }
-# okay
-package require oo
-
-class C {
-    procs {}
+method C::addProc {self name rtype} {
+    if {[dict exists $self::procs $name]} { error "C proc: Name collision: $name" }
+    dict set self::procs $name $rtype
 }
-C method proc {name arguments rtype body} {
-    # WHY IS PROCS SHARED HERE AND NOT SHARED THERE?
-    if {[dict exists $procs $name]} { error "C proc: Name collision: $name" }
-    dict set procs $name rtype int
-}
-set obj [C]
-puts "obj is $obj"
+method C::procNames {self} { return [dict keys $self::procs] }
+method C::describe {self} { return "$self::name([llength [dict keys $self::procs]])" }
 
-$obj method insts {} {
-    uplevel set instvars
-}
-$obj proc addify {int a int b} int {
-    return a + b;
-}
+C::addProc addify int
+C::addProc negate int
 
-puts "classvars ([$obj classvars])"
-puts "vars ([$obj vars])"
+# Mutation through a method is written back to the dict it was called on.
+assert {[C::procNames] eq {addify negate}}
+assert {$C::procs eq {addify int negate int}}
+assert {[C::describe] eq "C(2)"}
 
+# A method can read sibling state, and collisions are caught.
+assert {[catch {C::addProc addify int} err] == 1}
+assert {$err eq "C proc: Name collision: addify"}
+
+# Plain dicts are values: mutating a copy leaves the original alone.
+set D $C
+dict set D name D
+assert {$C::name eq "C"}
+assert {$D::name eq "D"}
+
+puts "weird: ok"
 Exit! 0

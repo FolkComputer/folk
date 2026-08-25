@@ -1,6 +1,6 @@
 # Manage terminal UI for Folk.
 stream write $realStdout "Folk Computer (pid [pid]).\n"
-if {[string match "*.local" $::thisNode]} { set host $::thisNode } else { set host "$::thisNode.local" }
+if {[string match "*.local" $thisNode]} { set host $thisNode } else { set host "$thisNode.local" }
 stream write $realStdout "Web interface at: http://$host:4273/\n\n"
 
 # Don't run the watcher process if we're not literally at a terminal

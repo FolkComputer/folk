@@ -10,7 +10,7 @@ cc::addendcflags -lutil ./vendor/libtmt/tmt.c
 cc::include <sys/types.h>
 cc::include <stdlib.h>
 cc::include <unistd.h>
-if {$::tcl_platform(os) eq "darwin"} {
+if {$tcl_platform::os eq "darwin"} {
     cc::include <util.h>
 } else {
     cc::include <pty.h>

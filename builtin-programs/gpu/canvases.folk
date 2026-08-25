@@ -183,7 +183,7 @@ When the GPU library is /gpuLib/ &\
         boundPipeline = VK_NULL_HANDLE;
         boundDescriptorSet = VK_NULL_HANDLE;
     }
-    gpuc::proc draw {Pipeline pipeline Jim_Obj* argsObj} void {
+    gpuc::proc draw {Zicl_Interp* interp Pipeline pipeline Zicl_Value argsObj} void {
         VkCommandBuffer commandBuffer = getCommandBuffer();
 
         if (boundPipeline != pipeline.pipeline) {
@@ -278,7 +278,7 @@ When the GPU library is /gpuLib/ &\
             {*}$options \
             texture [gpuCanvasLib::gpuTexture $wi] \
             writableInfo $wi \
-            -destructor [list $gpuCanvasLib destroy $wi]
+            -destructor [list gpuCanvasLib::destroy $wi]
 
         Wish to collect results for \
             [list /wisher/ wishes the GPU draws pipeline /name/ \
@@ -286,7 +286,7 @@ When the GPU library is /gpuLib/ &\
             with settle $options::settle
     }
 
-    Wish the GPU runs frame prelude handler [fn {gpuCanvasLib gpuTextureLib} {
+    Wish the GPU runs frame prelude handler [fn {} {
         upvar missingPipelines missingPipelines
         upvar mostRecentDrawListsByTexture mostRecentDrawListsByTexture
         if {![info exists missingCanvases]} {
@@ -298,13 +298,17 @@ When the GPU library is /gpuLib/ &\
 
         set results [Query! the GPU compiles pipeline /name/ to /pipeline/]
         set pipelines [dict create]
-        foreach result $results { dict with result { dict set pipelines $name $pipeline } }
+        foreach result $results {
+            dict assign $result name pipeline
+            dict set pipelines $name $pipeline
+        }
 
         set acquiredRefs [list]
 
         set results [Query! the GPU has created canvas /id/ with /...options/]
         set canvases [dict create]
-        foreach result $results { dict with result {
+        foreach result $results {
+            dict assign $result id options
             set ref [dict get $result __ref]
             try {
                 StatementAcquire! $ref
@@ -313,10 +317,9 @@ When the GPU library is /gpuLib/ &\
                 continue
             }
 
-            dict with options {
-                dict set canvases $id $writableInfo
-            }
-        } }
+            dict assign $options writableInfo
+            dict set canvases $id $writableInfo
+        }
 
         # Discard cached draw-lists for canvases that
         # have been destroyed, since we'll want to re-draw them
@@ -328,7 +331,6 @@ When the GPU library is /gpuLib/ &\
         }
 
         fn addToDrawLists {&drawLists pipelineName options} {
-            upvar gpuCanvasLib gpuCanvasLib
             upvar pipelines pipelines
             upvar missingPipelines missingPipelines
 
@@ -350,7 +352,7 @@ When the GPU library is /gpuLib/ &\
             }
             foreach instance $instances {
                 dict lappend drawLists $layer \
-                    [list $gpuCanvasLib draw $pipeline $instance]
+                    [list gpuCanvasLib::draw $pipeline $instance]
             }
         }
 
@@ -388,16 +390,17 @@ When the GPU library is /gpuLib/ &\
                 continue
             }
 
-            foreach result $results { dict with result {
+            foreach result $results {
+                dict assign $result name options wisher
                 try {
                     addToDrawLists drawListsByTexture($id) \
-                        name::$options
-                } on error e {
-                    stream write $realStderr "Error: GPU draws pipeline $name: [errorinfo $e]\n"
-                    Assert! $this claims $wisher has error $e with info [errorinfo $e]
+                        $name $options
+                } on error {e opts} {
+                    stream write $realStderr "Error: GPU draws pipeline $name: [errorInfoFor $e $opts]\n"
+                    Assert! $this claims $wisher has error $e with info [dict get $opts -errorstack]
                     # TODO: does this ever get disposed?
                 }
-            } }
+            }
         }
 
         # Image texture wishes can publish draw commands while their
@@ -417,7 +420,7 @@ When the GPU library is /gpuLib/ &\
                 set layerDrawList [dict get $drawLists $layer]
                 foreach drawCommand $layerDrawList {
                     try { {*}$drawCommand } \
-                        on error e { stream write $realStderr "[errorinfo $e]\n" }
+                        on error {e opts} { stream write $realStderr "[errorInfoFor $e $opts]\n" }
                 }
             }
 
@@ -429,7 +432,7 @@ When the GPU library is /gpuLib/ &\
         foreach ref $acquiredRefs {
             StatementRelease! $ref
         }
-    } $gpuCanvasLib $gpuTextureLib]
+    }]
 
     When /someone/ wishes /p/ has a canvas {
         Wish $p has a canvas with width 1024 height 1024 settle 3ms
@@ -514,7 +517,7 @@ When the GPU library is /gpuLib/ &\
             set d [list 0 $dispHeight]
             Wish the GPU draws pipeline "composite-canvas" with arguments \
                 [list [list $dispWidth $dispHeight] \
-                     surfaceToClip::\
+                     $surfaceToClip \
                      [dict get $canvOpts texture] $a $b $c $d] \
                 layer [dict getdef $canvOpts layer 99]
         }
