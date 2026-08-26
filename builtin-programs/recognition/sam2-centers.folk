@@ -1,0 +1,62 @@
+set cc [C]
+
+# Returns the centroid of the nonzero pixels in a SAM2 mask, scaled into the
+# viewport's local {x y} meter space. An empty mask has no center.
+$cc proc sam2MaskCenter {int width int height Jim_Obj* mask
+                         double scaleX double scaleY} Jim_Obj* {
+    if (width <= 0 || height <= 0) {
+        return Jim_NewListObj(interp, NULL, 0);
+    }
+
+    int maskLen = 0;
+    const uint8_t *maskData = (const uint8_t *)Jim_GetString(mask, &maskLen);
+    FOLK_ENSURE(maskLen == width * height);
+
+    uint64_t count = 0;
+    uint64_t sumX = 0;
+    uint64_t sumY = 0;
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            if (maskData[y * width + x] == 0) continue;
+            count++;
+            sumX += (uint64_t)x;
+            sumY += (uint64_t)y;
+        }
+    }
+
+    if (count == 0) {
+        return Jim_NewListObj(interp, NULL, 0);
+    }
+
+    Jim_Obj *center[2] = {
+        Jim_NewDoubleObj(interp,
+            ((double)sumX / (double)count + 0.5) * scaleX),
+        Jim_NewDoubleObj(interp,
+            ((double)sumY / (double)count + 0.5) * scaleY),
+    };
+    return Jim_NewListObj(interp, center, 2);
+}
+
+Claim the SAM2 centers library is [$cc compile]
+
+# Auto-trigger the center provider when a When subscribes to an object's center.
+When when /obj/ has center /center/ in /v/ /lambda/ with environment /e/ {
+    Wish $obj has center in $v
+}
+
+When /someone/ wishes /obj/ has center in /v/ &\
+     /obj/ has mask /mask/ in /v/ with /...maskOptions/ &\
+     /v/ has resolved geometry /geom/ &\
+     the SAM2 centers library is /centersLib/ {
+
+    set width [dict get $maskOptions width]
+    set height [dict get $maskOptions height]
+    set scaleX [expr {double($geom(width)) / double($width)}]
+    set scaleY [expr {double($geom(height)) / double($height)}]
+    set center [$centersLib sam2MaskCenter \
+                    $width $height $mask $scaleX $scaleY]
+
+    if {[llength $center] == 2} {
+        Claim $obj has center $center in $v
+    }
+}
