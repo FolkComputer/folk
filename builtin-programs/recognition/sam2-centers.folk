@@ -102,99 +102,99 @@ When /someone/ wishes /obj/ has center in /v/ {
     }
 
     # Optical-flow interpolation between authoritative SAM2 mask updates.
-    When the optical flow library is /opticalFlowLib/ &\
-         $v has resolved geometry /flowGeom/ {
-        Wish $v has camera slice
+    # When the optical flow library is /opticalFlowLib/ &\
+    #      $v has resolved geometry /flowGeom/ {
+    #     Wish $v has camera slice
 
-        set previousFrame {}
-        set previousFrameRef {}
-        set acquiredFrameRef {}
-        set predictedCenter {}
-        set observedCenterRef {}
+    #     set previousFrame {}
+    #     set previousFrameRef {}
+    #     set acquiredFrameRef {}
+    #     set predictedCenter {}
+    #     set observedCenterRef {}
 
-        try -signal {
-            while true {
-                set frameResults [Query! $v has camera slice /frame/]
-                if {[llength $frameResults] == 0} {
-                    sleep 0.005
-                    continue
-                }
-                set frameResult [lindex $frameResults end]
-                set frameRef [dict get $frameResult __ref]
-                if {$frameRef eq $previousFrameRef} {
-                    sleep 0.005
-                    continue
-                }
+    #     try -signal {
+    #         while true {
+    #             set frameResults [Query! $v has camera slice /frame/]
+    #             if {[llength $frameResults] == 0} {
+    #                 sleep 0.005
+    #                 continue
+    #             }
+    #             set frameResult [lindex $frameResults end]
+    #             set frameRef [dict get $frameResult __ref]
+    #             if {$frameRef eq $previousFrameRef} {
+    #                 sleep 0.005
+    #                 continue
+    #             }
 
-                # A camera slice owns its Image through a statement destructor.
-                # Retain the statement while the image is passed through CUDA.
-                if {[catch {StatementAcquire! $frameRef}]} {
-                    continue
-                }
-                set acquiredFrameRef $frameRef
-                set frame [dict get $frameResult frame]
+    #             # A camera slice owns its Image through a statement destructor.
+    #             # Retain the statement while the image is passed through CUDA.
+    #             if {[catch {StatementAcquire! $frameRef}]} {
+    #                 continue
+    #             }
+    #             set acquiredFrameRef $frameRef
+    #             set frame [dict get $frameResult frame]
 
-                set didReanchor false
-                set observedResults \
-                    [Query! $obj has SAM2 center /observedCenter/ in $v]
-                if {[llength $observedResults] > 0} {
-                    set observedResult [lindex $observedResults end]
-                    set newObservedRef [dict get $observedResult __ref]
-                    if {$newObservedRef ne $observedCenterRef} {
-                        set predictedCenter \
-                            [dict get $observedResult observedCenter]
-                        set observedCenterRef $newObservedRef
-                        set didReanchor true
-                    }
-                }
+    #             set didReanchor false
+    #             set observedResults \
+    #                 [Query! $obj has SAM2 center /observedCenter/ in $v]
+    #             if {[llength $observedResults] > 0} {
+    #                 set observedResult [lindex $observedResults end]
+    #                 set newObservedRef [dict get $observedResult __ref]
+    #                 if {$newObservedRef ne $observedCenterRef} {
+    #                     set predictedCenter \
+    #                         [dict get $observedResult observedCenter]
+    #                     set observedCenterRef $newObservedRef
+    #                     set didReanchor true
+    #                 }
+    #             }
 
-                if {$predictedCenter eq {}} {
-                    set centerResults [Query! $obj has center /center/ in $v]
-                    if {[llength $centerResults] > 0} {
-                        set predictedCenter \
-                            [dict get [lindex $centerResults end] center]
-                    }
-                }
+    #             if {$predictedCenter eq {}} {
+    #                 set centerResults [Query! $obj has center /center/ in $v]
+    #                 if {[llength $centerResults] > 0} {
+    #                     set predictedCenter \
+    #                         [dict get [lindex $centerResults end] center]
+    #                 }
+    #             }
 
-                if {$previousFrame ne {} && $predictedCenter ne {} &&
-                    !$didReanchor} {
-                    set flowStartUs [clock microseconds]
-                    set flow {}
-                    try {
-                        set flow [$opticalFlowLib runOpticalFlow \
-                                      $previousFrame $frame]
-                        set predictedCenter [advectCenterWithFlow \
-                            $opticalFlowLib $predictedCenter $flowGeom \
-                            $previousFrame $flow]
-                    } finally {
-                        if {$flow ne {}} {
-                            $opticalFlowLib freeOpticalFlow $flow
-                        }
-                    }
-                    set flowElapsedMs [expr {
-                        ([clock microseconds] - $flowStartUs) / 1000.0
-                    }]
-                    Hold! -on $v -key [list sam2 optical-flow timing] \
-                        Wish $v is labelled [format \
-                            "Optical flow + advect: %.2f ms" $flowElapsedMs]
-                    Hold! -on $v -key [list sam2 center $obj] \
-                        Claim $obj has center $predictedCenter in $v
-                }
+    #             if {$previousFrame ne {} && $predictedCenter ne {} &&
+    #                 !$didReanchor} {
+    #                 set flowStartUs [clock microseconds]
+    #                 set flow {}
+    #                 try {
+    #                     set flow [$opticalFlowLib runOpticalFlow \
+    #                                   $previousFrame $frame]
+    #                     set predictedCenter [advectCenterWithFlow \
+    #                         $opticalFlowLib $predictedCenter $flowGeom \
+    #                         $previousFrame $flow]
+    #                 } finally {
+    #                     if {$flow ne {}} {
+    #                         $opticalFlowLib freeOpticalFlow $flow
+    #                     }
+    #                 }
+    #                 set flowElapsedMs [expr {
+    #                     ([clock microseconds] - $flowStartUs) / 1000.0
+    #                 }]
+    #                 Hold! -on $v -key [list sam2 optical-flow timing] \
+    #                     Wish $v is labelled [format \
+    #                         "Optical flow + advect: %.2f ms" $flowElapsedMs]
+    #                 Hold! -on $v -key [list sam2 center $obj] \
+    #                     Claim $obj has center $predictedCenter in $v
+    #             }
 
-                if {$previousFrameRef ne {}} {
-                    StatementRelease! $previousFrameRef
-                }
-                set previousFrame $frame
-                set previousFrameRef $frameRef
-                set acquiredFrameRef {}
-            }
-        } finally {
-            if {$acquiredFrameRef ne {}} {
-                StatementRelease! $acquiredFrameRef
-            }
-            if {$previousFrameRef ne {}} {
-                StatementRelease! $previousFrameRef
-            }
-        }
-    }
+    #             if {$previousFrameRef ne {}} {
+    #                 StatementRelease! $previousFrameRef
+    #             }
+    #             set previousFrame $frame
+    #             set previousFrameRef $frameRef
+    #             set acquiredFrameRef {}
+    #         }
+    #     } finally {
+    #         if {$acquiredFrameRef ne {}} {
+    #             StatementRelease! $acquiredFrameRef
+    #         }
+    #         if {$previousFrameRef ne {}} {
+    #             StatementRelease! $previousFrameRef
+    #         }
+    #     }
+    # }
 }
