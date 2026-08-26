@@ -751,22 +751,39 @@ proc Require! {args} {
 }
 
 # Sort of like QueryOne!, but picks an arbitrary result if >1 result,
-# and introduces the bindings directly into caller scope.
+# and introduces the bindings directly into caller scope. The matched
+# statement's destructors are inherited by the current match, so Wishes/Whens
+# created after Expect! retain them until those descendants have dissipated.
 #
 #     Expect! the dog is /val/
 #     puts $val ;# -> cool
 #
 # Also polls and retries if there are 0 results.
 proc Expect! {args} {
-    set results [list]
-    while {[llength $results] == 0} {
+    while true {
         set results [Query! {*}$args]
         if {[llength $results] == 0} {
             sleep 0.1
+            continue
         }
+
+        set result [lindex $results 0]
+        if {[dict exists $result __ref] && [__currentMatchRef] ne ""} {
+            set ref [dict get $result __ref]
+            try {
+                CurrentMatchInheritStatementDestructors! $ref
+            } on error e {
+                # The sampled statement dissipated before we could inherit
+                # its destructors.
+                # Query again rather than returning bindings from a stale
+                # result.
+                continue
+            }
+        }
+        break
     }
 
-    dict for {k v} [lindex $results 0] {
+    dict for {k v} $result {
         uplevel 1 [list set $k $v]
     }
 }

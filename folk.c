@@ -519,6 +519,27 @@ static int StatementReleaseFunc(Jim_Interp *interp, int argc, Jim_Obj *const *ar
     statementRelease(db, statementUnsafeGet(db, ref));
     return JIM_OK;
 }
+static int CurrentMatchInheritStatementDestructorsFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 2);
+
+    if (self->currentMatch == NULL) {
+        Jim_SetResultString(interp, "Cannot inherit statement destructors without a current match.", -1);
+        return JIM_ERR;
+    }
+
+    StatementRef ref;
+    assert(sscanf(Jim_String(argv[1]), "s%d:%d", &ref.idx, &ref.gen) == 2);
+
+    Statement* stmt = statementAcquire(db, ref);
+    if (stmt == NULL) {
+        Jim_SetResultString(interp, "Unable to acquire statement.", -1);
+        return JIM_ERR;
+    }
+
+    matchInheritStatementDestructors(self->currentMatch, stmt);
+    statementRelease(db, stmt);
+    return JIM_OK;
+}
 static int __statementOfCurrentMatchSourceInfoFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 1);
     StatementRef stmtRef = STATEMENT_REF_NULL;
@@ -720,6 +741,7 @@ static void interpBoot() {
 
     Jim_CreateCommand(interp, "StatementAcquire!", StatementAcquireFunc, NULL, NULL);
     Jim_CreateCommand(interp, "StatementRelease!", StatementReleaseFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "CurrentMatchInheritStatementDestructors!", CurrentMatchInheritStatementDestructorsFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__statementOfCurrentMatchSourceInfo", __statementOfCurrentMatchSourceInfoFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "__scanVariable", __scanVariableFunc, NULL, NULL);

@@ -859,6 +859,13 @@ void matchAddDestructor(Match* m, Destructor* d) {
     destructorSetAdd(&m->destructorSet, d);
     pthread_mutex_unlock(&m->destructorSetMutex);
 }
+void matchInheritStatementDestructors(Match* match, Statement* stmt) {
+    pthread_mutex_lock(&stmt->destructorSetMutex);
+    pthread_mutex_lock(&match->destructorSetMutex);
+    destructorSetInherit(&match->destructorSet, &stmt->destructorSet);
+    pthread_mutex_unlock(&match->destructorSetMutex);
+    pthread_mutex_unlock(&stmt->destructorSetMutex);
+}
 
 void matchCompleted(Match* match) {
     match->isCompleted = true;

@@ -44,6 +44,7 @@ typedef union MatchRef {
 // its gen and clause remain immutable.
 Statement* statementAcquire(Db* db, StatementRef ref);
 void statementRelease(Db* db, Statement* stmt);
+void matchInheritStatementDestructors(Match* match, Statement* stmt);
 
 Statement* statementUnsafeGet(Db* db, StatementRef ref);
 
