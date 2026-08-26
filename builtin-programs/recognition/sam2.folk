@@ -200,6 +200,28 @@ When /someone/ wishes to load SAM2 &\
         return ret
     }
 
+    $py def saveObject {num objId str filename} {
+        objId = int(objId)
+        filename = os.path.expanduser(filename)
+
+        with predictor_lock, torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
+            payload = predictor.export_object_state(objId)
+
+        return predictor.save_object_state(payload, filename)
+    }
+
+    $py def loadObject {num objId str filename} {
+        global predictor_initialized
+        objId = int(objId)
+        filename = os.path.expanduser(filename)
+
+        with predictor_lock, torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
+            restoredObjId = predictor.load_object_state(filename, objId)
+            predictor_initialized = True
+
+        return int(restoredObjId)
+    }
+
     fn decodeSAM2Masks {bytes} {
         set offset 0
         set byteLen [string bytelength $bytes]
@@ -260,9 +282,25 @@ When /someone/ wishes to load SAM2 &\
     fn SAM2AddPrompt args {
         decodeSAM2Masks [$py addPrompt {*}$args]
     }
+    fn sam2CheckpointObjectId {id} {
+        set hash 0
+        for {set i 0} {$i < [string length $id]} {incr i} {
+            scan [string index $id $i] %c code
+            set hash [expr {(($hash * 131) + $code) & 0x7fffffff}]
+        }
+        return $hash
+    }
+    fn SAM2SaveObject {id filename} {
+        $py saveObject [sam2CheckpointObjectId $id] $filename
+    }
+    fn SAM2LoadObject {id filename} {
+        $py loadObject [sam2CheckpointObjectId $id] $filename
+    }
     Claim the SAM2 segmenter is [fn SAM2]
     Claim the SAM2 object tracker is [fn SAM2Track]
     Claim the SAM2 prompt adder is [fn SAM2AddPrompt]
+    Claim the SAM2 object saver is [fn SAM2SaveObject]
+    Claim the SAM2 object loader is [fn SAM2LoadObject]
 
     When the image library is /imageLib/ {
         set cc [C]
@@ -303,10 +341,17 @@ When /someone/ wishes to load SAM2 &\
     }
 }
 
-When /anyone/ wishes /page/ tracks object /id/ in frame /frame/ with /...any/ {
+When /anyone/ wishes /page/ tracks object /id/ /...any/ {
     Wish -keep 400ms $page has a SAM2 object tracker
     Wish -keep 400ms $page has camera slice
     Wish -keep 400ms to load SAM2
+}
+
+When the SAM2 object loader is /loadObject/ &\
+     /someone/ wishes /page/ tracks object /id/ from filename /filename/ {
+    fn loadObject
+    loadObject $id $filename
+    Claim $page tracks object $id from filename $filename
 }
 
 When the SAM2 mask-to-image library is /mtiLib/ &\
@@ -367,11 +412,14 @@ When the SAM2 mask-to-image library is /mtiLib/ &\
     }
 
     When -serially $page has camera slice /slice/ {
-        set promptResults [Query! /anyone/ wishes $page tracks object /id/ in frame /frame/ with /...promptSpecs/]
-        if {[llength $promptResults] == 0} { return }
+        set trackingResults \
+            [Query! /anyone/ wishes $page tracks object /id/ /...trackingSpec/]
+        if {[llength $trackingResults] == 0} {
+            return
+        }
 
         set activeObjectIdsBySam2Id {}
-        foreach result $promptResults {
+        foreach result $trackingResults {
             dict with result {
                 dict set activeObjectIdsBySam2Id [sam2ObjectId $id] $id
             }
