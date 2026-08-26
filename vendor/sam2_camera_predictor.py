@@ -244,6 +244,81 @@ class SAM2CameraPredictor(SAM2Base):
             if frame_idx in frame_map
         }
 
+    @staticmethod
+    def _retain_latest_conditioning_frame(payload):
+        """Reduce an object checkpoint to its latest explicit prompt or mask.
+
+        Registration checkpoints are identity snapshots, not recordings of the
+        camera frames that happened to run before the save callback. In particular,
+        those incidental non-conditioning outputs can already have drifted back to
+        the registration page and overpower the valid prompted mask after a reboot.
+
+        Normalize both newly exported and legacy checkpoints to a one-frame timeline
+        so loading always starts from the most recent user-confirmed mask.
+        """
+        checkpoint_object = payload["object"]
+        output_dict = checkpoint_object["output_dict"]
+        cond_outputs = output_dict["cond_frame_outputs"]
+        if not cond_outputs:
+            raise ValueError("SAM2 object checkpoint has no conditioning frame")
+
+        latest_cond_frame = max(cond_outputs)
+        output_dict["cond_frame_outputs"] = {0: cond_outputs[latest_cond_frame]}
+        output_dict["non_cond_frame_outputs"] = {}
+
+        for input_key in ("point_inputs", "mask_inputs"):
+            inputs = checkpoint_object[input_key]
+            checkpoint_object[input_key] = (
+                {0: inputs[latest_cond_frame]}
+                if latest_cond_frame in inputs
+                else {}
+            )
+
+        checkpoint_object["frames_tracked"] = {}
+        payload["session"]["frame_idx"] = 0
+        payload["session"]["num_frames"] = 1
+        return payload
+
+    @staticmethod
+    def _offset_checkpoint_frame_dict(frame_dict, offset):
+        return {
+            frame_idx + offset: value for frame_idx, value in frame_dict.items()
+        }
+
+    @classmethod
+    def _shift_state_frames(cls, state, offset):
+        """Shift every frame-indexed field in a live predictor state."""
+        if offset == 0:
+            return
+
+        for collection_name in (
+            "point_inputs_per_obj",
+            "mask_inputs_per_obj",
+            "frames_tracked_per_obj",
+        ):
+            collection = state[collection_name]
+            for obj_idx, frame_dict in collection.items():
+                collection[obj_idx] = cls._offset_checkpoint_frame_dict(
+                    frame_dict, offset
+                )
+
+        for collection_name in (
+            "output_dict_per_obj",
+            "temp_output_dict_per_obj",
+        ):
+            collection = state[collection_name]
+            for output_dict in collection.values():
+                for storage_key, frame_dict in output_dict.items():
+                    output_dict[storage_key] = cls._offset_checkpoint_frame_dict(
+                        frame_dict, offset
+                    )
+
+        state["cached_features"] = cls._offset_checkpoint_frame_dict(
+            state["cached_features"], offset
+        )
+        state["images"] = [None] * offset + state["images"]
+        state["num_frames"] += offset
+
     @torch.inference_mode()
     def export_object_state(self, obj_id):
         """Return an immutable CPU checkpoint payload for one tracked object.
@@ -337,6 +412,7 @@ class SAM2CameraPredictor(SAM2Base):
             # once rather than adding roughly 512 KiB for every retained output.
             "shared_maskmem_pos_enc": shared_maskmem_pos_enc,
         }
+        payload = self._retain_latest_conditioning_frame(payload)
         return self._checkpoint_clone(payload)
 
     @staticmethod
@@ -381,7 +457,12 @@ class SAM2CameraPredictor(SAM2Base):
 
     @torch.inference_mode()
     def load_object_state(self, filename, obj_id=None):
-        """Replace predictor state with one object checkpoint and return its id."""
+        """Load one object checkpoint into the predictor and return its id.
+
+        Additional checkpoints are merged into the live session. Their compact frame
+        timelines are aligned at the current frame so every restored object can use
+        its own recent memory during the next tracking step.
+        """
         payload = torch.load(
             os.fspath(filename), map_location="cpu", weights_only=True
         )
@@ -391,6 +472,11 @@ class SAM2CameraPredictor(SAM2Base):
             raise ValueError(
                 f"Unsupported SAM2 object checkpoint version {payload.get('version')!r}"
             )
+
+        # Older registration files may include incidental tracking frames that were
+        # produced between prompting and the asynchronous save callback. Repair them
+        # in memory before merging the object into the live predictor.
+        payload = self._retain_latest_conditioning_frame(payload)
 
         expected_model = {
             "image_size": self.image_size,
@@ -410,34 +496,67 @@ class SAM2CameraPredictor(SAM2Base):
         saved_obj_id = checkpoint_object["obj_id"]
         restored_obj_id = saved_obj_id if obj_id is None else obj_id
         session = payload["session"]
-        state = self._init_state(
-            offload_video_to_cpu=session["offload_video_to_cpu"],
-            offload_state_to_cpu=session["offload_state_to_cpu"],
+
+        if not self.condition_state or not self.condition_state.get("obj_ids"):
+            state = self._init_state(
+                offload_video_to_cpu=session["offload_video_to_cpu"],
+                offload_state_to_cpu=session["offload_state_to_cpu"],
+            )
+            self.frame_idx = session["frame_idx"]
+            state["num_frames"] = session["num_frames"]
+            state["video_height"] = session["video_height"]
+            state["video_width"] = session["video_width"]
+            state["images"] = [None] * state["num_frames"]
+        else:
+            state = self.condition_state
+            target_frame_idx = max(self.frame_idx, session["frame_idx"])
+            existing_offset = target_frame_idx - self.frame_idx
+            self._shift_state_frames(state, existing_offset)
+            self.frame_idx = target_frame_idx
+
+        checkpoint_frame_offset = self.frame_idx - session["frame_idx"]
+        checkpoint_num_frames = (
+            checkpoint_frame_offset + session["num_frames"]
         )
-        self.frame_idx = session["frame_idx"]
-        state["num_frames"] = session["num_frames"]
-        state["video_height"] = session["video_height"]
-        state["video_width"] = session["video_width"]
-        state["images"] = [None] * state["num_frames"]
+        state["num_frames"] = max(state["num_frames"], checkpoint_num_frames)
+        if len(state["images"]) < state["num_frames"]:
+            state["images"].extend(
+                [None] * (state["num_frames"] - len(state["images"]))
+            )
 
         obj_idx = self._obj_id_to_idx(restored_obj_id)
         device = state["device"]
         storage_device = state["storage_device"]
-        state["point_inputs_per_obj"][obj_idx] = self._checkpoint_to_device(
-            checkpoint_object["point_inputs"], device
+        state["point_inputs_per_obj"][obj_idx] = (
+            self._offset_checkpoint_frame_dict(
+                self._checkpoint_to_device(
+                    checkpoint_object["point_inputs"], device
+                ),
+                checkpoint_frame_offset,
+            )
         )
-        state["mask_inputs_per_obj"][obj_idx] = self._checkpoint_to_device(
-            checkpoint_object["mask_inputs"], device
+        state["mask_inputs_per_obj"][obj_idx] = (
+            self._offset_checkpoint_frame_dict(
+                self._checkpoint_to_device(
+                    checkpoint_object["mask_inputs"], device
+                ),
+                checkpoint_frame_offset,
+            )
         )
-        state["frames_tracked_per_obj"][obj_idx] = checkpoint_object[
-            "frames_tracked"
-        ]
+        state["frames_tracked_per_obj"][obj_idx] = (
+            self._offset_checkpoint_frame_dict(
+                checkpoint_object["frames_tracked"], checkpoint_frame_offset
+            )
+        )
 
-        shared_maskmem_pos_enc = self._checkpoint_to_device(
+        checkpoint_maskmem_pos_enc = self._checkpoint_to_device(
             payload.get("shared_maskmem_pos_enc"), storage_device
         )
-        if shared_maskmem_pos_enc is not None:
-            state["constants"]["maskmem_pos_enc"] = shared_maskmem_pos_enc
+        shared_maskmem_pos_enc = state["constants"].get("maskmem_pos_enc")
+        if shared_maskmem_pos_enc is None:
+            shared_maskmem_pos_enc = checkpoint_maskmem_pos_enc
+            if shared_maskmem_pos_enc is not None:
+                state["constants"]["maskmem_pos_enc"] = shared_maskmem_pos_enc
 
         restored_outputs = {}
         for storage_key, outputs in checkpoint_object["output_dict"].items():
@@ -456,7 +575,7 @@ class SAM2CameraPredictor(SAM2Base):
                     if isinstance(output.get(key), torch.Tensor):
                         output[key] = output[key].to(device)
                 if has_maskmem_pos_enc:
-                    if shared_maskmem_pos_enc is None:
+                    if checkpoint_maskmem_pos_enc is None:
                         raise ValueError(
                             "SAM2 checkpoint output is missing shared "
                             "positional encoding"
@@ -464,7 +583,9 @@ class SAM2CameraPredictor(SAM2Base):
                     output["maskmem_pos_enc"] = shared_maskmem_pos_enc
                 else:
                     output["maskmem_pos_enc"] = None
-                restored_outputs[storage_key][frame_idx] = output
+                restored_outputs[storage_key][
+                    frame_idx + checkpoint_frame_offset
+                ] = output
         state["output_dict_per_obj"][obj_idx] = restored_outputs
         state["temp_output_dict_per_obj"][obj_idx] = {
             "cond_frame_outputs": {},
