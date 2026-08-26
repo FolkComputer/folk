@@ -62,8 +62,8 @@ int statementIncompleteChildMatchesCount(Db* db, Statement* stmt);
 void statementAddDestructor(Statement* stmt, Destructor* d);
 void statementInheritDestructors(Statement* stmt, Statement* fromStmt);
 
-void statementIncrParentCount(Statement* stmt);
 void statementDecrParentCountAndMaybeRemoveSelf(Db* db, Statement* stmt);
+void statementKeepExpired(Db* db, Statement* stmt, uint64_t keepGeneration);
 void statementRemoveSelf(Db* db, Statement* stmt, bool doDeindex);
 
 // Match

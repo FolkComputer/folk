@@ -187,9 +187,10 @@ typedef struct Statement {
     // rc > 0.
     Clause* _Atomic clause;
 
-    // If the statement is removed, we wait keepMs milliseconds before
-    // removing its child matches.
-    _Atomic long keepMs;
+    // If the statement loses its last parent, we wait keepMs
+    // milliseconds before removing its child matches. Immutable after
+    // statement creation.
+    long keepMs;
 
     // Will be NULL if not running in an Atomically
     // convergence-tracking subgraph.
@@ -209,9 +210,17 @@ typedef struct Statement {
     // -----
 
     // How many living Matches (or Holds or Asserts) are supporting
-    // this statement? When parentCount hits 0, we deindex the
-    // statement.
+    // this statement? A kept statement may have parentCount == 0 while
+    // keepRemovalPending is true.
     _Atomic int parentCount;
+
+    // These fields form one lifecycle state and must only be read or
+    // written while lifecycleMutex is held. keepGeneration invalidates
+    // timers that were scheduled before a statement was revived.
+    bool keepRemovalPending;
+    uint64_t keepGeneration;
+    bool removing;
+    pthread_mutex_t lifecycleMutex;
 
     // ListOfEdgeTo MatchRef. Used for removal.
     ListOfEdgeTo* childMatches;
@@ -506,6 +515,10 @@ static StatementRef statementNew(Db* db, Clause* clause,
         stmt->atomicallyVersion = NULL;
     }
     stmt->parentCount = 1;
+    stmt->keepRemovalPending = false;
+    stmt->keepGeneration = 0;
+    stmt->removing = false;
+    pthread_mutex_init(&stmt->lifecycleMutex, NULL);
 
     destructorSetInit(&stmt->destructorSet);
     pthread_mutex_init(&stmt->destructorSetMutex, NULL);
@@ -533,6 +546,8 @@ static void statementDestroy(Statement* stmt) {
     pthread_mutex_lock(&stmt->destructorSetMutex);
     destructorSetReleaseAll(&stmt->destructorSet);
     pthread_mutex_unlock(&stmt->destructorSetMutex);
+
+    pthread_mutex_destroy(&stmt->lifecycleMutex);
 
     Clause* stmtClause = statementClause(stmt);
     // Marks this statement slot as being fully free and ready for
@@ -600,63 +615,77 @@ void statementInheritDestructors(Statement* stmt, Statement* fromStmt) {
     pthread_mutex_unlock(&fromStmt->destructorSetMutex);
 }
 
-// Fails to increment parentCount & returns false if parentCount is 0,
-// meaning that the statement is in the process of being destroyed by
-// someone else and you should back off.
+// Fails to increment parentCount if the statement is already being
+// removed. A kept statement with no current parents can be revived;
+// doing so invalidates its pending keep timer.
 bool statementTryIncrParentCount(Statement* stmt) {
-    int oldParentCount;
-    int newParentCount;
-    do {
-        oldParentCount = stmt->parentCount;
-        if (oldParentCount == 0) {
-            return false;
+    pthread_mutex_lock(&stmt->lifecycleMutex);
+
+    bool canRevive = !stmt->removing &&
+        (stmt->parentCount > 0 || stmt->keepRemovalPending);
+    if (canRevive) {
+        stmt->parentCount++;
+        if (stmt->keepRemovalPending) {
+            stmt->keepRemovalPending = false;
+            stmt->keepGeneration++;
         }
-        newParentCount = oldParentCount + 1;
-    } while (!atomic_compare_exchange_weak(&stmt->parentCount, &oldParentCount,
-                                           newParentCount));
-    return true;
+    }
+
+    pthread_mutex_unlock(&stmt->lifecycleMutex);
+    return canRevive;
 }
 
 void statementDecrParentCountAndMaybeRemoveSelf(Db* db, Statement* stmt) {
-    if (stmt->keepMs > 0) {
-        if (--stmt->parentCount == 0) {
-            // Note that we should have exclusive access to stmt at
-            // this point.
+    bool removeNow = false;
+    bool scheduleKeepRemoval = false;
+    uint64_t keepGeneration = 0;
 
-            // Prevent future removers now that we've already
-            // scheduled removal.
-            long keepMs = stmt->keepMs;
-            stmt->keepMs = -keepMs;
+    pthread_mutex_lock(&stmt->lifecycleMutex);
+    // stmt cannot be removing already, because in that case, we've
+    // already been called and parentCount is already 0. (so what
+    // parent would be left to call us?)
+    assert(!stmt->removing);
+    assert(stmt->parentCount > 0);
 
-            // Tentatively trigger a removal in `keepMs` ms, but the
-            // statement is still able to be revived in the
-            // intervening time.
-            sysmonScheduleRemoveAfter(statementRef(db, stmt), keepMs);
-
-            stmt->parentCount++;
-        }
-
-    } else if (stmt->keepMs < 0) {
-        // We're carrying out a previously-scheduled removal.
-        if (--stmt->parentCount == 0) {
-            // Note that we should have exclusive access to stmt at
-            // this point.
-            statementRemoveSelf(db, stmt, true);
-
+    stmt->parentCount--;
+    if (stmt->parentCount == 0) {
+        if (stmt->keepMs > 0) {
+            stmt->keepRemovalPending = true;
+            keepGeneration = ++stmt->keepGeneration;
+            scheduleKeepRemoval = true;
         } else {
-            // The statement's been revived; restore keepMs.
-
-            // TODO: there's a race here if parentCount gets zeroed
-            // without ever getting scheduled for removal.
-            stmt->keepMs = -stmt->keepMs;
+            stmt->removing = true;
+            removeNow = true;
         }
+    }
+    pthread_mutex_unlock(&stmt->lifecycleMutex);
 
-    } else if (stmt->keepMs == 0) {
-        if (--stmt->parentCount == 0) {
-            // Note that we should have exclusive access to stmt at
-            // this point.
-            statementRemoveSelf(db, stmt, true);
-        }
+    if (scheduleKeepRemoval) {
+        sysmonScheduleRemoveAfter(statementRef(db, stmt), stmt->keepMs,
+                                  keepGeneration);
+    } else if (removeNow) {
+        statementRemoveSelf(db, stmt, true);
+    }
+}
+
+// Carry out a keep timer only if it still belongs to the same zero-parent
+// lifecycle generation. Reviving a statement makes older timers no-ops.
+void statementKeepExpired(Db* db, Statement* stmt, uint64_t keepGeneration) {
+    bool removeNow = false;
+
+    pthread_mutex_lock(&stmt->lifecycleMutex);
+    if (!stmt->removing &&
+        stmt->keepRemovalPending &&
+        stmt->keepGeneration == keepGeneration &&
+        stmt->parentCount == 0) {
+        stmt->keepRemovalPending = false;
+        stmt->removing = true;
+        removeNow = true;
+    }
+    pthread_mutex_unlock(&stmt->lifecycleMutex);
+
+    if (removeNow) {
+        statementRemoveSelf(db, stmt, true);
     }
 }
 
@@ -1296,7 +1325,10 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
                     // Free the new statement `ref` that we created,
                     // since we won't be using it.
                     Statement* newStmt = statementAcquire(db, ref);
+                    pthread_mutex_lock(&newStmt->lifecycleMutex);
                     newStmt->parentCount = 0;
+                    newStmt->removing = true;
+                    pthread_mutex_unlock(&newStmt->lifecycleMutex);
                     statementRemoveSelf(db, newStmt, false);
                     statementRelease(db, newStmt);
 
