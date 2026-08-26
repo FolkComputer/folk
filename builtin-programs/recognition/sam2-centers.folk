@@ -41,7 +41,7 @@ Claim the SAM2 centers library is [$cc compile]
 
 # Auto-trigger the center provider when a When subscribes to an object's center.
 When /someone/ wishes /v/ tracks object /obj/ /...any/ {
-    When when $obj has center /center/ in /v/ /lambda/ with environment /e/ {
+    When when $obj has center /center/ in $v /lambda/ with environment /e/ {
         Wish $obj has center in $v
     }
 }

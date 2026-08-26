@@ -21,8 +21,29 @@ fn opticalFlowInit {imageLib} {
         typedef int CUdevice;
         typedef struct CUctx_st *CUcontext;
         typedef unsigned long long CUdeviceptr;
-
+        typedef int CUmemorytype;
         #define CUDA_SUCCESS 0
+        #define CU_MEMORYTYPE_HOST 1
+        #define CU_MEMORYTYPE_DEVICE 2
+
+        typedef struct CUDA_MEMCPY2D {
+            size_t srcXInBytes;
+            size_t srcY;
+            CUmemorytype srcMemoryType;
+            const void *srcHost;
+            CUdeviceptr srcDevice;
+            void *srcArray;
+            size_t srcPitch;
+            size_t dstXInBytes;
+            size_t dstY;
+            CUmemorytype dstMemoryType;
+            void *dstHost;
+            CUdeviceptr dstDevice;
+            void *dstArray;
+            size_t dstPitch;
+            size_t WidthInBytes;
+            size_t Height;
+        } CUDA_MEMCPY2D;
 
         typedef CUresult (*PFN_cuInit)(unsigned int);
         typedef CUresult (*PFN_cuDeviceGetCount)(int *);
@@ -32,8 +53,7 @@ fn opticalFlowInit {imageLib} {
         typedef CUresult (*PFN_cuCtxGetCurrent)(CUcontext *);
         typedef CUresult (*PFN_cuCtxSetCurrent)(CUcontext);
         typedef CUresult (*PFN_cuCtxSynchronize)(void);
-        typedef CUresult (*PFN_cuMemcpyHtoD)(CUdeviceptr, const void *, size_t);
-        typedef CUresult (*PFN_cuMemcpyDtoH)(void *, CUdeviceptr, size_t);
+        typedef CUresult (*PFN_cuMemcpy2D)(const CUDA_MEMCPY2D *);
         typedef CUresult (*PFN_cuGetErrorName)(CUresult, const char **);
         typedef CUresult (*PFN_cuGetErrorString)(CUresult, const char **);
 
@@ -47,8 +67,7 @@ fn opticalFlowInit {imageLib} {
             PFN_cuCtxGetCurrent contextGetCurrent;
             PFN_cuCtxSetCurrent contextSetCurrent;
             PFN_cuCtxSynchronize contextSynchronize;
-            PFN_cuMemcpyHtoD memcpyHostToDevice;
-            PFN_cuMemcpyDtoH memcpyDeviceToHost;
+            PFN_cuMemcpy2D memcpy2D;
             PFN_cuGetErrorName getErrorName;
             PFN_cuGetErrorString getErrorString;
         } CUDAFunctions;
@@ -219,7 +238,8 @@ fn opticalFlowInit {imageLib} {
             CUdeviceptr inputPointer;
             CUdeviceptr referencePointer;
             CUdeviceptr outputPointer;
-            uint8_t *grayRow;
+            uint8_t *grayFrame;
+            size_t grayFrameSize;
             uint64_t referenceUniq;
             int referenceValid;
         } OpticalFlowSession;
@@ -282,10 +302,8 @@ fn opticalFlowInit {imageLib} {
                     "cuCtxSetCurrent");
             OF_LOAD(runtime.cuda.library, runtime.cuda.contextSynchronize,
                     "cuCtxSynchronize");
-            OF_LOAD(runtime.cuda.library, runtime.cuda.memcpyHostToDevice,
-                    "cuMemcpyHtoD_v2");
-            OF_LOAD(runtime.cuda.library, runtime.cuda.memcpyDeviceToHost,
-                    "cuMemcpyDtoH_v2");
+            OF_LOAD(runtime.cuda.library, runtime.cuda.memcpy2D,
+                    "cuMemcpy2D_v2");
             /* These are diagnostic-only and may be absent on very old drivers. */
             runtime.cuda.getErrorName =
                 (PFN_cuGetErrorName)dlsym(runtime.cuda.library, "cuGetErrorName");
@@ -357,6 +375,35 @@ fn opticalFlowInit {imageLib} {
             }
         }
 
+        static void ofCopyGrayImage(Image image, uint8_t *output,
+                                    size_t outputPitch)
+        {
+            if (image.components == 1 && image.bytesPerRow == image.width &&
+                outputPitch == image.width) {
+                memcpy(output, image.data, (size_t)image.width * image.height);
+                return;
+            }
+            for (uint32_t y = 0; y < image.height; y++)
+                ofCopyGrayRow(image, y,
+                              output + (size_t)y * outputPitch);
+        }
+
+        static CUresult ofUploadGray(Image image, CUdeviceptr destination,
+                                     size_t destinationPitch)
+        {
+            ofCopyGrayImage(image, session.grayFrame, image.width);
+            CUDA_MEMCPY2D copy = {0};
+            copy.srcMemoryType = CU_MEMORYTYPE_HOST;
+            copy.srcHost = session.grayFrame;
+            copy.srcPitch = image.width;
+            copy.dstMemoryType = CU_MEMORYTYPE_DEVICE;
+            copy.dstDevice = destination;
+            copy.dstPitch = destinationPitch;
+            copy.WidthInBytes = image.width;
+            copy.Height = image.height;
+            return runtime.cuda.memcpy2D(&copy);
+        }
+
         static void ofDestroyBuffers(void)
         {
             if (session.output)
@@ -376,8 +423,9 @@ fn opticalFlowInit {imageLib} {
             memset(&session.inputStride, 0, sizeof(session.inputStride));
             memset(&session.referenceStride, 0, sizeof(session.referenceStride));
             memset(&session.outputStride, 0, sizeof(session.outputStride));
-            free(session.grayRow);
-            session.grayRow = NULL;
+            free(session.grayFrame);
+            session.grayFrame = NULL;
+            session.grayFrameSize = 0;
             session.width = 0;
             session.height = 0;
             session.flowWidth = 0;
@@ -513,9 +561,9 @@ fn opticalFlowInit {imageLib} {
                     NV_OF_SUCCESS ||
                 runtime.of.nvOFGPUBufferGetStrideInfo(
                     session.output, &session.outputStride) != NV_OF_SUCCESS ||
-                !session.inputStride.strideInfo[0].strideYInBytes ||
-                !session.referenceStride.strideInfo[0].strideYInBytes ||
-                !session.outputStride.strideInfo[0].strideYInBytes) {
+                !session.inputStride.strideInfo[0].strideXInBytes ||
+                !session.referenceStride.strideInfo[0].strideXInBytes ||
+                !session.outputStride.strideInfo[0].strideXInBytes) {
                 snprintf(error, errorSize,
                          "opticalFlow: NVIDIA returned invalid buffer strides");
                 goto fail;
@@ -532,8 +580,9 @@ fn opticalFlowInit {imageLib} {
                          "opticalFlow: NVIDIA returned a null CUDA buffer");
                 goto fail;
             }
-            session.grayRow = malloc(width);
-            if (!session.grayRow) {
+            session.grayFrameSize = (size_t)width * height;
+            session.grayFrame = malloc(session.grayFrameSize);
+            if (!session.grayFrame) {
                 snprintf(error, errorSize, "opticalFlow: out of host memory");
                 goto fail;
             }
@@ -662,30 +711,20 @@ fn opticalFlowInit {imageLib} {
             session.inputPointer = session.referencePointer;
             session.referencePointer = pointer;
         } else {
-            for (uint32_t y = 0; y < f0.height; y++) {
-                ofCopyGrayRow(f0, y, session.grayRow);
-                cudaResult = runtime.cuda.memcpyHostToDevice(
-                    session.inputPointer + (CUdeviceptr)y *
-                        session.inputStride.strideInfo[0].strideYInBytes,
-                    session.grayRow, f0.width);
-                if (cudaResult != CUDA_SUCCESS) {
-                    ofCUDAError(error, sizeof(error), "input upload",
-                                cudaResult);
-                    goto cleanup;
-                }
-            }
-        }
-        for (uint32_t y = 0; y < f1.height; y++) {
-            ofCopyGrayRow(f1, y, session.grayRow);
-            cudaResult = runtime.cuda.memcpyHostToDevice(
-                session.referencePointer + (CUdeviceptr)y *
-                    session.referenceStride.strideInfo[0].strideYInBytes,
-                session.grayRow, f1.width);
+            cudaResult = ofUploadGray(
+                f0, session.inputPointer,
+                session.inputStride.strideInfo[0].strideXInBytes);
             if (cudaResult != CUDA_SUCCESS) {
-                ofCUDAError(error, sizeof(error), "reference upload",
-                            cudaResult);
+                ofCUDAError(error, sizeof(error), "input upload", cudaResult);
                 goto cleanup;
             }
+        }
+        cudaResult = ofUploadGray(
+            f1, session.referencePointer,
+            session.referenceStride.strideInfo[0].strideXInBytes);
+        if (cudaResult != CUDA_SUCCESS) {
+            ofCUDAError(error, sizeof(error), "reference upload", cudaResult);
+            goto cleanup;
         }
 
         NV_OF_EXECUTE_INPUT_PARAMS executeInput = {0};
@@ -715,18 +754,24 @@ fn opticalFlowInit {imageLib} {
             snprintf(error, sizeof(error), "opticalFlow: out of host memory");
             goto cleanup;
         }
-        for (uint32_t y = 0; y < session.flowHeight; y++) {
-            cudaResult = runtime.cuda.memcpyDeviceToHost(
-                hostFlow + (size_t)y * session.flowWidth,
-                session.outputPointer + (CUdeviceptr)y *
-                    session.outputStride.strideInfo[0].strideYInBytes,
-                (size_t)session.flowWidth * sizeof(*hostFlow));
-            if (cudaResult != CUDA_SUCCESS) {
-                ofCUDAError(error, sizeof(error), "flow download", cudaResult);
-                goto cleanup;
-            }
+        size_t outputPitch =
+            session.outputStride.strideInfo[0].strideXInBytes;
+        size_t outputRowBytes =
+            (size_t)session.flowWidth * sizeof(*hostFlow);
+        CUDA_MEMCPY2D download = {0};
+        download.srcMemoryType = CU_MEMORYTYPE_DEVICE;
+        download.srcDevice = session.outputPointer;
+        download.srcPitch = outputPitch;
+        download.dstMemoryType = CU_MEMORYTYPE_HOST;
+        download.dstHost = hostFlow;
+        download.dstPitch = outputRowBytes;
+        download.WidthInBytes = outputRowBytes;
+        download.Height = session.flowHeight;
+        cudaResult = runtime.cuda.memcpy2D(&download);
+        if (cudaResult != CUDA_SUCCESS) {
+            ofCUDAError(error, sizeof(error), "flow download", cudaResult);
+            goto cleanup;
         }
-
         answer = malloc(sizeof(*answer));
         if (!answer) {
             snprintf(error, sizeof(error), "opticalFlow: out of host memory");
@@ -767,6 +812,35 @@ fn opticalFlowInit {imageLib} {
             Jim_NewDoubleObj(interp, vector.flowy / 32.0),
         };
         return Jim_NewListObj(interp, xy, 2);
+    }
+
+    $cc proc opticalFlowTransferInfo {} Jim_Obj* {
+        pthread_mutex_lock(&session.mutex);
+        Jim_Obj *items[16] = {
+            Jim_NewStringObj(interp, "width", -1),
+            Jim_NewIntObj(interp, session.width),
+            Jim_NewStringObj(interp, "height", -1),
+            Jim_NewIntObj(interp, session.height),
+            Jim_NewStringObj(interp, "inputStrideX", -1),
+            Jim_NewIntObj(interp,
+                session.inputStride.strideInfo[0].strideXInBytes),
+            Jim_NewStringObj(interp, "inputStrideY", -1),
+            Jim_NewIntObj(interp,
+                session.inputStride.strideInfo[0].strideYInBytes),
+            Jim_NewStringObj(interp, "flowWidth", -1),
+            Jim_NewIntObj(interp, session.flowWidth),
+            Jim_NewStringObj(interp, "flowHeight", -1),
+            Jim_NewIntObj(interp, session.flowHeight),
+            Jim_NewStringObj(interp, "outputStrideX", -1),
+            Jim_NewIntObj(interp,
+                session.outputStride.strideInfo[0].strideXInBytes),
+            Jim_NewStringObj(interp, "outputStrideY", -1),
+            Jim_NewIntObj(interp,
+                session.outputStride.strideInfo[0].strideYInBytes),
+        };
+        Jim_Obj *answer = Jim_NewListObj(interp, items, 16);
+        pthread_mutex_unlock(&session.mutex);
+        return answer;
     }
 
     $cc proc freeOpticalFlow {OpticalFlow* flow} void {
