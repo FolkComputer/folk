@@ -10,6 +10,7 @@ fn opticalFlowInit {imageLib} {
     set cc [C]
     $cc extend $imageLib
     $cc include <dlfcn.h>
+    $cc include <pthread.h>
     $cc include <stdlib.h>
     $cc include <string.h>
 
@@ -28,6 +29,8 @@ fn opticalFlowInit {imageLib} {
         typedef CUresult (*PFN_cuDeviceGet)(CUdevice *, int);
         typedef CUresult (*PFN_cuCtxCreate)(CUcontext *, unsigned int, CUdevice);
         typedef CUresult (*PFN_cuCtxDestroy)(CUcontext);
+        typedef CUresult (*PFN_cuCtxGetCurrent)(CUcontext *);
+        typedef CUresult (*PFN_cuCtxSetCurrent)(CUcontext);
         typedef CUresult (*PFN_cuCtxSynchronize)(void);
         typedef CUresult (*PFN_cuMemcpyHtoD)(CUdeviceptr, const void *, size_t);
         typedef CUresult (*PFN_cuMemcpyDtoH)(void *, CUdeviceptr, size_t);
@@ -41,6 +44,8 @@ fn opticalFlowInit {imageLib} {
             PFN_cuDeviceGet deviceGet;
             PFN_cuCtxCreate contextCreate;
             PFN_cuCtxDestroy contextDestroy;
+            PFN_cuCtxGetCurrent contextGetCurrent;
+            PFN_cuCtxSetCurrent contextSetCurrent;
             PFN_cuCtxSynchronize contextSynchronize;
             PFN_cuMemcpyHtoD memcpyHostToDevice;
             PFN_cuMemcpyDtoH memcpyDeviceToHost;
@@ -195,6 +200,34 @@ fn opticalFlowInit {imageLib} {
 
         static OpticalFlowRuntime runtime;
 
+        typedef struct OpticalFlowSession {
+            pthread_mutex_t mutex;
+            int initialized;
+            CUcontext context;
+            NvOFHandle handle;
+            uint32_t gridSize;
+            uint32_t width;
+            uint32_t height;
+            uint32_t flowWidth;
+            uint32_t flowHeight;
+            NvOFGPUBufferHandle input;
+            NvOFGPUBufferHandle reference;
+            NvOFGPUBufferHandle output;
+            NV_OF_CUDA_BUFFER_STRIDE_INFO inputStride;
+            NV_OF_CUDA_BUFFER_STRIDE_INFO referenceStride;
+            NV_OF_CUDA_BUFFER_STRIDE_INFO outputStride;
+            CUdeviceptr inputPointer;
+            CUdeviceptr referencePointer;
+            CUdeviceptr outputPointer;
+            uint8_t *grayRow;
+            uint64_t referenceUniq;
+            int referenceValid;
+        } OpticalFlowSession;
+
+        static OpticalFlowSession session = {
+            .mutex = PTHREAD_MUTEX_INITIALIZER,
+        };
+
         static void *ofOpenLibrary(const char *first, const char *second)
         {
             void *library = dlopen(first, RTLD_NOW | RTLD_LOCAL);
@@ -243,6 +276,10 @@ fn opticalFlowInit {imageLib} {
                     "cuCtxCreate_v2");
             OF_LOAD(runtime.cuda.library, runtime.cuda.contextDestroy,
                     "cuCtxDestroy_v2");
+            OF_LOAD(runtime.cuda.library, runtime.cuda.contextGetCurrent,
+                    "cuCtxGetCurrent");
+            OF_LOAD(runtime.cuda.library, runtime.cuda.contextSetCurrent,
+                    "cuCtxSetCurrent");
             OF_LOAD(runtime.cuda.library, runtime.cuda.contextSynchronize,
                     "cuCtxSynchronize");
             OF_LOAD(runtime.cuda.library, runtime.cuda.memcpyHostToDevice,
@@ -319,6 +356,264 @@ fn opticalFlowInit {imageLib} {
                     : pixel[0];
             }
         }
+
+        static void ofDestroyBuffers(void)
+        {
+            if (session.output)
+                runtime.of.nvOFDestroyGPUBufferCuda(session.output);
+            if (session.reference)
+                runtime.of.nvOFDestroyGPUBufferCuda(session.reference);
+            if (session.input)
+                runtime.of.nvOFDestroyGPUBufferCuda(session.input);
+            session.input = NULL;
+            session.reference = NULL;
+            session.output = NULL;
+            session.inputPointer = 0;
+            session.referencePointer = 0;
+            session.outputPointer = 0;
+            session.referenceUniq = 0;
+            session.referenceValid = 0;
+            memset(&session.inputStride, 0, sizeof(session.inputStride));
+            memset(&session.referenceStride, 0, sizeof(session.referenceStride));
+            memset(&session.outputStride, 0, sizeof(session.outputStride));
+            free(session.grayRow);
+            session.grayRow = NULL;
+            session.width = 0;
+            session.height = 0;
+            session.flowWidth = 0;
+            session.flowHeight = 0;
+        }
+
+        static void ofDestroyHandle(void)
+        {
+            ofDestroyBuffers();
+            if (session.handle) runtime.of.nvOFDestroy(session.handle);
+            session.handle = NULL;
+            session.gridSize = 0;
+        }
+
+        static int ofCreateHandle(char *error, size_t errorSize)
+        {
+            NV_OF_STATUS status = runtime.of.nvCreateOpticalFlowCuda(
+                session.context, &session.handle);
+            if (status != NV_OF_SUCCESS) {
+                ofSDKError(error, errorSize, "nvCreateOpticalFlowCuda", status,
+                           session.handle);
+                session.handle = NULL;
+                return 0;
+            }
+
+            uint32_t capCount = 0;
+            status = runtime.of.nvOFGetCaps(
+                session.handle, NV_OF_CAPS_SUPPORTED_OUTPUT_GRID_SIZES,
+                NULL, &capCount);
+            if (status != NV_OF_SUCCESS || !capCount) {
+                ofSDKError(error, errorSize, "nvOFGetCaps", status,
+                           session.handle);
+                ofDestroyHandle();
+                return 0;
+            }
+            uint32_t *gridSizes = malloc(sizeof(*gridSizes) * capCount);
+            if (!gridSizes) {
+                snprintf(error, errorSize, "opticalFlow: out of host memory");
+                ofDestroyHandle();
+                return 0;
+            }
+            status = runtime.of.nvOFGetCaps(
+                session.handle, NV_OF_CAPS_SUPPORTED_OUTPUT_GRID_SIZES,
+                gridSizes, &capCount);
+            if (status == NV_OF_SUCCESS) {
+                for (uint32_t i = 0; i < capCount; i++) {
+                    uint32_t candidate = gridSizes[i];
+                    if ((candidate == 1 || candidate == 2 || candidate == 4) &&
+                        (!session.gridSize || candidate < session.gridSize))
+                        session.gridSize = candidate;
+                }
+            }
+            free(gridSizes);
+            if (status != NV_OF_SUCCESS || !session.gridSize) {
+                ofSDKError(error, errorSize, "output-grid query", status,
+                           session.handle);
+                ofDestroyHandle();
+                return 0;
+            }
+            return 1;
+        }
+
+        static int ofConfigure(uint32_t width, uint32_t height,
+                               char *error, size_t errorSize)
+        {
+            if (session.width == width && session.height == height &&
+                session.input && session.reference && session.output)
+                return 1;
+
+            if (session.width || session.height) {
+                ofDestroyHandle();
+                if (!ofCreateHandle(error, errorSize)) return 0;
+            } else {
+                ofDestroyBuffers();
+                if (!session.handle && !ofCreateHandle(error, errorSize))
+                    return 0;
+            }
+
+            NV_OF_INIT_PARAMS init = {0};
+            init.width = width;
+            init.height = height;
+            init.outGridSize = session.gridSize;
+            init.mode = NV_OF_MODE_OPTICALFLOW;
+            init.perfLevel = NV_OF_PERF_LEVEL_MEDIUM;
+            NV_OF_STATUS status = runtime.of.nvOFInit(session.handle, &init);
+            if (status != NV_OF_SUCCESS) {
+                ofSDKError(error, errorSize, "nvOFInit", status,
+                           session.handle);
+                goto fail;
+            }
+
+            uint32_t flowWidth =
+                (width + session.gridSize - 1) / session.gridSize;
+            uint32_t flowHeight =
+                (height + session.gridSize - 1) / session.gridSize;
+            NV_OF_BUFFER_DESCRIPTOR inputDescription = {
+                width, height, NV_OF_BUFFER_USAGE_INPUT,
+                NV_OF_BUFFER_FORMAT_GRAYSCALE8
+            };
+            NV_OF_BUFFER_DESCRIPTOR outputDescription = {
+                flowWidth, flowHeight, NV_OF_BUFFER_USAGE_OUTPUT,
+                NV_OF_BUFFER_FORMAT_SHORT2
+            };
+            status = runtime.of.nvOFCreateGPUBufferCuda(
+                session.handle, &inputDescription,
+                NV_OF_CUDA_BUFFER_TYPE_CUDEVICEPTR, &session.input);
+            if (status != NV_OF_SUCCESS) {
+                ofSDKError(error, errorSize, "create input buffer", status,
+                           session.handle);
+                goto fail;
+            }
+            status = runtime.of.nvOFCreateGPUBufferCuda(
+                session.handle, &inputDescription,
+                NV_OF_CUDA_BUFFER_TYPE_CUDEVICEPTR, &session.reference);
+            if (status != NV_OF_SUCCESS) {
+                ofSDKError(error, errorSize, "create reference buffer", status,
+                           session.handle);
+                goto fail;
+            }
+            status = runtime.of.nvOFCreateGPUBufferCuda(
+                session.handle, &outputDescription,
+                NV_OF_CUDA_BUFFER_TYPE_CUDEVICEPTR, &session.output);
+            if (status != NV_OF_SUCCESS) {
+                ofSDKError(error, errorSize, "create output buffer", status,
+                           session.handle);
+                goto fail;
+            }
+
+            if (runtime.of.nvOFGPUBufferGetStrideInfo(
+                    session.input, &session.inputStride) != NV_OF_SUCCESS ||
+                runtime.of.nvOFGPUBufferGetStrideInfo(
+                    session.reference, &session.referenceStride) !=
+                    NV_OF_SUCCESS ||
+                runtime.of.nvOFGPUBufferGetStrideInfo(
+                    session.output, &session.outputStride) != NV_OF_SUCCESS ||
+                !session.inputStride.strideInfo[0].strideYInBytes ||
+                !session.referenceStride.strideInfo[0].strideYInBytes ||
+                !session.outputStride.strideInfo[0].strideYInBytes) {
+                snprintf(error, errorSize,
+                         "opticalFlow: NVIDIA returned invalid buffer strides");
+                goto fail;
+            }
+            session.inputPointer =
+                runtime.of.nvOFGPUBufferGetCUdeviceptr(session.input);
+            session.referencePointer =
+                runtime.of.nvOFGPUBufferGetCUdeviceptr(session.reference);
+            session.outputPointer =
+                runtime.of.nvOFGPUBufferGetCUdeviceptr(session.output);
+            if (!session.inputPointer || !session.referencePointer ||
+                !session.outputPointer) {
+                snprintf(error, errorSize,
+                         "opticalFlow: NVIDIA returned a null CUDA buffer");
+                goto fail;
+            }
+            session.grayRow = malloc(width);
+            if (!session.grayRow) {
+                snprintf(error, errorSize, "opticalFlow: out of host memory");
+                goto fail;
+            }
+
+            session.width = width;
+            session.height = height;
+            session.flowWidth = flowWidth;
+            session.flowHeight = flowHeight;
+            return 1;
+
+        fail:
+            ofDestroyHandle();
+            return 0;
+        }
+    }
+
+    $cc proc initOpticalFlow {} void {
+        if (!ofLoadRuntime()) FOLK_ERROR("%s", runtime.error);
+
+        char error[512] = {0};
+        int success = 0;
+        pthread_mutex_lock(&session.mutex);
+        if (session.initialized) {
+            pthread_mutex_unlock(&session.mutex);
+            return;
+        }
+
+        CUresult cudaResult = runtime.cuda.init(0);
+        if (cudaResult != CUDA_SUCCESS) {
+            ofCUDAError(error, sizeof(error), "cuInit", cudaResult);
+            goto done;
+        }
+        CUcontext previousContext = NULL;
+        runtime.cuda.contextGetCurrent(&previousContext);
+        int deviceCount = 0;
+        cudaResult = runtime.cuda.deviceGetCount(&deviceCount);
+        if (cudaResult != CUDA_SUCCESS) {
+            ofCUDAError(error, sizeof(error), "cuDeviceGetCount", cudaResult);
+            goto restore;
+        }
+        for (int i = 0; i < deviceCount; i++) {
+            CUdevice device;
+            if (runtime.cuda.deviceGet(&device, i) != CUDA_SUCCESS) continue;
+            if (runtime.cuda.contextCreate(&session.context, 0, device) !=
+                CUDA_SUCCESS)
+                continue;
+            if (ofCreateHandle(error, sizeof(error))) {
+                success = 1;
+                break;
+            }
+            runtime.cuda.contextDestroy(session.context);
+            session.context = NULL;
+        }
+        if (!success)
+            snprintf(error, sizeof(error),
+                     "opticalFlow: no CUDA device supports NVIDIA Optical Flow");
+
+    restore:
+        runtime.cuda.contextSetCurrent(previousContext);
+        if (success) session.initialized = 1;
+    done:
+        pthread_mutex_unlock(&session.mutex);
+        if (!success) FOLK_ERROR("%s", error);
+    }
+
+    $cc proc shutdownOpticalFlow {} void {
+        pthread_mutex_lock(&session.mutex);
+        if (session.initialized) {
+            CUcontext previousContext = NULL;
+            CUcontext destroyedContext = session.context;
+            runtime.cuda.contextGetCurrent(&previousContext);
+            runtime.cuda.contextSetCurrent(destroyedContext);
+            ofDestroyHandle();
+            runtime.cuda.contextDestroy(destroyedContext);
+            session.context = NULL;
+            session.initialized = 0;
+            runtime.cuda.contextSetCurrent(
+                previousContext == destroyedContext ? NULL : previousContext);
+        }
+        pthread_mutex_unlock(&session.mutex);
     }
 
     $cc proc runOpticalFlow {Image f0 Image f1} OpticalFlow* {
@@ -329,175 +624,63 @@ fn opticalFlowInit {imageLib} {
                        f0.width, f0.height, f1.width, f1.height);
         if (f0.components < 1 || f1.components < 1)
             FOLK_ERROR("opticalFlow: frames have no image components");
-        if (!ofLoadRuntime()) FOLK_ERROR("%s", runtime.error);
 
         char error[512] = {0};
         CUresult cudaResult;
         NV_OF_STATUS status;
-        CUcontext context = NULL;
-        NvOFHandle handle = NULL;
-        NvOFGPUBufferHandle input = NULL;
-        NvOFGPUBufferHandle reference = NULL;
-        NvOFGPUBufferHandle output = NULL;
         NV_OF_FLOW_VECTOR *hostFlow = NULL;
-        uint8_t *grayRow = NULL;
         OpticalFlow *answer = NULL;
-        uint32_t gridSize = 0;
+        CUcontext previousContext = NULL;
 
-        cudaResult = runtime.cuda.init(0);
-        if (cudaResult != CUDA_SUCCESS) {
-            ofCUDAError(error, sizeof(error), "cuInit", cudaResult);
-            goto cleanup;
-        }
-        int deviceCount = 0;
-        cudaResult = runtime.cuda.deviceGetCount(&deviceCount);
-        if (cudaResult != CUDA_SUCCESS) {
-            ofCUDAError(error, sizeof(error), "cuDeviceGetCount", cudaResult);
-            goto cleanup;
-        }
-        for (int i = 0; i < deviceCount; i++) {
-            CUdevice device;
-            if (runtime.cuda.deviceGet(&device, i) != CUDA_SUCCESS) continue;
-            if (runtime.cuda.contextCreate(&context, 0, device) != CUDA_SUCCESS)
-                continue;
-            status = runtime.of.nvCreateOpticalFlowCuda(context, &handle);
-            if (status == NV_OF_SUCCESS) break;
-            runtime.cuda.contextDestroy(context);
-            context = NULL;
-            handle = NULL;
-        }
-        if (!handle) {
+        pthread_mutex_lock(&session.mutex);
+        if (!session.initialized) {
             snprintf(error, sizeof(error),
-                     "opticalFlow: no CUDA device supports NVIDIA Optical Flow");
+                     "opticalFlow: library was not initialized");
             goto cleanup;
         }
+        runtime.cuda.contextGetCurrent(&previousContext);
+        cudaResult = runtime.cuda.contextSetCurrent(session.context);
+        if (cudaResult != CUDA_SUCCESS) {
+            ofCUDAError(error, sizeof(error), "cuCtxSetCurrent", cudaResult);
+            goto cleanup;
+        }
+        if (!ofConfigure(f0.width, f0.height, error, sizeof(error)))
+            goto cleanup;
 
-        uint32_t capCount = 0;
-        status = runtime.of.nvOFGetCaps(
-            handle, NV_OF_CAPS_SUPPORTED_OUTPUT_GRID_SIZES, NULL, &capCount);
-        if (status != NV_OF_SUCCESS || !capCount) {
-            ofSDKError(error, sizeof(error), "nvOFGetCaps", status, handle);
-            goto cleanup;
-        }
-        uint32_t *gridSizes = malloc(sizeof(*gridSizes) * capCount);
-        if (!gridSizes) {
-            snprintf(error, sizeof(error), "opticalFlow: out of host memory");
-            goto cleanup;
-        }
-        status = runtime.of.nvOFGetCaps(
-            handle, NV_OF_CAPS_SUPPORTED_OUTPUT_GRID_SIZES, gridSizes,
-            &capCount);
-        if (status == NV_OF_SUCCESS) {
-            for (uint32_t i = 0; i < capCount; i++) {
-                uint32_t candidate = gridSizes[i];
-                if ((candidate == 1 || candidate == 2 || candidate == 4) &&
-                    (!gridSize || candidate < gridSize))
-                    gridSize = candidate;
+        int reusePreviousReference =
+            session.referenceValid && f0.uniq &&
+            f0.uniq == session.referenceUniq;
+        session.referenceValid = 0;
+        if (reusePreviousReference) {
+            NvOFGPUBufferHandle buffer = session.input;
+            session.input = session.reference;
+            session.reference = buffer;
+            NV_OF_CUDA_BUFFER_STRIDE_INFO stride = session.inputStride;
+            session.inputStride = session.referenceStride;
+            session.referenceStride = stride;
+            CUdeviceptr pointer = session.inputPointer;
+            session.inputPointer = session.referencePointer;
+            session.referencePointer = pointer;
+        } else {
+            for (uint32_t y = 0; y < f0.height; y++) {
+                ofCopyGrayRow(f0, y, session.grayRow);
+                cudaResult = runtime.cuda.memcpyHostToDevice(
+                    session.inputPointer + (CUdeviceptr)y *
+                        session.inputStride.strideInfo[0].strideYInBytes,
+                    session.grayRow, f0.width);
+                if (cudaResult != CUDA_SUCCESS) {
+                    ofCUDAError(error, sizeof(error), "input upload",
+                                cudaResult);
+                    goto cleanup;
+                }
             }
         }
-        free(gridSizes);
-        if (status != NV_OF_SUCCESS || !gridSize) {
-            ofSDKError(error, sizeof(error), "output-grid query", status,
-                       handle);
-            goto cleanup;
-        }
-
-        NV_OF_INIT_PARAMS init = {0};
-        init.width = f0.width;
-        init.height = f0.height;
-        init.outGridSize = gridSize;
-        init.mode = NV_OF_MODE_OPTICALFLOW;
-        init.perfLevel = NV_OF_PERF_LEVEL_MEDIUM;
-        status = runtime.of.nvOFInit(handle, &init);
-        if (status != NV_OF_SUCCESS) {
-            ofSDKError(error, sizeof(error), "nvOFInit", status, handle);
-            goto cleanup;
-        }
-
-        uint32_t flowWidth = (f0.width + gridSize - 1) / gridSize;
-        uint32_t flowHeight = (f0.height + gridSize - 1) / gridSize;
-        NV_OF_BUFFER_DESCRIPTOR inputDescription = {
-            f0.width, f0.height, NV_OF_BUFFER_USAGE_INPUT,
-            NV_OF_BUFFER_FORMAT_GRAYSCALE8
-        };
-        NV_OF_BUFFER_DESCRIPTOR outputDescription = {
-            flowWidth, flowHeight, NV_OF_BUFFER_USAGE_OUTPUT,
-            NV_OF_BUFFER_FORMAT_SHORT2
-        };
-        status = runtime.of.nvOFCreateGPUBufferCuda(
-            handle, &inputDescription, NV_OF_CUDA_BUFFER_TYPE_CUDEVICEPTR,
-            &input);
-        if (status != NV_OF_SUCCESS) {
-            ofSDKError(error, sizeof(error), "create input buffer", status,
-                       handle);
-            goto cleanup;
-        }
-        status = runtime.of.nvOFCreateGPUBufferCuda(
-            handle, &inputDescription, NV_OF_CUDA_BUFFER_TYPE_CUDEVICEPTR,
-            &reference);
-        if (status != NV_OF_SUCCESS) {
-            ofSDKError(error, sizeof(error), "create reference buffer", status,
-                       handle);
-            goto cleanup;
-        }
-        status = runtime.of.nvOFCreateGPUBufferCuda(
-            handle, &outputDescription, NV_OF_CUDA_BUFFER_TYPE_CUDEVICEPTR,
-            &output);
-        if (status != NV_OF_SUCCESS) {
-            ofSDKError(error, sizeof(error), "create output buffer", status,
-                       handle);
-            goto cleanup;
-        }
-
-        NV_OF_CUDA_BUFFER_STRIDE_INFO inputStride = {0};
-        NV_OF_CUDA_BUFFER_STRIDE_INFO referenceStride = {0};
-        NV_OF_CUDA_BUFFER_STRIDE_INFO outputStride = {0};
-        if (runtime.of.nvOFGPUBufferGetStrideInfo(input, &inputStride) !=
-                NV_OF_SUCCESS ||
-            runtime.of.nvOFGPUBufferGetStrideInfo(reference,
-                                                  &referenceStride) !=
-                NV_OF_SUCCESS ||
-            runtime.of.nvOFGPUBufferGetStrideInfo(output, &outputStride) !=
-                NV_OF_SUCCESS ||
-            !inputStride.strideInfo[0].strideYInBytes ||
-            !referenceStride.strideInfo[0].strideYInBytes ||
-            !outputStride.strideInfo[0].strideYInBytes) {
-            snprintf(error, sizeof(error),
-                     "opticalFlow: NVIDIA returned invalid buffer strides");
-            goto cleanup;
-        }
-        CUdeviceptr inputPointer =
-            runtime.of.nvOFGPUBufferGetCUdeviceptr(input);
-        CUdeviceptr referencePointer =
-            runtime.of.nvOFGPUBufferGetCUdeviceptr(reference);
-        CUdeviceptr outputPointer =
-            runtime.of.nvOFGPUBufferGetCUdeviceptr(output);
-        if (!inputPointer || !referencePointer || !outputPointer) {
-            snprintf(error, sizeof(error),
-                     "opticalFlow: NVIDIA returned a null CUDA buffer");
-            goto cleanup;
-        }
-
-        grayRow = malloc(f0.width);
-        if (!grayRow) {
-            snprintf(error, sizeof(error), "opticalFlow: out of host memory");
-            goto cleanup;
-        }
-        for (uint32_t y = 0; y < f0.height; y++) {
-            ofCopyGrayRow(f0, y, grayRow);
+        for (uint32_t y = 0; y < f1.height; y++) {
+            ofCopyGrayRow(f1, y, session.grayRow);
             cudaResult = runtime.cuda.memcpyHostToDevice(
-                inputPointer +
-                    (CUdeviceptr)y * inputStride.strideInfo[0].strideYInBytes,
-                grayRow, f0.width);
-            if (cudaResult != CUDA_SUCCESS) {
-                ofCUDAError(error, sizeof(error), "input upload", cudaResult);
-                goto cleanup;
-            }
-            ofCopyGrayRow(f1, y, grayRow);
-            cudaResult = runtime.cuda.memcpyHostToDevice(
-                referencePointer + (CUdeviceptr)y *
-                    referenceStride.strideInfo[0].strideYInBytes,
-                grayRow, f1.width);
+                session.referencePointer + (CUdeviceptr)y *
+                    session.referenceStride.strideInfo[0].strideYInBytes,
+                session.grayRow, f1.width);
             if (cudaResult != CUDA_SUCCESS) {
                 ofCUDAError(error, sizeof(error), "reference upload",
                             cudaResult);
@@ -506,14 +689,16 @@ fn opticalFlowInit {imageLib} {
         }
 
         NV_OF_EXECUTE_INPUT_PARAMS executeInput = {0};
-        executeInput.inputFrame = input;
-        executeInput.referenceFrame = reference;
+        executeInput.inputFrame = session.input;
+        executeInput.referenceFrame = session.reference;
         executeInput.disableTemporalHints = NV_OF_TRUE;
         NV_OF_EXECUTE_OUTPUT_PARAMS executeOutput = {0};
-        executeOutput.outputBuffer = output;
-        status = runtime.of.nvOFExecute(handle, &executeInput, &executeOutput);
+        executeOutput.outputBuffer = session.output;
+        status = runtime.of.nvOFExecute(
+            session.handle, &executeInput, &executeOutput);
         if (status != NV_OF_SUCCESS) {
-            ofSDKError(error, sizeof(error), "nvOFExecute", status, handle);
+            ofSDKError(error, sizeof(error), "nvOFExecute", status,
+                       session.handle);
             goto cleanup;
         }
         cudaResult = runtime.cuda.contextSynchronize();
@@ -521,18 +706,21 @@ fn opticalFlowInit {imageLib} {
             ofCUDAError(error, sizeof(error), "cuCtxSynchronize", cudaResult);
             goto cleanup;
         }
+        session.referenceUniq = f1.uniq;
+        session.referenceValid = f1.uniq != 0;
 
-        hostFlow = malloc(sizeof(*hostFlow) * (size_t)flowWidth * flowHeight);
+        hostFlow = malloc(sizeof(*hostFlow) *
+                          (size_t)session.flowWidth * session.flowHeight);
         if (!hostFlow) {
             snprintf(error, sizeof(error), "opticalFlow: out of host memory");
             goto cleanup;
         }
-        for (uint32_t y = 0; y < flowHeight; y++) {
+        for (uint32_t y = 0; y < session.flowHeight; y++) {
             cudaResult = runtime.cuda.memcpyDeviceToHost(
-                hostFlow + (size_t)y * flowWidth,
-                outputPointer +
-                    (CUdeviceptr)y * outputStride.strideInfo[0].strideYInBytes,
-                (size_t)flowWidth * sizeof(*hostFlow));
+                hostFlow + (size_t)y * session.flowWidth,
+                session.outputPointer + (CUdeviceptr)y *
+                    session.outputStride.strideInfo[0].strideYInBytes,
+                (size_t)session.flowWidth * sizeof(*hostFlow));
             if (cudaResult != CUDA_SUCCESS) {
                 ofCUDAError(error, sizeof(error), "flow download", cudaResult);
                 goto cleanup;
@@ -545,21 +733,18 @@ fn opticalFlowInit {imageLib} {
             goto cleanup;
         }
         *answer = (OpticalFlow) {
-            .width = flowWidth,
-            .height = flowHeight,
-            .gridSize = gridSize,
+            .width = session.flowWidth,
+            .height = session.flowHeight,
+            .gridSize = session.gridSize,
             .vectors = hostFlow,
         };
         hostFlow = NULL;
 
     cleanup:
         free(hostFlow);
-        free(grayRow);
-        if (output) runtime.of.nvOFDestroyGPUBufferCuda(output);
-        if (reference) runtime.of.nvOFDestroyGPUBufferCuda(reference);
-        if (input) runtime.of.nvOFDestroyGPUBufferCuda(input);
-        if (handle) runtime.of.nvOFDestroy(handle);
-        if (context) runtime.cuda.contextDestroy(context);
+        if (session.initialized)
+            runtime.cuda.contextSetCurrent(previousContext);
+        pthread_mutex_unlock(&session.mutex);
         if (!answer) FOLK_ERROR("%s", error);
         return answer;
     }
@@ -590,10 +775,13 @@ fn opticalFlowInit {imageLib} {
         free(flow);
     }
 
-    $cc compile
+    set opticalFlowLib [$cc compile]
+    $opticalFlowLib initOpticalFlow
+    return $opticalFlowLib
 }
 
 When the image library is /imageLib/ {
     set opticalFlowLib [opticalFlowInit $imageLib]
-    Claim the optical flow library is $opticalFlowLib
+    Claim the optical flow library is $opticalFlowLib \
+        -destructor [list $opticalFlowLib shutdownOpticalFlow]
 }
