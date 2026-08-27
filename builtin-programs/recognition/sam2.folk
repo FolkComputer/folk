@@ -454,17 +454,21 @@ When the SAM2 mask-to-image library is /mtiLib/ &\
          the png library is /pngLib/ {
         Wish the web server handles route [format {/sam2/%s$} $page] \
             with hidden true handler [list apply {{page pngLib} {
-                set promptResults [Query! /anyone/ wishes $page tracks object /id/ in frame /frame/ with /...promptSpecs/]
-                set ids [lsort -unique [lmap result $promptResults {
+                set trackingWishes \
+                    [Query! /anyone/ wishes $page tracks object /id/ /...trackingSpec/]
+                set trackingClaims \
+                    [Query! /anyone/ claims $page tracks object /id/ /...trackingSpec/]
+                set trackingRegistrations [concat $trackingWishes $trackingClaims]
+                set ids [lsort -unique [lmap result $trackingRegistrations {
                     dict get $result id
                 }]]
 
                 set entries [list]
                 foreach id $ids {
-                    set imageResults [Query! $id has SAM2 masked image /im/ in $page]
-                    set promptTrackingResults [Query! $page tracks object $id \
-                        in frame /frame/ with /...promptResult/]
-                    set controlResults [Query! $id has sam2 control /controlHtml/ in $page]
+                    set imageResults [Query! /anyone/ claims $id has SAM2 masked image /im/ in $page]
+                    set promptTrackingResults [Query! /anyone/ claims $page \
+                        tracks object $id in frame /frame/ with /...promptResult/]
+                    set controlResults [Query! /anyone/ claims $id has sam2 control /controlHtml/ in $page]
                     set controls [join [lmap result $controlResults {
                         dict get $result controlHtml
                     }] "\n"]
