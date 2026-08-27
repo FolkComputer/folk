@@ -1,180 +1,174 @@
 set cc [C]
-$cc include <math.h>
 $cc include <stdbool.h>
+$cc include <stddef.h>
 $cc include <stdlib.h>
 
-# Find the center of the largest inscribed circle in the largest connected
-# component of a lightly opened SAM2 mask.
-$cc proc sam2MaskCenter {int width int height Jim_Obj* mask
+$cc code {
+    typedef struct { int x, y; } HullPoint;
+
+    static int hullPointCmp(const void *a, const void *b) {
+        const HullPoint *pa = a;
+        const HullPoint *pb = b;
+        if (pa->x != pb->x) return pa->x - pb->x;
+        return pa->y - pb->y;
+    }
+
+    static long long hullCross(HullPoint o, HullPoint a, HullPoint b) {
+        return (long long)(a.x - o.x) * (b.y - o.y)
+             - (long long)(a.y - o.y) * (b.x - o.x);
+    }
+
+    static double hullCrossD(double ox, double oy,
+                             double ax, double ay,
+                             double bx, double by) {
+        return (ax - ox) * (by - oy) - (ay - oy) * (bx - ox);
+    }
+}
+
+# Extract the convex-hull arc facing away from the camera principal point and
+# return the midpoint of its endpoint chord. The contour stays internal.
+$cc proc sam2FootCenter {int width int height Jim_Obj* mask
+                         double[2] pp
                          double scaleX double scaleY} Jim_Obj* {
     if (width < 3 || height < 3) {
         return Jim_NewListObj(interp, NULL, 0);
     }
 
     int maskLen = 0;
-    const uint8_t *maskData = (const uint8_t *)Jim_GetString(mask, &maskLen);
+    const uint8_t *data = (const uint8_t *)Jim_GetString(mask, &maskLen);
     FOLK_ENSURE(maskLen == width * height);
 
-    size_t n = (size_t)width * (size_t)height;
-    uint8_t *eroded = calloc(n, 1);
-    uint8_t *opened = calloc(n, 1);
-    FOLK_ENSURE(eroded != NULL && opened != NULL);
+    size_t capacity = (size_t)width * height;
+    HullPoint *points = malloc(capacity * sizeof(*points));
+    HullPoint *hull = malloc(capacity * 2 * sizeof(*hull));
+    FOLK_ENSURE(points != NULL && hull != NULL);
 
+    size_t pointCount = 0;
     for (int y = 1; y < height - 1; y++) {
         for (int x = 1; x < width - 1; x++) {
-            bool keep = true;
-            for (int dy = -1; dy <= 1 && keep; dy++) {
-                for (int dx = -1; dx <= 1; dx++) {
-                    if (maskData[(y + dy) * width + x + dx] == 0) {
-                        keep = false;
-                        break;
-                    }
-                }
-            }
-            eroded[y * width + x] = keep;
-        }
-    }
-
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            for (int dy = -1; dy <= 1 && !opened[y * width + x]; dy++) {
-                int yy = y + dy;
-                if (yy < 0 || yy >= height) continue;
-                for (int dx = -1; dx <= 1; dx++) {
-                    int xx = x + dx;
-                    if (xx >= 0 && xx < width && eroded[yy * width + xx]) {
-                        opened[y * width + x] = 1;
-                        break;
-                    }
-                }
+            size_t i = (size_t)y * width + x;
+            if (!data[i]) continue;
+            if (!data[i - 1] || !data[i + 1] ||
+                !data[i - width] || !data[i + width]) {
+                points[pointCount++] = (HullPoint){x, y};
             }
         }
     }
-    free(eroded);
 
-    uint32_t *labels = calloc(n, sizeof(*labels));
-    uint32_t *queue = malloc(n * sizeof(*queue));
-    FOLK_ENSURE(labels != NULL && queue != NULL);
-
-    uint32_t nextLabel = 0;
-    uint32_t largestLabel = 0;
-    size_t largestCount = 0;
-    for (size_t start = 0; start < n; start++) {
-        if (!opened[start] || labels[start]) continue;
-
-        uint32_t label = ++nextLabel;
-        size_t head = 0;
-        size_t tail = 0;
-        queue[tail++] = (uint32_t)start;
-        labels[start] = label;
-
-        while (head < tail) {
-            uint32_t i = queue[head++];
-            int x = i % width;
-            int y = i / width;
-            for (int dy = -1; dy <= 1; dy++) {
-                int yy = y + dy;
-                if (yy < 0 || yy >= height) continue;
-                for (int dx = -1; dx <= 1; dx++) {
-                    int xx = x + dx;
-                    if (xx < 0 || xx >= width) continue;
-                    size_t j = (size_t)yy * width + xx;
-                    if (opened[j] && !labels[j]) {
-                        labels[j] = label;
-                        queue[tail++] = (uint32_t)j;
-                    }
-                }
-            }
-        }
-
-        if (tail > largestCount) {
-            largestCount = tail;
-            largestLabel = label;
-        }
-    }
-    free(queue);
-    free(opened);
-
-    if (!largestLabel) {
-        free(labels);
+    if (pointCount < 3) {
+        free(points);
+        free(hull);
         return Jim_NewListObj(interp, NULL, 0);
     }
 
-    float *distance = malloc(n * sizeof(*distance));
-    FOLK_ENSURE(distance != NULL);
-    for (size_t i = 0; i < n; i++) {
-        distance[i] = labels[i] == largestLabel ? 1e30f : 0.0f;
-    }
-
-    double diagonal = hypot(scaleX, scaleY);
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            size_t i = (size_t)y * width + x;
-            if (labels[i] != largestLabel) continue;
-            double d = distance[i];
-            if (x == 0 || x == width - 1) d = fmin(d, scaleX);
-            if (y == 0 || y == height - 1) d = fmin(d, scaleY);
-            if (x > 0) d = fmin(d, distance[i - 1] + scaleX);
-            if (y > 0) d = fmin(d, distance[i - width] + scaleY);
-            if (x > 0 && y > 0) {
-                d = fmin(d, distance[i - width - 1] + diagonal);
-            }
-            if (x + 1 < width && y > 0) {
-                d = fmin(d, distance[i - width + 1] + diagonal);
-            }
-            distance[i] = d;
+    qsort(points, pointCount, sizeof(*points), hullPointCmp);
+    size_t uniqueCount = 0;
+    for (size_t i = 0; i < pointCount; i++) {
+        if (i == 0 || points[i].x != points[i - 1].x ||
+                      points[i].y != points[i - 1].y) {
+            points[uniqueCount++] = points[i];
         }
     }
 
-    double maxDistance = 0.0;
-    for (int y = height - 1; y >= 0; y--) {
-        for (int x = width - 1; x >= 0; x--) {
-            size_t i = (size_t)y * width + x;
-            if (labels[i] != largestLabel) continue;
-            double d = distance[i];
-            if (x + 1 < width) d = fmin(d, distance[i + 1] + scaleX);
-            if (y + 1 < height) d = fmin(d, distance[i + width] + scaleY);
-            if (x + 1 < width && y + 1 < height) {
-                d = fmin(d, distance[i + width + 1] + diagonal);
-            }
-            if (x > 0 && y + 1 < height) {
-                d = fmin(d, distance[i + width - 1] + diagonal);
-            }
-            distance[i] = d;
-            if (d > maxDistance) maxDistance = d;
+    size_t hullCount = 0;
+    for (size_t i = 0; i < uniqueCount; i++) {
+        while (hullCount >= 2 &&
+               hullCross(hull[hullCount - 2], hull[hullCount - 1], points[i]) <= 0) {
+            hullCount--;
+        }
+        hull[hullCount++] = points[i];
+    }
+    size_t lowerCount = hullCount;
+    for (ptrdiff_t i = (ptrdiff_t)uniqueCount - 2; i >= 0; i--) {
+        while (hullCount > lowerCount &&
+               hullCross(hull[hullCount - 2], hull[hullCount - 1], points[i]) <= 0) {
+            hullCount--;
+        }
+        hull[hullCount++] = points[i];
+        if (i == 0) break;
+    }
+    if (hullCount > 1) hullCount--;
+    free(points);
+
+    bool *away = calloc(hullCount, sizeof(*away));
+    FOLK_ENSURE(away != NULL);
+    size_t awayCount = 0;
+    for (size_t i = 0; i < hullCount; i++) {
+        size_t j = (i + 1) % hullCount;
+        double ax = hull[i].x * scaleX;
+        double ay = hull[i].y * scaleY;
+        double bx = hull[j].x * scaleX;
+        double by = hull[j].y * scaleY;
+        if (hullCrossD(ax, ay, bx, by, pp[0], pp[1]) > 0) {
+            away[i] = true;
+            awayCount++;
         }
     }
 
-    double threshold = maxDistance * 0.9;
-    double weightSum = 0.0;
-    double sumX = 0.0;
-    double sumY = 0.0;
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            size_t i = (size_t)y * width + x;
-            if (labels[i] != largestLabel || distance[i] < threshold) continue;
-            double weight = distance[i] * distance[i];
-            weightSum += weight;
-            sumX += weight * (x + 0.5) * scaleX;
-            sumY += weight * (y + 0.5) * scaleY;
-        }
-    }
-
-    free(distance);
-    free(labels);
-
-    if (weightSum == 0.0) {
+    if (awayCount == 0 || awayCount == hullCount) {
+        free(away);
+        free(hull);
         return Jim_NewListObj(interp, NULL, 0);
     }
+
+    size_t edge = 0;
+    while (!away[edge]) edge++;
+    while (away[(edge + hullCount - 1) % hullCount]) {
+        edge = (edge + hullCount - 1) % hullCount;
+    }
+
+    HullPoint first = hull[edge];
+    HullPoint last = first;
+    for (;;) {
+        edge = (edge + 1) % hullCount;
+        last = hull[edge];
+        if (!away[edge]) break;
+    }
+
+    free(away);
+    free(hull);
 
     Jim_Obj *center[2] = {
-        Jim_NewDoubleObj(interp, sumX / weightSum),
-        Jim_NewDoubleObj(interp, sumY / weightSum),
+        Jim_NewDoubleObj(interp, (first.x + last.x) * 0.5 * scaleX),
+        Jim_NewDoubleObj(interp, (first.y + last.y) * 0.5 * scaleY),
     };
     return Jim_NewListObj(interp, center, 2);
 }
 
 Claim the SAM2 centers library is [$cc compile]
+
+fn sam2PointToXYInQuad {ql q xyz} {
+    package require linalg
+    namespace import \
+        ::math::linearalgebra::sub \
+        ::math::linearalgebra::dotproduct \
+        ::math::linearalgebra::unitLengthVector
+
+    lassign [$ql vertices $q] topLeft topRight bottomRight bottomLeft
+    set xAxis [unitLengthVector [sub $topRight $topLeft]]
+    set yAxis [unitLengthVector [sub $bottomLeft $topLeft]]
+    set delta [sub $xyz $topLeft]
+    list [dotproduct $delta $xAxis] [dotproduct $delta $yAxis]
+}
+
+fn sam2CameraPrincipalPointInQuad {ql q} {
+    package require linalg
+    namespace import \
+        ::math::linearalgebra::sub \
+        ::math::linearalgebra::scale \
+        ::math::linearalgebra::dotproduct \
+        ::math::linearalgebra::crossproduct
+
+    lassign [$ql vertices $q] a b c d
+    set normal [crossproduct [sub $b $a] [sub $d $a]]
+    set opticalAxis {0 0 1}
+    set denom [dotproduct $normal $opticalAxis]
+    if {abs($denom) < 0.000001} { return {} }
+
+    set distance [expr {[dotproduct $normal $a] / $denom}]
+    if {$distance <= 0} { return {} }
+    sam2PointToXYInQuad $ql $q [scale $distance $opticalAxis]
+}
 
 When /someone/ wishes /v/ tracks object /obj/ /...any/ {
     When when $obj has center /center/ in $v /lambda/ with environment /e/ {
@@ -182,21 +176,145 @@ When /someone/ wishes /v/ tracks object /obj/ /...any/ {
     }
 }
 
+fn advectCenterWithFlow {opticalFlowLib center geom frame flow} {
+    set frameWidth [dict get $frame width]
+    set frameHeight [dict get $frame height]
+    set pixelX [expr {[lindex $center 0] / $geom(width) * $frameWidth}]
+    set pixelY [expr {[lindex $center 1] / $geom(height) * $frameHeight}]
+    lassign [$opticalFlowLib sampleOpticalFlow $flow $pixelX $pixelY] dx dy
+
+    set x [expr {[lindex $center 0] + $dx * $geom(width) / $frameWidth}]
+    set y [expr {[lindex $center 1] + $dy * $geom(height) / $frameHeight}]
+    if {$x < 0.0} { set x 0.0 }
+    if {$y < 0.0} { set y 0.0 }
+    if {$x > $geom(width)} { set x $geom(width) }
+    if {$y > $geom(height)} { set y $geom(height) }
+    list $x $y
+}
+
 When /someone/ wishes /obj/ has center in /v/ {
-    When $obj has mask /mask/ in /v/ with /...maskOptions/ &\
+    When the quad library is /ql/ &\
+         the quad changer is /quadChange/ &\
+         a calibration from camera /camera/ to display /display/ is /calibration/ &\
+         $obj has mask /mask/ in /v/ with /...maskOptions/ &\
          /v/ has resolved geometry /geom/ &\
+         /v/ has quad /vq/ &\
          the SAM2 centers library is /centersLib/ {
+
+        fn quadChange
+
+        set pp [sam2CameraPrincipalPointInQuad \
+            $ql [quadChange $vq $camera]]
+        if {[llength $pp] != 2} { return }
 
         set width [dict get $maskOptions width]
         set height [dict get $maskOptions height]
-        set center [$centersLib sam2MaskCenter \
-            $width $height $mask \
-            [expr {double($geom(width)) / $width}] \
-            [expr {double($geom(height)) / $height}]]
+        set center [$centersLib sam2FootCenter \
+            $width $height $mask $pp \
+            [expr {double($geom(width)) / ($width - 1)}] \
+            [expr {double($geom(height)) / ($height - 1)}]]
 
         if {[llength $center] == 2} {
-            Hold! -on $v -key [list sam2 center $obj] \
+            Hold! -on $v -key [list sam2 observed center $obj] \
                 Claim $obj has center $center in $v
         }
     }
+
+    # When the optical flow library is /opticalFlowLib/ &\
+    #      /v/ has resolved geometry /geom/ {
+    #     Wish $v has camera slice
+
+    #     set previousFrame {}
+    #     set previousFrameRef {}
+    #     set acquiredFrameRef {}
+    #     set center {}
+    #     set observationRef {}
+
+    #     # Position-only Kalman filter. Optical flow is the control input; SAM2
+    #     # centers are noisy measurements. Variances are in square meters.
+    #     set processVariance 0.000001
+    #     set measurementVariance 0.000025
+    #     set variance $processVariance
+
+    #     try -signal {
+    #         while true {
+    #             set frameResults [Query! $v has camera slice /frame/]
+    #             if {[llength $frameResults] == 0} {
+    #                 sleep 0.005
+    #                 continue
+    #             }
+
+    #             set frameResult [lindex $frameResults end]
+    #             set frameRef [dict get $frameResult __ref]
+    #             if {$frameRef eq $previousFrameRef} {
+    #                 sleep 0.005
+    #                 continue
+    #             }
+    #             if {[catch {StatementAcquire! $frameRef}]} {
+    #                 continue
+    #             }
+    #             set acquiredFrameRef $frameRef
+    #             set frame [dict get $frameResult frame]
+
+    #             if {$center ne {} && $previousFrame ne {}} {
+    #                 set flow {}
+    #                 try {
+    #                     set flow [$opticalFlowLib runOpticalFlow \
+    #                         $previousFrame $frame]
+    #                     set center [advectCenterWithFlow \
+    #                         $opticalFlowLib $center $geom $previousFrame $flow]
+    #                     set variance [expr {$variance + $processVariance}]
+    #                 } finally {
+    #                     if {$flow ne {}} {
+    #                         $opticalFlowLib freeOpticalFlow $flow
+    #                     }
+    #                 }
+    #             }
+
+    #             set observations \
+    #                 [Query! $obj has SAM2 center /observedCenter/ in $v]
+    #             if {[llength $observations] > 0} {
+    #                 set observation [lindex $observations end]
+    #                 set newObservationRef [dict get $observation __ref]
+    #                 if {$newObservationRef ne $observationRef} {
+    #                     set measured [dict get $observation observedCenter]
+    #                     if {$center eq {}} {
+    #                         set center $measured
+    #                         set variance $processVariance
+    #                     } else {
+    #                         set gain [expr {
+    #                             $variance / ($variance + $measurementVariance)
+    #                         }]
+    #                         set center [list \
+    #                             [expr {[lindex $center 0] + $gain * \
+    #                                 ([lindex $measured 0] - [lindex $center 0])}] \
+    #                             [expr {[lindex $center 1] + $gain * \
+    #                                 ([lindex $measured 1] - [lindex $center 1])}]]
+    #                         set variance [expr {(1.0 - $gain) * $variance}]
+    #                     }
+    #                     set observationRef $newObservationRef
+    #                 }
+    #             }
+
+    #             if {$center ne {}} {
+    #                 Hold! -on $v -key [list sam2 center $obj] \
+    #                     Claim $obj has center $center in $v
+    #             }
+
+    #             if {$previousFrameRef ne {}} {
+    #                 StatementRelease! $previousFrameRef
+    #             }
+    #             set previousFrame $frame
+    #             set previousFrameRef $frameRef
+    #             set acquiredFrameRef {}
+    #         }
+    #     } finally {
+    #         if {$acquiredFrameRef ne {}} {
+    #             StatementRelease! $acquiredFrameRef
+    #         }
+    #         if {$previousFrameRef ne {}} {
+    #             StatementRelease! $previousFrameRef
+    #         }
+    #     }
+    # }
 }
