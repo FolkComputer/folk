@@ -203,6 +203,7 @@ When /someone/ wishes /viewport/ has a CoTracker point tracker &\
         }
 
         set visibleObjects {}
+        set trackingStartUs [clock microseconds]
         foreach result [trackPoints $slice $objectIds $pixelPrompts] {
             lassign $result obj pixelX pixelY visible
             if {!$visible} { continue }
@@ -214,6 +215,11 @@ When /someone/ wishes /viewport/ has a CoTracker point tracker &\
             Hold! -on $viewport -key [list cotracker center $obj] \
                 Claim $obj has center $center in $viewport
         }
+        set trackingElapsedMs \
+            [expr {([clock microseconds] - $trackingStartUs) / 1000.0}]
+        Hold! -on $viewport -key [list cotracker timing label] \
+            Wish $viewport is labelled \
+                [format "CoTracker: %.1f ms" $trackingElapsedMs]
 
         foreach obj $objectIds {
             if {![dict exists $visibleObjects $obj]} {
