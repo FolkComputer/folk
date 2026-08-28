@@ -1,0 +1,222 @@
+When when the CoTracker point tracker is /any/ /any/ with environment /any/ {
+    Wish -keep 500ms to load CoTracker
+}
+
+When /someone/ wishes to load SAM2 {
+    Wish to really load CoTracker
+}
+
+When /someone/ wishes to load CoTracker {
+    Wish to really load CoTracker
+}
+
+When /someone/ wishes to really load CoTracker &\
+     the image uvx argtype definer is /defineImageArgtype/ {
+    fn defineImageArgtype
+
+    set py [Uvx --with pillow --with torch --with torchvision \
+                --with huggingface_hub \
+                --with "git+https://github.com/facebookresearch/co-tracker.git"]
+    defineImageArgtype $py
+
+    $py exec {
+        import contextlib
+        import sys
+        import threading
+
+        import numpy as np
+        import torch
+        from cotracker.predictor import CoTrackerOnlinePredictor
+        from huggingface_hub import hf_hub_download
+
+        if torch.cuda.is_available():
+            device = "cuda"
+        elif torch.backends.mps.is_available():
+            device = "mps"
+        else:
+            device = "cpu"
+
+        checkpoint = hf_hub_download(
+            repo_id="facebook/cotracker3",
+            filename="scaled_online.pth",
+        )
+        print("cotracker: Loading online predictor.", file=sys.stderr)
+        predictor = CoTrackerOnlinePredictor(checkpoint=checkpoint).to(device)
+        predictor.eval()
+
+        predictor_lock = threading.Lock()
+        tracked_ids = []
+        tracked_points = {}
+        tracked_visibility = {}
+        frames = []
+        frames_since_step = 0
+        print(f"cotracker: Using device: {device}", file=sys.stderr, flush=True)
+
+        def inference_context():
+            if device == "cuda":
+                return torch.autocast("cuda", dtype=torch.bfloat16)
+            return contextlib.nullcontext()
+    }
+
+    $py def trackPoints {Image image {list str} objectIds {list list num} promptPoints} {
+        global tracked_ids, tracked_points, tracked_visibility
+        global frames, frames_since_step
+
+        objectIds = list(map(str, objectIds))
+        promptPoints = [list(map(float, point)) for point in promptPoints]
+        if len(objectIds) != len(promptPoints):
+            raise ValueError("cotracker: object id and prompt counts differ")
+        if not objectIds:
+            tracked_ids = []
+            tracked_points = {}
+            tracked_visibility = {}
+            frames = []
+            frames_since_step = 0
+            return []
+
+        image_np = np.asarray(image.convert("RGB"))
+        active_ids_changed = objectIds != tracked_ids
+
+        with predictor_lock, torch.inference_mode(), inference_context():
+            if active_ids_changed:
+                # Preserve the most recent position of an existing point when a
+                # query is added or removed. New objects start at their prompt.
+                query_points = [
+                    tracked_points.get(object_id, prompt)
+                    for object_id, prompt in zip(objectIds, promptPoints)
+                ]
+                queries = torch.tensor(
+                    [[[0.0, point[0], point[1]] for point in query_points]],
+                    dtype=torch.float32,
+                    device=device,
+                )
+                first_frame = torch.from_numpy(image_np.copy()).to(device)
+                first_frame = first_frame.permute(2, 0, 1)[None, None].float()
+                predictor(
+                    video_chunk=first_frame,
+                    is_first_step=True,
+                    queries=queries,
+                    grid_size=0,
+                )
+
+                tracked_ids = objectIds
+                tracked_points = dict(zip(objectIds, query_points))
+                tracked_visibility = {
+                    object_id: tracked_visibility.get(object_id, True)
+                    for object_id in objectIds
+                }
+                frames = [image_np.copy()]
+                frames_since_step = 1
+            else:
+                frames.append(image_np.copy())
+                frames = frames[-predictor.step * 2:]
+                frames_since_step += 1
+
+            # CoTracker3's online model has a 16-frame window and an 8-frame
+            # step. Although older examples prime it with a half-window, the
+            # current model produces 16 predictions on its first real call and
+            # cannot write those into an 8-frame result. Prime with a complete
+            # window, then run once per step while retaining the last 16 frames.
+            window_size = predictor.step * 2
+            if len(frames) == window_size and frames_since_step >= predictor.step:
+                video = torch.from_numpy(np.stack(frames)).to(device)
+                video = video.permute(0, 3, 1, 2)[None].float()
+                tracks, visibilities = predictor(video_chunk=video)
+                latest_tracks = tracks[0, -1].detach().cpu().tolist()
+                latest_visibility = visibilities[0, -1].detach().cpu().tolist()
+                tracked_points = dict(zip(tracked_ids, latest_tracks))
+                tracked_visibility = dict(
+                    zip(tracked_ids, map(bool, latest_visibility))
+                )
+                frames_since_step = 0
+
+        return [
+            [object_id, tracked_points[object_id][0],
+             tracked_points[object_id][1], tracked_visibility[object_id]]
+            for object_id in tracked_ids
+        ]
+    }
+
+    fn CoTrackerTrackPoints args {
+        $py trackPoints {*}$args
+    }
+    # Compatibility shim for register6.folk. CoTracker has no per-object state
+    # file corresponding to a SAM2 checkpoint, so intentionally do nothing and
+    # leave no file behind; the object will be prompted again after a restart.
+    fn CoTrackerMockSAM2SaveObject {id filename} {
+        return
+    }
+    Claim the CoTracker point tracker is [fn CoTrackerTrackPoints]
+    Claim the SAM2 object saver is [fn CoTrackerMockSAM2SaveObject]
+}
+
+When /anyone/ wishes /viewport/ tracks object /obj/ /...any/ {
+    Wish -keep 400ms $viewport has a CoTracker point tracker
+    Wish -keep 400ms $viewport has camera slice
+    Wish -keep 400ms to load CoTracker
+}
+
+# register6.folk waits for this SAM2-shaped acknowledgement before completing
+# registration. A point tracker has no mask, so expose the supplied prompt frame
+# unchanged as the masked slice.
+When the CoTracker point tracker is /trackPoints/ &\
+     /someone/ wishes /viewport/ tracks object /obj/ in frame /frame/ \
+        with /...promptSpecs/ {
+    Claim $viewport tracks object $obj in frame $frame \
+        with {*}$promptSpecs masked-slice $frame
+}
+
+When /someone/ wishes /viewport/ has a CoTracker point tracker &\
+     /viewport/ has resolved geometry /geom/ &\
+     the CoTracker point tracker is /trackPoints/ {
+    fn trackPoints
+
+    When -serially $viewport has camera slice /slice/ {
+        set trackingWishes \
+            [Query! /anyone/ wishes $viewport tracks object /obj/ /...trackingSpec/]
+
+        # Keep one point per object. The first positive prompt wins; all later
+        # prompts and all antiprompts are deliberately ignored for now.
+        set promptsByObject {}
+        foreach trackingWish $trackingWishes {
+            set obj [dict get $trackingWish obj]
+            if {[dict exists $promptsByObject $obj]} { continue }
+
+            set trackingSpec [dict get $trackingWish trackingSpec]
+            set promptIndex [lsearch -exact $trackingSpec prompt]
+            if {$promptIndex < 0 || $promptIndex + 1 >= [llength $trackingSpec]} {
+                continue
+            }
+            dict set promptsByObject $obj \
+                [lindex $trackingSpec [expr {$promptIndex + 1}]]
+        }
+
+        set objectIds [lsort [dict keys $promptsByObject]]
+        set pixelPrompts [list]
+        foreach obj $objectIds {
+            set prompt [dict get $promptsByObject $obj]
+            set x [expr {[lindex $prompt 0] / $geom(width) * $slice(width)}]
+            set y [expr {[lindex $prompt 1] / $geom(height) * $slice(height)}]
+            lappend pixelPrompts [list $x $y]
+        }
+
+        set visibleObjects {}
+        foreach result [trackPoints $slice $objectIds $pixelPrompts] {
+            lassign $result obj pixelX pixelY visible
+            if {!$visible} { continue }
+
+            set center [list \
+                [expr {$pixelX / $slice(width) * $geom(width)}] \
+                [expr {$pixelY / $slice(height) * $geom(height)}]]
+            dict set visibleObjects $obj true
+            Hold! -on $viewport -key [list cotracker center $obj] \
+                Claim $obj has center $center in $viewport
+        }
+
+        foreach obj $objectIds {
+            if {![dict exists $visibleObjects $obj]} {
+                Hold! -on $viewport -key [list cotracker center $obj] {}
+            }
+        }
+    }
+}

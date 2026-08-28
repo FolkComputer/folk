@@ -1,3 +1,5 @@
+return
+
 When when the SAM2 segmenter is /any/ /any/ with environment /any/ {
     Wish -keep 500ms to load SAM2
 }
