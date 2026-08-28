@@ -10,16 +10,65 @@ set quadLib [library create quadLib {} {
         ::math::linearalgebra::scale
     rename scale scaleVector
 
+    ## Points
+
+    proc surfacePointInner {id x y} {
+        return [list surface-point $id $x $y]
+    }
+
+    proc surfacePoint {x y} {
+        upvar this this
+        return [surfacePointInner $this $x $y]
+    }
+
+    proc surfacePointCheckType {surfacePoint} {
+        set type [lindex $surfacePoint 0]
+        if {$type ne "surface-point"} { error "expected type "surface-point", but got \"$type\""}
+    }
+
+    proc surfacePointVector {surfacePoint} {
+        surfacePointCheckType $surfacePoint
+        return [lrange $surfacePoint 2 end]
+    }
+
+    proc surfacePointId {surfacePoint} {
+        surfacePointCheckType $surfacePoint
+        return [lindex $surfacePoint 1]
+    }
+
+    proc 3dPoint {space x y z} {
+        return [list 3d-point $space $x $y $z]
+    }
+
+    proc 3dPointCheckType {3dPoint} {
+        set type [lindex $3dPoint 0]
+        if {$type ne "3d-point"} { error "expected type "3d-point", but got \"$type\""}
+    }
+
+    proc 3dPointVector {3dPoint} {
+        3dPointCheckType $3dPoint
+        return [lrange $3dPoint 2 end]
+    }
+
+    proc 3dPointSpace {3dPoint} {
+        3dPointCheckType $3dPoint
+        return [lindex $3dPoint 1]
+    }
+
+    ## Quads
+
     proc create {space vertices} { list $space $vertices }
     proc space {q} { lindex $q 0 }
     proc vertices {q} { lindex $q 1 }
 
-    # Returns an {x y z} point in the space of the quad.
+    # Returns an 3d point in the space of the quad.
     proc centroid {q} {
+        set quadSpace [space $q]
         lassign [vertices $q] topLeft topRight bottomRight bottomLeft
-        return [::math::linearalgebra::scale 0.25 \
+        # Average the four points.
+        return [3dPoint $quadSpace [scaleVector 0.25 \
                     [add [add $topLeft $bottomRight] \
-                         [add $topRight $bottomLeft]]]
+                         [add $topRight $bottomLeft]]]]
     }
 
     # Scales about the centroid of the quad, along the width and height
@@ -65,7 +114,7 @@ set quadLib [library create quadLib {} {
             }
         }
 
-        set c [centroid $q]
+        set c [3dPointVector [centroid $q]]
 
         # Calculate width and height vectors from the quad's actual orientation
         # Width goes from left to right (topLeft -> topRight, bottomLeft -> bottomRight)  
@@ -230,11 +279,29 @@ set quadLib [library create quadLib {} {
         return [create [space $q] [list $topLeft $topRight $bottomRight $bottomLeft]]
     }
 
+    proc surfacePointTo3dPoint {surfacePoint quad} {
+        lassign [surfacePointVector $surfacePoint] x y
+        lassign [vertices $quad] topLeft topRight bottomRight bottomLeft
+        set width [norm [sub $topRight $topLeft]]
+        set height [norm [sub $bottomLeft $topLeft]]
+
+        set xAxis [unitLengthVector [sub $topRight $topLeft]]
+        set yAxis [unitLengthVector [sub $bottomLeft $topLeft]]
+        set pointRelativeToTopLeft [add [scale $xAxis x] \
+                                        [scale $yAxis y]]
+        return [3dPoint [space $quad] {*}[add $pointRelativeToTopLeft $topLeft]]
+    }
+
     # Take a {x y z} point in the same space as the quad and project
     # it down onto a {top left} point on the quad (that can be used in
     # the drawing APIs, etc).
-    proc pointToXY {q xyz {checkBounds true}} {
-        lassign [vertices $q] topLeft topRight bottomRight bottomLeft
+    proc 3dPointToSurfacePoint {3dPoint targetId targetQuad {checkBounds true}} {
+        set pointSpace [3dPointSpace $3dPoint]
+        set quadSpace [space $targetQuad]
+        if {$pointSpace ne $quadSpace} { error "spaces $pointSpace and $quadSpace disagree" }
+        set xyz [3dPointVector $3dPoint]
+
+        lassign [vertices $targetQuad] topLeft topRight bottomRight bottomLeft
         set width [norm [sub $topRight $topLeft]]
         set height [norm [sub $bottomLeft $topLeft]]
         set xAxis [unitLengthVector [sub $topRight $topLeft]]
@@ -244,14 +311,13 @@ set quadLib [library create quadLib {} {
         set y [dotproduct $delta $yAxis]
 
         set eps 0.000001
-        if {$x < -$eps || $x > $width + $eps ||
+        if {$checkBounds &&
+            $x < -$eps || $x > $width + $eps ||
             $y < -$eps || $y > $height + $eps} {
-            if {$checkBounds} {
-                error "quad pointToXY: point $xyz projects outside quad bounds as {$x $y}; bounds are {0 0} {$width $height}"
-            }
+            error "quad pointToXY: point $xyz projects outside quad bounds as {$x $y}; bounds are {0 0} {$width $height}"
         }
 
-        return [list $x $y]
+        return [surfacePointInner $targetId $x $y]
     }
 }]
 Claim the quad library is $quadLib
