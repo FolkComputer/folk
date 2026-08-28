@@ -16,7 +16,7 @@ When /someone/ wishes to really load CoTracker &\
 
     set py [Uvx --with pillow --with torch --with torchvision \
                 --with huggingface_hub \
-                --with "git+https://github.com/sangminkim-99/co-tracker-realtime.git"]
+                --with "git+https://github.com/osnr/co-tracker.git"]
     defineImageArgtype $py
 
     $py exec {
