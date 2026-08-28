@@ -16,11 +16,12 @@ When /someone/ wishes to really load CoTracker &\
 
     set py [Uvx --with pillow --with torch --with torchvision \
                 --with huggingface_hub \
-                --with "git+https://github.com/facebookresearch/co-tracker.git"]
+                --with "git+https://github.com/sangminkim-99/co-tracker-realtime.git"]
     defineImageArgtype $py
 
     $py exec {
         import contextlib
+        import io
         import sys
         import threading
 
@@ -109,19 +110,20 @@ When /someone/ wishes to really load CoTracker &\
                 frames_since_step = 1
             else:
                 frames.append(image_np.copy())
-                frames = frames[-predictor.step * 2:]
+                frames = frames[-predictor.model.window_len:]
                 frames_since_step += 1
 
-            # CoTracker3's online model has a 16-frame window and an 8-frame
-            # step. Although older examples prime it with a half-window, the
-            # current model produces 16 predictions on its first real call and
-            # cannot write those into an 8-frame result. Prime with a complete
-            # window, then run once per step while retaining the last 16 frames.
-            window_size = predictor.step * 2
+            # Prime with one complete model window, then advance at the
+            # predictor's step. The realtime fork retains the trained 16-frame
+            # window but changes this step from 8 to 1.
+            window_size = predictor.model.window_len
             if len(frames) == window_size and frames_since_step >= predictor.step:
                 video = torch.from_numpy(np.stack(frames)).to(device)
                 video = video.permute(0, 3, 1, 2)[None].float()
-                tracks, visibilities = predictor(video_chunk=video)
+                # The fork currently prints tensor shapes on every inference.
+                # Keep that debug output from flooding Folk's source console.
+                with contextlib.redirect_stdout(io.StringIO()):
+                    tracks, visibilities = predictor(video_chunk=video)
                 latest_tracks = tracks[0, -1].detach().cpu().tolist()
                 latest_visibility = visibilities[0, -1].detach().cpu().tolist()
                 tracked_points = dict(zip(tracked_ids, latest_tracks))
