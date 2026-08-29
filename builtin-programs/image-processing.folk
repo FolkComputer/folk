@@ -228,6 +228,11 @@ $cc code {
         free(items);
         return result;
     }
+
+    static int cmp_pt(const void* a, const void* b) {
+        const int* p = (const int*)a; const int* q = (const int*)b;
+        return (p[0] != q[0]) ? p[0] - q[0] : p[1] - q[1];
+    }
 }
 
 $cc proc traceContour {Image binary int sx int sy} Jim_Obj* {
@@ -250,16 +255,58 @@ $cc proc findContours {Image binary} Jim_Obj* {
     return result;
 }
 
-$cc proc drawContour {Image im Jim_Obj* points} Image {
-    FOLK_ENSURE(im.components == 1);
-    int w = (int)im.width, h = (int)im.height;
-    uint8_t* out = malloc(w * h * 3);
-    for (int y = 0; y < h; y++) {
-        uint8_t* src = im.data + y * im.bytesPerRow;
-        uint8_t* dst = out + y * w * 3;
-        for (int x = 0; x < w; x++)
-            dst[x*3] = dst[x*3+1] = dst[x*3+2] = src[x];
+$cc proc convexHull {Jim_Obj* points} Jim_Obj* {
+    int n = Jim_ListLength(interp, points);
+    if (n < 3) return points;
+
+    int* pts = malloc(n * 2 * sizeof(int));
+    for (int i = 0; i < n; i++) {
+        Jim_Obj* pair = Jim_ListGetIndex(interp, points, i);
+        long x, y;
+        Jim_GetLong(interp, Jim_ListGetIndex(interp, pair, 0), &x);
+        Jim_GetLong(interp, Jim_ListGetIndex(interp, pair, 1), &y);
+        pts[i*2] = (int)x; pts[i*2+1] = (int)y;
     }
+
+    qsort(pts, n, 2 * sizeof(int), cmp_pt);
+
+    int* hull = malloc(2 * n * 2 * sizeof(int));
+    int k = 0;
+
+    // lower hull
+    for (int i = 0; i < n; i++) {
+        while (k >= 2) {
+            int ax = hull[(k-2)*2], ay = hull[(k-2)*2+1];
+            int bx = hull[(k-1)*2], by = hull[(k-1)*2+1];
+            int cx = pts[i*2],      cy = pts[i*2+1];
+            // cross product (b-a) x (c-a) <= 0 → not a left turn, remove b
+            if ((long)(bx-ax)*(cy-ay) - (long)(by-ay)*(cx-ax) <= 0) k--;
+            else break;
+        }
+        hull[k*2] = pts[i*2]; hull[k*2+1] = pts[i*2+1]; k++;
+    }
+
+    // upper hull
+    int lower_size = k;
+    for (int i = n - 2; i >= 0; i--) {
+        while (k > lower_size) {
+            int ax = hull[(k-2)*2], ay = hull[(k-2)*2+1];
+            int bx = hull[(k-1)*2], by = hull[(k-1)*2+1];
+            int cx = pts[i*2],      cy = pts[i*2+1];
+            if ((long)(bx-ax)*(cy-ay) - (long)(by-ay)*(cx-ax) <= 0) k--;
+            else break;
+        }
+        hull[k*2] = pts[i*2]; hull[k*2+1] = pts[i*2+1]; k++;
+    }
+
+    k--; // last point == first point
+    Jim_Obj* result = pts_to_list(interp, hull, k);
+    free(pts); free(hull);
+    return result;
+}
+
+$cc proc drawContour {int w int h Jim_Obj* points} Image {
+    uint8_t* out = calloc(w * h * 3, 1);
 
     int count = Jim_ListLength(interp, points);
     for (int i = 0; i < count; i++) {
@@ -274,7 +321,7 @@ $cc proc drawContour {Image im Jim_Obj* points} Image {
     }
     return (Image){ .width = (uint32_t)w, .height = (uint32_t)h,
                     .components = 3, .bytesPerRow = (uint32_t)(w * 3),
-                    .uniq = im.uniq, .data = out };
+                    .data = out };
 }
 
 set imageProcessingLib [$cc compile]
