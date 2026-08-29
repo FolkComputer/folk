@@ -82,7 +82,7 @@ When $rect has quad /quad/ {
                 $to]
 
     When /target/ has quad /q2/ {
-        if {$target eq $rect} { return }
+        if {$target eq $rect || $target eq "table"} { return }
 
         set displayVertices [lmap v [$quadLib vertices [quadChange $q2 "display $disp"]] {
             $poseLib project $displayIntrinsics \

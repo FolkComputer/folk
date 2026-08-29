@@ -1,0 +1,32 @@
+When the quad library is /quadLib/ &\
+     the pose library is /poseLib/ &\
+     a calibration from camera /camera/ to display /display/ is /calibration/ {
+    package require linalg
+    namespace import ::math::linearalgebra::dotproduct \
+                     ::math::linearalgebra::scale \
+                     ::math::linearalgebra::getcol
+
+    local proc unprojectWithReferencePlane {intrinsics planeOrigin planeNormal x y} {
+        upvar poseLib poseLib
+        set width $intrinsics(width)
+        set height $intrinsics(height)
+        set ray [$poseLib unproject $intrinsics $width $height $x $y]
+        # Ray-plane intersection to figure out where the ray lands on the reference plane.
+        set z [/ [dotproduct $planeNormal $planeOrigin] [dotproduct $planeNormal $ray]]
+        return [scale $z $ray]
+    }
+
+    set intrinsics [dict get $calibration projector intrinsics]
+    set width $intrinsics(width)
+        set height $intrinsics(height)
+    set extrinsics [lindex [dict get $calibration projector extrinsics] 0]
+    set tablePlaneOrigin [dict get $extrinsics t]
+    set tablePlaneNormal [getcol [dict get $extrinsics R] 2]
+
+    set topLeft [unprojectWithReferencePlane $intrinsics $tablePlaneOrigin $tablePlaneNormal 0 0]
+    set topRight [unprojectWithReferencePlane $intrinsics $tablePlaneOrigin $tablePlaneNormal $width 0]
+    set bottomRight [unprojectWithReferencePlane $intrinsics $tablePlaneOrigin $tablePlaneNormal $width $height]
+    set bottomLeft [unprojectWithReferencePlane $intrinsics $tablePlaneOrigin $tablePlaneNormal 0 $height]
+
+    Claim table has quad [$quadLib create "display $display" [list $topLeft $topRight $bottomRight $bottomLeft]]
+}
