@@ -1083,7 +1083,7 @@ static void pushRunSubscriptionBlock(StatementRef subscribeRef, Clause* subscrib
 // shouldn't be claimized. Returns a new heap-allocated Clause* that
 // must be freed by the caller.
 Clause* claimizeClause(Clause* clause) {
-    if (clause->nTerms >= 2 &&
+    if (clause->nTerms > 2 &&
         (termEqString(clause->terms[1], "claims") ||
          termEqString(clause->terms[1], "wishes"))) {
         return NULL;
@@ -1253,7 +1253,7 @@ static void reactToNewStatement(StatementRef ref) {
 
         clauseFreeBorrowed(whenizedClause); // doesn't own any terms.
     }
-    if (clause->nTerms >= 2 && termEqString(clause->terms[1], "claims")) {
+    if (clause->nTerms > 2 && termEqString(clause->terms[1], "claims")) {
         // Cut off `/x/ claims` from start of clause:
         //
         // /x/ claims the time is 3
