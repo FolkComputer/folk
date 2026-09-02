@@ -110,8 +110,11 @@ kill-folk:
 	if [ -f folk.pid ]; then \
 		OLD_PID=`cat folk.pid`; \
 		pkill -9 --pgroup $$OLD_PID; \
-		sudo pkill -9 --pgroup $$OLD_PID; \
-		while sudo pkill -0 --pgroup $$OLD_PID; do sleep 0.2; done; \
+		if sudo -n pkill -9 --pgroup $$OLD_PID; then \
+			while sudo -n pkill -0 --pgroup $$OLD_PID; do sleep 0.2; done; \
+		else \
+			while pkill -0 --pgroup $$OLD_PID; do sleep 0.2; done; \
+		fi; \
 	fi
 
 FOLK_REMOTE_NODE ?= folk-live
