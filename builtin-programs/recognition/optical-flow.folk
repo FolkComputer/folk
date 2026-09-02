@@ -1,3 +1,7 @@
+# (Most people don't need this program to be working unless you know
+# you are using optical flow for some specific camera recognition
+# task.)
+
 # NVIDIA hardware optical flow through the Optical Flow SDK CUDA interface.
 # No CUDA Toolkit is needed at build time: the driver entry points are loaded
 # from libcuda and libnvidia-opticalflow at runtime.
