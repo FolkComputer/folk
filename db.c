@@ -1336,6 +1336,11 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
                     newStmt->parentCount = 0;
                     newStmt->removing = true;
                     pthread_mutex_unlock(&newStmt->lifecycleMutex);
+                    // statementNew() charged this provisional statement to
+                    // atomicallyVersion. Since reuse means it will never be
+                    // returned to Say(), discharge that inflight obligation
+                    // here before destroying it.
+                    dbInflightDecr(db, newStmt);
                     statementRemoveSelf(db, newStmt, false);
                     statementRelease(db, newStmt);
 
