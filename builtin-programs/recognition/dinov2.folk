@@ -2,7 +2,11 @@ When when the DINOv2 image embedder is /any/ /any/ with environment /any/ {
     Wish -keep 500ms to load the DINOv2 image embedder
 }
 
-When /someone/ wishes to load the DINOv2 image embedder &\
+When /someone/ wishes to load the DINOv2 image embedder {
+    Wish to really load the DINOv2 image embedder
+}
+
+When /someone/ wishes to really load the DINOv2 image embedder &\
      the image uvx argtype definer is /defineImageArgtype/ {
     fn defineImageArgtype
 
