@@ -1421,6 +1421,30 @@ class SAM2CameraPredictor(SAM2Base):
         for v in self.condition_state["frames_tracked_per_obj"].values():
             v.clear()
 
+    def discard_object_history(self, obj_id):
+        """Discard all state retained for a transiently prompted object."""
+        obj_idx = self.condition_state["obj_id_to_idx"].get(obj_id)
+        if obj_idx is None:
+            return
+
+        self.condition_state["point_inputs_per_obj"][obj_idx].clear()
+        self.condition_state["mask_inputs_per_obj"][obj_idx].clear()
+        for outputs in self.condition_state["output_dict_per_obj"][obj_idx].values():
+            outputs.clear()
+        for outputs in self.condition_state["temp_output_dict_per_obj"][obj_idx].values():
+            outputs.clear()
+        self.condition_state["frames_tracked_per_obj"][obj_idx].clear()
+
+        # Every prompt frame starts as a 1024x1024 float tensor. Prompt outputs
+        # without encoded memory normally cause those tensors to be retained.
+        # A transient caller has already copied out its mask, so no state from
+        # its frame is needed after this point.
+        images = self.condition_state.get("images")
+        if images and self.frame_idx < len(images):
+            images[self.frame_idx] = None
+        self.condition_state["cached_features"].clear()
+        self._prune_stale_raw_images()
+
     def _get_image_feature(self, frame_idx, batch_size):
         """Compute the image features on a given frame."""
         # Look up in the cache first
