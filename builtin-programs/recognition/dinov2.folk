@@ -13,6 +13,7 @@ When /someone/ wishes to load the DINOv2 image embedder &\
     $py exec {
         import sys
 
+        import numpy as np
         import torch
         import torch.nn.functional as F
         from transformers import AutoImageProcessor, AutoModel
@@ -27,21 +28,109 @@ When /someone/ wishes to load the DINOv2 image embedder &\
         model_name = "facebook/dinov2-small"
         processor = AutoImageProcessor.from_pretrained(model_name)
         model = AutoModel.from_pretrained(model_name).to(device).eval()
+
+        def localization_score_maps(image, embeddings):
+            inputs = processor(
+                images=image.convert("RGB"),
+                return_tensors="pt",
+                do_center_crop=False,
+            )
+            inputs = {
+                name: value.to(device) for name, value in inputs.items()
+            }
+
+            with torch.inference_mode():
+                output = model(**inputs)
+                patches = F.normalize(
+                    output.last_hidden_state[:, 1:, :], dim=-1
+                )
+                prototypes = F.normalize(
+                    torch.tensor(
+                        embeddings, dtype=patches.dtype, device=device
+                    ),
+                    dim=-1,
+                )
+                patch_size = model.config.patch_size
+                grid_height = inputs["pixel_values"].shape[-2] // patch_size
+                grid_width = inputs["pixel_values"].shape[-1] // patch_size
+                score_maps = (patches[0] @ prototypes.T).T.reshape(
+                    len(embeddings), grid_height, grid_width
+                )
+
+            return score_maps, grid_width, grid_height
+
         print(f"dinov2: Loaded {model_name} on {device}.",
               file=sys.stderr, flush=True)
     }
 
     $py def embedImage {Image image} {
-        inputs = processor(images=image.convert("RGB"), return_tensors="pt")
+        rgb = image.convert("RGB")
+        foreground = torch.from_numpy(np.array(rgb, copy=True))
+        foreground = foreground.ne(128).any(dim=-1).float()[None, None]
+        inputs = processor(
+            images=rgb, return_tensors="pt", do_center_crop=False
+        )
         inputs = {name: value.to(device) for name, value in inputs.items()}
 
         with torch.inference_mode():
             output = model(**inputs)
-            embedding = F.normalize(output.last_hidden_state[:, 0, :], dim=-1)
+            patches = output.last_hidden_state[:, 1:, :]
+            patch_size = model.config.patch_size
+            foreground = F.interpolate(
+                foreground,
+                size=inputs["pixel_values"].shape[-2:],
+                mode="area",
+            ).to(device)
+            weights = F.avg_pool2d(
+                foreground, kernel_size=patch_size, stride=patch_size
+            ).flatten(1)
+            embedding = F.normalize(
+                (patches * weights.unsqueeze(-1)).sum(dim=1) /
+                weights.sum(dim=1, keepdim=True).clamp_min(1e-6),
+                dim=-1,
+            )
 
         return embedding[0].float().cpu().tolist()
     }
 
+    $py def localizeImage {Image image {list list num} embeddings} {
+        if not embeddings:
+            return []
+
+        score_maps, grid_width, grid_height = localization_score_maps(
+            image, embeddings
+        )
+        maxima, indices = score_maps.flatten(1).max(dim=1)
+
+        results = []
+        for score, index in zip(maxima, indices):
+            index = int(index)
+            x = ((index % grid_width) + 0.5) / grid_width * image.width
+            y = ((index // grid_width) + 0.5) / grid_height * image.height
+            results.append([float(score), x, y])
+        return results
+    }
+
+    $py def heatmapsImage {Image image {list list num} embeddings} {
+        if not embeddings:
+            return []
+
+        score_maps, grid_width, grid_height = localization_score_maps(
+            image, embeddings
+        )
+        maps = score_maps.float().cpu().flatten(1).tolist()
+        return [grid_width, grid_height, maps]
+    }
+
+    fn DINOv2Localize {im embeddings} {
+        return [$py localizeImage $im $embeddings]
+    }
+    fn DINOv2Heatmaps {im embeddings} {
+        return [$py heatmapsImage $im $embeddings]
+    }
+
     fn DINOv2 {im} { return [$py embedImage $im] }
     Claim the DINOv2 image embedder is [fn DINOv2]
+    Claim the DINOv2 image localizer is [fn DINOv2Localize]
+    Claim the DINOv2 image heatmapper is [fn DINOv2Heatmaps]
 }
