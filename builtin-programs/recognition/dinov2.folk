@@ -30,9 +30,14 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
         else:
             device = "cpu"
 
-        model_name = "facebook/dinov2-small"
+        model_name = "facebook/dinov2-with-registers-small"
         processor = AutoImageProcessor.from_pretrained(model_name)
         model = AutoModel.from_pretrained(model_name).to(device).eval()
+
+        def spatial_patch_tokens(output):
+            """Discard CLS/register tokens and return image-grid tokens only."""
+            first_patch = 1 + getattr(model.config, "num_register_tokens", 0)
+            return output.last_hidden_state[:, first_patch:, :]
 
         def localization_score_maps(image, embeddings):
             inputs = processor(
@@ -46,9 +51,7 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
 
             with torch.inference_mode():
                 output = model(**inputs)
-                patches = F.normalize(
-                    output.last_hidden_state[:, 1:, :], dim=-1
-                )
+                patches = F.normalize(spatial_patch_tokens(output), dim=-1)
                 prototypes = F.normalize(
                     torch.tensor(
                         embeddings, dtype=patches.dtype, device=device
@@ -76,9 +79,7 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
             }
             with torch.inference_mode():
                 output = model(**inputs)
-                patches = F.normalize(
-                    output.last_hidden_state[:, 1:, :], dim=-1
-                )[0]
+                patches = F.normalize(spatial_patch_tokens(output), dim=-1)[0]
 
             patch_size = model.config.patch_size
             grid_height = inputs["pixel_values"].shape[-2] // patch_size
@@ -242,7 +243,7 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
 
         with torch.inference_mode():
             output = model(**inputs)
-            patches = output.last_hidden_state[:, 1:, :]
+            patches = spatial_patch_tokens(output)
             patch_size = model.config.patch_size
             foreground = F.interpolate(
                 foreground,
@@ -261,51 +262,11 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
         return embedding[0].float().cpu().tolist()
     }
 
-    $py def embedImageAt {Image image num x num y} {
-        rgb = image.convert("RGB")
-        foreground = torch.from_numpy(np.array(rgb, copy=True))
-        foreground = foreground.ne(128).any(dim=-1).float()[None, None]
-        inputs = processor(
-            images=rgb, return_tensors="pt", do_center_crop=False
-        )
-        inputs = {name: value.to(device) for name, value in inputs.items()}
-
-        with torch.inference_mode():
-            output = model(**inputs)
-            patches = output.last_hidden_state[:, 1:, :]
-            patch_size = model.config.patch_size
-            grid_height = inputs["pixel_values"].shape[-2] // patch_size
-            grid_width = inputs["pixel_values"].shape[-1] // patch_size
-            foreground = F.interpolate(
-                foreground,
-                size=inputs["pixel_values"].shape[-2:],
-                mode="area",
-            ).to(device)
-            weights = F.avg_pool2d(
-                foreground, kernel_size=patch_size, stride=patch_size
-            ).flatten(1)
-            object_embedding = F.normalize(
-                (patches * weights.unsqueeze(-1)).sum(dim=1) /
-                weights.sum(dim=1, keepdim=True).clamp_min(1e-6),
-                dim=-1,
-            )
-            patch_x = min(grid_width - 1, max(0, int(x / image.width * grid_width)))
-            patch_y = min(grid_height - 1, max(0, int(y / image.height * grid_height)))
-            center_embedding = F.normalize(
-                patches[:, patch_y * grid_width + patch_x, :], dim=-1
-            )
-
-        return [
-            object_embedding[0].float().cpu().tolist(),
-            center_embedding[0].float().cpu().tolist(),
-        ]
-    }
-
     $py def embedAnchoredImage {Image image num x num y} {
         rgb = image.convert("RGB")
         foreground = torch.from_numpy(np.array(rgb, copy=True))
         foreground = foreground.ne(128).any(dim=-1).float()[None, None]
-        patches, coordinates, grid_width, grid_height, inputs = \
+        patches, coordinates, _, _, inputs = \
             dense_patch_features(image)
         foreground = F.interpolate(
             foreground,
@@ -351,9 +312,6 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
             weights.sum().clamp_min(1e-6),
             dim=-1,
         )
-        center_index = int(((coordinates - center) ** 2).sum(dim=1).argmin())
-        center_embedding = patches[center_index]
-
         # A flat numeric value can be persisted directly in a Folk statement.
         feature_dimension = patches.shape[-1]
         anchor_model = [
@@ -367,7 +325,6 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
 
         return [
             object_embedding.float().cpu().tolist(),
-            center_embedding.float().cpu().tolist(),
             anchor_model,
         ]
     }
@@ -444,9 +401,6 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
     fn DINOv2Heatmaps {im embeddings} {
         return [$py heatmapsImage $im $embeddings]
     }
-    fn DINOv2At {im x y} {
-        return [$py embedImageAt $im $x $y]
-    }
     fn DINOv2Anchored {im x y} {
         return [$py embedAnchoredImage $im $x $y]
     }
@@ -458,7 +412,6 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
     Claim the DINOv2 image embedder is [fn DINOv2]
     Claim the DINOv2 image localizer is [fn DINOv2Localize]
     Claim the DINOv2 image heatmapper is [fn DINOv2Heatmaps]
-    Claim the DINOv2 anchored image embedder is [fn DINOv2At]
     Claim the DINOv2 anchored model embedder is [fn DINOv2Anchored]
     Claim the DINOv2 anchored model localizer is [fn DINOv2AnchoredLocalize]
 }
