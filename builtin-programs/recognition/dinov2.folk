@@ -15,6 +15,7 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
     defineImageArgtype $py
 
     $py exec {
+        import itertools
         import sys
 
         import numpy as np
@@ -62,6 +63,169 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
                 )
 
             return score_maps, grid_width, grid_height
+
+        def dense_patch_features(image):
+            """Return normalized DINO patches and their source-image centers."""
+            inputs = processor(
+                images=image.convert("RGB"),
+                return_tensors="pt",
+                do_center_crop=False,
+            )
+            inputs = {
+                name: value.to(device) for name, value in inputs.items()
+            }
+            with torch.inference_mode():
+                output = model(**inputs)
+                patches = F.normalize(
+                    output.last_hidden_state[:, 1:, :], dim=-1
+                )[0]
+
+            patch_size = model.config.patch_size
+            grid_height = inputs["pixel_values"].shape[-2] // patch_size
+            grid_width = inputs["pixel_values"].shape[-1] // patch_size
+            ys, xs = torch.meshgrid(
+                torch.arange(grid_height, device=device),
+                torch.arange(grid_width, device=device),
+                indexing="ij",
+            )
+            coordinates = torch.stack([
+                (xs.flatten() + 0.5) / grid_width * image.width,
+                (ys.flatten() + 0.5) / grid_height * image.height,
+            ], dim=-1)
+            return patches, coordinates, grid_width, grid_height, inputs
+
+        def fit_similarity(source, destination):
+            if len(source) < 2:
+                return None
+            source_mean = source.mean(axis=0)
+            destination_mean = destination.mean(axis=0)
+            centered_source = source - source_mean
+            centered_destination = destination - destination_mean
+            source_energy = float((centered_source ** 2).sum())
+            if source_energy < 1e-9:
+                return None
+
+            # Orthogonal Procrustes with a positive determinant: one rotation
+            # and one uniform scale, but never reflection, shear, or unequal
+            # X/Y scaling.
+            left, singular_values, right_t = np.linalg.svd(
+                centered_source.T @ centered_destination
+            )
+            correction = np.ones(2)
+            if np.linalg.det(left @ right_t) < 0.0:
+                correction[-1] = -1.0
+            rotation = left @ np.diag(correction) @ right_t
+            scale = float((singular_values * correction).sum() / source_energy)
+            if not np.isfinite(scale) or scale <= 0.:
+                return None
+            linear = scale * rotation
+            translation = destination_mean - source_mean @ linear
+            return np.vstack([linear, translation])
+
+        def apply_similarity(transform, points):
+            design = np.column_stack([
+                points[:, 0], points[:, 1], np.ones(len(points))
+            ])
+            return design @ transform
+
+        def robust_anchored_point(reference_coordinates, reference_features,
+                                  center, query_coordinates, query_features,
+                                  grid_width, grid_height, image):
+            similarities = reference_features @ query_features.T
+            scores, query_indices = similarities.max(dim=1)
+            reference_for_query = similarities.max(dim=0).indices
+            reference_indices = torch.arange(
+                len(reference_features), device=device
+            )
+            mutual = reference_for_query[query_indices] == reference_indices
+            candidates = torch.nonzero(mutual & (scores >= 0.20)).flatten()
+            if len(candidates) < 3:
+                return None
+
+            order = scores[candidates].argsort(descending=True)
+            candidates = candidates[order[:24]]
+            source = reference_coordinates[candidates].float().cpu().numpy()
+            # Refine each discrete best patch with a soft centroid of its 3x3
+            # similarity neighborhood. This retains sub-cell motion rather
+            # than making the final point jump only when an argmax changes.
+            refined_destinations = []
+            for reference_index in candidates.tolist():
+                peak = int(query_indices[reference_index])
+                peak_y, peak_x = divmod(peak, grid_width)
+                neighborhood = []
+                for query_y in range(max(0, peak_y - 1),
+                                     min(grid_height, peak_y + 2)):
+                    for query_x in range(max(0, peak_x - 1),
+                                         min(grid_width, peak_x + 2)):
+                        neighborhood.append(query_y * grid_width + query_x)
+                neighborhood = torch.tensor(neighborhood, device=device)
+                local_scores = similarities[reference_index, neighborhood]
+                local_weights = F.softmax(
+                    (local_scores - local_scores.max()) * 12.0, dim=0
+                )
+                refined_destinations.append(
+                    (query_coordinates[neighborhood] *
+                     local_weights.unsqueeze(-1)).sum(dim=0)
+                )
+            destination = torch.stack(
+                refined_destinations
+            ).float().cpu().numpy()
+            match_scores = scores[candidates].float().cpu().numpy()
+
+            cell = max(image.width / grid_width, image.height / grid_height)
+            threshold = max(2.0, 1.5 * cell)
+            best = None
+            count = len(source)
+            pair_count = count * (count - 1) // 2
+            if pair_count <= 256:
+                pairs = itertools.combinations(range(count), 2)
+            else:
+                # A fixed seed makes identical frames produce identical fits.
+                rng = np.random.default_rng(0)
+                sampled = set()
+                while len(sampled) < 256:
+                    sampled.add(tuple(sorted(
+                        rng.choice(count, size=2, replace=False).tolist()
+                    )))
+                pairs = sorted(sampled)
+            for pair in pairs:
+                sample = np.asarray(pair)
+                transform = fit_similarity(
+                    source[sample], destination[sample]
+                )
+                if transform is None:
+                    continue
+                predicted = apply_similarity(transform, source)
+                errors = np.linalg.norm(predicted - destination, axis=1)
+                inliers = errors <= threshold
+                inlier_count = int(inliers.sum())
+                if inlier_count < 3:
+                    continue
+                median_error = float(np.median(errors[inliers]))
+                support = float(match_scores[inliers].sum())
+                quality = (inlier_count, support, -median_error)
+                if best is None or quality > best[0]:
+                    best = (quality, inliers)
+
+            if best is None:
+                return None
+            inliers = best[1]
+            transform = fit_similarity(source[inliers], destination[inliers])
+            if transform is None:
+                return None
+            projected = apply_similarity(
+                transform, np.asarray(center, dtype=np.float64)[None]
+            )[0]
+            predicted = apply_similarity(transform, source[inliers])
+            error = float(np.median(np.linalg.norm(
+                predicted - destination[inliers], axis=1
+            )))
+            mean_similarity = float(match_scores[inliers].mean())
+            confidence = mean_similarity * min(1.0, int(inliers.sum()) / 8.0)
+            return [
+                confidence, float(projected[0]), float(projected[1]),
+                int(inliers.sum()), error,
+            ]
 
         print(f"dinov2: Loaded {model_name} on {device}.",
               file=sys.stderr, flush=True)
@@ -137,6 +301,111 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
         ]
     }
 
+    $py def embedAnchoredImage {Image image num x num y} {
+        rgb = image.convert("RGB")
+        foreground = torch.from_numpy(np.array(rgb, copy=True))
+        foreground = foreground.ne(128).any(dim=-1).float()[None, None]
+        patches, coordinates, grid_width, grid_height, inputs = \
+            dense_patch_features(image)
+        foreground = F.interpolate(
+            foreground,
+            size=inputs["pixel_values"].shape[-2:],
+            mode="area",
+        ).to(device)
+        weights = F.avg_pool2d(
+            foreground,
+            kernel_size=model.config.patch_size,
+            stride=model.config.patch_size,
+        ).flatten()
+
+        valid = torch.nonzero(weights >= 0.20).flatten()
+        if len(valid) < 3:
+            valid = torch.arange(len(patches), device=device)
+        center = torch.tensor([x, y], dtype=coordinates.dtype, device=device)
+        distances = ((coordinates[valid] - center) ** 2).sum(dim=1)
+
+        # Keep descriptors close to the annotation as well as descriptors
+        # distributed over the object. One ambiguous patch can no longer move
+        # the reported point by itself.
+        selected = valid[distances.argsort()[:min(8, len(valid))]].tolist()
+        selected_set = set(selected)
+        maximum_anchors = min(32, len(valid))
+        while len(selected) < maximum_anchors:
+            remaining = [
+                int(i) for i in valid.tolist() if int(i) not in selected_set
+            ]
+            if not remaining:
+                break
+            remaining_tensor = torch.tensor(remaining, device=device)
+            selected_tensor = torch.tensor(selected, device=device)
+            separation = torch.cdist(
+                coordinates[remaining_tensor], coordinates[selected_tensor]
+            ).min(dim=1).values
+            chosen = remaining[int(separation.argmax())]
+            selected.append(chosen)
+            selected_set.add(chosen)
+
+        selected_tensor = torch.tensor(selected, device=device)
+        object_embedding = F.normalize(
+            (patches * weights.unsqueeze(-1)).sum(dim=0) /
+            weights.sum().clamp_min(1e-6),
+            dim=-1,
+        )
+        center_index = int(((coordinates - center) ** 2).sum(dim=1).argmin())
+        center_embedding = patches[center_index]
+
+        # A flat numeric value can be persisted directly in a Folk statement.
+        feature_dimension = patches.shape[-1]
+        anchor_model = [
+            float(x), float(y), int(feature_dimension), len(selected)
+        ]
+        selected_coordinates = coordinates[selected_tensor].float().cpu()
+        selected_features = patches[selected_tensor].float().cpu()
+        for coordinate, feature in zip(selected_coordinates, selected_features):
+            anchor_model.extend([float(coordinate[0]), float(coordinate[1])])
+            anchor_model.extend(feature.tolist())
+
+        return [
+            object_embedding.float().cpu().tolist(),
+            center_embedding.float().cpu().tolist(),
+            anchor_model,
+        ]
+    }
+
+    $py def localizeAnchoredImage {Image image {list list num} anchor_models} {
+        if not anchor_models:
+            return []
+        query_features, query_coordinates, grid_width, grid_height, _ = \
+            dense_patch_features(image)
+        best = None
+        for pose_index, model_values in enumerate(anchor_models):
+            if len(model_values) < 4:
+                continue
+            center_x, center_y = model_values[0:2]
+            feature_dimension = int(model_values[2])
+            anchor_count = int(model_values[3])
+            stride = feature_dimension + 2
+            if len(model_values) != 4 + anchor_count * stride:
+                continue
+            model_tensor = torch.tensor(
+                model_values[4:], dtype=query_features.dtype, device=device
+            ).reshape(anchor_count, stride)
+            reference_coordinates = model_tensor[:, :2]
+            reference_features = F.normalize(model_tensor[:, 2:], dim=-1)
+            result = robust_anchored_point(
+                reference_coordinates, reference_features,
+                [center_x, center_y], query_coordinates, query_features,
+                grid_width, grid_height, image,
+            )
+            if result is None:
+                continue
+            result.append(pose_index)
+            if best is None or (result[0], result[3], -result[4]) > \
+                    (best[0], best[3], -best[4]):
+                best = result
+        return [] if best is None else best
+    }
+
     $py def localizeImage {Image image {list list num} embeddings} {
         if not embeddings:
             return []
@@ -178,10 +447,18 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
     fn DINOv2At {im x y} {
         return [$py embedImageAt $im $x $y]
     }
+    fn DINOv2Anchored {im x y} {
+        return [$py embedAnchoredImage $im $x $y]
+    }
+    fn DINOv2AnchoredLocalize {im anchorModels} {
+        return [$py localizeAnchoredImage $im $anchorModels]
+    }
 
     fn DINOv2 {im} { return [$py embedImage $im] }
     Claim the DINOv2 image embedder is [fn DINOv2]
     Claim the DINOv2 image localizer is [fn DINOv2Localize]
     Claim the DINOv2 image heatmapper is [fn DINOv2Heatmaps]
     Claim the DINOv2 anchored image embedder is [fn DINOv2At]
+    Claim the DINOv2 anchored model embedder is [fn DINOv2Anchored]
+    Claim the DINOv2 anchored model localizer is [fn DINOv2AnchoredLocalize]
 }
