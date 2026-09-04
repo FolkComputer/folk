@@ -93,6 +93,46 @@ When /someone/ wishes to load the DINOv2 image embedder &\
         return embedding[0].float().cpu().tolist()
     }
 
+    $py def embedImageAt {Image image num x num y} {
+        rgb = image.convert("RGB")
+        foreground = torch.from_numpy(np.array(rgb, copy=True))
+        foreground = foreground.ne(128).any(dim=-1).float()[None, None]
+        inputs = processor(
+            images=rgb, return_tensors="pt", do_center_crop=False
+        )
+        inputs = {name: value.to(device) for name, value in inputs.items()}
+
+        with torch.inference_mode():
+            output = model(**inputs)
+            patches = output.last_hidden_state[:, 1:, :]
+            patch_size = model.config.patch_size
+            grid_height = inputs["pixel_values"].shape[-2] // patch_size
+            grid_width = inputs["pixel_values"].shape[-1] // patch_size
+            foreground = F.interpolate(
+                foreground,
+                size=inputs["pixel_values"].shape[-2:],
+                mode="area",
+            ).to(device)
+            weights = F.avg_pool2d(
+                foreground, kernel_size=patch_size, stride=patch_size
+            ).flatten(1)
+            object_embedding = F.normalize(
+                (patches * weights.unsqueeze(-1)).sum(dim=1) /
+                weights.sum(dim=1, keepdim=True).clamp_min(1e-6),
+                dim=-1,
+            )
+            patch_x = min(grid_width - 1, max(0, int(x / image.width * grid_width)))
+            patch_y = min(grid_height - 1, max(0, int(y / image.height * grid_height)))
+            center_embedding = F.normalize(
+                patches[:, patch_y * grid_width + patch_x, :], dim=-1
+            )
+
+        return [
+            object_embedding[0].float().cpu().tolist(),
+            center_embedding[0].float().cpu().tolist(),
+        ]
+    }
+
     $py def localizeImage {Image image {list list num} embeddings} {
         if not embeddings:
             return []
@@ -107,7 +147,10 @@ When /someone/ wishes to load the DINOv2 image embedder &\
             index = int(index)
             x = ((index % grid_width) + 0.5) / grid_width * image.width
             y = ((index // grid_width) + 0.5) / grid_height * image.height
-            results.append([float(score), x, y])
+            results.append([
+                float(score), x, y,
+                image.width / grid_width, image.height / grid_height,
+            ])
         return results
     }
 
@@ -128,9 +171,13 @@ When /someone/ wishes to load the DINOv2 image embedder &\
     fn DINOv2Heatmaps {im embeddings} {
         return [$py heatmapsImage $im $embeddings]
     }
+    fn DINOv2At {im x y} {
+        return [$py embedImageAt $im $x $y]
+    }
 
     fn DINOv2 {im} { return [$py embedImage $im] }
     Claim the DINOv2 image embedder is [fn DINOv2]
     Claim the DINOv2 image localizer is [fn DINOv2Localize]
     Claim the DINOv2 image heatmapper is [fn DINOv2Heatmaps]
+    Claim the DINOv2 anchored image embedder is [fn DINOv2At]
 }
