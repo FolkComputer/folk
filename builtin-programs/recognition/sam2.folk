@@ -338,9 +338,9 @@ When /someone/ wishes to really load SAM2 &\
                     uint8_t m = maskData[y * im.width + x];
 
                     int idx = y * result.bytesPerRow + x * im.components;
-                    result.data[idx + 0] = m ? im.data[idx + 0] : 255;
-                    result.data[idx + 1] = m ? im.data[idx + 1] : 0;
-                    result.data[idx + 2] = m ? im.data[idx + 2] : 255;
+                    result.data[idx + 0] = m ? im.data[idx + 0] : 128;
+                    result.data[idx + 1] = m ? im.data[idx + 1] : 128;
+                    result.data[idx + 2] = m ? im.data[idx + 2] : 128;
                 }
             }
             return result;
