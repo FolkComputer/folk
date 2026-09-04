@@ -308,21 +308,31 @@ $cc proc warpQuad {Image im double[4][2] imVertices
     }
 
     for (int y = 0; y < outHeight; y++) {
-        uint8_t *dstRow = out.data + y * out.bytesPerRow;
+        uint8_t *dstPixel = out.data + y * out.bytesPerRow;
 
-        for (int x = 0; x < outWidth; x++) {
-            uint8_t *dstPixel = dstRow + x * out.components;
+        // A homography's numerator and denominator are linear in x. Step
+        // them across the scanline instead of evaluating six multiplies
+        // for every output pixel.
+        double numeratorX = H[1] * y + H[2];
+        double numeratorY = H[4] * y + H[5];
+        double denominator = H[7] * y + H[8];
 
-            double denom = H[6] * x + H[7] * y + H[8];
-            if (fabs(denom) < 1e-12) {
+        for (int x = 0; x < outWidth; x++, dstPixel += out.components) {
+            if (fabs(denominator) < 1e-12) {
                 for (int c = 0; c < im.components; c++) {
                     dstPixel[c] = 0;
                 }
+                numeratorX += H[0];
+                numeratorY += H[3];
+                denominator += H[6];
                 continue;
             }
 
-            double srcX = (H[0] * x + H[1] * y + H[2]) / denom;
-            double srcY = (H[3] * x + H[4] * y + H[5]) / denom;
+            double srcX = numeratorX / denominator;
+            double srcY = numeratorY / denominator;
+            numeratorX += H[0];
+            numeratorY += H[3];
+            denominator += H[6];
 
             int ix = (int)floor(srcX);
             int iy = (int)floor(srcY);
@@ -335,10 +345,22 @@ $cc proc warpQuad {Image im double[4][2] imVertices
                 uint8_t *p10 = p00 + im.components;
                 uint8_t *p01 = p00 + im.bytesPerRow;
                 uint8_t *p11 = p01 + im.components;
-                for (int c = 0; c < im.components; c++) {
-                    int top = p00[c] + ((fx * (p10[c] - p00[c])) >> 8);
-                    int bot = p01[c] + ((fx * (p11[c] - p01[c])) >> 8);
-                    dstPixel[c] = (uint8_t)(top + ((fy * (bot - top)) >> 8));
+
+                // Camera frames are RGB. Keeping this common case explicit
+                // lets the compiler unroll it despite components being a
+                // runtime field; retain the generic path for other images.
+                if (im.components == 3) {
+                    for (int c = 0; c < 3; c++) {
+                        int top = p00[c] + ((fx * (p10[c] - p00[c])) >> 8);
+                        int bot = p01[c] + ((fx * (p11[c] - p01[c])) >> 8);
+                        dstPixel[c] = (uint8_t)(top + ((fy * (bot - top)) >> 8));
+                    }
+                } else {
+                    for (int c = 0; c < im.components; c++) {
+                        int top = p00[c] + ((fx * (p10[c] - p00[c])) >> 8);
+                        int bot = p01[c] + ((fx * (p11[c] - p01[c])) >> 8);
+                        dstPixel[c] = (uint8_t)(top + ((fy * (bot - top)) >> 8));
+                    }
                 }
             } else if (ix >= 0 && ix < (int)im.width && iy >= 0 && iy < (int)im.height) {
                 uint8_t *srcPixel = im.data + iy * im.bytesPerRow + ix * im.components;
