@@ -1,0 +1,47 @@
+When when the DINOv2 image embedder is /any/ /any/ with environment /any/ {
+    Wish -keep 500ms to load the DINOv2 image embedder
+}
+
+When /someone/ wishes to load the DINOv2 image embedder &\
+     the image uvx argtype definer is /defineImageArgtype/ {
+    fn defineImageArgtype
+
+    set py [Uvx --with transformers --with pillow --with torch \
+                --with torchvision]
+    defineImageArgtype $py
+
+    $py exec {
+        import sys
+
+        import torch
+        import torch.nn.functional as F
+        from transformers import AutoImageProcessor, AutoModel
+
+        if torch.cuda.is_available():
+            device = "cuda"
+        elif torch.backends.mps.is_available():
+            device = "mps"
+        else:
+            device = "cpu"
+
+        model_name = "facebook/dinov2-small"
+        processor = AutoImageProcessor.from_pretrained(model_name)
+        model = AutoModel.from_pretrained(model_name).to(device).eval()
+        print(f"dinov2: Loaded {model_name} on {device}.",
+              file=sys.stderr, flush=True)
+    }
+
+    $py def embedImage {Image image} {
+        inputs = processor(images=image.convert("RGB"), return_tensors="pt")
+        inputs = {name: value.to(device) for name, value in inputs.items()}
+
+        with torch.inference_mode():
+            output = model(**inputs)
+            embedding = F.normalize(output.last_hidden_state[:, 0, :], dim=-1)
+
+        return embedding[0].float().cpu().tolist()
+    }
+
+    fn DINOv2 {im} { return [$py embedImage $im] }
+    Claim the DINOv2 image embedder is [fn DINOv2]
+}

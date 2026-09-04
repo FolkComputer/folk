@@ -53,6 +53,67 @@ $cc proc imageNew {int width int height int components int uniq} Image {
         .uniq = uniq
     };
 }
+$cc proc paddedCrop {Image im double paddingFraction int minimumPadding
+                     int backgroundR int backgroundG int backgroundB} Image {
+    FOLK_ENSURE(im.components >= 3);
+    FOLK_ENSURE(paddingFraction >= 0.0 && minimumPadding >= 0);
+
+    int minX = im.width;
+    int minY = im.height;
+    int maxX = -1;
+    int maxY = -1;
+    for (int y = 0; y < im.height; y++) {
+        for (int x = 0; x < im.width; x++) {
+            uint8_t *pixel = im.data + y * im.bytesPerRow + x * im.components;
+            if (pixel[0] == backgroundR &&
+                pixel[1] == backgroundG &&
+                pixel[2] == backgroundB) {
+                continue;
+            }
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+        }
+    }
+
+    int cropX = 0;
+    int cropY = 0;
+    int cropWidth = im.width;
+    int cropHeight = im.height;
+    if (maxX >= 0) {
+        int boxWidth = maxX - minX + 1;
+        int boxHeight = maxY - minY + 1;
+        int longestSide = boxWidth > boxHeight ? boxWidth : boxHeight;
+        int padding = (int)round(longestSide * paddingFraction);
+        if (padding < minimumPadding) padding = minimumPadding;
+
+        int size = longestSide + 2 * padding;
+        int maxSquareSize = im.width < im.height ? im.width : im.height;
+        if (size > maxSquareSize) size = maxSquareSize;
+
+        double centerX = (minX + maxX + 1) / 2.0;
+        double centerY = (minY + maxY + 1) / 2.0;
+        cropX = (int)round(centerX - size / 2.0);
+        cropY = (int)round(centerY - size / 2.0);
+        if (cropX < 0) cropX = 0;
+        if (cropY < 0) cropY = 0;
+        if (cropX > (int)im.width - size) cropX = im.width - size;
+        if (cropY > (int)im.height - size) cropY = im.height - size;
+        cropWidth = size;
+        cropHeight = size;
+    }
+
+    Image result = imageNew(cropWidth, cropHeight, im.components, im.uniq);
+    size_t rowBytes = (size_t)cropWidth * im.components;
+    for (int row = 0; row < cropHeight; row++) {
+        memcpy(result.data + row * result.bytesPerRow,
+               im.data + (cropY + row) * im.bytesPerRow +
+                   cropX * im.components,
+               rowBytes);
+    }
+    return result;
+}
 $cc proc imageFree {Image image} void {
     free(image.data);
 }
