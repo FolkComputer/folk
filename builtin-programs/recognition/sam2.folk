@@ -101,41 +101,6 @@ When /someone/ wishes to really load SAM2 &\
         print(f"sam2: Using device: {device}", file=sys.stderr, flush=True)
     }
 
-    $py def segment {Image image {list list num} pointCoords {list num} pointLabels} {
-        global predictor_initialized
-        image_np = np.array(image.convert("RGB"))
-        with predictor_lock, torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
-            if not predictor_initialized:
-                predictor.load_first_frame(image_np)
-                predictor_initialized = True
-                _, out_obj_ids, out_mask_logits = predictor.add_new_prompt(
-                    frame_idx=0,
-                    obj_id=1,
-                    points=pointCoords,
-                    labels=pointLabels,
-                )
-            else:
-                # takes ~25ms on folk-hex
-                out_obj_ids, out_mask_logits = predictor.track(image_np)
-
-        # takes ~40ms on folk-hex
-        masks = (out_mask_logits[:, 0] > 0).detach().cpu().numpy()
-        assert len(masks) == len(out_obj_ids), (
-            f"sam2: got {len(masks)} masks for {len(out_obj_ids)} object ids"
-        )
-
-        ret = bytearray()
-        ret.extend(struct.pack("<I", len(out_obj_ids)))
-
-        for idx, obj_id in enumerate(out_obj_ids):
-            mask = np.ascontiguousarray(masks[idx].astype(np.uint8) * 255)
-            mask_bytes = mask.tobytes()
-            ret.extend(struct.pack("<iI", int(obj_id), len(mask_bytes)))
-            ret.extend(mask_bytes)
-
-        return ret
-    }
-
     $py def addPrompt {Image image num objId {list list num} points {list num} labels num clearOldPoints} {
         global predictor_initialized
         image_np = np.array(image.convert("RGB"))
@@ -171,6 +136,46 @@ When /someone/ wishes to really load SAM2 &\
             mask_bytes = mask.tobytes()
             ret.extend(struct.pack("<iI", int(obj_id), len(mask_bytes)))
             ret.extend(mask_bytes)
+
+        return ret
+    }
+
+    $py def segment {Image image num objId {list list num} points {list num} labels} {
+        global predictor_initialized
+        image_np = np.array(image.convert("RGB"))
+        objId = int(objId)
+        points = [list(map(float, point)) for point in points]
+        labels = list(map(int, labels))
+
+        with predictor_lock, torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
+            if not predictor_initialized:
+                predictor.load_first_frame(image_np)
+                predictor_initialized = True
+            else:
+                predictor.load_prompt_frame(image_np)
+
+            try:
+                _, out_obj_ids, out_mask_logits = predictor.add_new_prompt_during_track(
+                    obj_id=objId,
+                    point=points,
+                    labels=labels,
+                    clear_old_points=True,
+                )
+
+                masks = (out_mask_logits[:, 0] > 0).detach().cpu().numpy()
+                assert len(masks) == len(out_obj_ids), (
+                    f"sam2: got {len(masks)} masks for {len(out_obj_ids)} object ids"
+                )
+
+                ret = bytearray()
+                ret.extend(struct.pack("<I", len(out_obj_ids)))
+                for idx, obj_id in enumerate(out_obj_ids):
+                    mask = np.ascontiguousarray(masks[idx].astype(np.uint8) * 255)
+                    mask_bytes = mask.tobytes()
+                    ret.extend(struct.pack("<iI", int(obj_id), len(mask_bytes)))
+                    ret.extend(mask_bytes)
+            finally:
+                predictor.discard_object_history(objId)
 
         return ret
     }
@@ -277,14 +282,14 @@ When /someone/ wishes to really load SAM2 &\
 
     fn decodeSAM2Masks
 
-    fn SAM2 args {
-        decodeSAM2Masks [$py segment {*}$args]
-    }
     fn SAM2Track args {
         decodeSAM2Masks [$py trackObjects {*}$args]
     }
     fn SAM2AddPrompt args {
         decodeSAM2Masks [$py addPrompt {*}$args]
+    }
+    fn SAM2Segment args {
+        decodeSAM2Masks [$py segment {*}$args]
     }
     fn sam2CheckpointObjectId {id} {
         set hash 0
@@ -300,9 +305,9 @@ When /someone/ wishes to really load SAM2 &\
     fn SAM2LoadObject {id filename} {
         $py loadObject [sam2CheckpointObjectId $id] $filename
     }
-    Claim the SAM2 segmenter is [fn SAM2]
     Claim the SAM2 object tracker is [fn SAM2Track]
     Claim the SAM2 prompt adder is [fn SAM2AddPrompt]
+    Claim the SAM2 segmenter is [fn SAM2Segment]
     Claim the SAM2 object saver is [fn SAM2SaveObject]
     Claim the SAM2 object loader is [fn SAM2LoadObject]
 
