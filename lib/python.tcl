@@ -196,23 +196,40 @@ import time
 folk_pid = $folkPid
 uvx_parent_pid = os.getppid()
 
-def process_is_zombie(pid):
+def process_has_live_threads(pid):
+    if not sys.platform.startswith("linux"):
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+
     try:
-        with open(f"/proc/{pid}/stat") as f:
-            return f.read().split()[2] == "Z"
+        thread_ids = os.listdir(f"/proc/{pid}/task")
     except OSError:
         return False
+
+    # On Linux, the process-group leader can become a zombie after its
+    # pthread exits while other threads in the same process keep running.
+    # Folk's main thread is also worker 0, so normal match cancellation can
+    # create exactly that state.  Do not mistake it for the whole process
+    # exiting.
+    for thread_id in thread_ids:
+        try:
+            with open(f"/proc/{pid}/task/{thread_id}/stat") as f:
+                if f.read().split()[2] != "Z":
+                    return True
+        except (OSError, IndexError):
+            # Threads may disappear while we inspect the task directory.
+            continue
+    return False
 
 def exit_when_parent_is_gone():
     while True:
         time.sleep(1)
         if os.getppid() != uvx_parent_pid:
             os._exit(0)
-        try:
-            os.kill(folk_pid, 0)
-        except OSError:
-            os._exit(0)
-        if process_is_zombie(folk_pid):
+        if not process_has_live_threads(folk_pid):
             os._exit(0)
 
 threading.Thread(target=exit_when_parent_is_gone, daemon=True).start()
