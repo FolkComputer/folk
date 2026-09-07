@@ -20,6 +20,7 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
         import numpy as np
         import torch
         import torch.nn.functional as F
+        from PIL import Image
         from transformers import AutoImageProcessor, AutoModel
 
         if torch.cuda.is_available():
@@ -32,6 +33,7 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
         model_name = "facebook/dinov2-with-registers-small"
         processor = AutoImageProcessor.from_pretrained(model_name)
         model = AutoModel.from_pretrained(model_name).to(device).eval()
+        template_cache = {}
 
         def spatial_patch_tokens(output):
             """Discard CLS/register tokens and return image-grid tokens only."""
@@ -65,6 +67,76 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
                 )
 
             return score_maps, grid_width, grid_height
+
+        def ncc_template(filename):
+            if filename in template_cache:
+                return template_cache[filename]
+            rgb = np.array(Image.open(filename).convert("RGB"), copy=True)
+            image_height, image_width = rgb.shape[:2]
+            mask = np.any(rgb != 128, axis=-1)
+            ys, xs = np.nonzero(mask)
+            if not len(xs):
+                raise ValueError(f"empty registration template: {filename}")
+            left, right = xs.min(), xs.max() + 1
+            top, bottom = ys.min(), ys.max() + 1
+            rgb = torch.from_numpy(rgb[top:bottom, left:right]).to(device)
+            gray = (rgb.float() @ torch.tensor(
+                [0.299, 0.587, 0.114], device=device
+            ) / 255.0)[None, None]
+            mask = torch.from_numpy(mask[top:bottom, left:right]).to(
+                device=device, dtype=torch.float32
+            )[None, None]
+            count = mask.sum()
+            centered = (gray - (gray * mask).sum() / count) * mask
+            result = (
+                centered, mask, centered.square().sum().sqrt(),
+                (image_width - 1) / 2.0 - left,
+                (image_height - 1) / 2.0 - top,
+            )
+            template_cache[filename] = result
+            return result
+
+        def ncc_center(image, filename, coarse_x, coarse_y, radius):
+            template, mask, template_norm, center_x, center_y = \
+                ncc_template(filename)
+            height, width = template.shape[-2:]
+            min_left = max(0, int(np.floor(coarse_x - center_x - radius)))
+            max_left = min(
+                image.width - width,
+                int(np.ceil(coarse_x - center_x + radius)),
+            )
+            min_top = max(0, int(np.floor(coarse_y - center_y - radius)))
+            max_top = min(
+                image.height - height,
+                int(np.ceil(coarse_y - center_y + radius)),
+            )
+            if min_left > max_left or min_top > max_top:
+                return None
+            search = np.array(image.crop((
+                min_left, min_top, max_left + width, max_top + height
+            )), copy=True)
+            search = torch.from_numpy(search).to(device).float()
+            search = (search @ torch.tensor(
+                [0.299, 0.587, 0.114], device=device
+            ) / 255.0)[None, None]
+            count = mask.sum()
+            with torch.inference_mode():
+                numerator = F.conv2d(search, template)
+                total = F.conv2d(search, mask)
+                square_total = F.conv2d(search.square(), mask)
+                window_norm = (square_total - total.square() / count).clamp_min(
+                    1e-12
+                ).sqrt()
+                scores = numerator / (template_norm * window_norm).clamp_min(
+                    1e-12
+                )
+                score, index = scores.flatten().max(dim=0)
+            match_x = int(index) % scores.shape[-1]
+            match_y = int(index) // scores.shape[-1]
+            return [
+                float(score), min_left + match_x + center_x,
+                min_top + match_y + center_y,
+            ]
 
         print(f"dinov2: Loaded {model_name} on {device}.",
               file=sys.stderr, flush=True)
@@ -100,61 +172,24 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
         return embedding[0].float().cpu().tolist()
     }
 
-    $py def embedCenteredImage {Image image num x num y} {
-        rgb = image.convert("RGB")
-        foreground = torch.from_numpy(np.array(rgb, copy=True))
-        foreground = foreground.ne(128).any(dim=-1).float()[None, None]
-        inputs = processor(
-            images=rgb, return_tensors="pt", do_center_crop=False
-        )
-        inputs = {name: value.to(device) for name, value in inputs.items()}
-
-        with torch.inference_mode():
-            output = model(**inputs)
-            patches = spatial_patch_tokens(output)
-            patch_size = model.config.patch_size
-            grid_height = inputs["pixel_values"].shape[-2] // patch_size
-            grid_width = inputs["pixel_values"].shape[-1] // patch_size
-            foreground = F.interpolate(
-                foreground,
-                size=inputs["pixel_values"].shape[-2:],
-                mode="area",
-            ).to(device)
-            weights = F.avg_pool2d(
-                foreground, kernel_size=patch_size, stride=patch_size
-            ).flatten(1)
-            object_embedding = F.normalize(
-                (patches * weights.unsqueeze(-1)).sum(dim=1) /
-                weights.sum(dim=1, keepdim=True).clamp_min(1e-6),
-                dim=-1,
-            )
-            patch_x = min(
-                grid_width - 1, max(0, int(x / image.width * grid_width))
-            )
-            patch_y = min(
-                grid_height - 1, max(0, int(y / image.height * grid_height))
-            )
-            center_embedding = F.normalize(
-                patches[:, patch_y * grid_width + patch_x, :], dim=-1
-            )
-
-        return [
-            object_embedding[0].float().cpu().tolist(),
-            center_embedding[0].float().cpu().tolist(),
-        ]
-    }
-
     $py def localizeObjectCenters {
             Image image
-            {list list num} object_embeddings
-            {list list num} center_embeddings
+            {list list list num} object_embeddings
+            {list list str} template_filenames
+            num coarse_threshold
             num radius_cells} {
         if not object_embeddings:
             return []
-        if len(object_embeddings) != len(center_embeddings):
+        if len(object_embeddings) != len(template_filenames):
             raise ValueError(
-                "object and center embedding counts must be equal"
+                "object embedding and template counts must be equal"
             )
+        pose_counts = [len(poses) for poses in object_embeddings]
+        if any(count == 0 for count in pose_counts):
+            raise ValueError("each object must have at least one pose")
+        if any(len(filenames) != count for filenames, count in zip(
+                template_filenames, pose_counts)):
+            raise ValueError("embedding and template pose counts must match")
 
         inputs = processor(
             images=image.convert("RGB"),
@@ -167,13 +202,10 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
             patches = F.normalize(spatial_patch_tokens(output), dim=-1)
             object_prototypes = F.normalize(
                 torch.tensor(
-                    object_embeddings, dtype=patches.dtype, device=device
-                ),
-                dim=-1,
-            )
-            center_prototypes = F.normalize(
-                torch.tensor(
-                    center_embeddings, dtype=patches.dtype, device=device
+                    [embedding for poses in object_embeddings
+                     for embedding in poses],
+                    dtype=patches.dtype,
+                    device=device,
                 ),
                 dim=-1,
             )
@@ -181,37 +213,36 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
             grid_height = inputs["pixel_values"].shape[-2] // patch_size
             grid_width = inputs["pixel_values"].shape[-1] // patch_size
             object_maps = (patches[0] @ object_prototypes.T).T.reshape(
-                len(object_embeddings), grid_height, grid_width
+                sum(pose_counts), grid_height, grid_width
             )
-            center_maps = (patches[0] @ center_prototypes.T).T.reshape(
-                len(center_embeddings), grid_height, grid_width
-            )
-            coarse_scores, coarse_indices = \
-                object_maps.flatten(1).max(dim=1)
 
-            radius = max(0, int(np.ceil(radius_cells)))
+            cell_width = image.width / grid_width
+            cell_height = image.height / grid_height
+            radius = radius_cells * max(cell_width, cell_height)
             results = []
-            for pose, (coarse_score, coarse_index) in enumerate(zip(
-                    coarse_scores, coarse_indices)):
-                coarse_index = int(coarse_index)
-                coarse_x = coarse_index % grid_width
-                coarse_y = coarse_index // grid_width
-                x0 = max(0, coarse_x - radius)
-                x1 = min(grid_width, coarse_x + radius + 1)
-                y0 = max(0, coarse_y - radius)
-                y1 = min(grid_height, coarse_y + radius + 1)
-                local_map = center_maps[pose, y0:y1, x0:x1]
-                center_score, local_index = local_map.flatten().max(dim=0)
-                local_index = int(local_index)
-                center_x = x0 + local_index % (x1 - x0)
-                center_y = y0 + local_index // (x1 - x0)
-                pixel_x = (center_x + 0.5) / grid_width * image.width
-                pixel_y = (center_y + 0.5) / grid_height * image.height
+            offset = 0
+            for filenames, pose_count in zip(template_filenames, pose_counts):
+                pose_maps = object_maps[offset:offset + pose_count]
+                pose_scores, pose_indices = pose_maps.flatten(1).max(dim=1)
+                pose = int(pose_scores.argmax())
+                coarse_score = float(pose_scores[pose])
+                coarse_index = int(pose_indices[pose])
+                coarse_x = ((coarse_index % grid_width) + 0.5) * cell_width
+                coarse_y = ((coarse_index // grid_width) + 0.5) * cell_height
+                match = None if coarse_score < coarse_threshold else \
+                    ncc_center(
+                        image.convert("RGB"), filenames[pose],
+                        coarse_x, coarse_y, radius,
+                    )
+                center_score, pixel_x, pixel_y = match or [
+                    -2.0, coarse_x, coarse_y
+                ]
                 results.append([
-                    float(coarse_score), float(center_score),
+                    coarse_score, center_score,
                     pixel_x, pixel_y,
-                    image.width / grid_width, image.height / grid_height,
+                    1.0, 1.0,
                 ])
+                offset += pose_count
         return results
     }
 
@@ -229,19 +260,15 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
     fn DINOv2Heatmaps {im embeddings} {
         return [$py heatmapsImage $im $embeddings]
     }
-    fn DINOv2Centered {im x y} {
-        return [$py embedCenteredImage $im $x $y]
-    }
     fn DINOv2LocalizeObjectCenters {
-            im embeddings centerEmbeddings radiusCells} {
+            im embeddings templateFilenames coarseThreshold radiusCells} {
         return [$py localizeObjectCenters \
-            $im $embeddings $centerEmbeddings $radiusCells]
+            $im $embeddings $templateFilenames $coarseThreshold $radiusCells]
     }
 
     fn DINOv2 {im} { return [$py embedImage $im] }
     Claim the DINOv2 image embedder is [fn DINOv2]
     Claim the DINOv2 image heatmapper is [fn DINOv2Heatmaps]
-    Claim the DINOv2 centered image embedder is [fn DINOv2Centered]
     Claim the DINOv2 object center localizer is \
         [fn DINOv2LocalizeObjectCenters]
 }
