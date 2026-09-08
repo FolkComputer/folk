@@ -25,7 +25,7 @@ $cc include <string.h>
 $cc include <stdlib.h>
 
 $cc proc sockConnect {char* path} int {
-    for (int i = 0; i < 200; i++) {
+    for (int i = 0; i < 1000; i++) {
         int fd = socket(AF_UNIX, SOCK_STREAM, 0);
         if (fd < 0) { usleep(1000000); continue; }
         struct sockaddr_un addr;
