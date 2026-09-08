@@ -156,7 +156,7 @@ proc applyBlock {body envStack} {pid} {
             # command-space. We want to reload this one when it
             # gets called.
             try {
-                rename [string index $name 1 end] {}
+                rename [string range $name 1 end] {}
             } on error e {}
         }
     }
