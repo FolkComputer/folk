@@ -176,7 +176,9 @@ fn HtmlWhen args {
     }]
 }
 
-proc handleRead {chan addr} {
+# Route handlers need HtmlWhen in their lexical environment: applyBlock may
+# clear its cached command while rendering a nested HTML block.
+proc handleRead {chan addr} {^HtmlWhen} {
     $chan buffering none
 
     gets $chan line; set line [string range $line 0 end-1]
@@ -211,7 +213,7 @@ proc handleRead {chan addr} {
                     set ^json [proc json {body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: application/json; charset=utf-8\n\n" body $body}]
 
                     if {[lindex $handler 0] eq "applyBlock"} {
-                        set env [dict create QUERY $QUERY]
+                        set env [dict create QUERY $QUERY ^HtmlWhen ${^HtmlWhen}]
                         loop i [llength $vars] {
                             dict set env $i [lindex $vars $i]
                         }
