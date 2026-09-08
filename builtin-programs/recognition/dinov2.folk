@@ -11,11 +11,17 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
     fn defineImageArgtype
 
     set py [Uvx --with transformers --with pillow --with torch \
-                --with torchvision]
+                --with torchvision \
+                {*}$([file exists /etc/OpenCL/vendors/intel.icd] ?
+                  [list --with openvino] : [list])]
     defineImageArgtype $py
 
     $py exec {
         import sys
+        import importlib.util
+        from functools import lru_cache
+        from threading import Lock
+        from types import SimpleNamespace
 
         import numpy as np
         import torch
@@ -33,6 +39,42 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
         model_name = "facebook/dinov2-with-registers-small"
         processor = AutoImageProcessor.from_pretrained(model_name)
         model = AutoModel.from_pretrained(model_name).to(device).eval()
+        infer = model
+        backend = device
+        if device == "cpu" and importlib.util.find_spec("openvino"):
+            import openvino as ov
+            core = ov.Core()
+            if "GPU" in core.available_devices:
+                class Features(torch.nn.Module):
+                    def __init__(self):
+                        super().__init__()
+                        self.model = model
+
+                    def forward(self, pixel_values):
+                        return self.model(pixel_values=pixel_values).last_hidden_state
+
+                features = Features().eval()
+                inference_lock = Lock()
+
+                # Slices can change shape; bound the GPU model cache.
+                @lru_cache(maxsize=4)
+                def compiled_features(shape):
+                    converted = ov.convert_model(
+                        features, example_input=torch.zeros(shape), input=[list(shape)]
+                    )
+                    return core.compile_model(
+                        converted, "GPU", {"PERFORMANCE_HINT": "LATENCY"}
+                    )
+
+                def infer(pixel_values):
+                    # CompiledModel.__call__ reuses a request. Copy its output
+                    # before another embedding/heatmap call can overwrite it.
+                    with inference_lock:
+                        compiled = compiled_features(tuple(pixel_values.shape))
+                        hidden = compiled([pixel_values.numpy()])[0].copy()
+                    return SimpleNamespace(last_hidden_state=torch.from_numpy(hidden))
+
+                backend = "openvino:GPU"
         template_cache = {}
 
         def spatial_patch_tokens(output):
@@ -51,7 +93,7 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
             }
 
             with torch.inference_mode():
-                output = model(**inputs)
+                output = infer(**inputs)
                 patches = F.normalize(spatial_patch_tokens(output), dim=-1)
                 prototypes = F.normalize(
                     torch.tensor(
@@ -138,7 +180,7 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
                 min_top + match_y + center_y,
             ]
 
-        print(f"dinov2: Loaded {model_name} on {device}.",
+        print(f"dinov2: Loaded {model_name} on {backend}.",
               file=sys.stderr, flush=True)
     }
 
@@ -152,7 +194,7 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
         inputs = {name: value.to(device) for name, value in inputs.items()}
 
         with torch.inference_mode():
-            output = model(**inputs)
+            output = infer(**inputs)
             patches = spatial_patch_tokens(output)
             patch_size = model.config.patch_size
             foreground = F.interpolate(
@@ -198,7 +240,7 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
         )
         inputs = {name: value.to(device) for name, value in inputs.items()}
         with torch.inference_mode():
-            output = model(**inputs)
+            output = infer(**inputs)
             patches = F.normalize(spatial_patch_tokens(output), dim=-1)
             object_prototypes = F.normalize(
                 torch.tensor(
