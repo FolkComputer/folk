@@ -125,13 +125,21 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
             gray = (rgb.float() @ torch.tensor(
                 [0.299, 0.587, 0.114], device=device
             ) / 255.0)[None, None]
-            mask = torch.from_numpy(mask[top:bottom, left:right]).to(
+            # Gaussian centered on the original registration point, not the
+            # foreground bounds: half weight halfway to each image edge.
+            y, x = np.ogrid[top:bottom, left:right]
+            distance2 = (
+                ((x - (image_width - 1) / 2.0) / max((image_width - 1) / 4.0, 1.0)) ** 2 +
+                ((y - (image_height - 1) / 2.0) / max((image_height - 1) / 4.0, 1.0)) ** 2
+            )
+            mask = mask[top:bottom, left:right] * np.exp(-np.log(2.0) * distance2)
+            mask = torch.from_numpy(mask).to(
                 device=device, dtype=torch.float32
             )[None, None]
             count = mask.sum()
-            centered = (gray - (gray * mask).sum() / count) * mask
+            centered = gray - (gray * mask).sum() / count
             result = (
-                centered, mask, centered.square().sum().sqrt(),
+                centered * mask, mask, (centered.square() * mask).sum().sqrt(),
                 (image_width - 1) / 2.0 - left,
                 (image_height - 1) / 2.0 - top,
             )
@@ -141,6 +149,12 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
         def ncc_center(image, filename, coarse_x, coarse_y, radius):
             template, mask, template_norm, center_x, center_y = \
                 ncc_template(filename)
+            count = mask.sum()
+            # Correlation is undefined for flat templates/windows. Require at
+            # least one grayscale level of standard deviation (on a 0-1 scale).
+            min_energy = count * (1.0 / 255.0) ** 2
+            if template_norm.square() <= min_energy:
+                return None
             height, width = template.shape[-2:]
             min_left = max(0, int(np.floor(coarse_x - center_x - radius)))
             max_left = min(
@@ -161,18 +175,19 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
             search = (search @ torch.tensor(
                 [0.299, 0.587, 0.114], device=device
             ) / 255.0)[None, None]
-            count = mask.sum()
+            # Remove the ROI's DC level before variance calculations to reduce
+            # cancellation on uniform backgrounds; each window is still centered.
+            search = search - search.mean()
             with torch.inference_mode():
-                numerator = F.conv2d(search, template)
                 total = F.conv2d(search, mask)
+                numerator = F.conv2d(search, template) - total * template.sum() / count
                 square_total = F.conv2d(search.square(), mask)
-                window_norm = (square_total - total.square() / count).clamp_min(
-                    1e-12
-                ).sqrt()
-                scores = numerator / (template_norm * window_norm).clamp_min(
-                    1e-12
-                )
+                window_energy = (square_total - total.square() / count).clamp_min(0)
+                scores = numerator / (template_norm * window_energy.clamp_min(1e-12).sqrt())
+                scores = scores.clamp(-1.0, 1.0).masked_fill(window_energy <= min_energy, -2.0)
                 score, index = scores.flatten().max(dim=0)
+            if float(score) < -1.0:
+                return None
             match_x = int(index) % scores.shape[-1]
             match_y = int(index) // scores.shape[-1]
             return [
