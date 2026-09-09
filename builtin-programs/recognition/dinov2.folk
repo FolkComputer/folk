@@ -146,7 +146,7 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
             template_cache[filename] = result
             return result
 
-        def ncc_center(image, filename, coarse_x, coarse_y, radius):
+        def ncc_center(image, filename, coarse_x, coarse_y, radius, cell_size):
             template, mask, template_norm, center_x, center_y = \
                 ncc_template(filename)
             count = mask.sum()
@@ -185,7 +185,15 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
                 window_energy = (square_total - total.square() / count).clamp_min(0)
                 scores = numerator / (template_norm * window_energy.clamp_min(1e-12).sqrt())
                 scores = scores.clamp(-1.0, 1.0).masked_fill(window_energy <= min_energy, -2.0)
-                score, index = scores.flatten().max(dim=0)
+                # Rank by proximity to DINO, but return raw NCC for confidence.
+                dx = (torch.arange(scores.shape[-1], device=device) +
+                      min_left + center_x - coarse_x) / cell_size
+                dy = (torch.arange(scores.shape[-2], device=device) +
+                      min_top + center_y - coarse_y) / cell_size
+                ranks = scores - 0.02 * (dy[:, None].square() + dx[None, :].square())
+                ranks = ranks.masked_fill(scores < -1.0, -torch.inf)
+                index = ranks.flatten().argmax()
+                score = scores.flatten()[index]
             if float(score) < -1.0:
                 return None
             match_x = int(index) % scores.shape[-1]
@@ -289,7 +297,7 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
                 match = None if coarse_score < coarse_threshold else \
                     ncc_center(
                         image.convert("RGB"), filenames[pose],
-                        coarse_x, coarse_y, radius,
+                        coarse_x, coarse_y, radius, max(cell_width, cell_height),
                     )
                 center_score, pixel_x, pixel_y = match or [
                     -2.0, coarse_x, coarse_y
