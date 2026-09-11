@@ -145,9 +145,15 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
 // destroyed.
 // 
 // The new Match is returned acquired and needs to be released by the
-// caller. On success, atomicallyVersion receives the match's version, with
-// one inflight operation owned by the caller. If freshAtomically is non-NULL,
-// create and pin that version before exposing the match to parent removal.
+// caller.
+//
+// On successful attachment:
+// - If freshAtomically is non-NULL, create and pin a fresh version
+//   within it and set *atomicallyVersion to that version.
+// - Otherwise, if *atomicallyVersion is non-NULL, increment its
+//   inflight count.
+// In either case, the caller owns one inflight operation and must
+// decrement it when the match finishes.
 Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
                      AtomicallyVersion** atomicallyVersion,
                      Atomically* freshAtomically,

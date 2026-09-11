@@ -1218,9 +1218,9 @@ static bool tryReuseStatement(Db* db, Statement* stmt, Match* parentMatch) {
     }
 }
 
-// Inserts a new statement with clause `clause` & returns a ref to
-// that newly created statement & sets outReusedStatementRef to a null
-// ref, UNLESS:
+// Inserts a new statement with clause `clause` & returns an acquired
+// pointer to that newly created statement & sets
+// outReusedStatementRef to a null ref, UNLESS:
 // 
 //   - a statement is already present with that clause, in which case
 //     we increment that statement's parent count & return a null ref

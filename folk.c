@@ -890,8 +890,28 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     const Term* capturedEnvStack = whenClause->terms[whenClause->nTerms - 1];
     Jim_Obj* envStackObj = termToJimObj(interp, capturedEnvStack);
 
-    // When's final metadata frame belongs to this rule, not its lexical
-    // environment. Consume it before attaching the match or evaluating Tcl.
+    // If the last frame in envStackObj is {__atomicallyKey KEY}, then
+    // it's a metadata frame that is telling us to make a fresh
+    // AtomicallyVersion on KEY, and we should consume that metadata
+    // frame before attaching the match or evaluating Tcl.
+    //
+    // If applicable, we need to create the fresh AtomicallyVersion
+    // before Tcl starts evaluation, so we need to get the Atomically
+    // for it here.
+    //
+    // (Why? Why not create the AtomicallyVersion inside Tcl, in the
+    // evaluated block? If you do that, then there is a risk that
+    // during Tcl evaluation, parent statement(s) get destroyed ->
+    // this match gets invalidated -> all its child statements fail to
+    // attach, so 0 inflight children -> this match converges
+    // immediately on Tcl evaluation completion, degenerately -> you
+    // now have a degenerate empty AtomicallyVersion and probably see
+    // a blink at the frontend. In contrast, when you create the
+    // AtomicallyVersion before evaluation, with parent
+    // childMatchesMutex held, 1. match will never make the
+    // AtomicallyVersion at all if invalidated first, or 2. the match
+    // will be preserved because it's already been made an Atomically
+    // root.)
     Atomically* freshAtomically = NULL;
     int nFrames = Jim_ListLength(interp, envStackObj);
     Jim_Obj* metadata = nFrames > 0 ? Jim_ListGetIndex(interp, envStackObj, nFrames - 1) : NULL;
