@@ -10,6 +10,7 @@ typedef struct Match Match;
 typedef struct Db Db;
 
 typedef struct AtomicallyVersion AtomicallyVersion;
+typedef struct Atomically Atomically;
 
 typedef struct Destructor Destructor;
 Destructor* destructorNew(void (*fn)(void*), void* arg);
@@ -80,7 +81,6 @@ void matchRelease(Db* db, Match* m);
 bool matchCheck(Db* db, MatchRef ref);
 
 AtomicallyVersion* matchAtomicallyVersion(Match* m);
-void matchSetAtomicallyVersion(Match* m, AtomicallyVersion* a);
 
 void matchAddDestructor(Match* m, Destructor* d);
 
@@ -109,15 +109,9 @@ typedef struct ResultSet {
 // Caller must free the returned ResultSet*.
 ResultSet* dbQuery(Db* db, Clause* pattern);
 
-// Creates and returns a new version (convergence-tracking subgraph)
-// on `key`.
-//
-// Copies `key` if needed (so the caller may safely free it
-// afterward). The returned pointer can be passed to Match and
-// Statement insertion to attach them to that version. The
-// AtomicallyVersion is guaranteed not to ever be freed.
-AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key,
-                                                 MatchRef rootMatchRef);
+// Resolve the key before taking parent locks. Copies key if needed; the
+// returned arena is owned by the DB and is never freed.
+Atomically* dbGetOrCreateAtomically(Db* db, const char* key);
 
 bool dbAtomicallyVersionHasConverged(AtomicallyVersion* atomicallyVersion);
 int dbAtomicallyVersionInflightCount(AtomicallyVersion* atomicallyVersion);
@@ -151,9 +145,12 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
 // destroyed.
 // 
 // The new Match is returned acquired and needs to be released by the
-// caller.
+// caller. On success, atomicallyVersion receives the match's version, with
+// one inflight operation owned by the caller. If freshAtomically is non-NULL,
+// create and pin that version before exposing the match to parent removal.
 Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
-                     AtomicallyVersion* atomicallyVersion,
+                     AtomicallyVersion** atomicallyVersion,
+                     Atomically* freshAtomically,
                      int workerThreadIndex);
 
 void dbRetractStatements(Db* db, Clause* pattern);

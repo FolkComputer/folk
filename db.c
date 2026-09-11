@@ -841,9 +841,6 @@ static void matchDestroy(Match* match) {
 AtomicallyVersion* matchAtomicallyVersion(Match* m) {
     return m->atomicallyVersion;
 }
-void matchSetAtomicallyVersion(Match* m, AtomicallyVersion* a) {
-    m->atomicallyVersion = a;
-}
 
 static bool statementChecker(void* db, uint64_t ref) {
     return statementCheck((Db*) db, (StatementRef) { .val = ref });
@@ -1004,8 +1001,7 @@ ResultSet* dbQuery(Db* db, Clause* pattern) {
     return resultSet;
 }
 
-AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key,
-                                                 MatchRef rootMatchRef) {
+Atomically* dbGetOrCreateAtomically(Db* db, const char* key) {
     mutexLock(&db->atomicallysMutex);
 
     Atomically* atomically = NULL;
@@ -1035,7 +1031,12 @@ AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key,
         exit(1);
     }
     mutexUnlock(&db->atomicallysMutex);
+    return atomically;
+}
 
+// Called with the root's parent locks held, before linking the root to them.
+static AtomicallyVersion* dbFreshAtomicallyVersion(Db* db, Atomically* atomically,
+                                                  MatchRef rootMatchRef) {
     AtomicallyVersion* atomicallyVersion = malloc(sizeof(AtomicallyVersion));
     atomicallyVersion->atomically = atomically;
 
@@ -1049,6 +1050,7 @@ AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key,
     atomicallyVersion->rootMatch = matchAcquire(db, rootMatchRef);
     assert(atomicallyVersion->rootMatch != NULL);
     atomicallyVersion->rootMatch->isAtomicallyRootMatch = true;
+    atomicallyVersion->rootMatch->atomicallyVersion = atomicallyVersion;
 
     // Add this version to atomically->allVersions list
     AtomicallyVersionList* newNode = malloc(sizeof(AtomicallyVersionList));
@@ -1406,9 +1408,10 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
 }
 
 Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
-                     AtomicallyVersion* atomicallyVersion,
+                     AtomicallyVersion** atomicallyVersion,
+                     Atomically* freshAtomically,
                      int workerThreadIndex) {
-    MatchRef ref = matchNew(db, atomicallyVersion, workerThreadIndex);
+    MatchRef ref = matchNew(db, *atomicallyVersion, workerThreadIndex);
     Match* match = matchAcquire(db, ref);
     assert(match != NULL);
 
@@ -1432,6 +1435,15 @@ Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
 
     // We have now acquired all parent statements and are holding
     // their childMatchesMutexes, and none have childMatches == NULL.
+
+    // Establish ownership before a parent can remove this match. Resolving
+    // the arena happened before these locks, so we don't take atomicallysMutex
+    // here (the timeout reaper takes that mutex before removing descendants).
+    if (freshAtomically != NULL) {
+        *atomicallyVersion = dbFreshAtomicallyVersion(db, freshAtomically, ref);
+    } else if (*atomicallyVersion != NULL) {
+        dbAtomicallyVersionInflightIncr(*atomicallyVersion);
+    }
 
     // Now we can do the actual insertion.
     for (int i = 0; i < nParents; i++) {

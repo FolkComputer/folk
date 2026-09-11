@@ -437,7 +437,7 @@ proc Say {args} {
 proc Claim {args} { upvar this this; tailcall Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
 proc Wish {args} { upvar this this; tailcall Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }
 # returns the statement to Say/Assert (minus the envStack), as well as all bound variable names
-proc desugarWhen {pattern body} {
+proc desugarWhen {pattern body {whenOptions {}}} {
     set varNamesWillBeBound [list]
     set isNegated false
     for {set i 0} {$i < [llength $pattern]} {incr i} {
@@ -453,7 +453,8 @@ proc desugarWhen {pattern body} {
                     lset remainingPattern $j \$$remainingVarName
                 }
             }
-            set body [list When {*}$remainingPattern $body]
+            set body [list When {*}$whenOptions {*}$remainingPattern $body]
+            set whenOptions {}
             break
 
         } elseif {[set varName [__scanVariable $term]] != 0} {
@@ -480,11 +481,11 @@ proc desugarWhen {pattern body} {
         return [list \
             [list when the collected results for $pattern are /__results/ \
                 $negateBody with environment] \
-            $varNamesWillBeBound]
+            $varNamesWillBeBound $whenOptions]
     } else {
         return [list \
             [list when {*}$pattern $body with environment] \
-            $varNamesWillBeBound]
+            $varNamesWillBeBound $whenOptions]
     }
 }
 proc When {args} {
@@ -570,18 +571,19 @@ proc When {args} {
         set body "$prologue\n$body"
     }
 
+    set whenOptions {}
     if {[llength $atomicallyVersion] == 2 &&
         [lindex $atomicallyVersion 0] eq "fresh"} {
-        # The AtomicallyVersion should be set _inside_ the When body,
-        # uniquely for each execution.
-        set key [lindex $atomicallyVersion 1]
-        set prologue [list __setFreshAtomicallyVersionOnKey $key]
-        set body "$prologue;$body"
-
+        set whenOptions [list -atomicallyWithKey [lindex $atomicallyVersion 1]]
         set atomicallyVersion {}
     }
 
-    lassign [desugarWhen $pattern $body] statement boundVars
+    lassign [desugarWhen $pattern $body $whenOptions] statement boundVars whenOptions
+    if {$whenOptions ne {}} {
+        # The runtime consumes this metadata before attaching the match and
+        # removes the frame before evaluation, so nested rules don't capture it.
+        lappend envStack [list __atomicallyKey [lindex $whenOptions 1]]
+    }
     lappend statement $envStack
 
     tailcall SayWithSource {*}$sourceInfo \

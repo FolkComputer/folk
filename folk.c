@@ -665,15 +665,6 @@ static int __threadIdFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return JIM_OK;
 }
 
-static int __setFreshAtomicallyVersionOnKeyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    assert(argc == 2);
-    const char* key = Jim_String(argv[1]);
-    self->currentAtomicallyVersion =
-        dbFreshAtomicallyVersionOnKey(db, key,
-                                      matchRef(db, self->currentMatch));
-    matchSetAtomicallyVersion(self->currentMatch, self->currentAtomicallyVersion);
-    return JIM_OK;
-}
 static int __currentAtomicallyVersionFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 1);
     if (self->currentAtomicallyVersion == NULL) {
@@ -758,7 +749,6 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "__db", __dbFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__threadId", __threadIdFunc, NULL, NULL);
 
-    Jim_CreateCommand(interp, "__setFreshAtomicallyVersionOnKey", __setFreshAtomicallyVersionOnKeyFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__currentAtomicallyVersion", __currentAtomicallyVersionFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__magicTraceStopIndicator", __magicTraceStopIndicatorFunc, NULL, NULL);
 
@@ -895,6 +885,28 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     Clause* whenClause = statementClause(when);
     Clause* stmtClause = stmt == NULL ? whenPattern : statementClause(stmt);
 
+    assert(whenClause->nTerms >= 5);
+    const Term* body = whenClause->terms[whenClause->nTerms - 4];
+    const Term* capturedEnvStack = whenClause->terms[whenClause->nTerms - 1];
+    Jim_Obj* envStackObj = termToJimObj(interp, capturedEnvStack);
+
+    // When's final metadata frame belongs to this rule, not its lexical
+    // environment. Consume it before attaching the match or evaluating Tcl.
+    Atomically* freshAtomically = NULL;
+    int nFrames = Jim_ListLength(interp, envStackObj);
+    Jim_Obj* metadata = nFrames > 0 ? Jim_ListGetIndex(interp, envStackObj, nFrames - 1) : NULL;
+    if (metadata != NULL && Jim_ListLength(interp, metadata) == 2 &&
+        strcmp(Jim_String(Jim_ListGetIndex(interp, metadata, 0)), "__atomicallyKey") == 0) {
+        freshAtomically = dbGetOrCreateAtomically(db,
+            Jim_String(Jim_ListGetIndex(interp, metadata, 1)));
+        Jim_Obj* lexicalEnv = Jim_NewListObj(interp, NULL, 0);
+        for (int i = 0; i < nFrames - 1; i++) {
+            Jim_ListAppendElement(interp, lexicalEnv, Jim_ListGetIndex(interp, envStackObj, i));
+        }
+        Jim_DecrRefCount(interp, envStackObj);
+        envStackObj = lexicalEnv;
+    }
+
     if (stmt != NULL) {
         StatementRef parents[] = { whenRef, stmtRef };
 
@@ -911,31 +923,25 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
         }
         atomicallyVersion = stmtAtomicallyVersion ?
             stmtAtomicallyVersion : whenAtomicallyVersion;
-        self->currentMatch = dbInsertMatch(db, 2, parents,
-                                           atomicallyVersion,
-                                           self->index);
         self->currentAtomicallyVersion = atomicallyVersion;
+        self->currentMatch = dbInsertMatch(db, 2, parents,
+                                           &self->currentAtomicallyVersion,
+                                           freshAtomically, self->index);
     } else {
         StatementRef parents[] = { whenRef };
-        self->currentMatch = dbInsertMatch(db, 1, parents,
-                                           statementAtomicallyVersion(when),
-                                           self->index);
         self->currentAtomicallyVersion = statementAtomicallyVersion(when);
-    }
-    if (self->currentAtomicallyVersion != NULL) {
-        dbAtomicallyVersionInflightIncr(self->currentAtomicallyVersion);
+        self->currentMatch = dbInsertMatch(db, 1, parents,
+                                           &self->currentAtomicallyVersion,
+                                           freshAtomically, self->index);
     }
     // We don't want to hang onto these inflight when running the
-    // block. (If we're keeping one, we've just incr-ed it for
-    // ourselves before this.)
+    // block. A successfully attached match already owns its inflight count.
     dbInflightDecr(db, when);
     dbInflightDecr(db, stmt);
 
     if (!self->currentMatch) {
-        if (self->currentAtomicallyVersion != NULL) {
-            dbAtomicallyVersionInflightDecr(db, self->currentAtomicallyVersion);
-        }
-
+        self->currentAtomicallyVersion = NULL;
+        Jim_DecrRefCount(interp, envStackObj);
         statementRelease(db, when);
         if (stmt != NULL) {
             statementRelease(db, stmt);
@@ -944,13 +950,6 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     }
     // make sure this is initialized
     self->inSubscription = false;
-
-    assert(whenClause->nTerms >= 5);
-
-    // when the time is /t/ /body/ with environment /capturedEnvStack/
-    const Term* body = whenClause->terms[whenClause->nTerms - 4];
-    const Term* capturedEnvStack = whenClause->terms[whenClause->nTerms - 1];
-    Jim_Obj *envStackObj = termToJimObj(interp, capturedEnvStack);
 
     int error = runBlock(whenPattern, stmtClause, body,
                          statementSourceFileName(when),
