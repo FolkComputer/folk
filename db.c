@@ -307,6 +307,11 @@ typedef struct AtomicallyVersion {
     // Atomically times out), we walk all older versions' rootMatches
     // and NULL them out.
     Match* _Atomic rootMatch;
+
+    // When any parent of rootMatch is removed, we set
+    // parentRemovedTime, which effectively starts the countdown to
+    // timeout for this version.
+    int64_t _Atomic parentRemovedTime; // 0 at creation.
 } AtomicallyVersion;
 
 typedef struct AtomicallyVersionList {
@@ -327,11 +332,16 @@ typedef struct Atomically {
 
     AtomicallyVersion* _Atomic latestConvergedVersion;
 
-    // Records the last time that a version of this Atomically
-    // converged. The sysmon will check this every 50ms or so and
-    // reap any Atomicallys that haven't converged in a while.
-    int64_t latestConvergedTime;
+    // An interval of nanoseconds (100,000,000 = 100ms).
     int64_t timeout;
+    // Timeout: Given a converged AtomicallyVersion, when:
+    // - it has `parentRemovedTime > 0`, meaning that a parent
+    //   actually has been removed, and
+    // - `<now> - parentRemovedTime` is greater than `timeout`, and
+    //   `timeout > 0`, meaning that it has a timeout & that timeout
+    //   has elapsed,
+    // that AtomicallyVersion is liable to be reaped, even if it is
+    // the latest converged version.
 } Atomically;
 
 typedef struct Db {
@@ -876,11 +886,13 @@ extern ThreadControlBlock threads[];
 extern void traceItem(char* buf, size_t bufsz, WorkQueueItem item);
 void matchRemoveSelf(Db* db, Match* match) {
     /* assert(match > &db->matchPool[0] && match < &db->matchPool[65536]); */
-    if (match->isAtomicallyRootMatch &&
-        atomic_load(&match->atomicallyVersion) != NULL) {
-        // The AtomicallyVersion owns this root until the reaper clears
-        // atomicallyVersion. Don't dereference it here: the reaper may be
-        // freeing it concurrently.
+    AtomicallyVersion* version = atomic_load(&match->atomicallyVersion);
+    if (match->isAtomicallyRootMatch && version != NULL) {
+        // Version objects outlive their roots. Record the first removal,
+        // without extending the grace period when another parent is removed.
+        int64_t expected = 0;
+        atomic_compare_exchange_strong(&version->parentRemovedTime, &expected,
+                                        timestamp_get(CLOCK_MONOTONIC));
         match->parentWasRemoved = true;
         if (atomic_load(&match->atomicallyVersion) != NULL) {
             return;
@@ -1021,7 +1033,6 @@ Atomically* dbGetOrCreateAtomically(Db* db, const char* key) {
                 atomically->nextNumber = 0;
                 atomically->allVersions = NULL;
                 atomically->timeout = 100000000; // 100ms
-                atomically->latestConvergedTime = 0;
                 break;
             }
         }
@@ -1043,10 +1054,12 @@ static AtomicallyVersion* dbFreshAtomicallyVersion(Db* db, Atomically* atomicall
     // FIXME: assert old values are bad, do something with refcount
 
     atomicallyVersion->number = atomically->nextNumber++;
-    // An AtomicallyVersion should start unconverged, assuming that it
-    // always gets set into a currently running (incomplete) match
-    // that can mark it as converged when done.
+    // An AtomicallyVersion starts unconverged (inflightCount > 0).
+    // The caller owns this inflightCount = 1; it must decr when
+    // finished. Downstream queued reactions and matches will in turn
+    // do their own matching incr and decr on inflightCount.
     atomicallyVersion->inflightCount = 1;
+    atomicallyVersion->parentRemovedTime = 0;
     atomicallyVersion->rootMatch = matchAcquire(db, rootMatchRef);
     assert(atomicallyVersion->rootMatch != NULL);
     atomicallyVersion->rootMatch->isAtomicallyRootMatch = true;
@@ -1068,7 +1081,7 @@ static AtomicallyVersion* dbFreshAtomicallyVersion(Db* db, Atomically* atomicall
 }
 static void dbAtomicallyReapAllVersions(Db* db, Atomically* atomically,
                                         AtomicallyVersion* newlyConvergedVersion,
-                                        bool onlyReapConvergedVersions) {
+                                        int64_t now) {
     // Swap out the entire list atomically, then process it after the
     // CAS loop.
     AtomicallyVersionList* allVersions;
@@ -1084,10 +1097,12 @@ static void dbAtomicallyReapAllVersions(Db* db, Atomically* atomically,
     AtomicallyVersionList* x = allVersions;
     while (x != NULL) {
         AtomicallyVersionList* next = x->next;
+        int64_t removedAt = x->version == NULL ? 0 : x->version->parentRemovedTime;
         if (x->version != NULL &&
             (newlyConvergedVersion == NULL ||
              x->version->number < newlyConvergedVersion->number) &&
-            (!onlyReapConvergedVersions || x->version->inflightCount == 0)) {
+            (now == 0 || (x->version->inflightCount == 0 &&
+                          removedAt != 0 && now - removedAt > atomically->timeout))) {
             // Old version - clear and free it
             Match* rootMatch = x->version->rootMatch;
             x->version->rootMatch = NULL;
@@ -1135,9 +1150,9 @@ void dbGarbageCollectAtomicallys(Db* db, int64_t now) {
     mutexLock(&db->atomicallysMutex);
     for (int i = 0; i < sizeof(db->atomicallys)/sizeof(db->atomicallys[0]); i++) {
         if (db->atomicallys[i].key != NULL &&
-            now - db->atomicallys[i].latestConvergedTime > db->atomicallys[i].timeout) {
+            db->atomicallys[i].timeout > 0) {
 
-            dbAtomicallyReapAllVersions(db, &db->atomicallys[i], NULL, true);
+            dbAtomicallyReapAllVersions(db, &db->atomicallys[i], NULL, now);
         }
     }
     mutexUnlock(&db->atomicallysMutex);
@@ -1182,8 +1197,7 @@ void dbAtomicallyVersionInflightDecr(Db* db, AtomicallyVersion* atomicallyVersio
     if (--atomicallyVersion->inflightCount == 0) {
         Atomically* atomically = atomicallyVersion->atomically;
         atomically->latestConvergedVersion = atomicallyVersion;
-        atomically->latestConvergedTime = timestamp_get(CLOCK_MONOTONIC);
-        dbAtomicallyReapAllVersions(db, atomically, atomicallyVersion, false);
+        dbAtomicallyReapAllVersions(db, atomically, atomicallyVersion, 0);
     }
     /* printf("dbAtomicallyVersionInflightDecr %p -> %d\n", */
     /*        atomicallyVersion, */
