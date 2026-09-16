@@ -497,6 +497,7 @@ proc When {args} {
     set isAfterAmpersand false
     set isNonCapturing false
     set isSerially false
+    set keepMs 0
     set atomicallyVersion "default"
 
     set pattern [list]
@@ -513,6 +514,13 @@ proc When {args} {
             set isNonCapturing true
         } elseif {$term eq "-serially"} {
             set isSerially true
+        } elseif {$term eq "-keep"} {
+            incr i; set keep [lindex $args $i]
+            set keepMs [string range $keep 0 end-2]
+            if {![string match {*ms} $keep] ||
+                ![string is integer -strict $keepMs] || $keepMs < 0} {
+                error "When: invalid keep value: $keep"
+            }
         } elseif {$term eq "-atomically"} {
             # Defer key construction until after the loop so the key
             # uses the full pattern, not just the terms parsed before
@@ -575,6 +583,11 @@ proc When {args} {
     if {[llength $atomicallyVersion] == 2 &&
         [lindex $atomicallyVersion 0] eq "fresh"} {
         set whenOptions [list -atomicallyWithKey [lindex $atomicallyVersion 1]]
+        if {[info exists keep]} { lappend whenOptions -keep $keep }
+        set atomicTimeout [expr {([info exists keep] ? $keepMs : 100) * 1000000}]
+        # For a fresh atomic version, keep controls its timeout, not the
+        # lifetime of the rule statement. Zero disables atomic expiry.
+        set keepMs 0
         set atomicallyVersion {}
     }
 
@@ -582,12 +595,14 @@ proc When {args} {
     if {$whenOptions ne {}} {
         # The runtime consumes this metadata before attaching the match and
         # removes the frame before evaluation, so nested rules don't capture it.
-        lappend envStack [list __atomicallyKey [lindex $whenOptions 1]]
+        set metadata [list __atomicallyKey [lindex $whenOptions 1]]
+        if {[info exists keep]} { lappend metadata $atomicTimeout }
+        lappend envStack $metadata
     }
     lappend statement $envStack
 
     tailcall SayWithSource {*}$sourceInfo \
-        0 $atomicallyVersion {} \
+        $keepMs $atomicallyVersion {} \
         {*}$statement
 }
 proc Subscribe: {args} {

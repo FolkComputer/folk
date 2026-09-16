@@ -1013,7 +1013,7 @@ ResultSet* dbQuery(Db* db, Clause* pattern) {
     return resultSet;
 }
 
-Atomically* dbGetOrCreateAtomically(Db* db, const char* key) {
+Atomically* dbGetOrCreateAtomically(Db* db, const char* key, int64_t timeout) {
     mutexLock(&db->atomicallysMutex);
 
     Atomically* atomically = NULL;
@@ -1032,7 +1032,6 @@ Atomically* dbGetOrCreateAtomically(Db* db, const char* key) {
                 atomically->key = strdup(key);
                 atomically->nextNumber = 0;
                 atomically->allVersions = NULL;
-                atomically->timeout = 100000000; // 100ms
                 break;
             }
         }
@@ -1041,6 +1040,7 @@ Atomically* dbGetOrCreateAtomically(Db* db, const char* key) {
         fprintf(stderr, "dbGetOrCreateAtomicallyByKey: Ran out of Atomically slots\n");
         exit(1);
     }
+    atomically->timeout = timeout;
     mutexUnlock(&db->atomicallysMutex);
     return atomically;
 }

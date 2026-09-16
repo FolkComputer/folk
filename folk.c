@@ -893,7 +893,8 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     // If the last frame in envStackObj is {__atomicallyKey KEY}, then
     // it's a metadata frame that is telling us to make a fresh
     // AtomicallyVersion on KEY, and we should consume that metadata
-    // frame before attaching the match or evaluating Tcl.
+    // frame before attaching the match or evaluating Tcl. An optional third
+    // element specifies the timeout in nanoseconds.
     //
     // If applicable, we need to create the fresh AtomicallyVersion
     // before Tcl starts evaluation, so we need to get the Atomically
@@ -915,10 +916,15 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     Atomically* freshAtomically = NULL;
     int nFrames = Jim_ListLength(interp, envStackObj);
     Jim_Obj* metadata = nFrames > 0 ? Jim_ListGetIndex(interp, envStackObj, nFrames - 1) : NULL;
-    if (metadata != NULL && Jim_ListLength(interp, metadata) == 2 &&
+    int metadataLen = metadata == NULL ? 0 : Jim_ListLength(interp, metadata);
+    if ((metadataLen == 2 || metadataLen == 3) &&
         strcmp(Jim_String(Jim_ListGetIndex(interp, metadata, 0)), "__atomicallyKey") == 0) {
+        jim_wide timeout = 100000000; // 100ms unless When supplies -keep.
+        if (metadataLen == 3) {
+            Jim_GetWide(interp, Jim_ListGetIndex(interp, metadata, 2), &timeout);
+        }
         freshAtomically = dbGetOrCreateAtomically(db,
-            Jim_String(Jim_ListGetIndex(interp, metadata, 1)));
+            Jim_String(Jim_ListGetIndex(interp, metadata, 1)), timeout);
         Jim_Obj* lexicalEnv = Jim_NewListObj(interp, NULL, 0);
         for (int i = 0; i < nFrames - 1; i++) {
             Jim_ListAppendElement(interp, lexicalEnv, Jim_ListGetIndex(interp, envStackObj, i));
