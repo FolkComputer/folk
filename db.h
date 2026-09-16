@@ -111,7 +111,7 @@ ResultSet* dbQuery(Db* db, Clause* pattern);
 
 // Resolve the key before taking parent locks. Copies key if needed; the
 // returned arena is owned by the DB and is never freed.
-Atomically* dbGetOrCreateAtomically(Db* db, const char* key);
+Atomically* dbGetOrCreateAtomically(Db* db, const char* key, int64_t timeout);
 
 bool dbAtomicallyVersionHasConverged(AtomicallyVersion* atomicallyVersion);
 int dbAtomicallyVersionInflightCount(AtomicallyVersion* atomicallyVersion);
