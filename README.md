@@ -101,6 +101,8 @@ press `Enter`)
 
 1.        sudo sh -c 'echo SUBSYSTEM=="input", GROUP="input", MODE="0666" > /etc/udev/rules.d/99-input.rules && udevadm control --reload-rules && udevadm trigger'
 
+1.  Clone this repository to /home/folk/folk. Run `make deps`.
+
 1.  Add the systemd service so it starts on boot and can be managed
     when you run it from laptop. On Ubuntu Server or Raspberry Pi OS
     (as root) ([from
@@ -134,10 +136,9 @@ the bottom of `/etc/sudoers` on the tabletop. (This lets the `make`
 scripts from your laptop manage the Folk service by running
 `systemctl` without needing a password.)
 
-To compile and run Folk:
+To compile and run Folk manually:
 
 ```
-$ make deps
 $ make && ./folk
 ```
 
