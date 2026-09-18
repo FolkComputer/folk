@@ -112,6 +112,28 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
 
             return score_maps, grid_width, grid_height
 
+        def reference_pose_angles(pose_angles, pose_counts):
+            # Empty entries preserve legacy, reference-relative rotations.
+            if not pose_angles:
+                return [None] * len(pose_counts)
+            if len(pose_angles) != len(pose_counts):
+                raise ValueError("pose angle and object counts must match")
+            result = []
+            for angles, count in zip(pose_angles, pose_counts):
+                if not angles:
+                    result.append(None)
+                elif len(angles) != count or not np.isfinite(angles).all():
+                    raise ValueError("each pose needs one finite angle in radians")
+                else:
+                    result.append(tuple(angles))
+            return result
+
+        def offset_match_rotation(match, offset):
+            if match is None:
+                return None
+            score, x, y, rotation = match
+            return [score, x, y, float((rotation + offset + np.pi) % (2 * np.pi) - np.pi)]
+
         def ncc_template(filename):
             if filename in template_cache:
                 return template_cache[filename]
@@ -361,7 +383,8 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
             {list list list num} object_embeddings
             {list list str} template_filenames
             num coarse_threshold
-            num radius_cells} {
+            num radius_cells
+            {list list num} pose_angles} {
         if not object_embeddings:
             return []
         if len(object_embeddings) != len(template_filenames):
@@ -374,6 +397,7 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
         if any(len(filenames) != count for filenames, count in zip(
                 template_filenames, pose_counts)):
             raise ValueError("embedding and template pose counts must match")
+        reference_angles = reference_pose_angles(pose_angles, pose_counts)
 
         inputs = processor(
             images=image.convert("RGB"),
@@ -404,14 +428,15 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
             cell_height = image.height / grid_height
             radius = radius_cells * max(cell_width, cell_height)
             results = []
-            # Expire tracks when objects disappear, callers stop, or image sizes
-            # change. A selected reference change starts a new angular search.
+            # Known reference angles let tracking survive reference switches.
+            # Legacy registrations still keep one track per selected reference.
             now = time.monotonic()
             for key, value in list(pose_cache.items()):
                 if now - value[0] > 1.0:
                     pose_cache.pop(key, None)
             offset = 0
-            for filenames, pose_count in zip(template_filenames, pose_counts):
+            for filenames, pose_count, angles in zip(
+                    template_filenames, pose_counts, reference_angles):
                 pose_maps = object_maps[offset:offset + pose_count]
                 pose_scores, pose_indices = pose_maps.flatten(1).max(dim=1)
                 pose = int(pose_scores.argmax())
@@ -419,18 +444,23 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
                 coarse_index = int(pose_indices[pose])
                 coarse_x = ((coarse_index % grid_width) + 0.5) * cell_width
                 coarse_y = ((coarse_index // grid_width) + 0.5) * cell_height
-                key = (tuple(filenames), pose, image.size)
+                reference_angle = angles[pose] if angles is not None else 0.0
+                key = (tuple(filenames), angles if angles is not None else pose, image.size)
                 cached = pose_cache.get(key)
                 previous = cached[1] if cached and cached[2] < 30 else None
                 if previous and max(abs(previous[1] - coarse_x),
                                     abs(previous[2] - coarse_y)) > radius:
                     previous = None
+                # NCC searches relative to this template; the cache and output
+                # use the common zero direction recorded during registration.
+                relative_previous = offset_match_rotation(previous, -reference_angle)
                 match = None if coarse_score < coarse_threshold else \
                     ncc_center(
                         image.convert("RGB"), filenames[pose],
                         coarse_x, coarse_y, radius, max(cell_width, cell_height),
-                        previous=previous,
+                        previous=relative_previous,
                     )
+                match = offset_match_rotation(match, reference_angle)
                 if match is not None and match[0] >= 0.65:
                     pose_cache[key] = (time.monotonic(), match,
                                        cached[2] + 1 if previous else 0)
@@ -440,7 +470,8 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
                     -2.0, coarse_x, coarse_y, 0.0
                 ]
                 # coarse confidence, NCC confidence, registration x/y, scale x/y,
-                # clockwise radians relative to the selected reference pose.
+                # clockwise radians in the registration's common frame when
+                # pose angles are supplied, otherwise relative to the reference.
                 # As before, NCC=-2 means refinement failed (angle then unknown).
                 results.append([
                     coarse_score, center_score,
@@ -466,9 +497,11 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
         return [$py heatmapsImage $im $embeddings]
     }
     fn DINOv2LocalizeObjectCenters {
-            im embeddings templateFilenames coarseThreshold radiusCells} {
+            im embeddings templateFilenames coarseThreshold radiusCells
+            {poseAngles {}}} {
         return [$py localizeObjectCenters \
-            $im $embeddings $templateFilenames $coarseThreshold $radiusCells]
+            $im $embeddings $templateFilenames $coarseThreshold $radiusCells \
+            $poseAngles]
     }
 
     fn DINOv2 {im} { return [$py embedImage $im] }
