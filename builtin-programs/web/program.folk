@@ -2,6 +2,11 @@ Wish the web server handles route {/program/(.*)$} with handler {
     set programName $1
     Require! $1 has program code /programCode/
 
+    set replacements [Query! /someone/ wishes program $programName is replaced with /...replacedOpts/]
+    if {[llength $replacements] > 0} {
+        set programCode [dict get [lindex $replacements 0] replacedOpts code]
+    }
+
     html [subst {
         <html>
         <head>
