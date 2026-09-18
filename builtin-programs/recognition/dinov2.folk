@@ -136,19 +136,58 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
             mask = torch.from_numpy(mask).to(
                 device=device, dtype=torch.float32
             )[None, None]
-            count = mask.sum()
-            centered = gray - (gray * mask).sum() / count
             result = (
-                centered * mask, mask, (centered.square() * mask).sum().sqrt(),
+                gray, mask,
                 (image_width - 1) / 2.0 - left,
                 (image_height - 1) / 2.0 - top,
             )
             template_cache[filename] = result
             return result
 
-        def ncc_center(image, filename, coarse_x, coarse_y, radius, cell_size):
+        @lru_cache(maxsize=256)
+        def rotated_ncc_template(filename, angle, factor=1):
+            gray, mask, anchor_x, anchor_y = ncc_template(filename)
+            height, width = gray.shape[-2:]
+            theta = np.deg2rad(angle)
+            c, s = float(np.cos(theta)), float(np.sin(theta))
+            # Positive angles turn clockwise in image coordinates (y down).
+            out_width = int(np.ceil((abs(c) * width + abs(s) * height) / factor))
+            out_height = int(np.ceil((abs(s) * width + abs(c) * height) / factor))
+            y, x = torch.meshgrid(
+                torch.arange(out_height, device=device, dtype=torch.float32),
+                torch.arange(out_width, device=device, dtype=torch.float32),
+                indexing="ij",
+            )
+            x = (x - (out_width - 1) / 2) * factor
+            y = (y - (out_height - 1) / 2) * factor
+            grid = torch.stack((
+                2 * (c * x + s * y) / width,
+                2 * (-s * x + c * y) / height,
+            ), dim=-1)[None]
+            # Premultiply before resampling so excluded background cannot bleed
+            # into the foreground. Downsample with area filtering first.
+            source = torch.cat((gray * mask, mask), dim=1)
+            if factor > 1:
+                source = F.interpolate(source, size=(
+                    max(1, int(np.ceil(height / factor))),
+                    max(1, int(np.ceil(width / factor))),
+                ), mode="area")
+            rotated = F.grid_sample(source, grid, align_corners=False)
+            weights = rotated[:, 1:2]
+            values = rotated[:, :1] / weights.clamp_min(1e-12)
+            count = weights.sum().clamp_min(1e-12)
+            centered = values - (values * weights).sum() / count
+            ax, ay = anchor_x - (width - 1) / 2, anchor_y - (height - 1) / 2
+            return (
+                centered * weights, weights,
+                (centered.square() * weights).sum().sqrt(),
+                (out_width - 1) / 2 + (c * ax - s * ay) / factor,
+                (out_height - 1) / 2 + (s * ax + c * ay) / factor,
+            )
+
+        def ncc_match(image, prepared, coarse_x, coarse_y, radius, cell_size):
             template, mask, template_norm, center_x, center_y = \
-                ncc_template(filename)
+                prepared
             count = mask.sum()
             # Correlation is undefined for flat templates/windows. Require at
             # least one grayscale level of standard deviation (on a 0-1 scale).
@@ -158,23 +197,17 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
             height, width = template.shape[-2:]
             min_left = max(0, int(np.floor(coarse_x - center_x - radius)))
             max_left = min(
-                image.width - width,
+                image.shape[-1] - width,
                 int(np.ceil(coarse_x - center_x + radius)),
             )
             min_top = max(0, int(np.floor(coarse_y - center_y - radius)))
             max_top = min(
-                image.height - height,
+                image.shape[-2] - height,
                 int(np.ceil(coarse_y - center_y + radius)),
             )
             if min_left > max_left or min_top > max_top:
                 return None
-            search = np.array(image.crop((
-                min_left, min_top, max_left + width, max_top + height
-            )), copy=True)
-            search = torch.from_numpy(search).to(device).float()
-            search = (search @ torch.tensor(
-                [0.299, 0.587, 0.114], device=device
-            ) / 255.0)[None, None]
+            search = image[..., min_top:max_top + height, min_left:max_left + width]
             # Remove the ROI's DC level before variance calculations to reduce
             # cancellation on uniform backgrounds; each window is still centered.
             search = search - search.mean()
@@ -202,6 +235,55 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
                 float(score), min_left + match_x + center_x,
                 min_top + match_y + center_y,
             ]
+
+        def ncc_center(image, filename, coarse_x, coarse_y, radius, cell_size):
+            """Return NCC, registration x/y, clockwise rotation in radians."""
+            gray, _, _, _ = ncc_template(filename)
+            factor = max(1, int(np.ceil(max(gray.shape[-2:]) / 48)))
+            search = torch.from_numpy(np.array(image, copy=True)).to(device).float()
+            search = (search @ torch.tensor(
+                [0.299, 0.587, 0.114], device=device
+            ) / 255.0)[None, None]
+            factor = min(factor, *search.shape[-2:])
+            small = F.avg_pool2d(search, factor) if factor > 1 else search
+
+            def evaluate(angle, scale):
+                angle = angle % 360
+                match = ncc_match(
+                    small if scale > 1 else search,
+                    rotated_ncc_template(filename, angle, scale),
+                    (coarse_x + 0.5) / scale - 0.5,
+                    (coarse_y + 0.5) / scale - 0.5,
+                    radius / scale, cell_size / scale,
+                )
+                if match is None:
+                    return None
+                score, x, y = match
+                x, y = (x + 0.5) * scale - 0.5, (y + 0.5) * scale - 0.5
+                rank = score - 0.02 * (
+                    ((x - coarse_x) / cell_size) ** 2 +
+                    ((y - coarse_y) / cell_size) ** 2
+                )
+                return rank, score, x, y, angle
+
+            candidates = [m for a in range(0, 360, 15)
+                          if (m := evaluate(a, factor)) is not None]
+            if not candidates:
+                return None
+            seeds = sorted(candidates, reverse=True)[:3]
+            angles = {int(m[4] + delta) % 360 for m in seeds
+                      for delta in range(-15, 16, 3)}
+            candidates = [m for a in sorted(angles)
+                          if (m := evaluate(a, 1)) is not None]
+            if not candidates:
+                return None
+            best = max(candidates)
+            for delta in np.arange(-3, 3.01, 0.5):
+                match = evaluate(best[4] + float(delta), 1)
+                if match is not None:
+                    candidates.append(match)
+            _, score, x, y, angle = max(candidates)
+            return [score, x, y, float(np.deg2rad((angle + 180) % 360 - 180))]
 
         print(f"dinov2: Loaded {model_name} on {backend}.",
               file=sys.stderr, flush=True)
@@ -299,13 +381,16 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
                         image.convert("RGB"), filenames[pose],
                         coarse_x, coarse_y, radius, max(cell_width, cell_height),
                     )
-                center_score, pixel_x, pixel_y = match or [
-                    -2.0, coarse_x, coarse_y
+                center_score, pixel_x, pixel_y, rotation = match or [
+                    -2.0, coarse_x, coarse_y, 0.0
                 ]
+                # coarse confidence, NCC confidence, registration x/y, scale x/y,
+                # clockwise radians relative to the selected reference pose.
+                # As before, NCC=-2 means refinement failed (angle then unknown).
                 results.append([
                     coarse_score, center_score,
                     pixel_x, pixel_y,
-                    1.0, 1.0,
+                    1.0, 1.0, rotation,
                 ])
                 offset += pose_count
         return results
