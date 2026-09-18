@@ -18,6 +18,7 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
 
     $py exec {
         import sys
+        import time
         import importlib.util
         from functools import lru_cache
         from threading import Lock
@@ -76,6 +77,7 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
 
                 backend = "openvino:GPU"
         template_cache = {}
+        pose_cache = {}
 
         def spatial_patch_tokens(output):
             """Discard CLS/register tokens and return image-grid tokens only."""
@@ -185,7 +187,8 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
                 (out_height - 1) / 2 + (s * ax + c * ay) / factor,
             )
 
-        def ncc_match(image, prepared, coarse_x, coarse_y, radius, cell_size):
+        def ncc_match(image, prepared, coarse_x, coarse_y, radius, cell_size,
+                      prior=None):
             template, mask, template_norm, center_x, center_y = \
                 prepared
             count = mask.sum()
@@ -219,10 +222,11 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
                 scores = numerator / (template_norm * window_energy.clamp_min(1e-12).sqrt())
                 scores = scores.clamp(-1.0, 1.0).masked_fill(window_energy <= min_energy, -2.0)
                 # Rank by proximity to DINO, but return raw NCC for confidence.
+                prior_x, prior_y = prior or (coarse_x, coarse_y)
                 dx = (torch.arange(scores.shape[-1], device=device) +
-                      min_left + center_x - coarse_x) / cell_size
+                      min_left + center_x - prior_x) / cell_size
                 dy = (torch.arange(scores.shape[-2], device=device) +
-                      min_top + center_y - coarse_y) / cell_size
+                      min_top + center_y - prior_y) / cell_size
                 ranks = scores - 0.02 * (dy[:, None].square() + dx[None, :].square())
                 ranks = ranks.masked_fill(scores < -1.0, -torch.inf)
                 index = ranks.flatten().argmax()
@@ -236,7 +240,8 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
                 min_top + match_y + center_y,
             ]
 
-        def ncc_center(image, filename, coarse_x, coarse_y, radius, cell_size):
+        def ncc_center(image, filename, coarse_x, coarse_y, radius, cell_size,
+                       previous=None):
             """Return NCC, registration x/y, clockwise rotation in radians."""
             gray, _, _, _ = ncc_template(filename)
             factor = max(1, int(np.ceil(max(gray.shape[-2:]) / 48)))
@@ -247,14 +252,16 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
             factor = min(factor, *search.shape[-2:])
             small = F.avg_pool2d(search, factor) if factor > 1 else search
 
-            def evaluate(angle, scale):
+            def evaluate(angle, scale, x=coarse_x, y=coarse_y, reach=radius):
                 angle = angle % 360
                 match = ncc_match(
                     small if scale > 1 else search,
                     rotated_ncc_template(filename, angle, scale),
-                    (coarse_x + 0.5) / scale - 0.5,
-                    (coarse_y + 0.5) / scale - 0.5,
-                    radius / scale, cell_size / scale,
+                    (x + 0.5) / scale - 0.5,
+                    (y + 0.5) / scale - 0.5,
+                    reach / scale, cell_size / scale,
+                    prior=((coarse_x + 0.5) / scale - 0.5,
+                           (coarse_y + 0.5) / scale - 0.5),
                 )
                 if match is None:
                     return None
@@ -266,24 +273,54 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
                 )
                 return rank, score, x, y, angle
 
+            def refine(seeds):
+                # Keep angular refinement cheap too: only the final +/-3 degree
+                # stage needs full-resolution templates and a small position box.
+                candidates = []
+                for seed in seeds:
+                    for delta in range(-15, 16, 3):
+                        match = evaluate(seed[4] + delta, factor, seed[2], seed[3],
+                                         max(4 * factor, max(gray.shape[-2:]) * 0.15))
+                        if match is not None:
+                            candidates.append(match)
+                if not candidates:
+                    return None
+                best = max(candidates)
+                fine = [m for delta in np.arange(-3, 3.01, 0.5)
+                        if (m := evaluate(best[4] + float(delta), 1,
+                                          best[2], best[3], max(3, 2 * factor)))
+                        is not None]
+                return max(fine) if fine else None
+
+            def result(best):
+                _, score, x, y, angle = best
+                return [score, x, y, float(np.deg2rad((angle + 180) % 360 - 180))]
+
+            if previous is not None:
+                old_score, old_x, old_y, old_rotation = previous
+                old_angle = round(float(np.rad2deg(old_rotation)) * 2) / 2
+                reach = min(radius, max(12, cell_size / 2))
+                nearby = [m for delta in range(-12, 13, 3)
+                          if (m := evaluate(old_angle + delta, factor,
+                                            old_x, old_y, reach)) is not None]
+                if nearby:
+                    seed = max(nearby)
+                    fine = [m for delta in np.arange(-3, 3.01, 0.5)
+                            if (m := evaluate(seed[4] + float(delta), 1,
+                                              seed[2], seed[3], max(3, 2 * factor)))
+                            is not None]
+                    if fine:
+                        best = max(fine)
+                        turn = abs((best[4] - old_angle + 180) % 360 - 180)
+                        # Weak or boundary matches trigger global reacquisition.
+                        if (best[1] >= max(0.65, old_score - 0.15) and turn < 12 and
+                                max(abs(best[2] - old_x), abs(best[3] - old_y)) < reach * 0.8):
+                            return result(best)
+
             candidates = [m for a in range(0, 360, 15)
                           if (m := evaluate(a, factor)) is not None]
-            if not candidates:
-                return None
-            seeds = sorted(candidates, reverse=True)[:3]
-            angles = {int(m[4] + delta) % 360 for m in seeds
-                      for delta in range(-15, 16, 3)}
-            candidates = [m for a in sorted(angles)
-                          if (m := evaluate(a, 1)) is not None]
-            if not candidates:
-                return None
-            best = max(candidates)
-            for delta in np.arange(-3, 3.01, 0.5):
-                match = evaluate(best[4] + float(delta), 1)
-                if match is not None:
-                    candidates.append(match)
-            _, score, x, y, angle = max(candidates)
-            return [score, x, y, float(np.deg2rad((angle + 180) % 360 - 180))]
+            best = refine(sorted(candidates, reverse=True)[:3]) if candidates else None
+            return result(best) if best is not None else None
 
         print(f"dinov2: Loaded {model_name} on {backend}.",
               file=sys.stderr, flush=True)
@@ -367,6 +404,12 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
             cell_height = image.height / grid_height
             radius = radius_cells * max(cell_width, cell_height)
             results = []
+            # Expire tracks when objects disappear, callers stop, or image sizes
+            # change. A selected reference change starts a new angular search.
+            now = time.monotonic()
+            for key, value in list(pose_cache.items()):
+                if now - value[0] > 1.0:
+                    pose_cache.pop(key, None)
             offset = 0
             for filenames, pose_count in zip(template_filenames, pose_counts):
                 pose_maps = object_maps[offset:offset + pose_count]
@@ -376,11 +419,23 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
                 coarse_index = int(pose_indices[pose])
                 coarse_x = ((coarse_index % grid_width) + 0.5) * cell_width
                 coarse_y = ((coarse_index // grid_width) + 0.5) * cell_height
+                key = (tuple(filenames), pose, image.size)
+                cached = pose_cache.get(key)
+                previous = cached[1] if cached and cached[2] < 30 else None
+                if previous and max(abs(previous[1] - coarse_x),
+                                    abs(previous[2] - coarse_y)) > radius:
+                    previous = None
                 match = None if coarse_score < coarse_threshold else \
                     ncc_center(
                         image.convert("RGB"), filenames[pose],
                         coarse_x, coarse_y, radius, max(cell_width, cell_height),
+                        previous=previous,
                     )
+                if match is not None and match[0] >= 0.65:
+                    pose_cache[key] = (time.monotonic(), match,
+                                       cached[2] + 1 if previous else 0)
+                else:
+                    pose_cache.pop(key, None)
                 center_score, pixel_x, pixel_y, rotation = match or [
                     -2.0, coarse_x, coarse_y, 0.0
                 ]
