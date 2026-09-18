@@ -312,7 +312,8 @@ static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *cons
 
 
 static StatementRef Say(Clause* clause, long keepMs,
-                        AtomicallyVersion* atomicallyVersion,
+                        AtomicallyVersion* const* atomicallyVersions,
+                        int atomicallyVersionsCount,
                         const char *destructorCode,
                         const char *sourceFileName, int sourceLineNumber) {
     MatchRef parent;
@@ -329,7 +330,7 @@ static StatementRef Say(Clause* clause, long keepMs,
 
     Statement* stmt;
     stmt = dbInsertOrReuseStatement(db, clause,
-                                    keepMs, atomicallyVersion,
+                                    keepMs, atomicallyVersions, atomicallyVersionsCount,
                                     sourceFileName, sourceLineNumber,
                                     parent, NULL);
 
@@ -363,6 +364,7 @@ static StatementRef Say(Clause* clause, long keepMs,
 static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc >= 7);
     Clause* clause = jimObjsToClause(argc - 6, argv + 6);
+    AtomicallyVersion** atomicallyVersions = NULL;
 
     const char* sourceFileName;
     long sourceLineNumber;
@@ -377,10 +379,17 @@ static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         goto err;
     }
 
-    AtomicallyVersion* atomicallyVersion = NULL;
-    const char* atomicallyVersionStr = Jim_String(argv[4]);
-    if (atomicallyVersionStr && strlen(atomicallyVersionStr) > 0) {
-        sscanf(atomicallyVersionStr, "(AtomicallyVersion*) %p", &atomicallyVersion);
+    int atomicallyVersionsCount = Jim_ListLength(interp, argv[4]);
+    atomicallyVersions = atomicallyVersionsCount == 0 ? NULL :
+        malloc(sizeof(AtomicallyVersion*) * atomicallyVersionsCount);
+    for (int i = 0; i < atomicallyVersionsCount; i++) {
+        void* version = NULL;
+        if (sscanf(Jim_String(Jim_ListGetIndex(interp, argv[4], i)),
+                   "(AtomicallyVersion*) %p", &version) != 1 || version == NULL) {
+            Jim_SetResultString(interp, "Invalid atomic version", -1);
+            goto err;
+        }
+        atomicallyVersions[i] = version;
     }
 
     int destructorCodeLen;
@@ -394,12 +403,14 @@ static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         goto err;
     }
 
-    Say(clause, keepMs, atomicallyVersion,
+    Say(clause, keepMs, atomicallyVersions, atomicallyVersionsCount,
         destructorCode,
         sourceFileName, (int) sourceLineNumber);
+    free(atomicallyVersions);
     return JIM_OK;
 
  err:
+    free(atomicallyVersions);
     clauseFree(clause);
     return JIM_ERR;
 }
@@ -437,12 +448,8 @@ Jim_Obj* QuerySimple(bool isAtomically, Clause* pattern) {
         Statement* result = statementAcquire(db, rs->results[i]);
         if (result == NULL) { continue; }
 
-        // If `isAtomically` is on, then throw away any
-        // statement that has an AtomicallyVersion _and_ that
-        // AtomicallyVersion isn't converged yet.
-        if (isAtomically &&
-            statementAtomicallyVersion(result) != NULL &&
-            !dbAtomicallyVersionHasConverged(statementAtomicallyVersion(result))) {
+        // Atomic queries require every inherited version to have converged.
+        if (isAtomically && !statementAtomicallyHasConverged(result)) {
 
             /* fprintf(stderr, "DISCARD %.100s\n", */
             /*         clauseToString(statementClause(result))); */
@@ -667,14 +674,17 @@ static int __threadIdFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 
 static int __currentAtomicallyVersionFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 1);
-    if (self->currentAtomicallyVersion == NULL) {
-        Jim_SetResultString(interp, "", -1);
-    } else {
+    Jim_Obj* versionsList = Jim_NewListObj(interp, NULL, 0);
+    int count = 0;
+    AtomicallyVersion* const* versions = self->currentMatch == NULL ? NULL :
+        matchAtomicallyVersions(self->currentMatch, &count);
+    for (int i = 0; i < count; i++) {
         char ret[100];
         snprintf(ret, 100, "(AtomicallyVersion*) %p",
-                 self->currentAtomicallyVersion);
-        Jim_SetResultString(interp, ret, strlen(ret));
+                 versions[i]);
+        Jim_ListAppendElement(interp, versionsList, Jim_NewStringObj(interp, ret, -1));
     }
+    Jim_SetResult(interp, versionsList);
     return JIM_OK;
 }
 
@@ -936,28 +946,11 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     if (stmt != NULL) {
         StatementRef parents[] = { whenRef, stmtRef };
 
-        AtomicallyVersion* whenAtomicallyVersion = statementAtomicallyVersion(when);
-        AtomicallyVersion* stmtAtomicallyVersion = statementAtomicallyVersion(stmt);
-        AtomicallyVersion* atomicallyVersion = NULL;
-        if (whenAtomicallyVersion && stmtAtomicallyVersion &&
-            whenAtomicallyVersion != stmtAtomicallyVersion) {
-            fprintf(stderr, "runWhenBlock: Warning: Conflicting atomicallyVersion between:\n"
-                    "  when (%p): (%.150s)\n"
-                    "  stmt (%p): (%.150s)\n",
-                    whenAtomicallyVersion, clauseToString(statementClause(when)),
-                    stmtAtomicallyVersion, clauseToString(statementClause(stmt)));
-        }
-        atomicallyVersion = stmtAtomicallyVersion ?
-            stmtAtomicallyVersion : whenAtomicallyVersion;
-        self->currentAtomicallyVersion = atomicallyVersion;
         self->currentMatch = dbInsertMatch(db, 2, parents,
-                                           &self->currentAtomicallyVersion,
                                            freshAtomically, self->index);
     } else {
         StatementRef parents[] = { whenRef };
-        self->currentAtomicallyVersion = statementAtomicallyVersion(when);
         self->currentMatch = dbInsertMatch(db, 1, parents,
-                                           &self->currentAtomicallyVersion,
                                            freshAtomically, self->index);
     }
     // We don't want to hang onto these inflight when running the
@@ -966,7 +959,6 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     dbInflightDecr(db, stmt);
 
     if (!self->currentMatch) {
-        self->currentAtomicallyVersion = NULL;
         Jim_DecrRefCount(interp, envStackObj);
         statementRelease(db, when);
         if (stmt != NULL) {
@@ -982,8 +974,11 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
                          statementSourceLineNumber(when),
                          envStackObj);
 
-    if (self->currentAtomicallyVersion != NULL) {
-        dbAtomicallyVersionInflightDecr(db, self->currentAtomicallyVersion);
+    int atomicallyVersionsCount;
+    AtomicallyVersion* const* atomicallyVersions =
+        matchAtomicallyVersions(self->currentMatch, &atomicallyVersionsCount);
+    for (int i = 0; i < atomicallyVersionsCount; i++) {
+        dbAtomicallyVersionInflightDecr(db, atomicallyVersions[i]);
     }
 
     statementRelease(db, when);
@@ -1362,7 +1357,7 @@ void workerRun(WorkQueueItem item) {
 
         Statement* stmt;
         stmt = dbInsertOrReuseStatement(db, item.assert.clause,
-                                        0, NULL,
+                                        0, NULL, 0,
                                         item.assert.sourceFileName,
                                         item.assert.sourceLineNumber,
                                         MATCH_REF_NULL, NULL);

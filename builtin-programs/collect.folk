@@ -127,12 +127,8 @@ $cc proc Recollect! {Jim_Obj* patternObj bool isAtomically} void {
             Statement* result = statementAcquire(db, rs->results[i]);
             if (result == NULL) { continue; }
 
-            // If `isAtomically` is on, then throw away any
-            // statement that has an AtomicallyVersion _and_ that
-            // AtomicallyVersion isn't converged yet.
-            if (isAtomically &&
-                statementAtomicallyVersion(result) != NULL &&
-                !dbAtomicallyVersionHasConverged(statementAtomicallyVersion(result))) {
+            // Atomic collections require every inherited version to converge.
+            if (isAtomically && !statementAtomicallyHasConverged(result)) {
 
                 // fprintf(stderr, "DISCARD %.100s\n",
                 //   clauseToString(statementClause(result)));
