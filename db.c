@@ -1470,27 +1470,33 @@ Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
     // We have now acquired all parent statements and are holding
     // their childMatchesMutexes, and none have childMatches == NULL.
 
-    // Establish ownership before a parent can remove this match. Resolving
-    // the arena happened before these locks, so we don't take atomicallysMutex
-    // here (the timeout reaper takes that mutex before removing descendants).
+    // Establish ownership before a parent can remove this match. The
+    // caller resolved the Atomically already, so we don't take
+    // atomicallysMutex here -- we need to keep lock ordering
+    // consistent, and the timeout reaper takes atomicallysMutex
+    // before taking childMatchesMutexes.
     int capacity = freshAtomically != NULL ? 1 : 0;
-    for (int i = 0; i < nParents; i++) {
-        capacity += parentStatements[i]->atomicallyVersionsCount;
+    if (freshAtomically == NULL) {
+        for (int i = 0; i < nParents; i++) {
+            capacity += parentStatements[i]->atomicallyVersionsCount;
+        }
     }
     AtomicallyVersion** versions = capacity == 0 ? NULL :
         malloc(sizeof(AtomicallyVersion*) * capacity);
     int count = 0;
-    for (int i = 0; i < nParents; i++) {
-        Statement* parent = parentStatements[i];
-        for (int j = 0; j < parent->atomicallyVersionsCount; j++) {
-            AtomicallyVersion* version = parent->atomicallyVersions[j];
-            bool present = false;
-            for (int k = 0; k < count; k++) {
-                if (versions[k] == version) { present = true; break; }
-            }
-            if (!present) {
-                versions[count++] = version;
-                dbAtomicallyVersionInflightIncr(version);
+    if (freshAtomically == NULL) {
+        for (int i = 0; i < nParents; i++) {
+            Statement* parent = parentStatements[i];
+            for (int j = 0; j < parent->atomicallyVersionsCount; j++) {
+                AtomicallyVersion* version = parent->atomicallyVersions[j];
+                bool present = false;
+                for (int k = 0; k < count; k++) {
+                    if (versions[k] == version) { present = true; break; }
+                }
+                if (!present) {
+                    versions[count++] = version;
+                    dbAtomicallyVersionInflightIncr(version);
+                }
             }
         }
     }

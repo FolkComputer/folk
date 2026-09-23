@@ -152,8 +152,8 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
 // caller.
 //
 // On successful attachment:
-// Inherit the union of the parents' versions, and add a fresh pinned
-// version if freshAtomically is non-NULL. The caller owns one inflight
+// Inherit the union of the parents' versions, or replace them with a fresh
+// pinned version if freshAtomically is non-NULL. The caller owns one inflight
 // operation in every version and must decrement each when the match finishes.
 Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
                      Atomically* freshAtomically,
