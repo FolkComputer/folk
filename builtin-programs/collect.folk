@@ -77,7 +77,7 @@ $cc code {
 $cc proc init {} void {
     pthread_mutex_init(&collectsMutex, NULL);
 }
-$cc proc Recollect! {Jim_Obj* patternObj bool isAtomically} void {
+$cc proc Recollect! {Jim_Obj* patternObj bool isAtomically} bool {
     // First, query for collect patterns.
     Clause* collectorPattern = clauseNew(10);
     collectorPattern->terms[0] = termNew("/someone/", -1);
@@ -121,17 +121,16 @@ $cc proc Recollect! {Jim_Obj* patternObj bool isAtomically} void {
 
         Statement** resultStmts = malloc(sizeof(Statement*) * rs->nResults);
         int resultStmtsCount = 0;
+        bool allConverged = true;
 
         Jim_Obj* resultsObj = Jim_NewListObj(interp, NULL, 0);
         for (size_t i = 0; i < rs->nResults; i++) {
             Statement* result = statementAcquire(db, rs->results[i]);
-            if (result == NULL) { continue; }
+            if (result == NULL) { allConverged = false; continue; }
 
             // Atomic collections require every inherited version to converge.
             if (isAtomically && !statementAtomicallyHasConverged(result)) {
-
-                // fprintf(stderr, "DISCARD %.100s\n",
-                //   clauseToString(statementClause(result)));
+                allConverged = false;
                 statementRelease(db, result);
                 continue;
             }
@@ -157,6 +156,16 @@ $cc proc Recollect! {Jim_Obj* patternObj bool isAtomically} void {
         }
         clauseFree(pattern);
         free(rs);
+
+        if (!allConverged) {
+            for (int i = 0; i < resultStmtsCount; i++) statementRelease(db, resultStmts[i]);
+            free(resultStmts);
+            Jim_DecrRefCount(interp, resultsObj);
+            free(collectKey);
+            clauseFree(collectorPattern);
+            free(collectorsSet);
+            return false;
+        }
 
         // Note that at this point, we've still acquired all the
         // statements in rs. We need to hang onto them to inherit
@@ -201,6 +210,7 @@ $cc proc Recollect! {Jim_Obj* patternObj bool isAtomically} void {
     free(collectKey);
     clauseFree(collectorPattern);
     free(collectorsSet);
+    return true;
 }
 # If the recollect doesn't have a settle time, we should recollect
 # immediately. If the recollect has a settle time, then we should bump
@@ -248,11 +258,13 @@ $cc proc RunScheduledRecollects! {} void {
         if (collects[i].patternStr != NULL &&
             collects[i].collectAtTime <= now) {
 
-            Recollect_(Jim_NewStringObj(interp, collects[i].patternStr, -1), true);
-
-            free(collects[i].patternStr);
-            collects[i].patternStr = NULL;
-            collects[i].collectAtTime = 0;
+            if (Recollect_(Jim_NewStringObj(interp, collects[i].patternStr, -1), true)) {
+                free(collects[i].patternStr);
+                collects[i].patternStr = NULL;
+                collects[i].collectAtTime = 0;
+            } else {
+                collects[i].collectAtTime = now + 1000000;
+            }
         }
     }
     pthread_mutex_unlock(&collectsMutex);
