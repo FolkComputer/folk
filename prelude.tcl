@@ -548,8 +548,10 @@ proc When {args} {
         set inheritAtomicallyVersion [__currentAtomicallyVersion]
         if {$inheritAtomicallyVersion eq {}} {
             # HACK: Default atomically on certain patterns:
-            if {([lrange $pattern 1 end-1] eq {has camera slice} ||
-                 [lrange $pattern 0 end-1] eq {the clock time is})} {
+            set ampersand [lsearch -exact $pattern &]
+            set firstPattern [lrange $pattern 0 [expr {$ampersand < 0 ? [llength $pattern]-1 : $ampersand-1}]]
+            if {([lrange $firstPattern 1 end-1] eq {has camera slice} ||
+                 [lrange $firstPattern 0 end-1] eq {the clock time is})} {
 
                 set key [list [uplevel set this] $sourceInfo $pattern]
                 set atomicallyVersion [list "fresh" $key]
