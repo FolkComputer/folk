@@ -295,6 +295,17 @@ typedef struct AtomicallyVersion {
     // AtomicallyVersion is 'fully converged'. This should never be
     // negative.
     int _Atomic inflightCount;
+    // After it's converged once (even if it unconverges later because
+    // new inflight work pops up), the version's statements remain
+    // visible as long as no fresher version has converged.  
+    //
+    // This gate solves a weird 'visibility livelock' situation on
+    // statements carrying multiple versions, where it's rare for the
+    // versions to all have inflightCount 0 at the same time, so the
+    // user sees a very stale older version (or blinking). (Note that
+    // for a given AtomicallyVersion, `hasConverged` only ever goes
+    // from false -> true, never back from true -> false.)
+    bool _Atomic hasConverged;
 
     // When you do When -atomically, every time its body executes, it
     // produces a Match and a fresh AtomicallyVersion. That Match is
@@ -1072,6 +1083,7 @@ static AtomicallyVersion* dbFreshAtomicallyVersion(Db* db, Atomically* atomicall
     // finished. Downstream queued reactions and matches will in turn
     // do their own matching incr and decr on inflightCount.
     atomicallyVersion->inflightCount = 1;
+    atomicallyVersion->hasConverged = false;
     atomicallyVersion->parentRemovedTime = 0;
     atomicallyVersion->rootMatch = matchAcquire(db, rootMatchRef);
     assert(atomicallyVersion->rootMatch != NULL);
@@ -1171,7 +1183,7 @@ void dbGarbageCollectAtomicallys(Db* db, int64_t now) {
 }
 
 bool dbAtomicallyVersionHasConverged(AtomicallyVersion* atomicallyVersion) {
-    return atomicallyVersion->inflightCount == 0;
+    return atomicallyVersion->hasConverged;
 }
 int dbAtomicallyVersionInflightCount(AtomicallyVersion* atomicallyVersion) {
     /* printf("%p -- inflight count %d\n", atomicallyVersion, atomicallyVersion->inflightCount); */
@@ -1202,7 +1214,7 @@ void dbAtomicallyVersionInflightIncr(AtomicallyVersion* atomicallyVersion) {
     /*        atomicallyVersion->inflightCount); */
 }
 void dbAtomicallyVersionInflightDecr(Db* db, AtomicallyVersion* atomicallyVersion) {
-    if (--atomicallyVersion->inflightCount == 0) {
+    if (--atomicallyVersion->inflightCount == 0 && !atomic_exchange(&atomicallyVersion->hasConverged, true)) {
         Atomically* atomically = atomicallyVersion->atomically;
         atomically->latestConvergedVersion = atomicallyVersion;
         dbAtomicallyReapAllVersions(db, atomically, atomicallyVersion, 0);
