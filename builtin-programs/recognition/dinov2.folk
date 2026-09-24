@@ -78,6 +78,7 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
                 backend = "openvino:GPU"
         template_cache = {}
         pose_cache = {}
+        tracking_threshold = 0.35
 
         def spatial_patch_tokens(output):
             """Discard CLS/register tokens and return image-grid tokens only."""
@@ -201,86 +202,164 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
             values = rotated[:, :1] / weights.clamp_min(1e-12)
             count = weights.sum().clamp_min(1e-12)
             centered = values - (values * weights).sum() / count
+            weighted_template = centered * weights
+            template_norm = (centered.square() * weights).sum().sqrt()
+            min_energy = count * (1.0 / 255.0) ** 2
             ax, ay = anchor_x - (width - 1) / 2, anchor_y - (height - 1) / 2
             return (
-                centered * weights, weights,
-                (centered.square() * weights).sum().sqrt(),
+                weighted_template, weights, template_norm,
                 (out_width - 1) / 2 + (c * ax - s * ay) / factor,
                 (out_height - 1) / 2 + (s * ax + c * ay) / factor,
+                # Spectra depend on the search ROI's padded FFT shape. Keep a
+                # small cache with the already-cached rotated template.
+                {},
+                count, min_energy, weighted_template.sum(),
+                bool(template_norm.square() > min_energy),
             )
 
-        def fft_correlate2d(image, kernel):
-            """Valid 2-D cross-correlation via uncached, zero-padded FFTs."""
-            image_height, image_width = image.shape[-2:]
-            kernel_height, kernel_width = kernel.shape[-2:]
+        def ncc_match_batch(image, requests):
+            """Evaluate differently sized angle templates in one FFT batch."""
+            results = [None] * len(requests)
+            entries = []
+            for request_index, request in enumerate(requests):
+                prepared, coarse_x, coarse_y, radius, cell_size, prior = request
+                (template, mask, template_norm, center_x, center_y, spectra,
+                 count, min_energy, template_sum, valid) = prepared
+                # This device-to-host validity check was done once when the
+                # rotated template was created, rather than once per match.
+                if not valid:
+                    continue
+                height, width = template.shape[-2:]
+                min_left = max(0, int(np.floor(coarse_x - center_x - radius)))
+                max_left = min(image.shape[-1] - width,
+                               int(np.ceil(coarse_x - center_x + radius)))
+                min_top = max(0, int(np.floor(coarse_y - center_y - radius)))
+                max_top = min(image.shape[-2] - height,
+                              int(np.ceil(coarse_y - center_y + radius)))
+                if min_left > max_left or min_top > max_top:
+                    continue
+                search = image[
+                    ..., min_top:max_top + height, min_left:max_left + width]
+                # Removing each ROI's DC level reduces cancellation on uniform
+                # backgrounds; individual output windows are still centered.
+                search = search - search.mean()
+                entries.append((
+                    request_index, search, template, mask, template_norm,
+                    center_x, center_y, spectra, count, min_energy,
+                    template_sum, min_left, min_top, coarse_x, coarse_y,
+                    cell_size, prior,
+                ))
+            if not entries:
+                return results
+
+            max_search_height = max(e[1].shape[-2] for e in entries)
+            max_search_width = max(e[1].shape[-1] for e in entries)
+            max_kernel_height = max(e[2].shape[-2] for e in entries)
+            max_kernel_width = max(e[2].shape[-1] for e in entries)
             fft_shape = (
-                image_height + kernel_height - 1,
-                image_width + kernel_width - 1,
+                max_search_height + max_kernel_height - 1,
+                max_search_width + max_kernel_width - 1,
             )
-            correlation = torch.fft.irfft2(
-                torch.fft.rfft2(image, s=fft_shape) *
-                torch.fft.rfft2(kernel, s=fft_shape).conj(),
-                s=fft_shape,
-            )
-            return correlation[
-                ..., :image_height - kernel_height + 1,
-                :image_width - kernel_width + 1,
-            ]
+
+            with torch.inference_mode():
+                padded_searches = [F.pad(e[1], (
+                    0, max_search_width - e[1].shape[-1],
+                    0, max_search_height - e[1].shape[-2],
+                )) for e in entries]
+                image_spectra = torch.fft.rfft2(torch.cat(
+                    padded_searches + [value.square() for value in padded_searches]
+                ), s=fft_shape)
+
+                missing = [i for i, e in enumerate(entries)
+                           if fft_shape not in e[7]]
+                if missing:
+                    kernels = []
+                    for i in missing:
+                        template, mask = entries[i][2:4]
+                        padding = (
+                            0, max_kernel_width - template.shape[-1],
+                            0, max_kernel_height - template.shape[-2],
+                        )
+                        kernels.extend((F.pad(mask, padding),
+                                        F.pad(template, padding)))
+                    new_spectra = torch.fft.rfft2(
+                        torch.cat(kernels), s=fft_shape).conj()
+                    for j, i in enumerate(missing):
+                        cache = entries[i][7]
+                        if len(cache) >= 8:
+                            cache.pop(next(iter(cache)))
+                        cache[fft_shape] = new_spectra[2*j:2*j + 2]
+
+                count_entries = len(entries)
+                products = []
+                for i, entry in enumerate(entries):
+                    kernel_spectrum = entry[7][fft_shape]
+                    products.extend((
+                        image_spectra[i] * kernel_spectrum[0],
+                        image_spectra[i] * kernel_spectrum[1],
+                        image_spectra[count_entries + i] * kernel_spectrum[0],
+                    ))
+                correlations = torch.fft.irfft2(
+                    torch.stack(products), s=fft_shape)
+
+                pending = []
+                for i, entry in enumerate(entries):
+                    (request_index, search, template, mask, template_norm,
+                     center_x, center_y, spectra, count, min_energy,
+                     template_sum, min_left, min_top, coarse_x, coarse_y,
+                     cell_size, prior) = entry
+                    output_height = search.shape[-2] - template.shape[-2] + 1
+                    output_width = search.shape[-1] - template.shape[-1] + 1
+                    total, numerator, square_total = (
+                        correlations[3*i + j:3*i + j + 1,
+                                     ..., :output_height, :output_width]
+                        for j in range(3)
+                    )
+                    numerator = numerator - total * template_sum / count
+                    window_energy = (
+                        square_total - total.square() / count).clamp_min(0)
+                    scores = numerator / (
+                        template_norm * window_energy.clamp_min(1e-12).sqrt())
+                    scores = scores.clamp(-1.0, 1.0).masked_fill(
+                        window_energy <= min_energy, -2.0)
+                    prior_x, prior_y = prior or (coarse_x, coarse_y)
+                    dx = (torch.arange(output_width, device=device) +
+                          min_left + center_x - prior_x) / cell_size
+                    dy = (torch.arange(output_height, device=device) +
+                          min_top + center_y - prior_y) / cell_size
+                    ranks = scores - 0.02 * (
+                        dy[:, None].square() + dx[None, :].square())
+                    ranks = ranks.masked_fill(scores < -1.0, -torch.inf)
+                    index = ranks.flatten().argmax()
+                    score = scores.flatten()[index]
+                    pending.append((
+                        request_index, score, index, output_width,
+                        min_left, min_top, center_x, center_y,
+                    ))
+
+                # One transfer synchronizes all angles in this search stage.
+                winners = torch.stack([
+                    torch.stack((score, index.to(score.dtype)))
+                    for _, score, index, *_ in pending
+                ]).cpu().tolist()
+                for pending_item, (score, index) in zip(pending, winners):
+                    (request_index, _, _, output_width,
+                     min_left, min_top, center_x, center_y) = pending_item
+                    if score >= -1.0:
+                        index = int(index)
+                        match_x = index % output_width
+                        match_y = index // output_width
+                        results[request_index] = [
+                            score, min_left + match_x + center_x,
+                            min_top + match_y + center_y,
+                        ]
+            return results
 
         def ncc_match(image, prepared, coarse_x, coarse_y, radius, cell_size,
                       prior=None):
-            template, mask, template_norm, center_x, center_y = \
-                prepared
-            count = mask.sum()
-            # Correlation is undefined for flat templates/windows. Require at
-            # least one grayscale level of standard deviation (on a 0-1 scale).
-            min_energy = count * (1.0 / 255.0) ** 2
-            if template_norm.square() <= min_energy:
-                return None
-            height, width = template.shape[-2:]
-            min_left = max(0, int(np.floor(coarse_x - center_x - radius)))
-            max_left = min(
-                image.shape[-1] - width,
-                int(np.ceil(coarse_x - center_x + radius)),
-            )
-            min_top = max(0, int(np.floor(coarse_y - center_y - radius)))
-            max_top = min(
-                image.shape[-2] - height,
-                int(np.ceil(coarse_y - center_y + radius)),
-            )
-            if min_left > max_left or min_top > max_top:
-                return None
-            search = image[..., min_top:max_top + height, min_left:max_left + width]
-            # Remove the ROI's DC level before variance calculations to reduce
-            # cancellation on uniform backgrounds; each window is still centered.
-            search = search - search.mean()
-            with torch.inference_mode():
-                # Intentionally recompute all search and template transforms to
-                # establish a simple FFT baseline before caching or batching.
-                total = fft_correlate2d(search, mask)
-                numerator = fft_correlate2d(search, template) - total * template.sum() / count
-                square_total = fft_correlate2d(search.square(), mask)
-                window_energy = (square_total - total.square() / count).clamp_min(0)
-                scores = numerator / (template_norm * window_energy.clamp_min(1e-12).sqrt())
-                scores = scores.clamp(-1.0, 1.0).masked_fill(window_energy <= min_energy, -2.0)
-                # Rank by proximity to DINO, but return raw NCC for confidence.
-                prior_x, prior_y = prior or (coarse_x, coarse_y)
-                dx = (torch.arange(scores.shape[-1], device=device) +
-                      min_left + center_x - prior_x) / cell_size
-                dy = (torch.arange(scores.shape[-2], device=device) +
-                      min_top + center_y - prior_y) / cell_size
-                ranks = scores - 0.02 * (dy[:, None].square() + dx[None, :].square())
-                ranks = ranks.masked_fill(scores < -1.0, -torch.inf)
-                index = ranks.flatten().argmax()
-                score = scores.flatten()[index]
-            if float(score) < -1.0:
-                return None
-            match_x = int(index) % scores.shape[-1]
-            match_y = int(index) // scores.shape[-1]
-            return [
-                float(score), min_left + match_x + center_x,
-                min_top + match_y + center_y,
-            ]
+            return ncc_match_batch(image, [(
+                prepared, coarse_x, coarse_y, radius, cell_size, prior,
+            )])[0]
 
         def ncc_center(image, filename, coarse_x, coarse_y, radius, cell_size,
                        previous=None):
@@ -294,44 +373,61 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
             factor = min(factor, *search.shape[-2:])
             small = F.avg_pool2d(search, factor) if factor > 1 else search
 
+            def evaluate_many(specifications):
+                if not specifications:
+                    return []
+                scales = {specification[1] for specification in specifications}
+                if len(scales) != 1:
+                    raise ValueError("an NCC batch must use one image scale")
+                scale = specifications[0][1]
+                angles = [specification[0] % 360
+                          for specification in specifications]
+                requests = []
+                for angle, (_, _, x, y, reach) in zip(
+                        angles, specifications):
+                    requests.append((
+                        rotated_ncc_template(filename, angle, scale),
+                        (x + 0.5) / scale - 0.5,
+                        (y + 0.5) / scale - 0.5,
+                        reach / scale, cell_size / scale,
+                        ((coarse_x + 0.5) / scale - 0.5,
+                         (coarse_y + 0.5) / scale - 0.5),
+                    ))
+                matches = ncc_match_batch(
+                    small if scale > 1 else search, requests)
+                results = []
+                for angle, match in zip(angles, matches):
+                    if match is None:
+                        continue
+                    score, x, y = match
+                    x, y = ((x + 0.5) * scale - 0.5,
+                            (y + 0.5) * scale - 0.5)
+                    rank = score - 0.02 * (
+                        ((x - coarse_x) / cell_size) ** 2 +
+                        ((y - coarse_y) / cell_size) ** 2)
+                    results.append((rank, score, x, y, angle))
+                return results
+
             def evaluate(angle, scale, x=coarse_x, y=coarse_y, reach=radius):
-                angle = angle % 360
-                match = ncc_match(
-                    small if scale > 1 else search,
-                    rotated_ncc_template(filename, angle, scale),
-                    (x + 0.5) / scale - 0.5,
-                    (y + 0.5) / scale - 0.5,
-                    reach / scale, cell_size / scale,
-                    prior=((coarse_x + 0.5) / scale - 0.5,
-                           (coarse_y + 0.5) / scale - 0.5),
-                )
-                if match is None:
-                    return None
-                score, x, y = match
-                x, y = (x + 0.5) * scale - 0.5, (y + 0.5) * scale - 0.5
-                rank = score - 0.02 * (
-                    ((x - coarse_x) / cell_size) ** 2 +
-                    ((y - coarse_y) / cell_size) ** 2
-                )
-                return rank, score, x, y, angle
+                matches = evaluate_many([(angle, scale, x, y, reach)])
+                return matches[0] if matches else None
 
             def refine(seeds):
                 # Keep angular refinement cheap too: only the final +/-3 degree
                 # stage needs full-resolution templates and a small position box.
-                candidates = []
-                for seed in seeds:
-                    for delta in range(-15, 16, 3):
-                        match = evaluate(seed[4] + delta, factor, seed[2], seed[3],
-                                         max(4 * factor, max(gray.shape[-2:]) * 0.15))
-                        if match is not None:
-                            candidates.append(match)
+                reach = max(4 * factor, max(gray.shape[-2:]) * 0.15)
+                candidates = evaluate_many([
+                    (seed[4] + delta, factor, seed[2], seed[3], reach)
+                    for seed in seeds for delta in range(-15, 16, 3)
+                ])
                 if not candidates:
                     return None
                 best = max(candidates)
-                fine = [m for delta in np.arange(-3, 3.01, 0.5)
-                        if (m := evaluate(best[4] + float(delta), 1,
-                                          best[2], best[3], max(3, 2 * factor)))
-                        is not None]
+                fine = evaluate_many([
+                    (best[4] + float(delta), 1, best[2], best[3],
+                     max(3, 2 * factor))
+                    for delta in np.arange(-3, 3.01, 0.5)
+                ])
                 return max(fine) if fine else None
 
             def result(best):
@@ -342,25 +438,30 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
                 old_score, old_x, old_y, old_rotation = previous
                 old_angle = round(float(np.rad2deg(old_rotation)) * 2) / 2
                 reach = min(radius, max(12, cell_size / 2))
-                nearby = [m for delta in range(-12, 13, 3)
-                          if (m := evaluate(old_angle + delta, factor,
-                                            old_x, old_y, reach)) is not None]
+                nearby = evaluate_many([
+                    (old_angle + delta, factor, old_x, old_y, reach)
+                    for delta in range(-12, 13, 3)
+                ])
                 if nearby:
                     seed = max(nearby)
-                    fine = [m for delta in np.arange(-3, 3.01, 0.5)
-                            if (m := evaluate(seed[4] + float(delta), 1,
-                                              seed[2], seed[3], max(3, 2 * factor)))
-                            is not None]
+                    fine = evaluate_many([
+                        (seed[4] + float(delta), 1, seed[2], seed[3],
+                         max(3, 2 * factor))
+                        for delta in np.arange(-3, 3.01, 0.5)
+                    ])
                     if fine:
                         best = max(fine)
                         turn = abs((best[4] - old_angle + 180) % 360 - 180)
                         # Weak or boundary matches trigger global reacquisition.
-                        if (best[1] >= max(0.65, old_score - 0.15) and turn < 12 and
+                        if (best[1] >= max(tracking_threshold, old_score - 0.15) and
+                                turn < 12 and
                                 max(abs(best[2] - old_x), abs(best[3] - old_y)) < reach * 0.8):
                             return result(best)
 
-            candidates = [m for a in range(0, 360, 15)
-                          if (m := evaluate(a, factor)) is not None]
+            candidates = evaluate_many([
+                (angle, factor, coarse_x, coarse_y, radius)
+                for angle in range(0, 360, 15)
+            ])
             best = refine(sorted(candidates, reverse=True)[:3]) if candidates else None
             return result(best) if best is not None else None
 
@@ -481,7 +582,7 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
                         previous=relative_previous,
                     )
                 match = offset_match_rotation(match, reference_angle)
-                if match is not None and match[0] >= 0.65:
+                if match is not None and match[0] >= tracking_threshold:
                     pose_cache[key] = (time.monotonic(), match,
                                        cached[2] + 1 if previous else 0)
                 else:
