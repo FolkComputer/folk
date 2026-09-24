@@ -209,6 +209,24 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
                 (out_height - 1) / 2 + (s * ax + c * ay) / factor,
             )
 
+        def fft_correlate2d(image, kernel):
+            """Valid 2-D cross-correlation via uncached, zero-padded FFTs."""
+            image_height, image_width = image.shape[-2:]
+            kernel_height, kernel_width = kernel.shape[-2:]
+            fft_shape = (
+                image_height + kernel_height - 1,
+                image_width + kernel_width - 1,
+            )
+            correlation = torch.fft.irfft2(
+                torch.fft.rfft2(image, s=fft_shape) *
+                torch.fft.rfft2(kernel, s=fft_shape).conj(),
+                s=fft_shape,
+            )
+            return correlation[
+                ..., :image_height - kernel_height + 1,
+                :image_width - kernel_width + 1,
+            ]
+
         def ncc_match(image, prepared, coarse_x, coarse_y, radius, cell_size,
                       prior=None):
             template, mask, template_norm, center_x, center_y = \
@@ -237,9 +255,11 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
             # cancellation on uniform backgrounds; each window is still centered.
             search = search - search.mean()
             with torch.inference_mode():
-                total = F.conv2d(search, mask)
-                numerator = F.conv2d(search, template) - total * template.sum() / count
-                square_total = F.conv2d(search.square(), mask)
+                # Intentionally recompute all search and template transforms to
+                # establish a simple FFT baseline before caching or batching.
+                total = fft_correlate2d(search, mask)
+                numerator = fft_correlate2d(search, template) - total * template.sum() / count
+                square_total = fft_correlate2d(search.square(), mask)
                 window_energy = (square_total - total.square() / count).clamp_min(0)
                 scores = numerator / (template_norm * window_energy.clamp_min(1e-12).sqrt())
                 scores = scores.clamp(-1.0, 1.0).masked_fill(window_energy <= min_energy, -2.0)
