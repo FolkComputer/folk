@@ -3,7 +3,19 @@
 When /k/ is a keyboard with /...opts/ {
     Wish tag $k is stabilized
 
-    When $k points up with length 0.3 at /program/ {
+    Wish $k points up with length 0.3
+    When the collected results for [list $k points up with length 0.3 at /program/] are /results/ {
+        set program ""
+        set smallestArea Inf
+        foreach result $results {
+            set target [dict get $result program]
+            foreach geometry [Query! $target has resolved geometry /geom/] {
+                set geom [dict get $geometry geom]
+                set area [expr {[dict get $geom width] * [dict get $geom height]}]
+                if {$area < $smallestArea} { set program $target; set smallestArea $area }
+            }
+        }
+        if {$program eq ""} { return }
         When /nobody/ claims $program is an editor {
             Wish tag $program is stabilized
 
