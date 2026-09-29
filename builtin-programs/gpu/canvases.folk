@@ -413,6 +413,14 @@ When the GPU library is /gpuLib/ &\
                                 dict unset missingPipelines $name
                                 set pipeline [dict get $pipelines $name]
                                 set pipelineRef [dict get $pipelineRefs $name]
+                                # Nest by compiled pipeline, then by argument value.
+                                # Reuse the instance's string without constructing a
+                                # composite list key. Pipeline edits still invalidate.
+                                set previousPipelineDrawCache [dict getdef $mostRecentDrawCache $pipelineRef {}]
+                                set pipelineDrawCache [dict getdef $thisDrawCache $pipelineRef {}]
+                                # Own the mutable inner dict while filling it, so
+                                # per-instance inserts don't copy a shared dict.
+                                dict unset thisDrawCache $pipelineRef
                                 if {[dict exists $options instances]} {
                                     set instances [dict get $options instances]
                                 } else {
@@ -420,21 +428,24 @@ When the GPU library is /gpuLib/ &\
                                 }
                                 foreach instance $instances {
                                     try {
-                                        # __ref includes the statement generation, so a
-                                        # recompiled pipeline cannot hit an old encoding.
-                                        set key [list $pipelineRef $instance]
-                                        if {[dict exists $thisDrawCache $key]} {
-                                            set encoded [dict get $thisDrawCache $key]
-                                        } elseif {[dict exists $mostRecentDrawCache $key]} {
-                                            set encoded [dict get $mostRecentDrawCache $key]
-                                        } else {
-                                            set encoded [$gpuCanvasLib encodeDraw $pipeline $instance]
+                                        # The common hit is in the previous frame.
+                                        # EncodedDraw is a nonempty binary struct, so
+                                        # an empty value is an unambiguous cache miss.
+                                        set encoded [dict getdef $previousPipelineDrawCache $instance {}]
+                                        if {$encoded eq {}} {
+                                            set encoded [dict getdef $pipelineDrawCache $instance {}]
+                                            if {$encoded eq {}} {
+                                                set encoded [$gpuCanvasLib encodeDraw $pipeline $instance]
+                                            }
                                         }
-                                        dict set thisDrawCache $key $encoded
+                                        dict set pipelineDrawCache $instance $encoded
                                         $gpuCanvasLib drawEncoded $encoded
                                     } on error e {
                                         puts stderr [errorInfo $e]
                                     }
+                                }
+                                if {[dict size $pipelineDrawCache]} {
+                                    dict set thisDrawCache $pipelineRef $pipelineDrawCache
                                 }
                             } on error e {
                                 puts stderr "Error: GPU draws pipeline $name: [errorInfo $e]"
