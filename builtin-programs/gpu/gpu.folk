@@ -145,11 +145,15 @@ fn gpuInit {useGlfw} {
             VkInstanceCreateInfo createInfo = {0};
             createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
 
+            // Uncomment to debug Vulkan API usage. Validation adds substantial
+            // per-draw CPU overhead, so leave it off for normal rendering.
+            /*
             const char* validationLayers[] = {
                "VK_LAYER_KHRONOS_validation"
             };
             createInfo.enabledLayerCount = sizeof(validationLayers)/sizeof(validationLayers[0]);
             createInfo.ppEnabledLayerNames = validationLayers;
+            */
 
             $[if {$macos} {subst -nocommands {
                 const char* enabledExtensions[] = {
