@@ -103,38 +103,6 @@ press `Enter`)
 
 1.  Clone this repository to /home/folk/folk. Run `make deps`.
 
-1.  Add the systemd service so it starts on boot and can be managed
-    when you run it from laptop. On Ubuntu Server or Raspberry Pi OS
-    (as root) ([from
-    here](https://medium.com/@benmorel/creating-a-linux-service-with-systemd-611b5c8b91d6)):
-
-        # cat >/etc/systemd/system/folk.service
-        [Unit]
-        Description=Folk service
-        After=network.target
-        StartLimitIntervalSec=0
-
-        [Service]
-        Type=simple
-        Restart=always
-        RestartSec=1
-        User=folk
-        WorkingDirectory=/home/folk/folk
-        ExecStart=make -C /home/folk/folk start
-
-        [Install]
-        WantedBy=multi-user.target
-
-    Run these commands as root after editing the file above:
-
-        # chmod 644 /etc/systemd/system/folk.service
-        # systemctl start folk
-        # systemctl enable folk
-
-Use `visudo` to add `folk ALL=(ALL) NOPASSWD: /usr/bin/systemctl` to
-the bottom of `/etc/sudoers` on the tabletop. (This lets the `make`
-scripts from your laptop manage the Folk service by running
-`systemctl` without needing a password.)
 
 To compile and run Folk manually:
 
@@ -142,15 +110,82 @@ To compile and run Folk manually:
 $ make && ./folk
 ```
 
-or (if remote machine):
+Folk should boot right away but may take some time to compile its
+runtime dependencies. (You won't see anything on the projector until
+you set it on the Setup page.)
+
+During this boot process and afterward, you can observe log files for
+individual Folk programs in the folder `/var/tmp/folk-<PID>`.
+
+Eventually (it has to compile some web stuff first, may take a few
+min), on a Web browser, go to http://your-remote-hostname.local:4273
+-- once this page loads successfully, you should see all active Folk
+programs. Check out the Statements page as well to see all statements
+in the database.
+
+### Projector-camera setup and calibration
+
+1. Make sure Folk is running. Go to your Folk server's Web page
+   http://whatever.local:4273/setup . Select your camera and
+   projector, using as high framerate and resolution as you're
+   comfortable with.
+
+1. You should see a live preview of the camera. Reposition your camera
+   to cover your table closely (try not to waste too much of the
+   camera viewport on pixels that the projector won't be able to hit)
+
+1. Select your camera and projector at the bottom and then click
+   Calibrate. Follow the calibration instructions.
+
+After calibrating, on http://whatever.local:4273/ : click New Program,
+hit Save, drag it around. You should see the program move on your
+table as you drag it around on your laptop.
+
+### Make Folk auto-run with systemd
+
+Add the systemd service so it starts on boot and can be managed when
+you run it from laptop. On Ubuntu Server or Raspberry Pi OS (as root)
+([from
+here](https://medium.com/@benmorel/creating-a-linux-service-with-systemd-611b5c8b91d6)):
+
+    # cat >/etc/systemd/system/folk.service
+    [Unit]
+    Description=Folk service
+    After=network.target
+    StartLimitIntervalSec=0
+
+    [Service]
+    Type=simple
+    Restart=always
+    RestartSec=1
+    # Stop every child process Folk launched, and do not let a wedged
+    # audio, compiler, or model process delay shutdown for 90 seconds.
+    KillMode=control-group
+    TimeoutStopSec=10s
+    SendSIGKILL=yes
+    User=folk
+    WorkingDirectory=/home/folk/folk
+    ExecStart=make -C /home/folk/folk start
+
+    [Install]
+    WantedBy=multi-user.target
+
+Run these commands as root after editing the file above:
+
+    # chmod 644 /etc/systemd/system/folk.service
+    # systemctl start folk
+    # systemctl enable folk
+
+Use `visudo` to add `folk ALL=(ALL) NOPASSWD: /usr/bin/systemctl` to
+the bottom of `/etc/sudoers` on the tabletop. (This lets the `make`
+scripts from your laptop manage the Folk service by running
+`systemctl` without needing a password.)
+
+Can sync from remote machine if you're editing on your laptop:
 
 ```
 $ make remote FOLK_REMOTE_NODE=<your-remote-hostname-here>
 ```
-
-On your laptop Web browser, go to http://your-remote-hostname.local:4273 --
-you should see all active Folk programs. Check out the Statements page
-as well to see all statements in the database.
 
 ### Printer support
 
@@ -189,24 +224,6 @@ You can also test printing again with `lpr
 ~/folk-data/program/SOMETHING.pdf` (you have to print the PDF and
 not the PS for it to work, probably)
 
-### Projector-camera setup and calibration
-
-1. Make sure Folk is running. Go to your Folk server's Web page
-   http://whatever.local:4273/setup . Select your camera and
-   projector, using as high framerate and resolution as you're
-   comfortable with.
-
-1. You should see a live preview of the camera. Reposition your camera
-   to cover your table closely (try not to waste too much of the
-   camera viewport on pixels that the projector won't be able to hit)
-
-1. Select your camera and projector at the bottom and then click
-   Calibrate. Follow the calibration instructions.
-
-After calibrating, on http://whatever.local:4273/ : click New Program,
-hit Save, drag it around. You should see the program move on your
-table as you drag it around on your laptop.
-
 ### Connect a keyboard
 
 Follow [the instructions on this Folk wiki page](https://folk.computer/guides/keyboard)
@@ -230,7 +247,7 @@ Note down your keyboard's MAC address so you can identify it on the keyboards pa
 
 If your keyboard is connected but does not show up on the keyboard page, follow [this wiki guide](https://folk.computer/guides/udev-rule) to add a udev rule for it.
 
-#### Python support
+### Python support
 
 To use the Python FFI and the builtin recognition programs (CRAFT,
 TrOCR, SAM2), you should [install
