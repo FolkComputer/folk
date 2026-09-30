@@ -146,9 +146,20 @@ void destructorSetInit(DestructorSet* set) {
 static void destructorSetAddImpl(DestructorSet* set, Destructor* d) {
     assert(set->destructors != NULL);
 
+    // (This is O(n) every time you add a destructor, but the total
+    // number of destructors in play should be small most of the time
+    // -- 3-4ish distinct destructors per inheritance subgraph -- so
+    // this scan is not so expensive, it's simple, and much cheaper
+    // than letting duplicates build up over time and over the
+    // subgraph, where they can balloon to millions and cause leaks
+    // and crashes.)
+    for (int i = 0; i < set->destructorsCount; i++) {
+        if (set->destructors[i] == d) { return; }
+    }
+
     if (set->destructorsCount == set->destructorsCapacity) {
         set->destructorsCapacity *= 2;
-        set->destructors = realloc(set->destructors, set->destructorsCapacity * sizeof(Destructor));
+        set->destructors = realloc(set->destructors, set->destructorsCapacity * sizeof(*set->destructors));
     }
 
     destructorRetain(d);
@@ -192,9 +203,9 @@ typedef struct Statement {
     // statement creation.
     long keepMs;
 
-    // Will be NULL if not running in an Atomically
-    // convergence-tracking subgraph.
-    AtomicallyVersion* atomicallyVersion;
+    // Immutable set, empty outside an Atomically convergence-tracking subgraph.
+    AtomicallyVersion** atomicallyVersions;
+    int atomicallyVersionsCount;
 
     // Note that statement destructors are not mutable after statement
     // creation, so they can be safely looked up and inherited, unlike
@@ -238,14 +249,15 @@ typedef struct Match {
     // Immutable match properties:
     // -----
     int workerThreadIndex;
+    AtomicallyVersion** atomicallyVersions;
+    int atomicallyVersionsCount;
 
     // Mutable match properties:
     // -----
 
-    // Will be NULL if not running in an Atomically
-    // convergence-tracking subgraph.
-    AtomicallyVersion* _Atomic atomicallyVersion;
-    _Atomic bool isAtomicallyRootMatch;
+    // Only roots have a pin. Reaping clears it without changing their
+    // immutable inherited version set.
+    AtomicallyVersion* _Atomic pinnedAtomicallyVersion;
     // Set to true if ANY parent statement was removed but we kept the
     // Match alive.
     _Atomic bool parentWasRemoved;
@@ -294,6 +306,17 @@ typedef struct AtomicallyVersion {
     // AtomicallyVersion is 'fully converged'. This should never be
     // negative.
     int _Atomic inflightCount;
+    // After it's converged once (even if it unconverges later because
+    // new inflight work pops up), the version's statements remain
+    // visible as long as no fresher version has converged.  
+    //
+    // This gate solves a weird 'visibility livelock' situation on
+    // statements carrying multiple versions, where it's rare for the
+    // versions to all have inflightCount 0 at the same time, so the
+    // user sees a very stale older version (or blinking). (Note that
+    // for a given AtomicallyVersion, `hasConverged` only ever goes
+    // from false -> true, never back from true -> false.)
+    bool _Atomic hasConverged;
 
     // When you do When -atomically, every time its body executes, it
     // produces a Match and a fresh AtomicallyVersion. That Match is
@@ -301,12 +324,17 @@ typedef struct AtomicallyVersion {
     // therefore all descendant statements) is artificially kept alive
     // as long as the AtomicallyVersion hasn't been
     // invalidated. (matchRemoveSelf won't go through if
-    // match->atomicallyVersion->rootMatch is match.)
+    // match->pinnedAtomicallyVersion is this version.)
     //
     // Invalidation: When a newer version converges (or when the
     // Atomically times out), we walk all older versions' rootMatches
     // and NULL them out.
     Match* _Atomic rootMatch;
+
+    // When any parent of rootMatch is removed, we set
+    // parentRemovedTime, which effectively starts the countdown to
+    // timeout for this version.
+    int64_t _Atomic parentRemovedTime; // 0 at creation.
 } AtomicallyVersion;
 
 typedef struct AtomicallyVersionList {
@@ -327,11 +355,16 @@ typedef struct Atomically {
 
     AtomicallyVersion* _Atomic latestConvergedVersion;
 
-    // Records the last time that a version of this Atomically
-    // converged. The sysmon will check this every 50ms or so and
-    // reap any Atomicallys that haven't converged in a while.
-    int64_t latestConvergedTime;
+    // An interval of nanoseconds (100,000,000 = 100ms).
     int64_t timeout;
+    // Timeout: Given a converged AtomicallyVersion, when:
+    // - it has `parentRemovedTime > 0`, meaning that a parent
+    //   actually has been removed, and
+    // - `<now> - parentRemovedTime` is greater than `timeout`, and
+    //   `timeout > 0`, meaning that it has a timeout & that timeout
+    //   has elapsed,
+    // that AtomicallyVersion is liable to be reaped, even if it is
+    // the latest converged version.
 } Atomically;
 
 typedef struct Db {
@@ -475,7 +508,8 @@ StatementRef statementRef(Db* db, Statement* stmt) {
 // operation). Note: clause ownership transfers to the DB, which then
 // becomes responsible for freeing it. 
 static StatementRef statementNew(Db* db, Clause* clause,
-                                 long keepMs, AtomicallyVersion* atomicallyVersion,
+                                 long keepMs, AtomicallyVersion* const* atomicallyVersions,
+                                 int atomicallyVersionsCount,
                                  const char* sourceFileName,
                                  int sourceLineNumber) {
     StatementRef ret;
@@ -505,14 +539,15 @@ static StatementRef statementNew(Db* db, Clause* clause,
     atomic_store(&stmt->clause, clause);
     stmt->keepMs = keepMs;
 
-    // inflightCount must start incremented so that this
-    // atomicallyVersion never reports convergence (inflightCount = 0)
+    // inflightCount must start incremented so that no inherited
+    // version reports convergence (inflightCount = 0)
     // before the first reaction is dispatched.
-    if (atomicallyVersion != NULL) {
-        atomicallyVersion->inflightCount++;
-        stmt->atomicallyVersion = atomicallyVersion;
-    } else {
-        stmt->atomicallyVersion = NULL;
+    stmt->atomicallyVersionsCount = atomicallyVersionsCount;
+    stmt->atomicallyVersions = atomicallyVersionsCount == 0 ? NULL :
+        malloc(sizeof(AtomicallyVersion*) * atomicallyVersionsCount);
+    for (int i = 0; i < atomicallyVersionsCount; i++) {
+        stmt->atomicallyVersions[i] = atomicallyVersions[i];
+        dbAtomicallyVersionInflightIncr(atomicallyVersions[i]);
     }
     stmt->parentCount = 1;
     stmt->keepRemovalPending = false;
@@ -548,6 +583,7 @@ static void statementDestroy(Statement* stmt) {
     pthread_mutex_unlock(&stmt->destructorSetMutex);
 
     pthread_mutex_destroy(&stmt->lifecycleMutex);
+    free(stmt->atomicallyVersions);
 
     Clause* stmtClause = statementClause(stmt);
     // Marks this statement slot as being fully free and ready for
@@ -560,8 +596,15 @@ static void statementDestroy(Statement* stmt) {
 
 Clause* statementClause(Statement* stmt) { return stmt->clause; }
 
-AtomicallyVersion* statementAtomicallyVersion(Statement* stmt) {
-    return stmt->atomicallyVersion;
+AtomicallyVersion* const* statementAtomicallyVersions(Statement* stmt, int* count) {
+    *count = stmt->atomicallyVersionsCount;
+    return stmt->atomicallyVersions;
+}
+bool statementAtomicallyHasConverged(Statement* stmt) {
+    for (int i = 0; i < stmt->atomicallyVersionsCount; i++) {
+        if (!dbAtomicallyVersionHasConverged(stmt->atomicallyVersions[i])) return false;
+    }
+    return true;
 }
 int statementParentCount(Statement* stmt) {
     return stmt->parentCount;
@@ -777,9 +820,7 @@ MatchRef matchRef(Db* db, Match* match) {
     };
 }
 
-static MatchRef matchNew(Db* db,
-                         AtomicallyVersion* atomicallyVersion,
-                         int workerThreadIndex) {
+static MatchRef matchNew(Db* db, int workerThreadIndex) {
     MatchRef ret;
     Match* match = NULL;
 
@@ -813,8 +854,9 @@ static MatchRef matchNew(Db* db,
     pthread_mutex_init(&match->childStatementsMutex, &mta);
     pthread_mutexattr_destroy(&mta);
 
-    match->atomicallyVersion = atomicallyVersion;
-    match->isAtomicallyRootMatch = false;
+    match->atomicallyVersions = NULL;
+    match->atomicallyVersionsCount = 0;
+    match->pinnedAtomicallyVersion = NULL;
     match->workerThreadIndex = workerThreadIndex;
     match->isCompleted = false;
 
@@ -833,13 +875,16 @@ static void matchDestroy(Match* match) {
     destructorSetReleaseAll(&match->destructorSet);
     pthread_mutex_unlock(&match->destructorSetMutex);
 
+    free(match->atomicallyVersions);
+
     // Release store: synchronizes with matchNew's acquire load so that
     // all writes above are visible before the slot is reused.
     atomic_store_explicit(&match->childStatements, NULL, memory_order_release);
 }
 
-AtomicallyVersion* matchAtomicallyVersion(Match* m) {
-    return m->atomicallyVersion;
+AtomicallyVersion* const* matchAtomicallyVersions(Match* m, int* count) {
+    *count = m->atomicallyVersionsCount;
+    return m->atomicallyVersions;
 }
 
 static bool statementChecker(void* db, uint64_t ref) {
@@ -876,13 +921,15 @@ extern ThreadControlBlock threads[];
 extern void traceItem(char* buf, size_t bufsz, WorkQueueItem item);
 void matchRemoveSelf(Db* db, Match* match) {
     /* assert(match > &db->matchPool[0] && match < &db->matchPool[65536]); */
-    if (match->isAtomicallyRootMatch &&
-        atomic_load(&match->atomicallyVersion) != NULL) {
-        // The AtomicallyVersion owns this root until the reaper clears
-        // atomicallyVersion. Don't dereference it here: the reaper may be
-        // freeing it concurrently.
+    AtomicallyVersion* version = atomic_load(&match->pinnedAtomicallyVersion);
+    if (version != NULL) {
+        // Version objects outlive their roots. Record the first removal,
+        // without extending the grace period when another parent is removed.
+        int64_t expected = 0;
+        atomic_compare_exchange_strong(&version->parentRemovedTime, &expected,
+                                        timestamp_get(CLOCK_MONOTONIC));
         match->parentWasRemoved = true;
-        if (atomic_load(&match->atomicallyVersion) != NULL) {
+        if (atomic_load(&match->pinnedAtomicallyVersion) != NULL) {
             return;
         }
         // The reaper cleared the pin between our two loads. Exactly one of
@@ -1001,7 +1048,7 @@ ResultSet* dbQuery(Db* db, Clause* pattern) {
     return resultSet;
 }
 
-Atomically* dbGetOrCreateAtomically(Db* db, const char* key) {
+Atomically* dbGetOrCreateAtomically(Db* db, const char* key, int64_t timeout) {
     mutexLock(&db->atomicallysMutex);
 
     Atomically* atomically = NULL;
@@ -1020,8 +1067,6 @@ Atomically* dbGetOrCreateAtomically(Db* db, const char* key) {
                 atomically->key = strdup(key);
                 atomically->nextNumber = 0;
                 atomically->allVersions = NULL;
-                atomically->timeout = 100000000; // 100ms
-                atomically->latestConvergedTime = 0;
                 break;
             }
         }
@@ -1030,6 +1075,7 @@ Atomically* dbGetOrCreateAtomically(Db* db, const char* key) {
         fprintf(stderr, "dbGetOrCreateAtomicallyByKey: Ran out of Atomically slots\n");
         exit(1);
     }
+    atomically->timeout = timeout;
     mutexUnlock(&db->atomicallysMutex);
     return atomically;
 }
@@ -1043,14 +1089,16 @@ static AtomicallyVersion* dbFreshAtomicallyVersion(Db* db, Atomically* atomicall
     // FIXME: assert old values are bad, do something with refcount
 
     atomicallyVersion->number = atomically->nextNumber++;
-    // An AtomicallyVersion should start unconverged, assuming that it
-    // always gets set into a currently running (incomplete) match
-    // that can mark it as converged when done.
+    // An AtomicallyVersion starts unconverged (inflightCount > 0).
+    // The caller owns this inflightCount = 1; it must decr when
+    // finished. Downstream queued reactions and matches will in turn
+    // do their own matching incr and decr on inflightCount.
     atomicallyVersion->inflightCount = 1;
+    atomicallyVersion->hasConverged = false;
+    atomicallyVersion->parentRemovedTime = 0;
     atomicallyVersion->rootMatch = matchAcquire(db, rootMatchRef);
     assert(atomicallyVersion->rootMatch != NULL);
-    atomicallyVersion->rootMatch->isAtomicallyRootMatch = true;
-    atomicallyVersion->rootMatch->atomicallyVersion = atomicallyVersion;
+    atomicallyVersion->rootMatch->pinnedAtomicallyVersion = atomicallyVersion;
 
     // Add this version to atomically->allVersions list
     AtomicallyVersionList* newNode = malloc(sizeof(AtomicallyVersionList));
@@ -1068,7 +1116,7 @@ static AtomicallyVersion* dbFreshAtomicallyVersion(Db* db, Atomically* atomicall
 }
 static void dbAtomicallyReapAllVersions(Db* db, Atomically* atomically,
                                         AtomicallyVersion* newlyConvergedVersion,
-                                        bool onlyReapConvergedVersions) {
+                                        int64_t now) {
     // Swap out the entire list atomically, then process it after the
     // CAS loop.
     AtomicallyVersionList* allVersions;
@@ -1084,15 +1132,17 @@ static void dbAtomicallyReapAllVersions(Db* db, Atomically* atomically,
     AtomicallyVersionList* x = allVersions;
     while (x != NULL) {
         AtomicallyVersionList* next = x->next;
+        int64_t removedAt = x->version == NULL ? 0 : x->version->parentRemovedTime;
         if (x->version != NULL &&
             (newlyConvergedVersion == NULL ||
              x->version->number < newlyConvergedVersion->number) &&
-            (!onlyReapConvergedVersions || x->version->inflightCount == 0)) {
+            (now == 0 || (x->version->inflightCount == 0 &&
+                          removedAt != 0 && now - removedAt > atomically->timeout))) {
             // Old version - clear and free it
             Match* rootMatch = x->version->rootMatch;
             x->version->rootMatch = NULL;
             if (rootMatch != NULL) {
-                atomic_store(&rootMatch->atomicallyVersion, NULL);
+                atomic_store(&rootMatch->pinnedAtomicallyVersion, NULL);
                 if (atomic_exchange(&rootMatch->parentWasRemoved, false)) {
                     matchRemoveSelf(db, rootMatch);
                 }
@@ -1135,16 +1185,16 @@ void dbGarbageCollectAtomicallys(Db* db, int64_t now) {
     mutexLock(&db->atomicallysMutex);
     for (int i = 0; i < sizeof(db->atomicallys)/sizeof(db->atomicallys[0]); i++) {
         if (db->atomicallys[i].key != NULL &&
-            now - db->atomicallys[i].latestConvergedTime > db->atomicallys[i].timeout) {
+            db->atomicallys[i].timeout > 0) {
 
-            dbAtomicallyReapAllVersions(db, &db->atomicallys[i], NULL, true);
+            dbAtomicallyReapAllVersions(db, &db->atomicallys[i], NULL, now);
         }
     }
     mutexUnlock(&db->atomicallysMutex);
 }
 
 bool dbAtomicallyVersionHasConverged(AtomicallyVersion* atomicallyVersion) {
-    return atomicallyVersion->inflightCount == 0;
+    return atomicallyVersion->hasConverged;
 }
 int dbAtomicallyVersionInflightCount(AtomicallyVersion* atomicallyVersion) {
     /* printf("%p -- inflight count %d\n", atomicallyVersion, atomicallyVersion->inflightCount); */
@@ -1157,19 +1207,15 @@ const char* dbAtomicallyVersionKey(AtomicallyVersion* atomicallyVersion) {
     return atomicallyVersion->atomically->key;
 }
 void dbInflightIncr(Statement* stmt) {
-    if (stmt != NULL && stmt->atomicallyVersion != NULL) {
-        stmt->atomicallyVersion->inflightCount++;
-        /* printf("dbInflightIncr (%s) %p -> %d\n", clauseToString(stmt->clause), */
-        /*        stmt->atomicallyVersion, */
-        /*        stmt->atomicallyVersion->inflightCount); */
+    if (stmt == NULL) return;
+    for (int i = 0; i < stmt->atomicallyVersionsCount; i++) {
+        dbAtomicallyVersionInflightIncr(stmt->atomicallyVersions[i]);
     }
 }
 void dbInflightDecr(Db* db, Statement* stmt) {
-    if (stmt != NULL && stmt->atomicallyVersion != NULL) {
-        /* printf("dbInflightDecr (%s) %p -> %d\n", clauseToString(stmt->clause), */
-        /*        stmt->atomicallyVersion, */
-        /*        stmt->atomicallyVersion->inflightCount - 1); */
-        dbAtomicallyVersionInflightDecr(db, stmt->atomicallyVersion);
+    if (stmt == NULL) return;
+    for (int i = 0; i < stmt->atomicallyVersionsCount; i++) {
+        dbAtomicallyVersionInflightDecr(db, stmt->atomicallyVersions[i]);
     }
 }
 void dbAtomicallyVersionInflightIncr(AtomicallyVersion* atomicallyVersion) {
@@ -1179,11 +1225,10 @@ void dbAtomicallyVersionInflightIncr(AtomicallyVersion* atomicallyVersion) {
     /*        atomicallyVersion->inflightCount); */
 }
 void dbAtomicallyVersionInflightDecr(Db* db, AtomicallyVersion* atomicallyVersion) {
-    if (--atomicallyVersion->inflightCount == 0) {
+    if (--atomicallyVersion->inflightCount == 0 && !atomic_exchange(&atomicallyVersion->hasConverged, true)) {
         Atomically* atomically = atomicallyVersion->atomically;
         atomically->latestConvergedVersion = atomicallyVersion;
-        atomically->latestConvergedTime = timestamp_get(CLOCK_MONOTONIC);
-        dbAtomicallyReapAllVersions(db, atomically, atomicallyVersion, false);
+        dbAtomicallyReapAllVersions(db, atomically, atomicallyVersion, 0);
     }
     /* printf("dbAtomicallyVersionInflightDecr %p -> %d\n", */
     /*        atomicallyVersion, */
@@ -1237,7 +1282,8 @@ static bool tryReuseStatement(Db* db, Statement* stmt, Match* parentMatch) {
 // Takes ownership of `clause` (i.e., you can't touch clause at the
 // caller after calling this!).
 Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
-                                    long keepMs, AtomicallyVersion* atomicallyVersion,
+                                    long keepMs, AtomicallyVersion* const* atomicallyVersions,
+                                    int atomicallyVersionsCount,
                                     const char* sourceFileName, int sourceLineNumber,
                                     MatchRef parentMatchRef,
                                     StatementRef* outReusedStatementRef) {
@@ -1283,7 +1329,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
     // 
     // Also transfers ownership of `clause` to the DB.
     StatementRef ref = statementNew(db, clause,
-                                    keepMs, atomicallyVersion,
+                                    keepMs, atomicallyVersions, atomicallyVersionsCount,
                                     sourceFileName, sourceLineNumber);
 
     // Now try to add to the trie: the trieAdd operation will
@@ -1339,7 +1385,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
                     newStmt->removing = true;
                     pthread_mutex_unlock(&newStmt->lifecycleMutex);
                     // statementNew() charged this provisional statement to
-                    // atomicallyVersion. Since reuse means it will never be
+                    // every inherited version. Since reuse means it will never be
                     // returned to Say(), discharge that inflight obligation
                     // here before destroying it.
                     dbInflightDecr(db, newStmt);
@@ -1408,10 +1454,9 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
 }
 
 Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
-                     AtomicallyVersion** atomicallyVersion,
                      Atomically* freshAtomically,
                      int workerThreadIndex) {
-    MatchRef ref = matchNew(db, *atomicallyVersion, workerThreadIndex);
+    MatchRef ref = matchNew(db, workerThreadIndex);
     Match* match = matchAcquire(db, ref);
     assert(match != NULL);
 
@@ -1436,14 +1481,42 @@ Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
     // We have now acquired all parent statements and are holding
     // their childMatchesMutexes, and none have childMatches == NULL.
 
-    // Establish ownership before a parent can remove this match. Resolving
-    // the arena happened before these locks, so we don't take atomicallysMutex
-    // here (the timeout reaper takes that mutex before removing descendants).
-    if (freshAtomically != NULL) {
-        *atomicallyVersion = dbFreshAtomicallyVersion(db, freshAtomically, ref);
-    } else if (*atomicallyVersion != NULL) {
-        dbAtomicallyVersionInflightIncr(*atomicallyVersion);
+    // Establish ownership before a parent can remove this match. The
+    // caller resolved the Atomically already, so we don't take
+    // atomicallysMutex here -- we need to keep lock ordering
+    // consistent, and the timeout reaper takes atomicallysMutex
+    // before taking childMatchesMutexes.
+    int capacity = freshAtomically != NULL ? 1 : 0;
+    if (freshAtomically == NULL) {
+        for (int i = 0; i < nParents; i++) {
+            capacity += parentStatements[i]->atomicallyVersionsCount;
+        }
     }
+    AtomicallyVersion** versions = capacity == 0 ? NULL :
+        malloc(sizeof(AtomicallyVersion*) * capacity);
+    int count = 0;
+    if (freshAtomically == NULL) {
+        for (int i = 0; i < nParents; i++) {
+            Statement* parent = parentStatements[i];
+            for (int j = 0; j < parent->atomicallyVersionsCount; j++) {
+                AtomicallyVersion* version = parent->atomicallyVersions[j];
+                bool present = false;
+                for (int k = 0; k < count; k++) {
+                    if (versions[k] == version) { present = true; break; }
+                }
+                if (!present) {
+                    versions[count++] = version;
+                    dbAtomicallyVersionInflightIncr(version);
+                }
+            }
+        }
+    }
+    if (freshAtomically != NULL) {
+        versions[count++] = dbFreshAtomicallyVersion(db, freshAtomically, ref);
+    }
+    match->atomicallyVersionsCount = count;
+    match->atomicallyVersions = count == capacity ? versions :
+        realloc(versions, sizeof(AtomicallyVersion*) * count);
 
     // Now we can do the actual insertion.
     for (int i = 0; i < nParents; i++) {
@@ -1538,7 +1611,7 @@ Statement* dbHoldStatement(Db* db,
             hold->version = version;
 
             StatementRef reusedStatementRef;
-            newStmt = dbInsertOrReuseStatement(db, clause, keepMs, NULL,
+            newStmt = dbInsertOrReuseStatement(db, clause, keepMs, NULL, 0,
                                                sourceFileName, sourceLineNumber,
                                                MATCH_REF_NULL,
                                                &reusedStatementRef);

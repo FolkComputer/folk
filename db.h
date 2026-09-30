@@ -55,7 +55,9 @@ StatementRef statementRef(Db* db, Statement* stmt);
 
 // Getters:
 Clause* statementClause(Statement* stmt);
-AtomicallyVersion* statementAtomicallyVersion(Statement* stmt);
+// Borrowed immutable arrays, valid while the statement/match is acquired.
+AtomicallyVersion* const* statementAtomicallyVersions(Statement* stmt, int* count);
+bool statementAtomicallyHasConverged(Statement* stmt);
 char* statementSourceFileName(Statement* stmt);
 int statementSourceLineNumber(Statement* stmt);
 
@@ -80,7 +82,7 @@ void matchRelease(Db* db, Match* m);
 
 bool matchCheck(Db* db, MatchRef ref);
 
-AtomicallyVersion* matchAtomicallyVersion(Match* m);
+AtomicallyVersion* const* matchAtomicallyVersions(Match* m, int* count);
 
 void matchAddDestructor(Match* m, Destructor* d);
 
@@ -111,7 +113,7 @@ ResultSet* dbQuery(Db* db, Clause* pattern);
 
 // Resolve the key before taking parent locks. Copies key if needed; the
 // returned arena is owned by the DB and is never freed.
-Atomically* dbGetOrCreateAtomically(Db* db, const char* key);
+Atomically* dbGetOrCreateAtomically(Db* db, const char* key, int64_t timeout);
 
 bool dbAtomicallyVersionHasConverged(AtomicallyVersion* atomicallyVersion);
 int dbAtomicallyVersionInflightCount(AtomicallyVersion* atomicallyVersion);
@@ -132,8 +134,10 @@ void dbAtomicallyVersionInflightDecr(Db* db, AtomicallyVersion* atomicallyVersio
 // the caller. (This is mainly so that the caller can insert
 // destructors at will before doing the release.) Returns NULL if no
 // new statement was created.
+// atomicallyVersions is a set (no duplicate pointers); creation copies it.
 Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
-                                    long keepMs, AtomicallyVersion* atomicallyVersion,
+                                    long keepMs, AtomicallyVersion* const* atomicallyVersions,
+                                    int atomicallyVersionsCount,
                                     const char* sourceFileName, int sourceLineNumber,
                                     MatchRef parent,
                                     StatementRef* outReusedStatementRef);
@@ -148,14 +152,10 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
 // caller.
 //
 // On successful attachment:
-// - If freshAtomically is non-NULL, create and pin a fresh version
-//   within it and set *atomicallyVersion to that version.
-// - Otherwise, if *atomicallyVersion is non-NULL, increment its
-//   inflight count.
-// In either case, the caller owns one inflight operation and must
-// decrement it when the match finishes.
+// Inherit the union of the parents' versions, or replace them with a fresh
+// pinned version if freshAtomically is non-NULL. The caller owns one inflight
+// operation in every version and must decrement each when the match finishes.
 Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
-                     AtomicallyVersion** atomicallyVersion,
                      Atomically* freshAtomically,
                      int workerThreadIndex);
 
