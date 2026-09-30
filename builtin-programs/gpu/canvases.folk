@@ -330,7 +330,6 @@ When the GPU library is /gpuLib/ &\
         try {
             set results [Query! the GPU compiles pipeline /name/ to /pipeline/]
             set pipelines [dict create]
-            set pipelineRefs [dict create]
             foreach result $results { dict with result {
                 set ref [dict get $result __ref]
                 try {
@@ -340,7 +339,6 @@ When the GPU library is /gpuLib/ &\
                     continue
                 }
                 dict set pipelines $name $pipeline
-                dict set pipelineRefs $name $ref
             } }
 
             set results [Query! the GPU has created canvas /id/ with /...options/]
@@ -412,15 +410,14 @@ When the GPU library is /gpuLib/ &\
                                 }
                                 dict unset missingPipelines $name
                                 set pipeline [dict get $pipelines $name]
-                                set pipelineRef [dict get $pipelineRefs $name]
-                                # Nest by compiled pipeline, then by argument value.
+                                # Nest by compiled pipeline value, then argument value.
                                 # Reuse the instance's string without constructing a
                                 # composite list key. Pipeline edits still invalidate.
-                                set previousPipelineDrawCache [dict getdef $mostRecentDrawCache $pipelineRef {}]
-                                set pipelineDrawCache [dict getdef $thisDrawCache $pipelineRef {}]
+                                set previousPipelineDrawCache [dict getdef $mostRecentDrawCache $pipeline {}]
+                                set pipelineDrawCache [dict getdef $thisDrawCache $pipeline {}]
                                 # Own the mutable inner dict while filling it, so
                                 # per-instance inserts don't copy a shared dict.
-                                dict unset thisDrawCache $pipelineRef
+                                dict unset thisDrawCache $pipeline
                                 if {[dict exists $options instances]} {
                                     set instances [dict get $options instances]
                                 } else {
@@ -445,7 +442,7 @@ When the GPU library is /gpuLib/ &\
                                     }
                                 }
                                 if {[dict size $pipelineDrawCache]} {
-                                    dict set thisDrawCache $pipelineRef $pipelineDrawCache
+                                    dict set thisDrawCache $pipeline $pipelineDrawCache
                                 }
                             } on error e {
                                 puts stderr "Error: GPU draws pipeline $name: [errorInfo $e]"
