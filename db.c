@@ -146,9 +146,20 @@ void destructorSetInit(DestructorSet* set) {
 static void destructorSetAddImpl(DestructorSet* set, Destructor* d) {
     assert(set->destructors != NULL);
 
+    // (This is O(n) every time you add a destructor, but the total
+    // number of destructors in play should be small most of the time
+    // -- 3-4ish distinct destructors per inheritance subgraph -- so
+    // this scan is not so expensive, it's simple, and much cheaper
+    // than letting duplicates build up over time and over the
+    // subgraph, where they can balloon to millions and cause leaks
+    // and crashes.)
+    for (int i = 0; i < set->destructorsCount; i++) {
+        if (set->destructors[i] == d) { return; }
+    }
+
     if (set->destructorsCount == set->destructorsCapacity) {
         set->destructorsCapacity *= 2;
-        set->destructors = realloc(set->destructors, set->destructorsCapacity * sizeof(Destructor));
+        set->destructors = realloc(set->destructors, set->destructorsCapacity * sizeof(*set->destructors));
     }
 
     destructorRetain(d);
