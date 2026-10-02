@@ -6,6 +6,7 @@ set quadLib [library create quadLib {} {
         ::math::linearalgebra::sub \
         ::math::linearalgebra::norm \
         ::math::linearalgebra::dotproduct \
+        ::math::linearalgebra::crossproduct \
         ::math::linearalgebra::unitLengthVector \
         ::math::linearalgebra::scale
     rename scale scaleVector
@@ -230,10 +231,22 @@ set quadLib [library create quadLib {} {
         return [create [space $q] [list $topLeft $topRight $bottomRight $bottomLeft]]
     }
 
+    proc XYToPoint {quad xy} {
+        lassign $xy x y
+        lassign [vertices $quad] topLeft topRight bottomRight bottomLeft
+        set width [norm [sub $topRight $topLeft]]
+        set height [norm [sub $bottomLeft $topLeft]]
+        set xAxis [unitLengthVector [sub $topRight $topLeft]]
+        set yAxis [unitLengthVector [sub $bottomLeft $topLeft]]
+        set pointRelativeToTopLeft [add [scaleVector $x $xAxis] \
+                                        [scaleVector $y $yAxis]]
+        return [add $pointRelativeToTopLeft $topLeft]
+    }
+
     # Take a {x y z} point in the same space as the quad and project
     # it down onto a {top left} point on the quad (that can be used in
     # the drawing APIs, etc).
-    proc pointToXY {q xyz {checkBounds true}} {
+    proc pointToXY {q xyz} {
         lassign [vertices $q] topLeft topRight bottomRight bottomLeft
         set width [norm [sub $topRight $topLeft]]
         set height [norm [sub $bottomLeft $topLeft]]
@@ -243,15 +256,31 @@ set quadLib [library create quadLib {} {
         set x [dotproduct $delta $xAxis]
         set y [dotproduct $delta $yAxis]
 
-        set eps 0.000001
-        if {$x < -$eps || $x > $width + $eps ||
-            $y < -$eps || $y > $height + $eps} {
-            if {$checkBounds} {
-                error "quad pointToXY: point $xyz projects outside quad bounds as {$x $y}; bounds are {0 0} {$width $height}"
-            }
+        return [list $x $y]
+    }
+
+    proc projectAlongSourceNormal {sourceQuad targetQuad xyz} {
+        lassign [vertices $sourceQuad] sourceTopLeft sourceTopRight sourceBottomRight sourceBottomLeft
+        # We project a ray out from the source quad onto the target quad.
+        set rayDirection [unitLengthVector [crossproduct \
+            [sub $sourceTopRight $sourceTopLeft] \
+            [sub $sourceBottomLeft $sourceTopLeft]]]
+
+        lassign [vertices $targetQuad] targetTopLeft targetTopRight targetBottomRight targetBottomLeft
+        set targetNormal [unitLengthVector [crossproduct \
+            [sub $targetTopRight $targetTopLeft] \
+            [sub $targetBottomLeft $targetTopLeft]]]
+
+        set cosineToTarget [dotproduct $targetNormal $rayDirection]
+        if {abs($cosineToTarget) < 1e-6} {
+            error "projectAlongSourceNormal: source plane is perpendicular to target plane"
         }
 
-        return [list $x $y]
+        set distanceToTarget [expr {
+            [dotproduct $targetNormal [sub $targetTopLeft $xyz]] / $cosineToTarget
+        }]
+
+        return [add $xyz [scaleVector $distanceToTarget $rayDirection]]
     }
 }]
 Claim the quad library is $quadLib

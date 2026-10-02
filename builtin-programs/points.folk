@@ -1,0 +1,83 @@
+set pointsLib [library create pointsLib {} {
+    proc surfacePoint {surface xy} {
+        upvar this this
+        return [list surface-point $surface $xy]
+    }
+
+    proc surfacePointCheckType {surfacePoint} {
+        set type [lindex $surfacePoint 0]
+        if {$type ne "surface-point"} { error "expected type "surface-point", but got \"$type\""}
+    }
+
+    proc surfacePointVector {surfacePoint} {
+        surfacePointCheckType $surfacePoint
+        return [lindex $surfacePoint 2]
+    }
+
+    proc surfacePointId {surfacePoint} {
+        surfacePointCheckType $surfacePoint
+        return [lindex $surfacePoint 1]
+    }
+
+    proc spacePoint {space xyz} {
+        return [list space-point $space $xyz]
+    }
+
+    proc spacePointCheckType {spacePoint} {
+        set type [lindex $spacePoint 0]
+        if {$type ne "space-point"} { error "expected type "space-point", but got \"$type\""}
+    }
+
+    proc spacePointVector {spacePoint} {
+        spacePointCheckType $spacePoint
+        return [lindex $spacePoint 2]
+    }
+
+    proc spacePointSpace {spacePoint} {
+        spacePointCheckType $spacePoint
+        return [lindex $spacePoint 1]
+    }
+
+    # User API
+    proc point {x y} {
+        upvar this this
+        return [surfacePoint $this [list $x $y]]
+    }
+}]
+Claim the points library is $pointsLib
+
+When when point /point/ has point /anything/ on /targetSurface/ /lambda/ with environment /anything/ {
+    Wish point $point is projected to surface $targetSurface
+}
+
+When the quad library is /quadLib/ &\
+     the quad changer is /quadChange/ &\
+     /someone/ wishes point /point/ is projected to surface /targetSurface/ {
+    set pointSurface [$pointsLib surfacePointId $point]
+    When $pointSurface has quad /pointQuad/ &\
+         $targetSurface has quad /targetQuad/ {
+        # "Now in 3D!"
+        set pointInSpace [$quadLib XYToPoint $pointQuad [$pointsLib surfacePointVector $point]]
+
+        # HACK currently the `quadChange` changes quads, not points. We
+        # construct an artifical quad that has zeros for the last three
+        # coordinates so we can still use quadLib for conversion.
+        set targetSpace [$quadLib space $targetQuad]
+        set pointInQuad [$quadLib create $targetSpace [list $pointInSpace {0.0 0.0 0.0} \
+                                                            {0.0 0.0 0.0} {0.0 0.0 0.0}]]
+
+        fn quadChange
+        # Note this will throw an error if the point can't be converted between these
+        # two spaces.
+        set pointQuadInTargetSpace [quadChange $pointInQuad $targetSpace]
+        set pointInTargetSpace [lindex [$quadLib vertices $pointQuadInTargetSpace] 0]
+
+        set projectedOntoTarget [$quadLib projectAlongSourceNormal $pointQuad $targetQuad $pointInTargetSpace]
+        set targetXY [$quadLib pointToXY $targetQuad $projectedOntoTarget]
+
+        # Flatland has entered the chat.
+        set pointOnTargetSurface [$pointsLib surfacePoint $targetSurface $targetXY]
+
+        Claim point $point has point $pointOnTargetSurface on $targetSurface
+    }
+}
