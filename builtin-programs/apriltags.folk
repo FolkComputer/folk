@@ -117,14 +117,12 @@ Claim the AprilTag detector maker is [fn makeAprilTagDetector]
 
 set tagFamily "tagStandard52h13"
 
-When camera /camera/ has width /cameraWidth/ height /cameraHeight/ {
+When /someone/ wishes camera /camera/ detects tags {
     set entireFrameDetector [makeAprilTagDetector $tagFamily 2.0 1]
     set incrementalDetector [makeAprilTagDetector $tagFamily 1.5 1]
 
     # Entire-frame tag detector:
-    When /nobody/ wishes to calibrate camera /any/ to display /any/ /...etc/ &\
-         -serially camera $camera has gray frame /frame/ at timestamp /frameTs/ {
-
+    When -serially camera $camera has gray frame /frame/ at timestamp /frameTs/ {
         tracy zoneBegin
         tracy zoneName "entireFrameDetect: $frameTs"
 
@@ -142,8 +140,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ {
 
     # Incremental tag detector (looks at regions where there were tags
     # seen recently):
-    When /nobody/ wishes to calibrate camera /any/ to display /any/ /...etc/ &\
-         the image library is /imageLib/ &\
+    When the image library is /imageLib/ &\
          -serially camera $camera has gray frame /frame/ at timestamp /frameTs/ {
         tracy zoneBegin
         tracy zoneName "incrementalDetect: $frameTs"

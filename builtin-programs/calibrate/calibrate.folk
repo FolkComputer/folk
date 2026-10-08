@@ -23,6 +23,26 @@ foreach p {add norm sub scale matmul
 Hold! -key {calibration poses max} \
     Claim the calibration poses max is 10
 
+# Save and clear setup's detection hold until the calibration request ends.
+When the db library is /dbLib/ &\
+     /someone/ wishes to calibrate camera /camera/ to display /display/ \
+         using measurements /measurements/ {
+    set setup builtin-programs/web/setup.folk
+    set detectTagsKey "camera $camera detects tags"
+    set savedDetectTagsClause {}
+    foreach hold [$dbLib holds [__db]] {
+        lassign $hold key version ref clause
+        if {$key eq [list $setup {*}$detectTagsKey]} {
+            set savedDetectTagsClause [$dbLib clause [__db] $ref]
+            break
+        }
+    }
+    Hold! -on $setup -key $detectTagsKey {}
+    On unmatch {
+        Hold! -on $setup -key $detectTagsKey -- {*}$savedDetectTagsClause
+    }
+}
+
 When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      display /display/ has width /displayWidth/ height /displayHeight/ &\
      the AprilTag detector maker is /makeAprilTagDetector/ &\

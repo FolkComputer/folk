@@ -53,7 +53,9 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
       background-color: #ccc;
   }
   .mode-select .mode:has(input:checked) .resolution,
-  .mode-select label:has(input:checked) {
+  .mode-select .mode:has(input:checked) .resolution ~ label,
+  .mode-select label:has(input\[name="camera-enabled"]:checked),
+  .mode-select label:has(input\[name="display-enabled"]:checked) {
       background-color: #27ae60;
   }
   .mode-select .resolution {
@@ -225,10 +227,15 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
   [HtmlWhen $::thisNode has camera /camera/ with /...opts/ {
    HtmlWhen the collected results for \
             [list /someone/ wishes $::thisNode uses camera $camera with /...usingOpts/] \
-            are /results/ {
-    set isUsingCamera $([llength $results] >= 1)
+            are /cameraResults/ {
+   HtmlWhen the collected results for \
+            [list /someone/ wishes camera $camera detects tags] \
+            are /detectsTagsResults/ {
+    set isUsingCamera $([llength $cameraResults] >= 1)
+    set detectsTags $([llength $detectsTagsResults] >= 1)
+    set usingOpts [dict create]
     if {$isUsingCamera} {
-      set usingOpts [dict get [lindex $results 0] usingOpts]
+      set usingOpts [dict get [lindex $cameraResults 0] usingOpts]
     }
 
     set resolutions [list]
@@ -265,6 +272,13 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
                  onchange="cameraEnabledChange.call(this, event)">
           <strong>$camera</strong> (<code>[dict getdef $opts card ""]</code>)
         </label>
+        <label style="display: block; margin-left: 20px; margin-top: 10px;">
+          <input type="checkbox" name="camera-detect-apriltags"
+                 $($detectsTags ? "checked" : "")
+                 value="$camera"
+                 onchange="cameraDetectApriltagsChange.call(this, event)">
+          Detect AprilTags
+        </label>
 
         <fieldset style="margin-left: 20px; margin-top: 10px">
           <legend>Select resolution:</legend>
@@ -278,7 +292,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
               [join [lmap framerate $resolution(framerates) { subst {
                 <label>
                   <input type="radio" name="camera-framerate-$cameraId"
-                         $([info exists usingOpts] && 
+                         $($isUsingCamera &&
                            $resolution(width) == $usingOpts(width) &&
                            $resolution(height) == $usingOpts(height) &&
                            $framerate == $usingOpts(framerate) ?
@@ -344,7 +358,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
       </div>
       }
     }
-  }}]
+  }}}]
   <script>
     function cameraEnabledChange(event) {
       const camera = this.value;
@@ -358,6 +372,13 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
         folk.hold(`camera \${camera}`, '',
                   'builtin-programs/web/setup.folk', true);
       }
+      event.preventDefault();
+    }
+    function cameraDetectApriltagsChange(event) {
+      const camera = this.value;
+      folk.hold(`camera \${camera} detects tags`,
+                this.checked ? `Wish camera "\${camera}" detects tags` : '',
+                'builtin-programs/web/setup.folk', true);
       event.preventDefault();
     }
     function cameraResolutionClicked(event) {
