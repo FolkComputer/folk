@@ -49,11 +49,8 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
       background-color: #a8e6a3;
       cursor: pointer;
   }
-  .mode-select .mode:has(input:checked) {
-      background-color: #ccc;
-  }
   .mode-select .mode:has(input:checked) .resolution,
-  .mode-select .mode:has(input:checked) .resolution ~ label,
+  .mode-select .mode label:has(input\[type=radio]:checked),
   .mode-select label:has(input\[name="camera-enabled"]:checked),
   .mode-select label:has(input\[name="display-enabled"]:checked) {
       background-color: #27ae60;
