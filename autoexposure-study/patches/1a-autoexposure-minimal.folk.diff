@@ -1,0 +1,104 @@
+--- branch/camera/autoexposure.folk	2026-10-12 19:49:45.969683614 +0000
++++ proposal/minimal/autoexposure.folk	2026-10-12 20:01:43.338312474 +0000
+@@ -53,7 +53,13 @@
+     }
+ 
+     double white = whiteCount == 0 ? 0 : (double)whiteSum / whiteCount;
+-    return Jim_ObjPrintf("count %u white %f", n, white);
++    // How much of the "white" is clipped? Once whites clip we can no
++    // longer tell how overexposed we are.
++    uint32_t clipped = 0;
++    for (int i = 250; i < 256; i++) clipped += histogram[i];
++    if (clipped > whiteCount) clipped = whiteCount;
++    double satFrac = whiteCount == 0 ? 0 : (double)clipped / whiteCount;
++    return Jim_ObjPrintf("count %u white %f satFrac %f", n, white, satFrac);
+ }
+ 
+ set autoExposureLib [$aecc compile]
+@@ -68,7 +74,7 @@
+         set frame [dict get $options grayFrame]
+ 
+         if {[llength $tags] == 0} {
+-            sleep 5
++            sleep 0.1
+             return
+         }
+ 
+@@ -76,39 +82,61 @@
+             [QueryOne! /someone/ wishes camera $exposureCamera \
+                  uses exposure time /./ us -default 3000]
+ 
+-        set whiteSum 0.0
+-        set statsCount 0
++        set whites [list]
++        set sats [list]
+         foreach tag $tags {
+             set stats [$autoExposureLib autoExposureStats $frame [dict get $tag p]]
+             if {[dict get $stats count] == 0} { continue }
+ 
+-            set whiteSum [+ $whiteSum [dict get $stats white]]
+-            incr statsCount
++            lappend whites [dict get $stats white]
++            lappend sats [dict get $stats satFrac]
+         }
+ 
+-        if {$statsCount == 0} {
+-            sleep 5
++        if {[llength $whites] == 0} {
++            sleep 0.1
+             return
+         }
+ 
+-        set avgWhite [/ $whiteSum $statsCount]
++        # Median across tags, so one tag under projector spill, a
++        # highlight or a shadow does not drag the others.
++        set whites [lsort -real $whites]
++        set sats [lsort -real $sats]
++        set mid [expr {[llength $whites] / 2}]
++        set white [lindex $whites $mid]
++        set sat [lindex $sats $mid]
+         Hold! -key avgWhite \
+-            Claim camera $camera has average AprilTag white $avgWhite
++            Claim camera $camera has average AprilTag white $white
+ 
+-        set denom $avgWhite
+-        if {$denom < 1} { set denom 1 }
+-        set targetExposureUs [expr {int($currentExposureUs * 250.0 / $denom)}]
+-        set nextExposureUs [expr {int(0.8 * $currentExposureUs + 0.2 * $targetExposureUs)}]
+-        if {$nextExposureUs < 1000} { set nextExposureUs 1000 }
+-        if {$nextExposureUs > 15000} { set nextExposureUs 15000 }
++        if {$sat > 0.25} {
++            # Whites are clipping: the measurement is meaningless, so
++            # just back off by a fixed factor.
++            set ratio 0.7
++        } else {
++            # Aim for ~200/255 with a deadband so noise doesn't churn.
++            if {abs(200.0 - $white) <= 12.0} {
++                sleep 0.1
++                return
++            }
++            if {$white < 1.0} { set white 1.0 }
++            # Pixel values go as exposure^(1/2.2); invert that, with a
++            # gain of 0.6 and at most x1.5 per step.
++            set ratio [expr {pow(200.0 / $white, 2.2 * 0.6)}]
++            if {$ratio > 1.5} { set ratio 1.5 }
++            if {$ratio < 1.0 / 1.5} { set ratio [expr {1.0 / 1.5}] }
++        }
++        set nextExposureUs [expr {int($currentExposureUs * $ratio)}]
++        if {$nextExposureUs < 300} { set nextExposureUs 300 }
++        if {$nextExposureUs > 16000} { set nextExposureUs 16000 }
+ 
+         if {[expr {int($nextExposureUs / 100)}] != [expr {int($currentExposureUs / 100)}]} {
+             set currentExposureUs $nextExposureUs
+-            Hold! -on builtin-programs/web/setup.folk -key "exposure $exposureCamera" -save \
++            # No -save: this would rewrite the hold file on every step.
++            Hold! -on builtin-programs/web/setup.folk -key "exposure $exposureCamera" \
+                 Wish camera $exposureCamera uses exposure time $currentExposureUs us
+         }
+ 
+-        sleep 5
++        # ~10Hz. `sleep` is in seconds; 5 was a 5-second control period.
++        sleep 0.1
+     }
+ }
+ }

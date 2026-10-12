@@ -1,0 +1,113 @@
+Wish the web server handles route {/camera} with handler {
+    if {[dict exists $QUERY camera]} {
+        set camera [dict get $QUERY camera]
+    } else {
+        set cameraResults [Query! camera /camera/ has width /w/ height /h/]
+        if {[llength $cameraResults] == 1} {
+            set camera [dict get [lindex $cameraResults 0] camera]
+        } else {
+            return [html [subst {
+                <html>
+                <body>
+                <p>Choose a camera:</p>
+                <ul>
+                [join [lmap result $cameraResults { subst {
+                    <li><a href="/camera?camera=[string map [list / %2F " " %20] $result(camera)]">$result(camera)</a></li>
+                } }] \n]
+                </ul>
+                </body>
+                </html>
+            }]]
+        }
+    }
+
+    # in case it's a virtual camera, we want to get the base path.
+    set baseCameraToControl [lindex $camera 0]
+
+    html [subst {
+<html>
+  <body style="margin: 0 0">
+    <script src="/lib/folk.js"></script>
+    <script src="/vendor/idiomorph.js"></script>
+
+    <canvas id="cameraCanvas" style="max-width: 100%; max-height: 80vh"></canvas>
+
+    <div style="padding: 8px">
+      <span id="statusSpan">Status</span>
+      <script>
+        const folk = new FolkWS(statusSpan);
+      </script>
+
+      [HtmlWhen the collected results for \
+                [list /someone/ wishes camera $camera uses AprilTag-based autoexposure] \
+                are /autoexposureResults/ {
+        set isUsingAutoexposure $([llength $autoexposureResults] >= 1)
+        set checked $($isUsingAutoexposure ? "checked" : "")
+        set disabled $($isUsingAutoexposure ? "disabled" : "")
+        set opacity $($isUsingAutoexposure ? 0.5 : 1)
+        subst {
+          <label><input type="checkbox" onchange="autoexposureChange.call(this, event)" $checked>Auto-exposure</label>
+          [HtmlWhen /someone/ wishes camera $baseCameraToControl uses exposure time /exposureTime/ us {
+            set exposureSliderForControls [expr {int($exposureTime / 100)}]
+            subst {
+              <div style="display: inline-block; opacity: $opacity">
+                Manual exposure:
+                <input style="max-width: 100px" type="range" min="10" max="48" value="$exposureSliderForControls" class="slider" id="cameraExposureSlider" oninput="exposureSliderInput.call(this, event)" $disabled>
+                <input type="number" min="1000" max="320000" step="100" value="$exposureTime" id="cameraExposureNumber" oninput="exposureNumberInput.call(this, event)" $disabled>μs
+              </div>
+            }
+          }]
+        }
+      }]
+      [HtmlWhen camera $baseCameraToControl has median AprilTag white /white/ {
+        subst {<span>Tag white (median): [format "%.0f" $white] / 255</span>}
+      }]
+    </div>
+    <script>
+      const canvas = cameraCanvas;
+      const ctx = canvas.getContext('2d');
+      function advanceCamera() {
+        const img = new Image();
+        img.onload = () => {
+          canvas.width = img.naturalWidth;
+          canvas.height = img.naturalHeight;
+          ctx.drawImage(img, 0, 0);
+          setTimeout(advanceCamera, 0);
+        };
+        img.onerror = () => setTimeout(advanceCamera, 500);
+        img.src = '/camera-frame?camera=[string map [list / %2F " " %20] $camera]&uniq=' + Math.random();
+      }
+      advanceCamera();
+
+      function sendExposure(valueInMicroseconds) {
+        folk.hold('exposure $baseCameraToControl', tcl`
+          Wish camera $baseCameraToControl uses exposure time \${valueInMicroseconds} us
+        `, 'builtin-programs/web/setup.folk', true);
+      }
+
+      function exposureSliderInput(event) {
+        sendExposure(Math.round(this.value * 100));
+      }
+
+      function exposureNumberInput(event) {
+        let value = parseInt(this.value);
+        if (value == 0) value = 100;
+        sendExposure(value);
+      }
+
+      function autoexposureChange(event) {
+        // Tags are detected on $camera (which may be a virtual crop);
+        // the AE program itself writes the exposure of the base device.
+        if (this.checked) {
+          folk.hold('autoexposure $camera', tcl`
+            Wish camera $camera uses AprilTag-based autoexposure
+          `, 'builtin-programs/web/setup.folk', true);
+        } else {
+          folk.hold('autoexposure $camera', '','builtin-programs/web/setup.folk', true);
+        }
+      }
+    </script>
+  </body>
+</html>
+    }]
+}

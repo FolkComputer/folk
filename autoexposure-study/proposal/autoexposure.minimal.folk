@@ -1,0 +1,142 @@
+# Folk-level autoexposure. This is different from the camera's
+# built-in V4L2-addressable autoexposure. We scan the area around each
+# AprilTag and adjust exposure such that the tag's white areas aren't
+# too bright or too dark. Helps with response latency.
+
+When the image library is /imageLib/ {
+set aecc [C]
+$aecc extend $imageLib
+$aecc include <stdint.h>
+
+$aecc proc autoExposureStats {Image gray double[4][2] corners} Jim_Obj* {
+    FOLK_ENSURE(gray.components == 1);
+
+    uint32_t histogram[256] = {0};
+    uint32_t n = 0;
+
+    // Sample in tag-local coordinates to stay inside the detected quad and
+    // avoid background around rotated tags.
+    const int samples = 64;
+    for (int sy = 0; sy < samples; sy++) {
+        double v = (sy + 0.5) / samples;
+        for (int sx = 0; sx < samples; sx++) {
+            double u = (sx + 0.5) / samples;
+
+            double topX = corners[0][0] + u * (corners[1][0] - corners[0][0]);
+            double topY = corners[0][1] + u * (corners[1][1] - corners[0][1]);
+            double botX = corners[3][0] + u * (corners[2][0] - corners[3][0]);
+            double botY = corners[3][1] + u * (corners[2][1] - corners[3][1]);
+            int x = (int)(topX + v * (botX - topX) + 0.5);
+            int y = (int)(topY + v * (botY - topY) + 0.5);
+
+            if (x < 0 || y < 0 || x >= (int)gray.width || y >= (int)gray.height) {
+                continue;
+            }
+
+            histogram[gray.data[y * gray.bytesPerRow + x]]++;
+            n++;
+        }
+    }
+
+    if (n == 0) return Jim_ObjPrintf("count 0 white 0");
+
+    uint32_t target = n / 4;
+    if (target == 0) target = 1;
+
+    uint32_t whiteCount = 0;
+    uint64_t whiteSum = 0;
+    for (int i = 255; i >= 0 && whiteCount < target; i--) {
+        uint32_t take = histogram[i];
+        if (take > target - whiteCount) take = target - whiteCount;
+        whiteSum += (uint64_t)i * take;
+        whiteCount += take;
+    }
+
+    double white = whiteCount == 0 ? 0 : (double)whiteSum / whiteCount;
+    // How much of the "white" is clipped? Once whites clip we can no
+    // longer tell how overexposed we are.
+    uint32_t clipped = 0;
+    for (int i = 250; i < 256; i++) clipped += histogram[i];
+    if (clipped > whiteCount) clipped = whiteCount;
+    double satFrac = whiteCount == 0 ? 0 : (double)clipped / whiteCount;
+    return Jim_ObjPrintf("count %u white %f satFrac %f", n, white, satFrac);
+}
+
+set autoExposureLib [$aecc compile]
+
+When /someone/ wishes camera /camera/ uses AprilTag-based autoexposure {
+    set exposureCamera [lindex $camera 0]
+    set currentExposureUs 3000
+
+    When -serially /detector/ detects tags /tags/ on camera $camera \
+         at timestamp /frameTs/ with /...options/ {
+        if {[lindex $detector 1] ne "entire-frame"} { return }
+        set frame [dict get $options grayFrame]
+
+        if {[llength $tags] == 0} {
+            sleep 0.1
+            return
+        }
+
+        set currentExposureUs \
+            [QueryOne! /someone/ wishes camera $exposureCamera \
+                 uses exposure time /./ us -default 3000]
+
+        set whites [list]
+        set sats [list]
+        foreach tag $tags {
+            set stats [$autoExposureLib autoExposureStats $frame [dict get $tag p]]
+            if {[dict get $stats count] == 0} { continue }
+
+            lappend whites [dict get $stats white]
+            lappend sats [dict get $stats satFrac]
+        }
+
+        if {[llength $whites] == 0} {
+            sleep 0.1
+            return
+        }
+
+        # Median across tags, so one tag under projector spill, a
+        # highlight or a shadow does not drag the others.
+        set whites [lsort -real $whites]
+        set sats [lsort -real $sats]
+        set mid [expr {[llength $whites] / 2}]
+        set white [lindex $whites $mid]
+        set sat [lindex $sats $mid]
+        Hold! -key avgWhite \
+            Claim camera $camera has average AprilTag white $white
+
+        if {$sat > 0.25} {
+            # Whites are clipping: the measurement is meaningless, so
+            # just back off by a fixed factor.
+            set ratio 0.7
+        } else {
+            # Aim for ~200/255 with a deadband so noise doesn't churn.
+            if {abs(200.0 - $white) <= 12.0} {
+                sleep 0.1
+                return
+            }
+            if {$white < 1.0} { set white 1.0 }
+            # Pixel values go as exposure^(1/2.2); invert that, with a
+            # gain of 0.6 and at most x1.5 per step.
+            set ratio [expr {pow(200.0 / $white, 2.2 * 0.6)}]
+            if {$ratio > 1.5} { set ratio 1.5 }
+            if {$ratio < 1.0 / 1.5} { set ratio [expr {1.0 / 1.5}] }
+        }
+        set nextExposureUs [expr {int($currentExposureUs * $ratio)}]
+        if {$nextExposureUs < 300} { set nextExposureUs 300 }
+        if {$nextExposureUs > 16000} { set nextExposureUs 16000 }
+
+        if {[expr {int($nextExposureUs / 100)}] != [expr {int($currentExposureUs / 100)}]} {
+            set currentExposureUs $nextExposureUs
+            # No -save: this would rewrite the hold file on every step.
+            Hold! -on builtin-programs/web/setup.folk -key "exposure $exposureCamera" \
+                Wish camera $exposureCamera uses exposure time $currentExposureUs us
+        }
+
+        # ~10Hz. `sleep` is in seconds; 5 was a 5-second control period.
+        sleep 0.1
+    }
+}
+}

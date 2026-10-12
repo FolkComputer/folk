@@ -1,0 +1,48 @@
+--- branch/web/camera.folk	2026-10-12 19:49:45.985683614 +0000
++++ proposal/builtin-programs/web/camera.folk	2026-10-12 20:37:09.319836773 +0000
+@@ -39,7 +39,7 @@
+       </script>
+ 
+       [HtmlWhen the collected results for \
+-                [list /someone/ wishes camera $baseCameraToControl uses AprilTag-based autoexposure] \
++                [list /someone/ wishes camera $camera uses AprilTag-based autoexposure] \
+                 are /autoexposureResults/ {
+         set isUsingAutoexposure $([llength $autoexposureResults] >= 1)
+         set checked $($isUsingAutoexposure ? "checked" : "")
+@@ -48,7 +48,6 @@
+         subst {
+           <label><input type="checkbox" onchange="autoexposureChange.call(this, event)" $checked>Auto-exposure</label>
+           [HtmlWhen /someone/ wishes camera $baseCameraToControl uses exposure time /exposureTime/ us {
+-            puts stderr "got new ex: $exposureTime"
+             set exposureSliderForControls [expr {int($exposureTime / 100)}]
+             subst {
+               <div style="display: inline-block; opacity: $opacity">
+@@ -60,8 +59,8 @@
+           }]
+         }
+       }]
+-      [HtmlWhen camera $baseCameraToControl has average AprilTag white /avgWhite/ {
+-        subst {<span>Avg tag white: [format "%.1f" $avgWhite]</span>}
++      [HtmlWhen camera $baseCameraToControl has median AprilTag white /white/ {
++        subst {<span>Tag white (median): [format "%.0f" $white] / 255</span>}
+       }]
+     </div>
+     <script>
+@@ -97,12 +96,14 @@
+       }
+ 
+       function autoexposureChange(event) {
++        // Tags are detected on $camera (which may be a virtual crop);
++        // the AE program itself writes the exposure of the base device.
+         if (this.checked) {
+-          folk.hold('autoexposure $baseCameraToControl', tcl`
+-            Wish camera $baseCameraToControl uses AprilTag-based autoexposure
++          folk.hold('autoexposure $camera', tcl`
++            Wish camera $camera uses AprilTag-based autoexposure
+           `, 'builtin-programs/web/setup.folk', true);
+         } else {
+-          folk.hold('autoexposure $baseCameraToControl', '','builtin-programs/web/setup.folk', true);
++          folk.hold('autoexposure $camera', '','builtin-programs/web/setup.folk', true);
+         }
+       }
+     </script>

@@ -1,0 +1,157 @@
+--- branch/camera/usb.folk	2026-10-12 19:49:45.977683614 +0000
++++ proposal/builtin-programs/camera/usb.folk	2026-10-12 20:39:27.567908798 +0000
+@@ -101,7 +101,8 @@
+     free(camera);
+ }
+ 
+-$camc proc cameraInit {Camera* camera uint32_t requested_buffer_count} void {
++// Returns the negotiated frame interval in microseconds (0 if unknown).
++$camc proc cameraInit {Camera* camera uint32_t requested_buffer_count} double {
+     struct v4l2_capability cap;
+     if (xioctl(camera->fd, VIDIOC_QUERYCAP, &cap) == -1) quit("VIDIOC_QUERYCAP");
+     if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)) quit("no capture");
+@@ -133,6 +134,7 @@
+     printf("LATENCY: Camera buffer count: %d\n", req.count);
+     fflush(stdout);
+ 
++    double frameIntervalUs = 0;
+     struct v4l2_streamparm streamparm = {0};
+     streamparm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+     if (xioctl(camera->fd, VIDIOC_G_PARM, &streamparm) == -1) quit("VIDIOC_G_PARM");
+@@ -152,6 +154,13 @@
+                     streamparm.parm.capture.timeperframe.numerator,
+                     streamparm.parm.capture.timeperframe.denominator);
+         }
++        // S_PARM writes the negotiated interval back. An exposure longer
++        // than this makes the camera drop frames, so autoexposure needs
++        // to know it.
++        if (streamparm.parm.capture.timeperframe.denominator != 0) {
++            frameIntervalUs = 1e6 * streamparm.parm.capture.timeperframe.numerator
++                / (double)streamparm.parm.capture.timeperframe.denominator;
++        }
+     }
+ 
+     size_t buf_max = 0;
+@@ -174,6 +183,7 @@
+     camera->head.start = malloc(buf_max);
+ 
+     printf("camera %d; bufcount %zu\n", camera->fd, camera->buffer_count);
++    return frameIntervalUs;
+ }
+ 
+ $camc proc cameraStart {Camera* camera} void {
+@@ -250,6 +260,32 @@
+     free(jpeg.start);
+ }
+ 
++// Exposure range of the camera in microseconds (V4L2 counts in 100us
++// steps). Falls back to a generous default if the control can't be
++// queried, and says so with `queried 0`.
++$camc proc cameraExposureRange {Camera* camera} Jim_Obj* {
++    struct v4l2_queryctrl q;
++    memset(&q, 0, sizeof q);
++    q.id = V4L2_CID_EXPOSURE_ABSOLUTE;
++    if (xioctl(camera->fd, VIDIOC_QUERYCTRL, &q) == -1 ||
++        (q.flags & V4L2_CTRL_FLAG_DISABLED)) {
++        return Jim_ObjPrintf("min 300 max 100000 step 100 queried 0");
++    }
++    return Jim_ObjPrintf("min %d max %d step %d queried 1",
++                         q.minimum * 100, q.maximum * 100, q.step * 100);
++}
++
++// The exposure the camera is currently using, in microseconds (-1 if it
++// can't be read). Used to seed the autoexposure loop with reality
++// instead of a guess.
++$camc proc getExposure {Camera* camera} int {
++    struct v4l2_control c;
++    memset(&c, 0, sizeof c);
++    c.id = V4L2_CID_EXPOSURE_ABSOLUTE;
++    if (xioctl(camera->fd, VIDIOC_G_CTRL, &c) == -1) return -1;
++    return c.value * 100;
++}
++
+ $camc proc setExposure {Camera* camera int value} void {
+     struct v4l2_control c;
+ 
+@@ -260,6 +296,16 @@
+         FOLK_ENSURE(xioctl(camera->fd, VIDIOC_S_CTRL, &c) == 0);
+ 
+     } else {
++        // Clamp to what the camera can actually do; an out-of-range
++        // S_CTRL fails with EINVAL/ERANGE on most UVC cameras.
++        struct v4l2_queryctrl q;
++        memset(&q, 0, sizeof q);
++        q.id = V4L2_CID_EXPOSURE_ABSOLUTE;
++        if (xioctl(camera->fd, VIDIOC_QUERYCTRL, &q) == 0) {
++            if (value < q.minimum) value = q.minimum;
++            if (value > q.maximum) value = q.maximum;
++        }
++
+         c.id = V4L2_CID_EXPOSURE_AUTO;
+         c.value = V4L2_EXPOSURE_MANUAL;
+         FOLK_ENSURE(xioctl(camera->fd, VIDIOC_S_CTRL, &c) == 0);
+@@ -278,14 +324,20 @@
+         set grayImage [$jpegLib jpegDecompressGray $jpeg \
+                            $decompWidth $decompHeight \
+                            [expr {int($ts * 1000)}]]
+-        Claim camera $cameraPath has gray frame $grayImage at timestamp $ts \
++        # Hold!, as on main: a plain Claim here is a child of this match,
++        # and the next jpeg frame tears the match down, which kills a
++        # still-running detector's match and makes its detection Claim
++        # silently fail (and frees the frame under it).
++        Hold! -key [list camera $cameraPath gray-frame] \
++            Claim camera $cameraPath has gray frame $grayImage at timestamp $ts \
+             -destructor [list $imageLib imageFree $grayImage]
+     }
+     When camera $cameraPath has jpeg frame /jpeg/ at timestamp /ts/ {
+         set frameImage [$jpegLib jpegDecompressRGB $jpeg \
+                             $decompWidth $decompHeight \
+                             [expr {int($ts * 1000)}]]
+-        Claim camera $cameraPath has frame $frameImage at timestamp $ts \
++        Hold! -key [list camera $cameraPath frame] \
++            Claim camera $cameraPath has frame $frameImage at timestamp $ts \
+             -destructor [list $imageLib imageFree $frameImage]
+     }
+ }
+@@ -309,7 +361,7 @@
+         set camObj $camObj_ ;# HACK: we don't capture upvars yet.
+         puts "camera/usb: Loaded $camera -> $camObj"
+ 
+-        $camLib cameraInit $camObj $bufferCount
++        set frameIntervalUs [$camLib cameraInit $camObj $bufferCount]
+         $camLib cameraStart $camObj
+         # skip 5 frames for booting a cam
+         for {set i 0} {$i < 5} {incr i} {
+@@ -326,8 +378,22 @@
+             Claim camera $camera has width $width height $height
+         }
+ 
+-        When /someone/ wishes camera $camera uses exposure time /exposureTimeUs/ us {
+-            $camLib setExposure $camObj [expr {int($exposureTimeUs / 100)}]
++        Claim camera $camera has exposure range [$camLib cameraExposureRange $camObj]
++        if {$frameIntervalUs > 0} {
++            Claim camera $camera has frame interval $frameIntervalUs us
++        }
++        set initialExposureUs [$camLib getExposure $camObj]
++        if {$initialExposureUs > 0} {
++            Claim camera $camera has initial exposure time $initialExposureUs us
++        }
++
++        # Keyed so that a reopen (outer retry loop) replaces this handler
++        # instead of leaving one behind that still points at the freed
++        # Camera struct of the previous attempt.
++        Hold! -key [list camera $camera exposure-control] {
++            When /someone/ wishes camera $camera uses exposure time /exposureTimeUs/ us {
++                $camLib setExposure $camObj [expr {int($exposureTimeUs / 100)}]
++            }
+         }
+ 
+         # Inner, frame loop.
+@@ -379,6 +445,7 @@
+         } finally {
+             if {$camObj ne {}} {
+                 puts "camera/usb: Close $camObj"
++                Hold! -key [list camera $camera exposure-control] ""
+                 $camLib cameraClose $camObj
+             }
+         }

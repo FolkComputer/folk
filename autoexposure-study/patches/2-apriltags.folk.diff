@@ -1,0 +1,110 @@
+--- branch/apriltags.folk	2026-10-12 19:49:45.981683614 +0000
++++ proposal/builtin-programs/apriltags.folk	2026-10-12 20:39:27.571878689 +0000
+@@ -57,6 +57,61 @@
+     $cc code {
+         static apriltag_detector_t *td;
+         static apriltag_family_t *tf;
++
++        // Exposure statistics for a detected tag, sampled on a grid in
++        // tag-local coordinates (so rotated tags don't pick up
++        // background). Inside the detected quad: white = mean of the
++        // brightest quarter of samples (the quad's outer ring is always
++        // white for tagStandard52h13, so this is robust to the tag's
++        // code), sat = fraction of that brightest quarter that is clipped
++        // (>= 250). black = mean of the one-cell ring just *outside* the
++        // quad, which is always black for this family (the bottom quartile
++        // inside the quad would depend on how many data bits are black).
++        // Computed here, while the frame is guaranteed to be alive, so
++        // that consumers (camera/autoexposure.folk) never need the image.
++        static void tagExposureStats(const uint8_t* buf, int width, int height, int stride,
++                                     double p[4][2], int cellsAcross,
++                                     double* white, double* black, double* sat) {
++            uint32_t histogram[256] = {0};
++            uint32_t n = 0;
++            uint64_t ringSum = 0; uint32_t ringCount = 0;
++            const int samples = 64;
++            const int margin = samples / cellsAcross;  // one cell, in samples
++            for (int sy = -margin; sy < samples + margin; sy++) {
++                double v = (sy + 0.5) / samples;
++                for (int sx = -margin; sx < samples + margin; sx++) {
++                    double u = (sx + 0.5) / samples;
++                    double topX = p[0][0] + u * (p[1][0] - p[0][0]);
++                    double topY = p[0][1] + u * (p[1][1] - p[0][1]);
++                    double botX = p[3][0] + u * (p[2][0] - p[3][0]);
++                    double botY = p[3][1] + u * (p[2][1] - p[3][1]);
++                    int x = (int)(topX + v * (botX - topX) + 0.5);
++                    int y = (int)(topY + v * (botY - topY) + 0.5);
++                    if (x < 0 || y < 0 || x >= width || y >= height) continue;
++                    uint8_t px = buf[y * stride + x];
++                    if (sx >= 0 && sx < samples && sy >= 0 && sy < samples) {
++                        histogram[px]++;
++                        n++;
++                    } else {
++                        ringSum += px;
++                        ringCount++;
++                    }
++                }
++            }
++            *white = 0; *black = 0; *sat = 0;
++            if (n == 0) return;
++            uint32_t target = n / 4; if (target == 0) target = 1;
++            uint32_t count = 0; uint64_t sum = 0; uint32_t clipped = 0;
++            for (int i = 255; i >= 0 && count < target; i--) {
++                uint32_t take = histogram[i];
++                if (take > target - count) take = target - count;
++                sum += (uint64_t)i * take; count += take;
++                if (i >= 250) clipped += take;
++            }
++            *white = (double)sum / count;
++            *sat = (double)clipped / count;
++            if (ringCount > 0) *black = (double)ringSum / ringCount;
++        }
+     }
+ 
+     $cc proc detectInit {} void {
+@@ -88,14 +143,19 @@
+ 
+             int size = sqrt((det->p[0][0] - det->p[1][0])*(det->p[0][0] - det->p[1][0]) + (det->p[0][1] - det->p[1][1])*(det->p[0][1] - det->p[1][1]));
+             double angle = atan2(-1 * (det->p[1][1] - det->p[0][1]), det->p[1][0] - det->p[0][0]);
+-            detectionObjs[i] = Jim_ObjPrintf("id %d c {%f %f} p {{%f %f} {%f %f} {%f %f} {%f %f}} size %d angle %f",
++            double white, black, sat;
++            tagExposureStats(im.buf, im.width, im.height, im.stride, det->p,
++                             tf->width_at_border, &white, &black, &sat);
++            detectionObjs[i] = Jim_ObjPrintf("id %d c {%f %f} p {{%f %f} {%f %f} {%f %f} {%f %f}} size %d angle %f "
++                                             "margin %.1f hamming %d white %.1f black %.1f sat %.2f",
+                                              det->id,
+                                              det->c[0], det->c[1],
+                                              det->p[0][0], det->p[0][1],
+                                              det->p[1][0], det->p[1][1],
+                                              det->p[2][0], det->p[2][1],
+                                              det->p[3][0], det->p[3][1],
+-                                             size, angle);
++                                             size, angle,
++                                             det->decision_margin, det->hamming, white, black, sat);
+         }
+ 
+         zarray_destroy(detections);
+@@ -130,8 +190,9 @@
+         set aprilTime [time {
+             set tags [$entireFrameDetector detect $frame]
+         }]
+-        Claim [list $this entire-frame] detects tags $tags on camera $camera \
+-            at timestamp $frameTs with time $aprilTime grayFrame $frame
++        Hold! -key [list $this entire-frame] \
++            Claim [list $this entire-frame] detects tags $tags on camera $camera \
++            at timestamp $frameTs with time $aprilTime
+     } finally {
+         tracy zoneEnd
+     }
+@@ -199,8 +260,9 @@
+         }]]
+     }
+ 
+-    Claim [list $this incremental] detects tags $tags on camera $camera \
+-        at timestamp $frameTs with time $aprilTime grayFrame $frame
++    Hold! -key [list $this incremental] \
++        Claim [list $this incremental] detects tags $tags on camera $camera \
++        at timestamp $frameTs with time $aprilTime
+ 
+     } finally {
+         tracy zoneEnd

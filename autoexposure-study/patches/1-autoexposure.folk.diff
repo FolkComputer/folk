@@ -1,0 +1,297 @@
+--- branch/camera/autoexposure.folk	2026-10-12 19:49:45.969683614 +0000
++++ proposal/builtin-programs/camera/autoexposure.folk	2026-10-12 20:39:27.579890010 +0000
+@@ -1,114 +1,201 @@
+-# Folk-level autoexposure. This is different from the camera's
+-# built-in V4L2-addressable autoexposure. We scan the area around each
+-# AprilTag and adjust exposure such that the tag's white areas aren't
+-# too bright or too dark. Helps with response latency.
+-
+-When the image library is /imageLib/ {
+-set aecc [C]
+-$aecc extend $imageLib
+-$aecc include <stdint.h>
+-
+-$aecc proc autoExposureStats {Image gray double[4][2] corners} Jim_Obj* {
+-    FOLK_ENSURE(gray.components == 1);
+-
+-    uint32_t histogram[256] = {0};
+-    uint32_t n = 0;
+-
+-    // Sample in tag-local coordinates to stay inside the detected quad and
+-    // avoid background around rotated tags.
+-    const int samples = 64;
+-    for (int sy = 0; sy < samples; sy++) {
+-        double v = (sy + 0.5) / samples;
+-        for (int sx = 0; sx < samples; sx++) {
+-            double u = (sx + 0.5) / samples;
+-
+-            double topX = corners[0][0] + u * (corners[1][0] - corners[0][0]);
+-            double topY = corners[0][1] + u * (corners[1][1] - corners[0][1]);
+-            double botX = corners[3][0] + u * (corners[2][0] - corners[3][0]);
+-            double botY = corners[3][1] + u * (corners[2][1] - corners[3][1]);
+-            int x = (int)(topX + v * (botX - topX) + 0.5);
+-            int y = (int)(topY + v * (botY - topY) + 0.5);
+-
+-            if (x < 0 || y < 0 || x >= (int)gray.width || y >= (int)gray.height) {
+-                continue;
+-            }
+-
+-            histogram[gray.data[y * gray.bytesPerRow + x]]++;
+-            n++;
+-        }
++# camera/autoexposure.folk --
++#
++#     Folk-level autoexposure driven by the AprilTags we can see.
++#
++# This is different from the camera's built-in V4L2 autoexposure, which
++# meters the whole frame and is fooled by the projector, a dark table or
++# window light. We look only at the tags the entire-frame detector just
++# found and steer the V4L2 *manual* exposure so that their white cells sit
++# at a comfortable level (~200/255): bright enough for a clean black/white
++# split, with headroom so they do not clip.
++#
++# The per-tag measurements (white, black, sat) are computed by the
++# detector itself while the frame is still valid (see apriltags.folk), so
++# this program never touches frame memory and it does not matter how slow
++# detection is on the machine.
++#
++# Turn it on from /camera (checkbox) or with:
++#     Wish camera /dev/video0 uses AprilTag-based autoexposure
++
++# aeNextExposure --
++#
++#   cur:   currently commanded exposure in microseconds
++#   stats: list of per-tag dicts {white W black B satFrac S} where white is
++#          the mean of the brightest quarter of samples inside the tag,
++#          black the mean of the darkest quarter, and satFrac the fraction
++#          of that brightest quarter that is clipped (>= 250)
++#   lo/hi: allowed exposure range in microseconds
++#
++# Returns the exposure to command next. Returning exactly $cur means
++# "leave the camera alone".
++proc aeNextExposure {cur stats lo hi} {
++    # Aim the tags' white cells at ~200/255: bright enough for a solid
++    # black/white split, with headroom so noise and gradients across a
++    # tag do not clip at 255 (once whites clip we can no longer tell
++    # how overexposed we are).
++    set target 200.0
++    # No actuation while within +-deadband of the target: sensor noise
++    # and JPEG wobble must not turn into exposure churn.
++    set deadband 12.0
++    # Proportional gain in the log domain (1.0 = jump straight to the
++    # estimated ideal; smaller = smoother, more robust to the 1-3 frame
++    # actuation latency of V4L2 cameras).
++    set gain 0.6
++    # Never move more than this factor per step.
++    set maxRatio 1.5
++    # If more than this fraction of the "white" samples is clipped, the
++    # white measurement is meaningless; back off by a fixed factor.
++    set clipFrac 0.25
++    set clipStep 0.7
++
++    if {[llength $stats] == 0} { return $cur }
++
++    # Median across tags: one tag under projector spill, a specular
++    # highlight or a shadow should not drag everyone else.
++    set whites [lsort -real [lmap s $stats {dict get $s white}]]
++    set sats [lsort -real [lmap s $stats {dict get $s satFrac}]]
++    set mid [expr {[llength $whites] / 2}]
++    set white [lindex $whites $mid]
++    set sat [lindex $sats $mid]
++
++    if {$sat > $clipFrac} {
++        set ratio $clipStep
++    } else {
++        set err [expr {$target - $white}]
++        if {abs($err) <= $deadband} { return $cur }
++        if {$white < 1.0} { set white 1.0 }
++        # 8-bit pixel values go roughly as exposure^(1/2.2) (sRGB-ish
++        # camera tone curve), so the exposure ratio that fixes a pixel
++        # ratio is pow(pixelRatio, 2.2).
++        set ratio [expr {pow($target / $white, 2.2 * $gain)}]
++        if {$ratio > $maxRatio} { set ratio $maxRatio }
++        if {$ratio < 1.0 / $maxRatio} { set ratio [expr {1.0 / $maxRatio}] }
+     }
+ 
+-    if (n == 0) return Jim_ObjPrintf("count 0 white 0");
+-
+-    uint32_t target = n / 4;
+-    if (target == 0) target = 1;
+-
+-    uint32_t whiteCount = 0;
+-    uint64_t whiteSum = 0;
+-    for (int i = 255; i >= 0 && whiteCount < target; i--) {
+-        uint32_t take = histogram[i];
+-        if (take > target - whiteCount) take = target - whiteCount;
+-        whiteSum += (uint64_t)i * take;
+-        whiteCount += take;
++    # V4L2 exposure_time_absolute has 100us granularity: keep our own
++    # state on that grid so it matches what the camera actually does,
++    # and always move by at least one step in the commanded direction
++    # (otherwise small ratios at short exposures stall forever).
++    set next [expr {int($cur * $ratio) / 100 * 100}]
++    if {$next == $cur} {
++        set next [expr {$ratio > 1.0 ? $cur + 100 : $cur - 100}]
+     }
+-
+-    double white = whiteCount == 0 ? 0 : (double)whiteSum / whiteCount;
+-    return Jim_ObjPrintf("count %u white %f", n, white);
++    if {$next < $lo} { set next $lo }
++    if {$next > $hi} { set next $hi }
++    return $next
+ }
+ 
+-set autoExposureLib [$aecc compile]
+-
++# aeSweepExposure --
++#
++#   Used when no tag has been decodable for a while: the exposure is
++#   probably so far off that nothing can be measured. Walk the range
++#   geometrically (x1.6 per step) in direction dir (+1 up, -1 down),
++#   bouncing at the ends. Returns {next newDir}.
++proc aeSweepExposure {cur dir lo hi} {
++    set step 1.6
++    if {$dir > 0} {
++        set next [expr {int($cur * $step) / 100 * 100}]
++        if {$next >= $hi} { set next $hi; set dir -1 }
++    } else {
++        set next [expr {int($cur / $step) / 100 * 100}]
++        if {$next <= $lo} { set next $lo; set dir 1 }
++    }
++    return [list $next $dir]
++}
+ When /someone/ wishes camera /camera/ uses AprilTag-based autoexposure {
++    # $camera may be a virtual (cropped) camera {/dev/videoN i}: tags are
++    # detected on it, but exposure is a property of the base device.
+     set exposureCamera [lindex $camera 0]
+-    set currentExposureUs 3000
++
++    # A fresh camera boots in V4L2 auto mode and nobody has wished an
++    # exposure yet. Put it in manual mode at the exposure it is actually
++    # using right now (camera/usb.folk reads it at open; 3000us if it
++    # can't), so the ratio law starts from a true baseline and the
++    # picture doesn't jump. This also makes the manual slider appear.
++    if {[Query! /someone/ wishes camera $exposureCamera uses exposure time /./ us] eq ""} {
++        set seedUs [QueryOne! camera $exposureCamera has initial exposure time /./ us \
++                        -default 3000]
++        if {$seedUs < 300} { set seedUs 300 }
++        if {$seedUs > 16000} { set seedUs 16000 }
++        Hold! -on builtin-programs/web/setup.folk -key "exposure $exposureCamera" -save \
++            Wish camera $exposureCamera uses exposure time $seedUs us
++    }
+ 
+     When -serially /detector/ detects tags /tags/ on camera $camera \
+-         at timestamp /frameTs/ with /...options/ {
++            at timestamp /frameTs/ with /...options/ {
+         if {[lindex $detector 1] ne "entire-frame"} { return }
+-        set frame [dict get $options grayFrame]
+ 
+-        if {[llength $tags] == 0} {
+-            sleep 5
+-            return
+-        }
++        # All state lives in a held statement: a When body runs on a
++        # snapshot of its environment, so variables would not persist.
++        set state [QueryOne! camera $exposureCamera has autoexposure state /./ \
++                       -default {lastRunTs 0 lostSince {} lastSweepTs 0 sweepDir 1}]
++
++        # Run at most ~10 times a second. That gives the camera the 1-3
++        # frames it needs to apply a new exposure before we measure
++        # again, and it is done by returning early rather than sleeping:
++        # a When body that is still running >100ms after its statement
++        # has gone away gets killed by the runtime.
++        if {$frameTs - [dict get $state lastRunTs] < 0.1} { return }
++        dict set state lastRunTs $frameTs
++
++        # Exposure range: what the camera reports (camera/usb.folk), capped
++        # at 90% of the negotiated frame interval because a longer
++        # exposure makes the camera drop frames.
++        set range [QueryOne! camera $exposureCamera has exposure range /./ \
++                       -default {min 300 max 16000}]
++        set frameUs [QueryOne! camera $exposureCamera has frame interval /./ us \
++                         -default 16667]
++        set lo [dict get $range min]
++        set hi [dict get $range max]
++        if {$lo < 100} { set lo 100 }
++        if {$hi > 0.9 * $frameUs} { set hi [expr {int(0.9 * $frameUs)}] }
+ 
+-        set currentExposureUs \
+-            [QueryOne! /someone/ wishes camera $exposureCamera \
+-                 uses exposure time /./ us -default 3000]
++        set wishes [Query! /someone/ wishes camera $exposureCamera uses exposure time /./ us]
++        set cur [expr {[llength $wishes] > 0 ? [dict get [lindex $wishes 0] .] : 3000}]
+ 
+-        set whiteSum 0.0
+-        set statsCount 0
++        set stats [list]
+         foreach tag $tags {
+-            set stats [$autoExposureLib autoExposureStats $frame [dict get $tag p]]
+-            if {[dict get $stats count] == 0} { continue }
+-
+-            set whiteSum [+ $whiteSum [dict get $stats white]]
+-            incr statsCount
++            if {![dict exists $tag white]} { continue }
++            # Decodes that needed 2-3 bits of error correction are not
++            # trustworthy measurements.
++            if {[dict exists $tag hamming] && [dict get $tag hamming] > 1} { continue }
++            lappend stats [dict create \
++                               white [dict get $tag white] \
++                               black [dict get $tag black] \
++                               satFrac [dict get $tag sat]]
+         }
+ 
+-        if {$statsCount == 0} {
+-            sleep 5
+-            return
++        set next $cur
++        if {[llength $stats] > 0} {
++            dict set state lostSince {}
++            set next [aeNextExposure $cur $stats $lo $hi]
++
++            set whites [lsort -real [lmap s $stats {dict get $s white}]]
++            Hold! -key [list autoexposure-white $exposureCamera] \
++                Claim camera $exposureCamera has median AprilTag white \
++                [lindex $whites [expr {[llength $whites] / 2}]]
++        } elseif {[dict get $state lostSince] eq ""} {
++            dict set state lostSince $frameTs
++        } elseif {$frameTs - [dict get $state lostSince] > 0.5 &&
++                  $frameTs - [dict get $state lastSweepTs] >= 0.4} {
++            # No decodable tag for half a second: the exposure is probably
++            # so far off that nothing can be measured (direct sun, or a
++            # dark room). Sweep through the range, a step every 0.4s,
++            # until a tag shows up; then the normal law takes over.
++            lassign [aeSweepExposure $cur [dict get $state sweepDir] $lo $hi] next dir
++            dict set state sweepDir $dir
++            dict set state lastSweepTs $frameTs
+         }
++        Hold! -key [list autoexposure-state $exposureCamera] \
++            Claim camera $exposureCamera has autoexposure state $state
+ 
+-        set avgWhite [/ $whiteSum $statsCount]
+-        Hold! -key avgWhite \
+-            Claim camera $camera has average AprilTag white $avgWhite
+-
+-        set denom $avgWhite
+-        if {$denom < 1} { set denom 1 }
+-        set targetExposureUs [expr {int($currentExposureUs * 250.0 / $denom)}]
+-        set nextExposureUs [expr {int(0.8 * $currentExposureUs + 0.2 * $targetExposureUs)}]
+-        if {$nextExposureUs < 1000} { set nextExposureUs 1000 }
+-        if {$nextExposureUs > 15000} { set nextExposureUs 15000 }
+-
+-        if {[expr {int($nextExposureUs / 100)}] != [expr {int($currentExposureUs / 100)}]} {
+-            set currentExposureUs $nextExposureUs
+-            Hold! -on builtin-programs/web/setup.folk -key "exposure $exposureCamera" -save \
+-                Wish camera $exposureCamera uses exposure time $currentExposureUs us
++        if {$next != $cur} {
++            # Same key as the manual slider in web/camera.folk, so the
++            # slider follows us. Deliberately not -save'd: we re-converge
++            # within a second of a restart, and saving would rewrite the
++            # hold file on every step.
++            Hold! -on builtin-programs/web/setup.folk -key "exposure $exposureCamera" \
++                Wish camera $exposureCamera uses exposure time $next us
+         }
+-
+-        sleep 5
+     }
+ }
+-}
