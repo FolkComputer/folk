@@ -1,0 +1,67 @@
+# Camera-to-projector extrinsics put both camera rays in the same metric frame.
+# This helper is independent of the SAM2 worker and runs only after two clicks.
+When /someone/ wishes to load camera-sam2 stereo geometry {
+    # Refresh the launcher for services started before the absolute uvx path fix.
+    source lib/python.tcl
+    set py [Uvx --with numpy --with opencv-python-headless]
+    $py exec {
+        import json
+        import runpy
+        stereo = runpy.run_path('lib/camera_sam2_stereo.py')
+    }
+    $py def reconstruct {str payload} {
+        try:
+            return json.dumps(stereo['reconstruct'](payload), allow_nan=False)
+        except ValueError as error:
+            return json.dumps({'error': str(error)})
+    }
+    Claim the camera-sam2 stereo geometry library is $py
+}
+
+When /someone/ wishes camera-sam2 stereo request /request/ reconstructs cameras /leftCamera/ /rightCamera/ segments /leftJson/ /rightJson/ {
+    Wish to load camera-sam2 stereo geometry
+    When the camera-sam2 stereo geometry library is /geometry/ {
+        try {
+            if {$leftCamera eq $rightCamera} { error "Select two different cameras." }
+            # Use saved calibration leaves, never the uncalibrated fallback.
+            set leftIntrinsics [Query! calibration claims camera $leftCamera has intrinsics /intr/]
+            set rightIntrinsics [Query! calibration claims camera $rightCamera has intrinsics /intr/]
+            if {[llength $leftIntrinsics] != 1 || [llength $rightIntrinsics] != 1} {
+                error "Both cameras need exactly one saved calibration."
+            }
+            set displays [Query! calibration claims camera $leftCamera to display /display/ has extrinsics /extr/]
+            set choices {}
+            foreach item $displays {
+                set display [dict get $item display]
+                set right [Query! calibration claims camera $rightCamera to display $display has extrinsics /extr/]
+                set projector [Query! calibration claims display $display has intrinsics /intr/]
+                set dimensions [Query! display $display has width /width/ height /height/]
+                if {[llength $right] == 1 && [llength $projector] == 1 && [llength $dimensions] == 1} {
+                    lappend choices [list $display [dict get $item extr] [dict get [lindex $right 0] extr] \
+                        [dict get [lindex $projector 0] intr] [lindex $dimensions 0]]
+                }
+            }
+            if {[llength $choices] != 1} { error "The cameras need one common calibrated, connected projector." }
+            lassign [lindex $choices 0] display extLeft extRight projector dimensions
+            set payload [json::encode [dict create left $leftJson right $rightJson \
+                intrLeft [json::encode [dict get [lindex $leftIntrinsics 0] intr] obj] \
+                intrRight [json::encode [dict get [lindex $rightIntrinsics 0] intr] obj] \
+                extLeft [json::encode $extLeft {obj R {list list num} t {list num}}] \
+                extRight [json::encode $extRight {obj R {list list num} t {list num}}] \
+                projector [json::encode $projector obj] \
+                displaySize [json::encode [list [dict get $dimensions width] [dict get $dimensions height]] {list num}]] obj]
+            set result [$geometry reconstruct $payload]
+            set decoded [json::decode $result]
+            if {![dict exists $decoded error]} {
+                set quad [dict get $decoded projectorQuad]
+                Wish to draw a line onto $display with points [concat $quad [list [lindex $quad 0]]] \
+                    width 4 color green layer 100
+                Claim camera-sam2 stereo request $request has quad [dict get $decoded points3d] in display $display
+            }
+        } on error {e opts} {
+            puts stderr "camera-sam2 stereo: [errorInfo $e $opts]"
+            set result [json::encode [dict create error $e] obj]
+        }
+        Claim camera-sam2 stereo request $request has result $result
+    }
+}

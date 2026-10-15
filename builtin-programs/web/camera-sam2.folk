@@ -101,6 +101,11 @@ Wish the web server handles route {/camera-sam2} with handler {
     <p>Click an object to segment one frame. Each camera pauses independently while you inspect its outline.</p>
     <div id="connectionStatus">Connecting…</div>
     <div class="cameras">[join $panels \n]</div>
+    <section>
+        <h2>Stereo quad</h2>
+        <p id="stereoStatus" role="status">Segment the same flat, four-sided surface in both cameras.</p>
+        <svg id="stereoQuad" style="width: 100%; max-width: 600px; height: 300px" aria-label="Reconstructed quad with side lengths in meters"></svg>
+    </section>
     <script src="/lib/folk.js"></script>
     <script>$script</script>
 </body>
