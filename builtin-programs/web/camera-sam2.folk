@@ -1,0 +1,99 @@
+# A request owns one frozen JPEG, one positive point, and one segmentation.
+# There is deliberately no subscription to camera frames or SAM2 tracking.
+When /someone/ wishes camera-sam2 request /request/ segments jpeg /encoded/ at /x/ /y/ {
+    Wish to load SAM2
+
+    When the SAM2 segmenter is /segment/ &\
+         the SAM2 contours library is /contoursLib/ &\
+         the jpeg library is /jpegLib/ {
+        try {
+            if {![string is integer -strict $request] || $request <= 0 || $request > 2147483647} {
+                error "Invalid segmentation request id"
+            }
+            set filename [file tempfile /tmp/camera-sam2-XXXXXX]
+            try {
+                set fd [open $filename wb]
+                try {
+                    puts -nonewline $fd [binary decode base64 $encoded]
+                } finally { close $fd }
+                set image [$jpegLib loadJpeg $filename]
+            } finally { file delete $filename }
+            if {![string is integer -strict $x] || ![string is integer -strict $y] ||
+                $x < 0 || $y < 0 || $x >= $image(width) || $y >= $image(height)} {
+                error "Click is outside the image"
+            }
+
+            fn segment
+            set contours {}
+            # Reuse a reserved transient slot: the predictor serializes calls,
+            # and distinct request ids must not accumulate model object slots.
+            set transientObject -2147483648
+            foreach object [segment $image $transientObject [list [list $x $y]] {1}] {
+                lassign $object objectId mask
+                if {$objectId != $transientObject} continue
+                set contours [$contoursLib findMaskContours $image(width) $image(height) $mask 1.0 1.0 1.0]
+                break
+            }
+            set result [json::encode [dict create contours $contours \
+                width $image(width) height $image(height)] \
+                {obj contours {list list list num} width num height num}]
+        } on error {e opts} {
+            puts stderr "camera-sam2: [errorInfo $e $opts]"
+            set result [json::encode [dict create error $e] obj]
+        }
+        Claim camera-sam2 request $request has result $result
+    }
+}
+
+Wish the web server handles route {/camera-sam2} with handler {
+    if {[dict exists $QUERY camera]} {
+        set camera [dict get $QUERY camera]
+    } else {
+        set cameras [Query! camera /camera/ has width /w/ height /h/]
+        if {[llength $cameras] == 1} {
+            set camera [dict get [lindex $cameras 0] camera]
+        } else {
+            set links {}
+            foreach item $cameras {
+                set name [dict get $item camera]
+                set url [string map [list % %25 / %2F " " %20 & %26 # %23 ? %3F] $name]
+                lappend links "<li><a href=\"/camera-sam2?camera=[htmlEscape $url]\">[htmlEscape $name]</a></li>"
+            }
+            return [html "<html><head><title>Camera SAM2</title></head><body><p>Choose a camera:</p><ul>[join $links \n]</ul></body></html>"]
+        }
+    }
+    set baseCamera [lindex $camera 0]
+    set exposures [Query! /someone/ wishes camera $baseCamera uses exposure time /exposureTime/ us]
+    set exposure 1500
+    if {[llength $exposures] == 1} { set exposure [dict get [lindex $exposures 0] exposureTime] }
+    set fd [open lib/camera-sam2.js r]
+    set script [read $fd]
+    close $fd
+    html [subst {
+<!doctype html>
+<html>
+<head><title>Camera SAM2</title></head>
+<body style="margin: 8px" data-camera="[htmlEscape $camera]" data-exposure="$exposure">
+    <p>Click an object to segment one frame. The image pauses while you inspect its outline.</p>
+    <div style="position: relative; display: inline-block; max-width: 100%">
+        <canvas id="cameraCanvas" style="display: block; max-width: 100%; cursor: crosshair"></canvas>
+        <svg id="outline" style="position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none"></svg>
+    </div>
+    <div style="padding: 8px 0">
+        <button id="resumeLive">Resume live</button>
+        <span id="segmentStatus" role="status">Loading camera…</span>
+    </div>
+    <div>
+        <span id="connectionStatus">Connecting…</span>
+        <label><input type="checkbox" id="cameraAutoexposure">Auto-exposure</label>
+        <span id="manualExposure">Manual exposure:
+            <input type="range" id="cameraExposureSlider" min="10" max="48" value="15">
+            <input type="number" id="cameraExposureNumber" min="1000" max="320000" step="100" value="1500" style="width: 90px">μs
+        </span>
+    </div>
+    <script src="/lib/folk.js"></script>
+    <script>$script</script>
+</body>
+</html>
+    }]
+}
