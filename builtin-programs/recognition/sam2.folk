@@ -3,7 +3,7 @@ When when the SAM2 segmenter is /any/ /any/ with environment /any/ {
 }
 
 When /someone/ wishes to load SAM2 {
-    Wish to really load SAM2
+    Wish -keep 180000ms to really load SAM2
 }
 
 When /someone/ wishes to really load SAM2 &\
