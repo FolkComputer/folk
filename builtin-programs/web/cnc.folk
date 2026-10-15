@@ -484,7 +484,7 @@ Wish the web server handles route {/cnc} with handler {
                 } catch (e) {
                     if (live) label.textContent = e.message;
                 }
-                if (live && !stopped && generation === version) timer = setTimeout(frame, points.length === 4 ? 1000 : 100);
+                if (live && !stopped && generation === version) timer = setTimeout(frame, points.length === 4 ? 0 : 100);
             }
 
             function resume() {
