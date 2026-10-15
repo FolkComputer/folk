@@ -1557,6 +1557,14 @@ void workerInit(int index) {
     interpBoot();
 }
 void workerExit() {
+    // The signal handler points into this interpreter; don't run it during teardown.
+    sigset_t cancelled;
+    sigemptyset(&cancelled);
+    sigaddset(&cancelled, SIGUSR1);
+    pthread_sigmask(SIG_BLOCK, &cancelled, NULL);
+    Jim_FreeInterp(interp);
+    interp = NULL;
+
     // Need this so that this worker doesn't count as still being
     // alive and count toward the worker cap.
 
@@ -1574,7 +1582,6 @@ void workerExit() {
         }
     }
 
-    // TODO: Clear everything else out?
     self->tid = 0;
     epochThreadDestroy();
 

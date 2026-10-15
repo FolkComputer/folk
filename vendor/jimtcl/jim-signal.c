@@ -426,7 +426,11 @@ static void JimSignalCmdDelete(Jim_Interp *interp, void *privData)
     if (sa_old) {
         for (i = 1; i < MAX_SIGNALS; i++) {
             if (siginfo[i].status != SIGNAL_ACTION_DEFAULT) {
-                sigaction(i, &sa_old[i], 0);
+                /* Folk's SIGUSR1 cancellation handler is process-wide. A retiring
+                 * worker must not reset it while other interpreters still use it. */
+                if (i != SIGUSR1) {
+                    sigaction(i, &sa_old[i], 0);
+                }
                 siginfo[i].status = SIGNAL_ACTION_DEFAULT;
             }
         }

@@ -24,6 +24,13 @@ $cc include <pthread.h>
 $cc include <string.h>
 $cc include <stdlib.h>
 
+$cc include <stdint.h>
+$cc code {
+    static void closePythonSocket(Jim_Interp* interp, void* fd) {
+        close((int)(intptr_t)fd);
+    }
+}
+
 $cc proc sockConnect {char* path} int {
     for (int i = 0; i < 1000; i++) {
         int fd = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -33,6 +40,8 @@ $cc proc sockConnect {char* path} int {
         addr.sun_family = AF_UNIX;
         strncpy(addr.sun_path, path, sizeof(addr.sun_path) - 1);
         if (connect(fd, (struct sockaddr*)&addr, sizeof(addr)) == 0) {
+            Jim_DeleteAssocData(interp, path);
+            Jim_SetAssocData(interp, path, closePythonSocket, (void*)(intptr_t)fd);
             return fd;
         }
         close(fd);
@@ -332,6 +341,9 @@ def handle_conn(conn):
                 send_frame(conn, json.dumps(result).encode('utf-8'))
             send_frame(conn, b"")
 
+        except ConnectionError:
+            conn.close()
+            return
         except Exception as e:
             import traceback
             send_frame(conn, b"error")
