@@ -492,11 +492,24 @@ fn zhangUnrefinedCalibrate {name width height Hs} {
         ::math::linearalgebra::mkIdentity \
         ::math::linearalgebra::solvePGauss \
         ::math::linearalgebra::getcol \
+        ::math::linearalgebra::getelem \
         ::math::linearalgebra::norm \
         ::math::linearalgebra::scale \
         ::math::linearalgebra::crossproduct \
         ::math::linearalgebra::add \
         ::math::linearalgebra::sub
+
+    # Homographies are only defined up to a scalar. Normalize before
+    # building V: its entries are quadratic in H, so arbitrary scale
+    # differences otherwise give some poses enormous weight in the fit.
+    # Keep the normalized Hs for extrinsics too, including a consistent sign.
+    set Hs [lmap H $Hs {
+        set h33 [getelem $H 2 2]
+        if {$h33 == 0} {
+            error "Cannot initialize calibration: homography maps model origin to infinity"
+        }
+        scale [expr {1.0 / $h33}] $H
+    }]
 
     # Try to solve for the camera intrinsics:
 
