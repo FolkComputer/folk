@@ -145,7 +145,7 @@ When the collected results for {camera /camera/ has CNC bed corners /points/ wit
     }
 }
 
-fn cncStereoPoint {a b lk le rk re lw lh rw rh pk pw ph expected} {
+fn cncStereoPoint {a b lk le rk re lw lh rw rh pk pw ph expected {cameraLimit 4}} {
     package require linalg
     namespace import ::math::linearalgebra::*
     fn cncRay
@@ -167,7 +167,7 @@ fn cncStereoPoint {a b lk le rk re lw lh rw rh pk pw ph expected} {
     }
     set projectorError 0
     if {[llength $expected]} {set projectorError [norm [sub [cncProject $pk $pw $ph $point] $expected]]}
-    if {$error>4 || $projectorError>20} {error [format {Tag correspondence error: camera %.1f px, projector %.1f px} $error $projectorError]}
+    if {$error>$cameraLimit || $projectorError>20} {error [format {Tag correspondence error: camera %.1f px, projector %.1f px} $error $projectorError]}
     dict create point $point cameraError $error projectorError $projectorError
 }
 
@@ -197,7 +197,8 @@ fn cncProjectContours {encoded mapping display pk pw ph} {
             set le [QueryOne! camera $lc to display $display has extrinsics /./];set re [QueryOne! camera $rc to display $display has extrinsics /./]
             set lsize [lindex [Query! camera $lc has width /w/ height /h/] 0];set rsize [lindex [Query! camera $rc has width /w/ height /h/] 0]
             lassign $match(centers) a b
-            if {[catch {cncStereoPoint $a $b $lk $le $rk $re $lsize(w) $lsize(h) $rsize(w) $rsize(h) $pk $pw $ph {}} point]} continue
+            # Mask centroids are approximate correspondences, unlike tag corners.
+            if {[catch {cncStereoPoint $a $b $lk $le $rk $re $lsize(w) $lsize(h) $rsize(w) $rsize(h) $pk $pw $ph {} 20} point]} continue
             set center [cncProject $pk $pw $ph [dict get $point point]]
             set area 0;set cx 0;set cy 0
             foreach contour $contours {
@@ -244,7 +245,7 @@ When the SAM2 Python worker is /py/ {
         vertices = transform(metric, np.stack((gx/size, gy/size, np.ones_like(gx)), axis=0).reshape(3, -1)).reshape(2, size+1, size+1)
         corners = [vertices[:, :-1, :-1], vertices[:, :-1, 1:], vertices[:, 1:, 1:], vertices[:, 1:, :-1]]
         weights = np.abs(sum(a[0]*b[1]-a[1]*b[0] for a,b in zip(corners, corners[1:]+corners[:1]))/2)
-        cameras, warped = [], []
+        cameras, warped, masks_by_camera = [], [], []
         for frame, camera in zip(json.loads(frames), geometry['cameras']):
             if frame['camera'] != camera['name']:
                 raise ValueError('CNC camera order changed')
@@ -266,24 +267,28 @@ When the SAM2 Python worker is /py/ {
             v = np.floor((uv[1]-y)*result['maskHeight']/height_crop).astype(int)
             valid = (u>=0)&(u<result['maskWidth'])&(v>=0)&(v<result['maskHeight'])
             indices = np.clip(v*result['maskWidth']+u, 0, result['maskWidth']*result['maskHeight']-1)
-            masks = []
+            masks, native_masks = [], []
             for mask in result['masks']:
                 pixels = np.zeros(result['maskWidth']*result['maskHeight'], dtype=bool)
                 for start,length in zip(mask['runs'][::2], mask['runs'][1::2]):
                     pixels[start:start+length] = True
-                rows,cols = np.nonzero(pixels.reshape(result['maskHeight'],result['maskWidth']))
+                source_mask = pixels.reshape(result['maskHeight'],result['maskWidth'])
+                rows,cols = np.nonzero(source_mask)
                 center = [float(x+(cols.mean()+.5)*w/result['maskWidth']),float(y+(rows.mean()+.5)*height_crop/result['maskHeight'])]
                 pixels = (pixels[indices]&valid).reshape(size,size)
                 area = float(weights[pixels].sum())
+                entry = dict(pixels=pixels, area=area, color=mask['color'],center=center,source=source_mask,identity=None)
+                native_masks.append(entry)
                 if area > .0009:
-                    masks.append(dict(pixels=pixels, area=area, color=mask['color'],center=center))
+                    masks.append(entry)
             warped.append(masks)
+            masks_by_camera.append((result['maskHeight'],result['maskWidth'],native_masks))
             source.thumbnail((1536,1536), PILImage.Resampling.LANCZOS)
             jpeg = io.BytesIO()
             source.save(jpeg, format='JPEG', quality=85)
             cameras.append(dict(camera=camera['name'], width=width, height=height,
                 crop=dict(x=int(x), y=int(y), w=w, h=height_crop), count=result['count'],
-                preview=base64.b64encode(jpeg.getvalue()).decode('ascii'), overlay=result['overlay'],
+                preview=base64.b64encode(jpeg.getvalue()).decode('ascii'),
                 segmentSeconds=segment_seconds, timestamp=frame['timestamp']))
         def contours(pixels):
             # Trace directed pixel-boundary edges, including holes; never recurse.
@@ -346,8 +351,23 @@ When the SAM2 Python worker is /py/ {
             used_a.add(i)
             used_b.add(j)
             left,right = warped[0][i],warped[1][j]
+            left['identity'] = right['identity'] = left['color']
             matched.append(dict(color=left['color'],contours=contours(left['pixels']&right['pixels']),centers=[left['center'],right['center']],
                 areaA=left['area'],areaB=right['area'],overlapA=intersection/left['area'],overlapB=intersection/right['area']))
+        for camera,(height,width,masks) in zip(cameras,masks_by_camera):
+            overlay = np.zeros((height,width,4),dtype=np.uint8)
+            for mask in sorted(masks,key=lambda mask: mask['source'].sum(),reverse=True):
+                pixels = mask['source']
+                if mask['identity'] is not None:
+                    overlay[pixels] = (*mask['identity'],140)
+                else:
+                    interior = np.zeros_like(pixels)
+                    interior[1:-1,1:-1] = (pixels[1:-1,1:-1] & pixels[:-2,1:-1] & pixels[2:,1:-1]
+                        & pixels[1:-1,:-2] & pixels[1:-1,2:])
+                    overlay[pixels & ~interior] = (255,255,255,240)
+            png = io.BytesIO()
+            PILImage.fromarray(overlay).save(png,format='PNG')
+            camera['overlay'] = base64.b64encode(png.getvalue()).decode('ascii')
         return json.dumps(dict(cameras=cameras, matches=json.dumps(matched), seconds=time.perf_counter()-started))
     }
     $py def cncTagLayout {str encoded num count num pw num ph} {
@@ -799,11 +819,6 @@ Wish the web server handles route {/cnc} with handler {
                         font-size="${14 * scale}" fill="white" stroke="black"
                         stroke-width="${2 * scale}" paint-order="stroke">${i + 1}</text>
                 `).join('');
-                const h = mapping?.cameras.find(c => c.name === camera)?.h;
-                if (h) svg.innerHTML += view.contours.map(match => match.contours.map(contour => {
-                    const points = contour.map(p => transform(h, ...p)).map(p => `${p[0]*width},${p[1]*height}`).join(' ');
-                    return `<polygon points="${points}" fill="none" stroke="rgb(${match.color.join(',')})" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
-                }).join('')).join('');
                 label.textContent = points.length === 4 ? 'Four corners saved.' :
                     `Click corner ${points.length + 1} of 4.`;
             }
