@@ -30,7 +30,9 @@ static void JimFreeLoadHandles(Jim_Interp *interp, void *data);
  */
 int Jim_LoadLibrary(Jim_Interp *interp, const char *pathName)
 {
-    void *handle = dlopen(pathName, RTLD_NOW | RTLD_LOCAL);
+    /* Folk shares C function pointers and module state between interpreters.
+     * Destroying one interpreter must not unload code still referenced elsewhere. */
+    void *handle = dlopen(pathName, RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE);
     if (handle == NULL) {
         Jim_SetResultFormatted(interp, "error loading extension \"%s\": %s", pathName,
             dlerror());
