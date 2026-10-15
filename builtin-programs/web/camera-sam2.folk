@@ -46,51 +46,61 @@ When /someone/ wishes camera-sam2 request /request/ segments jpeg /encoded/ at /
 }
 
 Wish the web server handles route {/camera-sam2} with handler {
-    if {[dict exists $QUERY camera]} {
-        set camera [dict get $QUERY camera]
-    } else {
-        set cameras [Query! camera /camera/ has width /w/ height /h/]
-        if {[llength $cameras] == 1} {
-            set camera [dict get [lindex $cameras 0] camera]
-        } else {
-            set links {}
-            foreach item $cameras {
-                set name [dict get $item camera]
-                set url [string map [list % %25 / %2F " " %20 & %26 # %23 ? %3F] $name]
-                lappend links "<li><a href=\"/camera-sam2?camera=[htmlEscape $url]\">[htmlEscape $name]</a></li>"
-            }
-            return [html "<html><head><title>Camera SAM2</title></head><body><p>Choose a camera:</p><ul>[join $links \n]</ul></body></html>"]
-        }
+    set cameras [Query! camera /camera/ has width /w/ height /h/]
+    set panels {}
+    foreach item $cameras {
+        set camera [dict get $item camera]
+        set baseCamera [lindex $camera 0]
+        set exposures [Query! /someone/ wishes camera $baseCamera uses exposure time /exposureTime/ us]
+        set exposure 1500
+        if {[llength $exposures] == 1} { set exposure [dict get [lindex $exposures 0] exposureTime] }
+        lappend panels [subst {
+    <section class="camera-panel" data-camera="[htmlEscape $camera]" data-exposure="$exposure">
+        <h2>[htmlEscape $camera]</h2>
+        <div class="camera-image">
+            <canvas data-role="cameraCanvas"></canvas>
+            <svg data-role="outline"></svg>
+        </div>
+        <div class="camera-controls">
+            <button data-role="resumeLive">Resume live</button>
+            <span data-role="segmentStatus" role="status">Loading camera…</span>
+        </div>
+        <div>
+            <label><input type="checkbox" data-role="cameraAutoexposure">Auto-exposure</label>
+            <span data-role="manualExposure">Manual exposure:
+                <input type="range" data-role="cameraExposureSlider" min="10" max="48" value="15">
+                <input type="number" data-role="cameraExposureNumber" min="1000" max="320000" step="100" value="1500" style="width: 90px">μs
+            </span>
+        </div>
+    </section>
+        }]
     }
-    set baseCamera [lindex $camera 0]
-    set exposures [Query! /someone/ wishes camera $baseCamera uses exposure time /exposureTime/ us]
-    set exposure 1500
-    if {[llength $exposures] == 1} { set exposure [dict get [lindex $exposures 0] exposureTime] }
+    if {![llength $panels]} { lappend panels {<p>No cameras are available.</p>} }
     set fd [open lib/camera-sam2.js r]
     set script [read $fd]
     close $fd
     html [subst {
 <!doctype html>
 <html>
-<head><title>Camera SAM2</title></head>
-<body style="margin: 8px" data-camera="[htmlEscape $camera]" data-exposure="$exposure">
-    <p>Click an object to segment one frame. The image pauses while you inspect its outline.</p>
-    <div style="position: relative; display: inline-block; max-width: 100%">
-        <canvas id="cameraCanvas" style="display: block; max-width: 100%; cursor: crosshair"></canvas>
-        <svg id="outline" style="position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none"></svg>
-    </div>
-    <div style="padding: 8px 0">
-        <button id="resumeLive">Resume live</button>
-        <span id="segmentStatus" role="status">Loading camera…</span>
-    </div>
-    <div>
-        <span id="connectionStatus">Connecting…</span>
-        <label><input type="checkbox" id="cameraAutoexposure">Auto-exposure</label>
-        <span id="manualExposure">Manual exposure:
-            <input type="range" id="cameraExposureSlider" min="10" max="48" value="15">
-            <input type="number" id="cameraExposureNumber" min="1000" max="320000" step="100" value="1500" style="width: 90px">μs
-        </span>
-    </div>
+<head>
+    <title>Camera SAM2</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { margin: 8px; }
+        .cameras { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+        .camera-panel { min-width: 0; }
+        .camera-panel h2 { font-size: 14px; overflow-wrap: anywhere; }
+        .camera-image { position: relative; }
+        .camera-image canvas { display: block; width: 100%; cursor: crosshair; }
+        .camera-image svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+        .camera-controls { padding: 8px 0; }
+        @media (max-width: 700px) { .cameras { grid-template-columns: minmax(0, 1fr); } }
+    </style>
+</head>
+<body>
+    <p>Click an object to segment one frame. Each camera pauses independently while you inspect its outline.</p>
+    <div id="connectionStatus">Connecting…</div>
+    <div class="cameras">[join $panels \n]</div>
     <script src="/lib/folk.js"></script>
     <script>$script</script>
 </body>
