@@ -1,126 +1,110 @@
 # Four corresponding image corners per camera, held persistently on cnc.
-set cc [C]
-$cc include <math.h>
-$cc struct CncIntrinsics { double width; double height; double fx; double fy; double cx; double cy; double s; double k1; double k2; double p1; double p2; }
-$cc code {
-    // Smallest eigenvector of a symmetric 3x3 covariance or 4x4 DLT normal matrix.
-    static void smallest(double a[4][4], int n, double out[4]) {
-        double v[4][4] = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1}};
-        for (int step=0; step<80; step++) {
-            int p=0,q=1;
-            for (int i=0;i<n;i++) for (int j=i+1;j<n;j++) if (fabs(a[i][j])>fabs(a[p][q])) {p=i;q=j;}
-            if (fabs(a[p][q])<1e-14) break;
-            double angle=.5*atan2(2*a[p][q],a[q][q]-a[p][p]), c=cos(angle),s=sin(angle),ap=a[p][p],aq=a[q][q],b=a[p][q];
-            for (int i=0;i<n;i++) if (i!=p && i!=q) {double x=a[i][p],y=a[i][q];a[i][p]=a[p][i]=c*x-s*y;a[i][q]=a[q][i]=s*x+c*y;}
-            a[p][p]=c*c*ap-2*s*c*b+s*s*aq;a[q][q]=s*s*ap+2*s*c*b+c*c*aq;a[p][q]=a[q][p]=0;
-            for (int i=0;i<n;i++) {double x=v[i][p],y=v[i][q];v[i][p]=c*x-s*y;v[i][q]=s*x+c*y;}
-        }
-        int k=0;for (int i=1;i<n;i++) if (a[i][i]<a[k][k]) k=i;
-        for (int i=0;i<n;i++) out[i]=v[i][k];
+fn cncRay {k w h point} {
+    dict with k {}
+    set u [expr {([lindex $point 0]*double($k(width))/$w-$cx)/$fx}]
+    set v [expr {([lindex $point 1]*double($k(height))/$h-$cy)/$fy}]
+    set x $u;set y $v
+    for {set i 0} {$i<100} {incr i} {
+        set r [expr {$x*$x+$y*$y}];set radial [expr {1+$k1*$r+$k2*$r*$r}]
+        set nx [expr {($u-2*$p1*$x*$y-$p2*($r+2*$x*$x))/$radial}]
+        set ny [expr {($v-$p1*($r+2*$y*$y)-2*$p2*$x*$y)/$radial}]
+        if {!(abs($nx)<Inf && abs($ny)<Inf)} {error "Camera distortion did not converge."}
+        set change [expr {abs($nx-$x)>abs($ny-$y)?abs($nx-$x):abs($ny-$y)}];set x $nx;set y $ny
+        if {$change<1e-12} {return [list [expr {$x-$s/$fx*$y}] $y]}
     }
-    static int ray(CncIntrinsics k, double w, double h, double p[2], double out[2]) {
-        double u=(p[0]*k.width/w-k.cx)/k.fx,v=(p[1]*k.height/h-k.cy)/k.fy,x=u,y=v;
-        for (int i=0;i<100;i++) {
-            double r=x*x+y*y,radial=1+k.k1*r+k.k2*r*r;
-            double nx=(u-2*k.p1*x*y-k.p2*(r+2*x*x))/radial,ny=(v-k.p1*(r+2*y*y)-2*k.p2*x*y)/radial;
-            if (!isfinite(nx+ny)) return 0;
-            double change=fmax(fabs(nx-x),fabs(ny-y));x=nx;y=ny;
-            if (change<1e-12) {out[0]=x-k.s/k.fx*y;out[1]=y;return 1;}
-        }
-        return 0;
-    }
-    static void project(CncIntrinsics k, double w, double h, double p[3], double out[2]) {
-        double y=p[1]/p[2],x=p[0]/p[2]+k.s/k.fx*y,r=x*x+y*y,radial=1+k.k1*r+k.k2*r*r;
-        out[0]=((x*radial+2*k.p1*x*y+k.p2*(r+2*x*x))*k.fx+k.cx)*w/k.width;
-        out[1]=((y*radial+k.p1*(r+2*y*y)+2*k.p2*x*y)*k.fy+k.cy)*h/k.height;
-    }
+    error "Camera distortion did not converge."
 }
-$cc proc reconstruct {double[4][2] left double lw double lh CncIntrinsics lk double[3][3] lr double[3] lt
-                      double[4][2] right double rw double rh CncIntrinsics rk double[3][3] rr double[3] rt
-                      CncIntrinsics pk double pw double ph} Jim_Obj* {
-    double (*pixels[2])[2]={left,right},(*rotations[2])[3]={lr,rr},*translations[2]={lt,rt};
-    CncIntrinsics intr[2]={lk,rk};double widths[2]={lw,rw},heights[2]={lh,rh},points[4][3],center[3]={0},baseline=0;
-    for (int i=0;i<3;i++) baseline+=(lt[i]-rt[i])*(lt[i]-rt[i]);
-    if (baseline<.0001) return Jim_ObjPrintf("error {The calibrated stereo baseline is too small.}");
-    for (int c=0;c<2;c++) {
-        double sign=0,area=0;
-        for (int i=0;i<4;i++) {
-            double *a=pixels[c][i],*b=pixels[c][(i+1)%4],*d=pixels[c][(i+2)%4],turn=(b[0]-a[0])*(d[1]-b[1])-(b[1]-a[1])*(d[0]-b[0]);
-            if (!isfinite(a[0]+a[1]) || a[0]<0 || a[1]<0 || a[0]>=widths[c] || a[1]>=heights[c]) return Jim_ObjPrintf("error {A corner is outside its image.}");
-            if (turn==0 || (i && sign*turn<=0)) return Jim_ObjPrintf("error {Click four corners in perimeter order, without crossing edges.}");
-            sign=turn;area+=a[0]*b[1]-a[1]*b[0];
+
+fn cncProject {k w h point} {
+    dict with k {}
+    lassign $point x y z
+    if {$z<=0} {error "The bed is behind a camera or projector."}
+    set y [expr {double($y)/$z}];set x [expr {double($x)/$z+$s/$fx*$y}]
+    set r [expr {$x*$x+$y*$y}];set radial [expr {1+$k1*$r+$k2*$r*$r}]
+    list [expr {(($x*$radial+2*$p1*$x*$y+$p2*($r+2*$x*$x))*$fx+$cx)*$w/double($k(width))}] \
+         [expr {(($y*$radial+$p1*($r+2*$y*$y)+2*$p2*$x*$y)*$fy+$cy)*$h/double($k(height))}]
+}
+
+fn cncReconstruct {left right lk le rk re pk pw ph} {
+    package require linalg
+    namespace import ::math::linearalgebra::*
+    fn cncRay
+    fn cncProject
+    if {[norm [sub $le(t) $re(t)]]<.01} {error "The calibrated stereo baseline is too small."}
+    set selections [list $left $right];set intrinsics [list $lk $rk];set translations [list $le(t) $re(t)]
+    set rotations [list [transpose $le(R)] [transpose $re(R)]]
+    set projections {};set rays {}
+    foreach selection $selections k $intrinsics R $rotations t $translations {
+        set points $selection(points);set width $selection(width);set height $selection(height)
+        if {[llength $points]!=4 || $width<=0 || $height<=0} {error "Select four corners per camera."}
+        set sign 0;set area 0
+        for {set i 0} {$i<4} {incr i} {
+            set a [lindex $points $i];set b [lindex $points [expr {($i+1)%4}]];set d [lindex $points [expr {($i+2)%4}]]
+            if {[llength $a]!=2} {error "Invalid corner."}
+            lassign $a x y;lassign $b bx by;lassign $d dx dy
+            if {!(abs($x)<Inf && abs($y)<Inf && $x>=0 && $y>=0 && $x<$width && $y<$height)} {error "A corner is outside its image."}
+            set turn [expr {($bx-$x)*($dy-$by)-($by-$y)*($dx-$bx)}]
+            if {$turn==0 || ($i && $sign*$turn<=0)} {error "Click four corners in perimeter order, without crossing edges."}
+            set sign $turn;set area [expr {$area+$x*$by-$y*$bx}]
         }
-        if (fabs(area)<50) return Jim_ObjPrintf("error {The selected quad is too small.}");
+        if {abs($area)<50} {error "The selected quad is too small."}
+        lappend projections [lmap row $R v [scale -1 [matmul $R $t]] {concat $row [list $v]}]
+        lappend rays [lmap p $points {cncRay $k $width $height $p}]
     }
-    for (int i=0;i<4;i++) {
-        double a[4][4]={0},normal[4][4]={0},v[4];
-        for (int c=0;c<2;c++) {
-            double xy[2],p[3][4];
-            if (!ray(intr[c],widths[c],heights[c],pixels[c][i],xy)) return Jim_ObjPrintf("error {Camera distortion did not converge.}");
-            for (int j=0;j<3;j++) {p[j][3]=0;for (int k=0;k<3;k++) {p[j][k]=rotations[c][k][j];p[j][3]-=p[j][k]*translations[c][k];}}
-            for (int j=0;j<2;j++) for (int k=0;k<4;k++) a[c*2+j][k]=xy[j]*p[2][k]-p[j][k];
+    set points {}
+    for {set i 0} {$i<4} {incr i} {
+        set A {}
+        foreach P $projections xy $rays {
+            foreach coordinate [lindex $xy $i] row [lrange $P 0 1] {lappend A [sub [scale $coordinate [lindex $P 2]] $row]}
         }
-        for (int j=0;j<4;j++) for (int k=0;k<4;k++) for (int r=0;r<4;r++) normal[j][k]+=a[r][j]*a[r][k];
-        smallest(normal,4,v);
-        if (fabs(v[3])<1e-10) return Jim_ObjPrintf("error {The corner rays do not triangulate.}");
-        for (int j=0;j<3;j++) {points[i][j]=v[j]/v[3];center[j]+=points[i][j]/4;}
+        lassign [determineSVD $A] U S V
+        set v [getcol $V [lsearch -exact $S [lindex [lsort -real $S] 0]]]
+        if {abs([lindex $v 3])<1e-10} {error "The corner rays do not triangulate."}
+        lappend points [scale [expr {1.0/[lindex $v 3]}] [lrange $v 0 2]]
     }
-    double covariance[4][4]={0},n[4],meanSide=0;
-    for (int i=0;i<4;i++) {
-        double side=0;for (int j=0;j<3;j++) {double d=points[i][j]-points[(i+1)%4][j];side+=d*d;for (int k=0;k<3;k++) covariance[j][k]+=(points[i][j]-center[j])*(points[i][k]-center[k]);}
-        if (sqrt(side)<.003) return Jim_ObjPrintf("error {The reconstructed quad is degenerate.}");
-        meanSide+=sqrt(side)/4;
-    }
-    smallest(covariance,3,n);
-    double deviation[4],maxDeviation=0,projected[4][2],rms=0;
-    for (int i=0;i<4;i++) {deviation[i]=0;for (int j=0;j<3;j++) deviation[i]+=(points[i][j]-center[j])*n[j];maxDeviation=fmax(maxDeviation,fabs(deviation[i]));}
-    for (int pass=0;pass<2;pass++) {
-        double sum=0,maxError=0;
-        for (int i=0;i<4;i++) {
-            if (pass) for (int j=0;j<3;j++) points[i][j]-=deviation[i]*n[j];
-            if (points[i][2]<=0) return Jim_ObjPrintf("error {The bed is behind the projector.}");
-            for (int c=0;c<2;c++) {
-                double p[3]={0},uv[2];
-                for (int j=0;j<3;j++) for (int k=0;k<3;k++) p[j]+=rotations[c][k][j]*(points[i][k]-translations[c][k]);
-                if (p[2]<=0) return Jim_ObjPrintf("error {The bed is behind a camera.}");
-                project(intr[c],widths[c],heights[c],p,uv);
-                double dx=uv[0]-pixels[c][i][0],dy=uv[1]-pixels[c][i][1],error=dx*dx+dy*dy;sum+=error;maxError=fmax(maxError,sqrt(error));
+    set center [scale .25 [matmul [transpose $points] {1 1 1 1}]]
+    set centered [lmap p $points {sub $p $center}]
+    lassign [determineSVD $centered] U S V
+    set normal [getcol $V [lsearch -exact $S [lindex [lsort -real $S] 0]]]
+    set deviation [lmap p $centered {dotproduct $p $normal}]
+    set lengths [lmap a $points b [concat [lrange $points 1 end] [list [lindex $points 0]]] {norm [sub $a $b]}]
+    if {[lindex [lsort -real $lengths] 0]<.003} {error "The reconstructed quad is degenerate."}
+    set meanSide [dotproduct $lengths {.25 .25 .25 .25}]
+    set maxDeviation [lindex [lsort -real [lmap d $deviation {expr {abs($d)}}]] end]
+    for {set pass 0} {$pass<2} {incr pass} {
+        if {$pass} {set points [lmap p $points d $deviation {sub $p [scale $d $normal]}]}
+        set sum 0;set maxError 0
+        foreach p $points i {0 1 2 3} {
+            if {[lindex $p 2]<=0} {error "The bed is behind the projector."}
+            foreach selection $selections k $intrinsics R $rotations t $translations {
+                set uv [cncProject $k $selection(width) $selection(height) [matmul $R [sub $p $t]]]
+                set error [norm [sub $uv [lindex $selection(points) $i]]]
+                set sum [expr {$sum+$error*$error}];if {$error>$maxError} {set maxError $error}
             }
         }
-        rms=sqrt(sum/8);
-        // Thresholds from 4845e7b5: 15 px before fitting; 20 RMS / 40 max after.
-        if (!isfinite(rms) || rms>(pass?20:15) || (pass && maxError>40)) return Jim_ObjPrintf("error {Reprojection error %.1f px RMS / %.1f px max. Check corner order and calibration.}",rms,maxError);
-        if (!pass && maxDeviation>fmax(.005,.03*meanSide)) return Jim_ObjPrintf("error {The selected corners are not coplanar.}");
+        set rms [expr {sqrt($sum/8.0)}]
+        # Thresholds from 4845e7b5: 15 px before fitting; 20 RMS / 40 max after.
+        if {!(abs($rms)<Inf) || $rms>($pass?20:15) || ($pass && $maxError>40)} {error [format "Reprojection error %.1f px RMS / %.1f px max. Check corner order and calibration." $rms $maxError]}
+        if {!$pass && $maxDeviation>($meanSide*.03>.005?$meanSide*.03:.005)} {error "The selected corners are not coplanar."}
     }
-    char buf[2048];int len=snprintf(buf,sizeof(buf),"points3d {");
-    for (int i=0;i<4;i++) {project(pk,pw,ph,points[i],projected[i]);len+=snprintf(buf+len,sizeof(buf)-len,"{%.17g %.17g %.17g} ",points[i][0],points[i][1],points[i][2]);}
-    len+=snprintf(buf+len,sizeof(buf)-len,"} projectorQuad {");
-    for (int i=0;i<4;i++) len+=snprintf(buf+len,sizeof(buf)-len,"{%.17g %.17g} ",projected[i][0],projected[i][1]);
-    snprintf(buf+len,sizeof(buf)-len,"} reprojectionRms %.17g",rms);
-    return Jim_NewStringObj(interp,buf,-1);
+    dict create points3d $points projectorQuad [lmap p $points {cncProject $pk $pw $ph $p}] reprojectionRms $rms
 }
-Claim the CNC bed geometry library is [$cc compile]
 
-When the collected results for {cnc claims camera /camera/ has CNC bed corners /points/ with width /width/ height /height/} are /selections/ {
+When the collected results for {camera /camera/ has CNC bed corners /points/ with width /width/ height /height/} are /selections/ {
     Claim CNC bed reconstruction is {waiting {Select four corners in each camera; both need saved calibration.}}
     if {[llength $selections]!=2} return
     lassign [lsort -command {apply {{a b} {string compare [dict get $a camera] [dict get $b camera]}}} $selections] left right
     set lc [dict get $left camera];set rc [dict get $right camera]
     if {$lc eq $rc} return
-    When the CNC bed geometry library is /geometry/ &\
-         camera $lc has intrinsics /lk/ &\
+    When camera $lc has intrinsics /lk/ &\
          camera $rc has intrinsics /rk/ &\
          camera $lc to display /display/ has extrinsics /le/ &\
          camera $rc to display /display/ has extrinsics /re/ &\
          display /display/ has intrinsics /pk/ &\
          display /display/ has width /pw/ height /ph/ {
         try {
-            foreach selection [list $left $right] {
-                if {[llength [dict get $selection points]]!=4 || [dict get $selection width]<=0 || [dict get $selection height]<=0} {error "Select four corners per camera."}
-                foreach point [dict get $selection points] {if {[llength $point]!=2} {error "Invalid corner."}}
-            }
-            set result [$geometry reconstruct $left(points) $left(width) $left(height) $lk $le(R) $le(t) \
-                                             $right(points) $right(width) $right(height) $rk $re(R) $re(t) $pk $pw $ph]
+            fn cncReconstruct
+            set result [cncReconstruct $left $right $lk $le $rk $re $pk $pw $ph]
             if {![dict exists $result error]} {
                 lassign [dict get $result projectorQuad] p0 p1 p2 p3
                 Wish to draw a quad onto $display with p0 $p0 p1 $p1 p2 $p2 p3 $p3 color green layer 100
@@ -132,79 +116,229 @@ When the collected results for {cnc claims camera /camera/ has CNC bed corners /
 }
 
 Wish the web server handles route {/cnc} with handler {
-    set action [dict getdef $QUERY action ""]
-    if {$action ne ""} {
-        try {
-            if {$action eq "status"} {
-                set result {waiting {Select four corners in each camera.}}
-                foreach item [Query! /any/ claims CNC bed reconstruction is /result/] {if {![dict exists $item(result) waiting]} {set result $item(result)}}
-                return [json [json::encode $result {obj points3d {list list num} projectorQuad {list list num} reprojectionRms num}]]
-            }
-            set camera [dict get $QUERY camera]
-            if {$action eq "clear"} {Hold! -save -on cnc -key $camera {}} elseif {$action eq "save"} {
-                set points [json::decode [dict get $QUERY points]];set width [dict get $QUERY width];set height [dict get $QUERY height]
-                if {[llength $points]!=4 || ![string is integer -strict $width] || ![string is integer -strict $height] || $width<=0 || $height<=0} {error "Expected four corners and image dimensions."}
-                foreach point $points {
-                    if {[llength $point]!=2} {error "Expected x,y corners."}
-                    lassign $point x y
-                    if {![string is double -strict $x] || ![string is double -strict $y] || !($x>=0 && $x<$width && $y>=0 && $y<$height)} {error "A corner is outside its image."}
-                }
-                Hold! -save -on cnc -key $camera -- cnc claims camera $camera has CNC bed corners $points with width $width height $height
-            } else {error "Unknown action."}
-            return [json {{}}]
-        } on error {e} {return [json [json::encode [dict create error $e] obj]]}
-    }
     set panels {}
     foreach item [lrange [lsort -command {apply {{a b} {string compare $a(camera) $b(camera)}}} [Query! camera /camera/ has width /w/ height /h/]] 0 1] {
         set camera $item(camera);set saved null
         foreach s [Query! cnc claims camera $camera has CNC bed corners /points/ with width /width/ height /height/] {set saved [json::encode [dict remove $s __ref] {obj points {list list num} width num height num}]}
-        lappend panels [subst {<section data-camera="[htmlEscape $camera]" data-saved="[htmlEscape $saved]">
-            <h3>[htmlEscape $camera]</h3><div class="image"><canvas></canvas><svg></svg></div><p class="status">Loading…</p>
-            <button class="undo">Undo corner</button> <button class="clear">Clear / redraw</button> <button class="resume">Resume live</button></section>}]
+        lappend panels [subst {
+            <section data-camera="[htmlEscape $camera]" data-saved="[htmlEscape $saved]">
+                <h3>[htmlEscape $camera]</h3>
+                <div class="image">
+                    <canvas></canvas>
+                    <svg></svg>
+                </div>
+                <p class="status">Loading…</p>
+                <button class="undo">Undo corner</button>
+                <button class="clear">Clear / redraw</button>
+                <button class="resume">Resume live</button>
+            </section>
+        }]
     }
     set script {
-        const api=async params=>{const r=await fetch('/cnc?'+new URLSearchParams(params),{cache:'no-store'}),data=await r.json();if(data.error)throw Error(data.error);return data;};
-        let stopped=false;
-        window.addEventListener('pagehide',()=>stopped=true);
-        async function status(){if(stopped)return;try{const s=await api({action:'status'});document.getElementById('bed').textContent=s.waiting||`Bed projected. Reprojection RMS: ${s.reprojectionRms.toFixed(2)} px.`;}catch(e){document.getElementById('bed').textContent=e.message;}setTimeout(status,1000);}
-        status();
-        document.querySelectorAll('section').forEach(panel=>{
-            const camera=panel.dataset.camera,canvas=panel.querySelector('canvas'),ctx=canvas.getContext('2d'),svg=panel.querySelector('svg'),label=panel.querySelector('.status');
-            const saved=JSON.parse(panel.dataset.saved);let points=saved?.points||[],width=saved?.width||0,height=saved?.height||0,live=true,busy=false,ready=false,version=0,timer,request;
-            function draw(){
-                svg.setAttribute('viewBox',`0 0 ${width||canvas.width} ${height||canvas.height}`);
-                const scale=(width||canvas.width)/canvas.getBoundingClientRect().width;
-                svg.innerHTML=`<${points.length===4?'polygon':'polyline'} points="${points.map(p=>p.join(',')).join(' ')}" fill="none" stroke="#00ff66" stroke-width="2" vector-effect="non-scaling-stroke"/>`+points.map(([x,y],i)=>`<circle cx="${x}" cy="${y}" r="${4*scale}" fill="#ffcc00"/><text x="${x+8*scale}" y="${y-8*scale}" font-size="${14*scale}" fill="white" stroke="black" stroke-width="${2*scale}" paint-order="stroke">${i+1}</text>`).join('');
-                label.textContent=points.length===4?'Four corners saved.':`Click corner ${points.length+1} of 4.`;
+        const ws = new FolkWS(document.getElementById('connectionStatus'));
+        ws.watchCollected('/any/ claims CNC bed reconstruction is /result/', matches => {
+            const results = matches.map(match => loadDict(match.result));
+            const s = results.find(result => !result.waiting) || results[0];
+            document.getElementById('bed').textContent = s?.error || s?.waiting || (s ?
+                `Bed projected. Reprojection RMS: ${Number(s.reprojectionRms).toFixed(2)} px.` :
+                'Select four corners in each camera.');
+        });
+
+        let stopped = false;
+        window.addEventListener('pagehide', () => stopped = true);
+
+        document.querySelectorAll('section').forEach(panel => {
+            const camera = panel.dataset.camera;
+            const canvas = panel.querySelector('canvas');
+            const ctx = canvas.getContext('2d');
+            const svg = panel.querySelector('svg');
+            const label = panel.querySelector('.status');
+            const saved = JSON.parse(panel.dataset.saved);
+            let points = saved?.points || [];
+            let width = saved?.width || 0, height = saved?.height || 0;
+            let live = true, busy = false, ready = false, version = 0, timer, request;
+
+            function draw() {
+                svg.setAttribute('viewBox', `0 0 ${width || canvas.width} ${height || canvas.height}`);
+                const scale = (width || canvas.width) / canvas.getBoundingClientRect().width;
+                svg.innerHTML = `
+                    <${points.length === 4 ? 'polygon' : 'polyline'}
+                        points="${points.map(p => p.join(',')).join(' ')}"
+                        fill="none" stroke="#00ff66" stroke-width="2"
+                        vector-effect="non-scaling-stroke"/>
+                ` + points.map(([x, y], i) => `
+                    <circle cx="${x}" cy="${y}" r="${4 * scale}" fill="#ffcc00"/>
+                    <text x="${x + 8 * scale}" y="${y - 8 * scale}"
+                        font-size="${14 * scale}" fill="white" stroke="black"
+                        stroke-width="${2 * scale}" paint-order="stroke">${i + 1}</text>
+                `).join('');
+                label.textContent = points.length === 4 ? 'Four corners saved.' :
+                    `Click corner ${points.length + 1} of 4.`;
             }
-            async function frame(){
-                if(stopped||!live)return;if(document.hidden){timer=setTimeout(frame,500);return;}
-                const generation=version;request=new AbortController();
-                try{
-                    const r=await fetch('/camera-frame?'+new URLSearchParams({camera}),{cache:'no-store',signal:request.signal});if(!r.ok)throw Error(`Camera: ${r.status}`);
-                    const image=await createImageBitmap(await r.blob());
-                    try{if(!live||stopped||generation!==version)return;if(canvas.width!==image.width)canvas.width=image.width;if(canvas.height!==image.height)canvas.height=image.height;ctx.drawImage(image,0,0);ready=true;draw();}finally{image.close();}
-                }catch(e){if(live)label.textContent=e.message;}
-                if(live&&!stopped&&generation===version)timer=setTimeout(frame,100);
+
+            async function frame() {
+                if (stopped || !live) return;
+                if (document.hidden) {
+                    timer = setTimeout(frame, 500);
+                    return;
+                }
+                const generation = version;
+                request = new AbortController();
+                try {
+                    const r = await fetch('/camera-frame?' + new URLSearchParams({camera}), {
+                        cache: 'no-store', signal: request.signal,
+                    });
+                    if (!r.ok) throw Error(`Camera: ${r.status}`);
+                    const image = await createImageBitmap(await r.blob());
+                    try {
+                        if (!live || stopped || generation !== version) return;
+                        if (canvas.width !== image.width) canvas.width = image.width;
+                        if (canvas.height !== image.height) canvas.height = image.height;
+                        ctx.drawImage(image, 0, 0);
+                        ready = true;
+                        draw();
+                    } finally {
+                        image.close();
+                    }
+                } catch (e) {
+                    if (live) label.textContent = e.message;
+                }
+                if (live && !stopped && generation === version) timer = setTimeout(frame, 100);
             }
-            function resume(){version++;request?.abort();clearTimeout(timer);live=true;frame();}
-            canvas.onclick=async e=>{
-                if(!ready||busy||points.length===4)return;
-                live=false;version++;request?.abort();clearTimeout(timer);
-                if(!points.length){width=canvas.width;height=canvas.height;}
-                const r=canvas.getBoundingClientRect();points.push([Math.max(0,Math.min(width-1,(e.clientX-r.left)*width/r.width)),Math.max(0,Math.min(height-1,(e.clientY-r.top)*height/r.height))]);draw();
-                if(points.length===4){busy=true;label.textContent='Saving…';try{await api({action:'save',camera,points:JSON.stringify(points),width,height});draw();}catch(e){points.pop();draw();label.textContent=e.message;}finally{busy=false;}}
+
+            function resume() {
+                version++;
+                request?.abort();
+                clearTimeout(timer);
+                live = true;
+                frame();
+            }
+
+            canvas.onclick = async e => {
+                if (!ready || busy || points.length === 4) return;
+                live = false;
+                version++;
+                request?.abort();
+                clearTimeout(timer);
+                if (!points.length) {
+                    width = canvas.width;
+                    height = canvas.height;
+                }
+                const r = canvas.getBoundingClientRect();
+                points.push([
+                    Math.max(0, Math.min(width - 1, (e.clientX - r.left) * width / r.width)),
+                    Math.max(0, Math.min(height - 1, (e.clientY - r.top) * height / r.height)),
+                ]);
+                draw();
+                if (points.length === 4) {
+                    busy = true;
+                    label.textContent = 'Saving…';
+                    try {
+                        await ws.run(tcl`Hold! -save -on cnc -key ${camera} -- cnc claims camera ${camera} has CNC bed corners ${points} with width ${width} height ${height}`);
+                        draw();
+                    } catch (e) {
+                        points.pop();
+                        draw();
+                        label.textContent = e.message;
+                    } finally {
+                        busy = false;
+                    }
+                }
             };
-            panel.querySelector('.undo').onclick=async()=>{if(busy||!points.length)return;busy=true;try{await api({action:'clear',camera});points.pop();draw();}catch(e){label.textContent=e.message;}finally{busy=false;}};
-            panel.querySelector('.clear').onclick=async()=>{if(busy)return;busy=true;try{await api({action:'clear',camera});points=[];width=height=0;draw();resume();}catch(e){label.textContent=e.message;}finally{busy=false;}};
-            panel.querySelector('.resume').onclick=resume;
-            document.addEventListener('visibilitychange',()=>{if(document.hidden)request?.abort();});
-            window.addEventListener('pagehide',()=>{version++;request?.abort();clearTimeout(timer);});
+
+            panel.querySelector('.undo').onclick = async () => {
+                if (busy || !points.length) return;
+                busy = true;
+                try {
+                    await ws.hold(camera, '', 'cnc', true);
+                    points.pop();
+                    draw();
+                } catch (e) {
+                    label.textContent = e.message;
+                } finally {
+                    busy = false;
+                }
+            };
+
+            panel.querySelector('.clear').onclick = async () => {
+                if (busy) return;
+                busy = true;
+                try {
+                    await ws.hold(camera, '', 'cnc', true);
+                    points = [];
+                    width = height = 0;
+                    draw();
+                    resume();
+                } catch (e) {
+                    label.textContent = e.message;
+                } finally {
+                    busy = false;
+                }
+            };
+
+            panel.querySelector('.resume').onclick = resume;
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) request?.abort();
+            });
+            window.addEventListener('pagehide', () => {
+                version++;
+                request?.abort();
+                clearTimeout(timer);
+            });
             frame();
         });
     }
-    html [subst {<!doctype html><html><head><title>CNC bed</title><meta name="viewport" content="width=device-width, initial-scale=1">
-        <style>body{font-family:sans-serif;margin:12px}.cameras{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}section{min-width:0}h3{font-size:13px;overflow-wrap:anywhere}.image{position:relative}canvas{display:block;width:100%;cursor:crosshair}svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}@media(max-width:700px){.cameras{grid-template-columns:1fr}}</style></head><body>
-        <h1>CNC bed</h1><p>Click the same four bed corners in perimeter order in both views: same starting corner, same direction. First click freezes the image; fourth click saves. Selections and projection persist after closing this page.</p>
-        <p id="bed">Select four corners in each camera.</p><div class="cameras">[join $panels \n]</div><script>$script</script></body></html>}]
+    html [subst {
+<!doctype html>
+<html>
+<head>
+    <title>CNC bed</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 12px;
+        }
+        .cameras {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 16px;
+        }
+        section { min-width: 0; }
+        h3 {
+            font-size: 13px;
+            overflow-wrap: anywhere;
+        }
+        .image { position: relative; }
+        canvas {
+            display: block;
+            width: 100%;
+            cursor: crosshair;
+        }
+        svg {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        @media (max-width: 700px) {
+            .cameras { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <h1>CNC bed</h1>
+    <p>
+        Click the same four bed corners in perimeter order in both views: same starting corner, same direction.
+        First click freezes the image; fourth click saves. Selections and projection persist after closing this page.
+    </p>
+    <span id="connectionStatus">Connecting…</span>
+    <p id="bed">Select four corners in each camera.</p>
+    <div class="cameras">[join $panels \n]</div>
+    <script src="/lib/folk.js"></script>
+    <script>$script</script>
+</body>
+</html>
+    }]
 }
