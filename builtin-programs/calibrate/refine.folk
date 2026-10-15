@@ -299,6 +299,8 @@ $cc proc monoRefineCalibrationOptimize {double[paramsCount] params} Jim_Obj* {
     setvbuf(stdout, NULL, _IONBF, BUFSIZ);
 
     mp_result result = {0};
+    mp_config config = {0};
+    config.maxiter = 400;
 
     for (int i = 0; i < paramsCount; i++) {
         FOLK_ENSURE(!isnan(params[i]));
@@ -314,7 +316,7 @@ $cc proc monoRefineCalibrationOptimize {double[paramsCount] params} Jim_Obj* {
           // Number of parameters to optimize:
           paramsCount,
           params, NULL,
-          NULL, NULL, &result);
+          &config, NULL, &result);
     printf("Refined -------------------\n");
     double rmse = monoComputeError(paramsCount, params);
 
@@ -469,6 +471,8 @@ $cc proc stereoComputeError {double[paramsCount] params} double {
 }
 $cc proc stereoRefineCalibrationOptimize {double[paramsCount] params} Jim_Obj* {
     mp_result result = {0};
+    mp_config config = {0};
+    config.maxiter = 400;
 
     FOLK_ENSURE(paramsCount == 6 + StereoPoseCount*6);
     for (int i = 0; i < paramsCount; i++) {
@@ -484,7 +488,7 @@ $cc proc stereoRefineCalibrationOptimize {double[paramsCount] params} Jim_Obj* {
           // Number of parameters to optimize:
           paramsCount,
           params, NULL,
-          NULL, NULL, &result);
+          &config, NULL, &result);
     printf("Refined -------------------\n");
     double rmse = stereoComputeError(paramsCount, params);
 
