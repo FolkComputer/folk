@@ -355,13 +355,14 @@ When the SAM2 Python worker is /py/ {
                 lo = side+1
             else:
                 hi = side-1
-        if not best or best[0]*step<10:
+        if not best or best[0]*step*10/12<10:
             return '[]'
         side,centers = best
         tags = []
         for i,center in enumerate(centers):
             center = (center-2)*step+low
-            outer = (np.array([[-1,-1],[1,-1],[1,1],[-1,1]])*side*step/2+center)
+            # Reserve one extra tag cell on each side inside the packed square.
+            outer = (np.array([[-1,-1],[1,-1],[1,1],[-1,1]])*side*step/2*10/12+center)
             # Standard52h13 detections enclose the inner 6 of the rendered 10 cells.
             inner = center+(outer-center)*.6
             tags.append(dict(id=48690+i,c=center.tolist(),outer=outer.tolist(),p=inner[::-1].tolist()))
@@ -432,12 +433,35 @@ fn cncStereoPoint {a b lk le rk re lw lh rw rh pk pw ph expected} {
     dict create point $point cameraError $error projectorError $projectorError
 }
 
+# Slice even-odd contour interiors into trapezoids, preserving concavities and holes.
+fn cncBackdropQuads {contours} {
+    set ys {};set edges {};set quads {}
+    foreach contour $contours {
+        foreach a $contour b [concat [lrange $contour 1 end] [list [lindex $contour 0]]] {
+            lassign $a x0 y0;lassign $b x1 y1;lappend ys $y0
+            if {$y0!=$y1} {lappend edges [list $x0 $y0 [expr {($x1-$x0)/double($y1-$y0)}] [expr {$y0<$y1 ? $y0 : $y1}] [expr {$y0>$y1 ? $y0 : $y1}]]}
+        }
+    }
+    set ys [lsort -real -unique $ys]
+    foreach bottom [lrange $ys 0 end-1] top [lrange $ys 1 end] {
+        set middle [expr {($bottom+$top)/2.0}];set crossings {}
+        foreach edge $edges {
+            lassign $edge x y slope low high
+            if {$middle>$low && $middle<$high} {lappend crossings [list [expr {$x+($middle-$y)*$slope}] [expr {$x+($bottom-$y)*$slope}] [expr {$x+($top-$y)*$slope}]]}
+        }
+        foreach {left right} [lsort -real -index 0 $crossings] {
+            lappend quads [list [list [lindex $left 1] $bottom] [list [lindex $right 1] $bottom] [list [lindex $right 2] $top] [list [lindex $left 2] $top]]
+        }
+    }
+    return $quads
+}
+
 # A global request key serializes use of the ten reserved IDs. The requester
 # supplies only a frozen contour; all rendering and observation stay on the host.
 When /client/ wishes CNC probe /request/ segment /encoded/ for mapping /mapping/ {
     set probe cnc-probe-$request
     Destructor [list apply {{probe} {
-        foreach key {active status result points detector0 detector1 tag0 tag1 tag2 tag3 tag4 tag5 tag6 tag7 tag8 tag9} {Hold! -on $probe -key $key {}}
+        foreach key {active backdrop status result points exposure0 exposure1 detector0 detector1 tag0 tag1 tag2 tag3 tag4 tag5 tag6 tag7 tag8 tag9} {Hold! -on $probe -key $key {}}
     }} $probe]
     set samples {};set stages {};set reason {};set seenTags 0
     try {
@@ -472,6 +496,12 @@ When /client/ wishes CNC probe /request/ segment /encoded/ for mapping /mapping/
             set dx [expr {[lindex $center 0]-$cx/(3*$area)}];set dy [expr {[lindex $center 1]-$cy/(3*$area)}]
             set contours [lmap contour $contours {lmap p $contour {list [expr {[lindex $p 0]+$dx}] [expr {[lindex $p 1]+$dy}]}}]
         }
+        fn cncBackdropQuads
+        set backdrop {}
+        foreach quad [cncBackdropQuads $contours] {
+            lassign $quad p0 p1 p2 p3
+            append backdrop [list Wish to draw a quad onto $display with p0 $p0 p1 $p1 p2 $p2 p3 $p3 color white layer 119] \n
+        }
         set contours [json::encode $contours {list list list num}]
         while {[llength [Query! CNC probe /other/ is active for mapping /any/]]} {
             if {![llength [Query! /owner/ wishes CNC probe $request segment /any/ for mapping $mapping]]} return
@@ -479,7 +509,9 @@ When /client/ wishes CNC probe /request/ segment /encoded/ for mapping /mapping/
         }
         if {![llength [Query! /owner/ wishes CNC probe $request segment /any/ for mapping $mapping]]} return
         Hold! -on $probe -key active Claim CNC probe $request is active for mapping $mapping
+        Hold! -on $probe -key backdrop $backdrop
         foreach camera [list $lc $rc] index {0 1} {
+            Hold! -on $probe -key exposure$index Wish camera $camera temporarily uses exposure time 32000 us
             if {![llength [Query! /owner/ wishes camera $camera detects tags]]} {Hold! -on $probe -key detector$index Wish camera $camera detects tags}
         }
         foreach count {1 2 4 8 10} {
@@ -504,11 +536,11 @@ When /client/ wishes CNC probe /request/ segment /encoded/ for mapping /mapping/
                 after 10
             }
             if {$reason eq {cancelled}} break
-            # Let display/camera buffers and auto-exposure settle before counting.
-            set started [expr {[clock milliseconds]/1000.0+.5}]
+            # Read fresh frames immediately; exposure/display settling shares this deadline.
+            set started [expr {[clock milliseconds]/1000.0}]
             set observations [dict create $lc [dict create frames 0 timestamp 0 tags {}] $rc [dict create frames 0 timestamp 0 tags {}]]
             set accepted {};set rejection {}
-            Hold! -on $probe -key status Claim CNC workpiece probe $request has status [json::encode [dict create stage $count message "Projecting $count tags; waiting for four detector frames per camera"] obj]
+            Hold! -on $probe -key status Claim CNC workpiece probe $request has status [json::encode [dict create stage $count message "Projecting $count tags; waiting up to three seconds for stereo detections"] obj]
             while true {
                 if {![llength [Query! /owner/ wishes CNC probe $request segment /any/ for mapping $mapping]] || ![llength [Query! CNC bed mapping is $mapping in display $display]]} {set reason cancelled;break}
                 foreach camera [list $lc $rc] {
@@ -527,7 +559,7 @@ When /client/ wishes CNC probe /request/ segment /encoded/ for mapping /mapping/
                         set id $tag(id)
                         if {[dict exists $accepted $id] || ![dict exists $a(tags) $id] || ![dict exists $b(tags) $id]} continue
                         set ltag [dict get $a(tags) $id];set rtag [dict get $b(tags) $id];set points {};set feature 0
-                        if {abs($ltag(timestamp)-$rtag(timestamp))>.15} continue
+                        # Tags stay fixed for the batch; the cameras need not expose simultaneously.
                         try {
                             foreach lp [concat [list $ltag(c)] $ltag(p)] rp [concat [list $rtag(c)] $rtag(p)] expected [concat [list $tag(c)] $tag(p)] {
                                 set point [cncStereoPoint $lp $rp $lk $le $rk $re $lsize(w) $lsize(h) $rsize(w) $rsize(h) $pk $pw $ph $expected]
@@ -538,7 +570,7 @@ When /client/ wishes CNC probe /request/ segment /encoded/ for mapping /mapping/
                         } on error {e} {set rejection $e}
                     }
                 }
-                if {[dict size $accepted]==$count || ($a(frames)>=4 && $b(frames)>=4) || [clock milliseconds]/1000.0>$started+10} break
+                if {[dict size $accepted]==$count || [clock milliseconds]/1000.0>=$started+3} break
                 after 10
             }
             dict for {id points} $accepted {lappend samples {*}$points}
@@ -546,8 +578,8 @@ When /client/ wishes CNC probe /request/ segment /encoded/ for mapping /mapping/
             lappend stages [dict create count $count detected [dict size $accepted] leftFrames [dict get $observations $lc frames] rightFrames [dict get $observations $rc frames] leftSeen [dict keys [dict get $observations $lc tags]] rightSeen [dict keys [dict get $observations $rc tags]] rejection $rejection]
             if {$reason eq {cancelled}} break
             if {[dict size $accepted]!=$count} {
-                set reason "Only [dict size $accepted] of $count tags validated within four detector frames"
-                if {[dict get $observations $lc frames]<4 || [dict get $observations $rc frames]<4} {set reason {Camera detector stalled before four fresh frames}}
+                set reason "Only [dict size $accepted] of $count tags validated within three seconds"
+                if {![dict get $observations $lc frames] || ![dict get $observations $rc frames]} {set reason {Camera detector supplied no fresh frames within three seconds}}
                 break
             }
         }
@@ -565,7 +597,7 @@ When /client/ wishes CNC probe /request/ segment /encoded/ for mapping /mapping/
     } on error {e} {
         if {[llength [Query! /owner/ wishes CNC probe $request segment /any/ for mapping $mapping]]} {Hold! -on $probe -key status Claim CNC workpiece probe $request has status [json::encode [dict create stage 0 message $e] obj]}
     } finally {
-        foreach key {active detector0 detector1 tag0 tag1 tag2 tag3 tag4 tag5 tag6 tag7 tag8 tag9} {Hold! -on $probe -key $key {}}
+        foreach key {backdrop exposure0 exposure1 detector0 detector1 tag0 tag1 tag2 tag3 tag4 tag5 tag6 tag7 tag8 tag9 active} {Hold! -on $probe -key $key {}}
     }
 }
 

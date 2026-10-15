@@ -329,7 +329,17 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
         }
 
         When /someone/ wishes camera $camera uses exposure time /exposureTimeUs/ us {
-            $camLib setExposure $camObj [expr {int($exposureTimeUs / 100)}]
+            if {![llength [Query! /owner/ wishes camera $camera temporarily uses exposure time /us/ us]]} {
+                $camLib setExposure $camObj [expr {int($exposureTimeUs / 100)}]
+            }
+        }
+        When /someone/ wishes camera $camera temporarily uses exposure time /exposureTimeUs/ us {
+            Destructor [list apply {{camLib camObj camera} {
+                set exposure 0
+                foreach row [Query! /owner/ wishes camera $camera uses exposure time /us/ us] {set exposure $row(us)}
+                $camLib setExposure $camObj [expr {int($exposure/100)}]
+            }} $camLib $camObj $camera]
+            $camLib setExposure $camObj [expr {int($exposureTimeUs/100)}]
         }
 
         # Inner, frame loop.
