@@ -145,14 +145,13 @@ When the collected results for {camera /camera/ has CNC bed corners /points/ wit
     }
 }
 
-When /someone/ wishes CNC matched contours /encoded/ for mapping /mapping/ &\
-     CNC bed mapping is /mapping/ in display /display/ &\
-     display /display/ has intrinsics /pk/ &\
-     display /display/ has width /pw/ height /ph/ {
+fn cncProjectContours {encoded mapping pk pw ph} {
     package require linalg
     fn cncProject
     set geometry [json::decode $mapping];set h [dict get $geometry metric]
+    set projected {}
     foreach match [json::decode $encoded] {
+        set contours {}
         foreach contour [dict get $match contours] {
             set points {}
             foreach uv $contour {
@@ -162,7 +161,21 @@ When /someone/ wishes CNC matched contours /encoded/ for mapping /mapping/ &\
                 set world [::math::linearalgebra::add [dict get $geometry origin] [::math::linearalgebra::add [::math::linearalgebra::scale $x [dict get $geometry xAxis]] [::math::linearalgebra::scale $y [dict get $geometry yAxis]]]]
                 lappend points [cncProject $pk $pw $ph $world]
             }
-            if {[llength $points]>2} {Wish to draw a line onto $display with points [concat $points [list [lindex $points 0]]] width 3 color [concat [lmap c [dict get $match color] {expr {$c/255.0}}] 1] layer 110}
+            if {[llength $points]>2} {lappend contours $points}
+        }
+        lappend projected [dict create color [dict get $match color] contours $contours]
+    }
+    return $projected
+}
+
+When /someone/ wishes CNC matched contours /encoded/ for mapping /mapping/ &\
+     CNC bed mapping is /mapping/ in display /display/ &\
+     display /display/ has intrinsics /pk/ &\
+     display /display/ has width /pw/ height /ph/ {
+    fn cncProjectContours
+    foreach match [cncProjectContours $encoded $mapping $pk $pw $ph] {
+        foreach points [dict get $match contours] {
+            Wish to draw a line onto $display with points [concat $points [list [lindex $points 0]]] width 3 color [concat [lmap c [dict get $match color] {expr {$c/255.0}}] 1] layer 110
         }
     }
 }
@@ -211,10 +224,12 @@ When the SAM2 Python worker is /py/ {
                 pixels = np.zeros(result['maskWidth']*result['maskHeight'], dtype=bool)
                 for start,length in zip(mask['runs'][::2], mask['runs'][1::2]):
                     pixels[start:start+length] = True
+                rows,cols = np.nonzero(pixels.reshape(result['maskHeight'],result['maskWidth']))
+                center = [float(x+(cols.mean()+.5)*w/result['maskWidth']),float(y+(rows.mean()+.5)*height_crop/result['maskHeight'])]
                 pixels = (pixels[indices]&valid).reshape(size,size)
                 area = float(weights[pixels].sum())
                 if area > .0009:
-                    masks.append(dict(pixels=pixels, area=area, color=mask['color']))
+                    masks.append(dict(pixels=pixels, area=area, color=mask['color'],center=center))
             warped.append(masks)
             source.thumbnail((1536,1536), PILImage.Resampling.LANCZOS)
             jpeg = io.BytesIO()
@@ -284,12 +299,274 @@ When the SAM2 Python worker is /py/ {
             used_a.add(i)
             used_b.add(j)
             left,right = warped[0][i],warped[1][j]
-            matched.append(dict(color=left['color'],contours=contours(left['pixels']&right['pixels']),
+            matched.append(dict(color=left['color'],contours=contours(left['pixels']&right['pixels']),centers=[left['center'],right['center']],
                 areaA=left['area'],areaB=right['area'],overlapA=intersection/left['area'],overlapB=intersection/right['area']))
         return json.dumps(dict(cameras=cameras, matches=json.dumps(matched), seconds=time.perf_counter()-started))
     }
+    $py def cncTagLayout {str encoded num count num pw num ph} {
+        import json
+        if count not in (1,2,4,8,10):
+            raise ValueError('Use 1, 2, 4, 8, or 10 tags')
+        from PIL import Image as PILImage, ImageDraw
+        loops = json.loads(encoded)
+        points = np.array([p for loop in loops for p in loop], dtype=float)
+        if not len(points):
+            return '[]'
+        low = np.maximum(0, points.min(axis=0))
+        high = np.minimum((pw,ph), points.max(axis=0))
+        if np.any(high-low<=0):
+            return '[]'
+        step = max(high-low)/512
+        width,height = np.ceil((high-low)/step).astype(int)+4
+        mask = np.zeros((height,width), dtype=bool)
+        for loop in loops:
+            image = PILImage.new('1',(int(width),int(height)))
+            polygon = [tuple((np.array(p)-low)/step+2) for p in loop]
+            ImageDraw.Draw(image).polygon(polygon,fill=1)
+            mask ^= np.array(image,dtype=bool)
+        # Leave a raster-cell margin around boundaries and holes.
+        padded = np.pad(mask,1)
+        mask &= np.logical_and.reduce([padded[y:y+height,x:x+width] for y in range(3) for x in range(3)])
+        if not mask.any():
+            return '[]'
+        cy,cx = np.nonzero(mask)
+        centroid = np.array([cx.mean(),cy.mean()])
+        integral = np.pad(mask.astype(np.int32),((1,0),(1,0))).cumsum(0).cumsum(1)
+        def pack(side):
+            sums = integral[side:,side:]-integral[:-side,side:]-integral[side:,:-side]+integral[:-side,:-side]
+            rows,cols = np.nonzero(sums==side*side)
+            centers = np.column_stack((cols+side/2,rows+side/2))
+            chosen = []
+            for i in range(int(count)):
+                if not len(centers):
+                    return []
+                distances = ((centers-centroid)**2).sum(1) if not chosen else np.min([((centers-p)**2).sum(1) for p in chosen],axis=0)
+                index = distances.argmin() if count==1 else distances.argmax()
+                center = centers[index]
+                chosen.append(center)
+                centers = centers[np.any(np.abs(centers-center)>=side+2,axis=1)]
+            return chosen
+        lo,hi,best = 1,min(width,height),[]
+        while lo<=hi:
+            side = (lo+hi)//2
+            packed = pack(side)
+            if len(packed)==int(count):
+                best = (side,packed)
+                lo = side+1
+            else:
+                hi = side-1
+        if not best or best[0]*step<10:
+            return '[]'
+        side,centers = best
+        tags = []
+        for i,center in enumerate(centers):
+            center = (center-2)*step+low
+            outer = (np.array([[-1,-1],[1,-1],[1,1],[-1,1]])*side*step/2+center)
+            # Standard52h13 detections enclose the inner 6 of the rendered 10 cells.
+            inner = center+(outer-center)*.6
+            tags.append(dict(id=48690+i,c=center.tolist(),outer=outer.tolist(),p=inner[::-1].tolist()))
+        return json.dumps(tags)
+    }
+    $py def cncFitProbePlane {str encoded} {
+        import json, itertools
+        points = np.array(json.loads(encoded),dtype=float)
+        if len(points)<3:
+            return json.dumps(dict(error='Not enough stereo points',points=len(points)))
+        threshold = .005
+        rng = np.random.default_rng(0)
+        triples = itertools.combinations(range(len(points)),3) if len(points)<=10 else (rng.choice(len(points),3,replace=False) for _ in range(256))
+        best = np.zeros(len(points),dtype=bool)
+        for triple in triples:
+            a,b,c = points[list(triple)]
+            normal = np.cross(b-a,c-a)
+            length = np.linalg.norm(normal)
+            if length<1e-10:
+                continue
+            inliers = np.abs((points-a)@(normal/length))<=threshold
+            if inliers.sum()>best.sum():
+                best = inliers
+        if best.sum()<max(4,.8*len(points)):
+            return json.dumps(dict(error='Stereo points do not agree on a plane',points=len(points)))
+        center = points[best].mean(0)
+        _,singular,v = np.linalg.svd(points[best]-center,full_matrices=False)
+        if singular[1]<1e-5:
+            return json.dumps(dict(error='Stereo points have too little spatial spread',points=len(points)))
+        normal = v[-1]
+        if normal@center>0:
+            normal = -normal
+        distances = (points-center)@normal
+        return json.dumps(dict(center=center.tolist(),normal=normal.tolist(),inliers=np.flatnonzero(best).tolist(),
+            rms=float(np.sqrt(np.mean(distances[best]**2))),threshold=threshold,points=len(points)))
+    }
+    fn cncTagLayout {contours count pw ph} { $py cncTagLayout $contours $count $pw $ph }
+    fn cncFitProbePlane {points} { $py cncFitProbePlane $points }
+    Claim the CNC tag layout planner is [fn cncTagLayout]
+    Claim the CNC probe plane fitter is [fn cncFitProbePlane]
     fn cncSegmentPair {frames mapping} { $py cncSegmentPair $frames $mapping }
     Claim the CNC bed segmenter is [fn cncSegmentPair]
+}
+
+fn cncStereoPoint {a b lk le rk re lw lh rw rh pk pw ph expected} {
+    package require linalg
+    namespace import ::math::linearalgebra::*
+    fn cncRay
+    fn cncProject
+    set A {}
+    foreach pixel [list $a $b] k [list $lk $rk] e [list $le $re] w [list $lw $rw] h [list $lh $rh] {
+        set R [transpose $e(R)];set P [lmap row $R t [scale -1 [matmul $R $e(t)]] {concat $row [list $t]}]
+        lassign [cncRay $k $w $h $pixel] x y
+        lappend A [sub [scale $x [lindex $P 2]] [lindex $P 0]] [sub [scale $y [lindex $P 2]] [lindex $P 1]]
+    }
+    lassign [determineSVD $A] U S V
+    set v [getcol $V [lsearch -exact $S [lindex [lsort -real $S] 0]]]
+    if {abs([lindex $v 3])<1e-10} {error {Tag rays do not triangulate}}
+    set point [scale [expr {1.0/[lindex $v 3]}] [lrange $v 0 2]]
+    set error 0
+    foreach pixel [list $a $b] k [list $lk $rk] e [list $le $re] w [list $lw $rw] h [list $lh $rh] {
+        set projected [cncProject $k $w $h [matmul [transpose $e(R)] [sub $point $e(t)]]]
+        set distance [norm [sub $pixel $projected]];if {$distance>$error} {set error $distance}
+    }
+    set projectorError 0
+    if {[llength $expected]} {set projectorError [norm [sub [cncProject $pk $pw $ph $point] $expected]]}
+    if {$error>4 || $projectorError>20} {error [format {Tag correspondence error: camera %.1f px, projector %.1f px} $error $projectorError]}
+    dict create point $point cameraError $error projectorError $projectorError
+}
+
+# A global request key serializes use of the ten reserved IDs. The requester
+# supplies only a frozen contour; all rendering and observation stay on the host.
+When /client/ wishes CNC probe /request/ segment /encoded/ for mapping /mapping/ {
+    set probe cnc-probe-$request
+    Destructor [list apply {{probe} {
+        foreach key {active status result points detector0 detector1 tag0 tag1 tag2 tag3 tag4 tag5 tag6 tag7 tag8 tag9} {Hold! -on $probe -key $key {}}
+    }} $probe]
+    set samples {};set stages {};set reason {};set seenTags 0
+    try {
+        set display [QueryOne! CNC bed mapping is $mapping in display /./]
+        set pk [QueryOne! display $display has intrinsics /./]
+        set resolution [lindex [Query! display $display has width /w/ height /h/] 0];set pw $resolution(w);set ph $resolution(h)
+        set geometry [json::decode $mapping];lassign [dict get $geometry cameras] left right
+        set lc $left(name);set rc $right(name)
+        set lk [QueryOne! camera $lc has intrinsics /./];set rk [QueryOne! camera $rc has intrinsics /./]
+        set le [QueryOne! camera $lc to display $display has extrinsics /./];set re [QueryOne! camera $rc to display $display has extrinsics /./]
+        set lsize [lindex [Query! camera $lc has width /w/ height /h/] 0];set rsize [lindex [Query! camera $rc has width /w/ height /h/] 0]
+        set layout [QueryOne! the CNC tag layout planner is /./];fn layout
+        set fit [QueryOne! the CNC probe plane fitter is /./];fn fit
+        fn cncProjectContours
+        fn cncStereoPoint
+        fn cncProject
+        set projected [lindex [cncProjectContours "\[$encoded\]" $mapping $pk $pw $ph] 0]
+        set contours [dict get $projected contours]
+        set selected [json::decode $encoded]
+        if {[dict exists $selected centers]} {
+            lassign $selected(centers) a b
+            set point [cncStereoPoint $a $b $lk $le $rk $re $lsize(w) $lsize(h) $rsize(w) $rsize(h) $pk $pw $ph {}]
+            set center [cncProject $pk $pw $ph [dict get $point point]]
+            set area 0;set cx 0;set cy 0
+            foreach contour $contours {
+                foreach a $contour b [concat [lrange $contour 1 end] [list [lindex $contour 0]]] {
+                    set cross [expr {[lindex $a 0]*[lindex $b 1]-[lindex $b 0]*[lindex $a 1]}]
+                    set area [expr {$area+$cross}];set cx [expr {$cx+([lindex $a 0]+[lindex $b 0])*$cross}];set cy [expr {$cy+([lindex $a 1]+[lindex $b 1])*$cross}]
+                }
+            }
+            if {abs($area)<1} {error {The projected segment is too small}}
+            set dx [expr {[lindex $center 0]-$cx/(3*$area)}];set dy [expr {[lindex $center 1]-$cy/(3*$area)}]
+            set contours [lmap contour $contours {lmap p $contour {list [expr {[lindex $p 0]+$dx}] [expr {[lindex $p 1]+$dy}]}}]
+        }
+        set contours [json::encode $contours {list list list num}]
+        while {[llength [Query! CNC probe /other/ is active for mapping /any/]]} {
+            if {![llength [Query! /owner/ wishes CNC probe $request segment /any/ for mapping $mapping]]} return
+            after 10
+        }
+        if {![llength [Query! /owner/ wishes CNC probe $request segment /any/ for mapping $mapping]]} return
+        Hold! -on $probe -key active Claim CNC probe $request is active for mapping $mapping
+        foreach camera [list $lc $rc] index {0 1} {
+            if {![llength [Query! /owner/ wishes camera $camera detects tags]]} {Hold! -on $probe -key detector$index Wish camera $camera detects tags}
+        }
+        foreach count {1 2 4 8 10} {
+            if {![llength [Query! /owner/ wishes CNC probe $request segment /any/ for mapping $mapping]]} {set reason cancelled;break}
+            set tags [json::decode [layout $contours $count $pw $ph]]
+            if {![llength [Query! /owner/ wishes CNC probe $request segment /any/ for mapping $mapping]]} {set reason cancelled;break}
+            if {[llength $tags]!=$count} {set reason {No room for more tags inside the segment};break}
+            set index 0
+            foreach tag $tags {Hold! -on $probe -key tag$index Wish to draw an AprilTag onto $display with id $tag(id) corners $tag(outer) layer 120;incr index}
+            for {set index $count} {$index<10} {incr index} {Hold! -on $probe -key tag$index {}}
+            set deadline [expr {[clock milliseconds]+10000}]
+            while true {
+                if {![llength [Query! /owner/ wishes CNC probe $request segment /any/ for mapping $mapping]]} {set reason cancelled;break}
+                set ready 0
+                foreach tag $tags {
+                    foreach r [Query! /owner/ wishes the GPU draws pipeline apriltag onto canvas /canvas/ with /...options/] {
+                        if {[dict getdef $r(options) layer 0]==120 && [lrange [dict get $r(options) arguments] end-3 end] eq $tag(outer)} {incr ready;break}
+                    }
+                }
+                if {$ready==$count && [llength [Query! the GPU compiles pipeline apriltag to /pipeline/]]} break
+                if {[clock milliseconds]>$deadline} {error {Projector tag drawing did not become ready}}
+                after 10
+            }
+            if {$reason eq {cancelled}} break
+            # Let display/camera buffers and auto-exposure settle before counting.
+            set started [expr {[clock milliseconds]/1000.0+.5}]
+            set observations [dict create $lc [dict create frames 0 timestamp 0 tags {}] $rc [dict create frames 0 timestamp 0 tags {}]]
+            set accepted {};set rejection {}
+            Hold! -on $probe -key status Claim CNC workpiece probe $request has status [json::encode [dict create stage $count message "Projecting $count tags; waiting for four detector frames per camera"] obj]
+            while true {
+                if {![llength [Query! /owner/ wishes CNC probe $request segment /any/ for mapping $mapping]] || ![llength [Query! CNC bed mapping is $mapping in display $display]]} {set reason cancelled;break}
+                foreach camera [list $lc $rc] {
+                    foreach r [Query! /detector/ detects tags /detections/ on camera $camera at timestamp /timestamp/ in time /elapsed/] {
+                        if {[lindex $r(detector) end] ne {entire-frame} || $r(timestamp)<=$started || $r(timestamp)<=[dict get $observations $camera timestamp]} continue
+                        set found [dict get $observations $camera tags]
+                        foreach tag $r(detections) {if {$tag(id)>=48690 && $tag(id)<=48699} {dict set found $tag(id) [dict merge $tag [dict create timestamp $r(timestamp)]]}}
+                        dict set observations $camera timestamp $r(timestamp)
+                        dict set observations $camera tags $found
+                        dict set observations $camera frames [expr {[dict get $observations $camera frames]+1}]
+                    }
+                }
+                set a [dict get $observations $lc];set b [dict get $observations $rc]
+                if {$a(frames) && $b(frames)} {
+                    foreach tag $tags {
+                        set id $tag(id)
+                        if {[dict exists $accepted $id] || ![dict exists $a(tags) $id] || ![dict exists $b(tags) $id]} continue
+                        set ltag [dict get $a(tags) $id];set rtag [dict get $b(tags) $id];set points {};set feature 0
+                        if {abs($ltag(timestamp)-$rtag(timestamp))>.15} continue
+                        try {
+                            foreach lp [concat [list $ltag(c)] $ltag(p)] rp [concat [list $rtag(c)] $rtag(p)] expected [concat [list $tag(c)] $tag(p)] {
+                                set point [cncStereoPoint $lp $rp $lk $le $rk $re $lsize(w) $lsize(h) $rsize(w) $rsize(h) $pk $pw $ph $expected]
+                                lappend points [dict merge $point [dict create tag $id stage $count feature $feature leftTimestamp $ltag(timestamp) rightTimestamp $rtag(timestamp)]];incr feature
+                            }
+                            if {$feature!=5} {error {Incomplete tag corners}}
+                            dict set accepted $id $points
+                        } on error {e} {set rejection $e}
+                    }
+                }
+                if {[dict size $accepted]==$count || ($a(frames)>=4 && $b(frames)>=4) || [clock milliseconds]/1000.0>$started+10} break
+                after 10
+            }
+            dict for {id points} $accepted {lappend samples {*}$points}
+            incr seenTags [dict size $accepted]
+            lappend stages [dict create count $count detected [dict size $accepted] leftFrames [dict get $observations $lc frames] rightFrames [dict get $observations $rc frames] leftSeen [dict keys [dict get $observations $lc tags]] rightSeen [dict keys [dict get $observations $rc tags]] rejection $rejection]
+            if {$reason eq {cancelled}} break
+            if {[dict size $accepted]!=$count} {
+                set reason "Only [dict size $accepted] of $count tags validated within four detector frames"
+                if {[dict get $observations $lc frames]<4 || [dict get $observations $rc frames]<4} {set reason {Camera detector stalled before four fresh frames}}
+                break
+            }
+        }
+        if {$reason eq {}} {set reason {Reached ten tags}}
+        if {$reason ne {cancelled} && [llength [Query! /owner/ wishes CNC probe $request segment /any/ for mapping $mapping]]} {
+            set plane [json::decode [fit [json::encode [lmap p $samples {dict get $p point}] {list list num}]]]
+            set result [dict create reason $reason tags $seenTags samples $samples stages $stages plane $plane]
+            Hold! -on $probe -key points Claim CNC workpiece $request has stereo points [lmap p $samples {dict get $p point}] in display $display
+            Hold! -on $probe -key result Claim CNC workpiece probe $request has result [json::encode $result {obj tags num samples {list obj point {list num} tag num stage num feature num cameraError num projectorError num leftTimestamp num rightTimestamp num} stages {list obj count num detected num leftFrames num rightFrames num leftSeen {list num} rightSeen {list num}} plane {obj center {list num} normal {list num} inliers {list num} rms num threshold num points num}}]
+            set message "$reason; [llength $samples] stereo points from $seenTags tag observations"
+            if {[info exists rejection] && $rejection ne {}} {append message "; $rejection"}
+            if {[dict exists $plane rms]} {append message [format {; plane RMS %.1f mm} [expr {$plane(rms)*1000}]]} else {append message "; $plane(error)"}
+            Hold! -on $probe -key status Claim CNC workpiece probe $request has status [json::encode [dict create stage 0 message $message] obj]
+        }
+    } on error {e} {
+        if {[llength [Query! /owner/ wishes CNC probe $request segment /any/ for mapping $mapping]]} {Hold! -on $probe -key status Claim CNC workpiece probe $request has status [json::encode [dict create stage 0 message $e] obj]}
+    } finally {
+        foreach key {active detector0 detector1 tag0 tag1 tag2 tag3 tag4 tag5 tag6 tag7 tag8 tag9} {Hold! -on $probe -key $key {}}
+    }
 }
 
 # One host-side loop shared by every viewer; no browser image upload or pacing.
@@ -307,6 +584,11 @@ When the collected results for {/client/ wishes to segment CNC bed} are /clients
             foreach key {cycle snapshot contours} {Hold! -on $worker -key $key {}}
         }} $worker]
         When CNC bed worker $worker has cycle /cycle/ {
+            if {[llength [Query! CNC probe /request/ is active for mapping $mapping]]} {
+                after 25
+                if {[llength [Query! CNC bed worker $worker is active]]} {Hold! -on $worker -key cycle Claim CNC bed worker $worker has cycle [expr {$cycle+1}]}
+                return
+            }
             set files {};set frames {}
             try {
                 foreach camera [dict get [json::decode $mapping] cameras] {
@@ -328,6 +610,10 @@ When the collected results for {/client/ wishes to segment CNC bed} are /clients
                 foreach filename $files {file delete -force $filename}
             }
             if {![llength [Query! CNC bed worker $worker is active]]} return
+            if {[llength [Query! CNC probe /request/ is active for mapping $mapping]]} {
+                Hold! -on $worker -key cycle Claim CNC bed worker $worker has cycle [expr {$cycle+1}]
+                return
+            }
             Hold! -on $worker -key snapshot Claim CNC bed snapshot for mapping $mapping is $result
             Hold! -on $worker -key contours Wish CNC matched contours $contours for mapping $mapping
             Hold! -on $worker -key cycle Claim CNC bed worker $worker has cycle [expr {$cycle+1}]
@@ -359,7 +645,7 @@ Wish the web server handles route {/cnc} with handler {
         const ws = new FolkWS(document.getElementById('connectionStatus'));
         ws.send('Wish to segment CNC bed');
         const views = new Map();
-        let mapping, mappingText, latestSnapshot, stopped = false;
+        let mapping, mappingText, latestSnapshot, probeRequest, stopped = false;
 
         function transform(h, x, y) {
             const d = h[6]*x + h[7]*y + h[8];
@@ -387,6 +673,16 @@ Wish the web server handles route {/cnc} with handler {
             for (const camera of snapshot.cameras) views.get(camera.camera)?.render(camera, matched);
             document.getElementById('matches').textContent = `${matched.length} matched segments (>9 cm² each, >40% overlap in each view). Outlines assume the bed plane. Pair processed in ${snapshot.seconds.toFixed(2)} s.`;
         }});
+
+        ws.watchCollected('/any/ claims CNC workpiece probe /request/ has status /json/', matches => {
+            const match = matches.find(m => Number(m.request) === probeRequest);
+            if (match) document.getElementById('probe').textContent = JSON.parse(match.json).message;
+        });
+        document.getElementById('stopProbe').onclick = () => {
+            ws.run('Hold! -on cnc-probe -key request {}');
+            probeRequest = null;
+            document.getElementById('probe').textContent = 'Probe stopped.';
+        };
 
         ws.watchCollected('/any/ claims CNC bed reconstruction is /result/', matches => {
             const results = matches.map(match => loadDict(match.result));
@@ -522,7 +818,30 @@ Wish the web server handles route {/cnc} with handler {
             }
 
             canvas.onclick = async e => {
-                if (!ready || busy || points.length === 4) return;
+                if (!ready || busy) return;
+                if (points.length === 4) {
+                    const r = canvas.getBoundingClientRect();
+                    const x = (e.clientX-r.left)/r.width, y = (e.clientY-r.top)/r.height;
+                    const h = mapping?.cameras.find(c => c.name === camera)?.h;
+                    if (!h) return;
+                    const inside = contour => {
+                        const polygon = contour.map(p => transform(h,...p));
+                        let hit = false;
+                        for (let i = 0, j = polygon.length-1; i < polygon.length; j = i++) {
+                            const a = polygon[i], b = polygon[j];
+                            if ((a[1]>y)!==(b[1]>y) && x<(b[0]-a[0])*(y-a[1])/(b[1]-a[1])+a[0]) hit = !hit;
+                        }
+                        return hit;
+                    };
+                    const selected = view.contours.filter(m => m.contours.reduce((hit,c) => hit !== inside(c), false))
+                        .sort((a,b) => a.areaA+a.areaB-b.areaA-b.areaB)[0];
+                    if (!selected) return;
+                    probeRequest = (crypto.getRandomValues(new Uint32Array(1))[0] & 0x7fffffff) || 1;
+                    document.getElementById('probe').textContent = 'Starting projected-tag probe…';
+                    const wish = tcl`Wish CNC probe ${probeRequest} segment ${JSON.stringify(selected)} for mapping ${mappingText}`;
+                    await ws.run(tcl`Hold! -noncapturing -on cnc-probe -key request [list When websocket $chan is connected ${wish}]`);
+                    return;
+                }
                 live = false;
                 version++;
                 request?.abort();
@@ -649,6 +968,8 @@ Wish the web server handles route {/cnc} with handler {
     <span id="connectionStatus">Connecting…</span>
     <p id="bed">Select four corners in each camera.</p>
     <p id="matches">Waiting for segments from both cameras.</p>
+    <p id="probe">Click inside a matched segment to probe its surface with AprilTags 48690–48699.</p>
+    <button id="stopProbe">Stop probing</button>
     <div class="cameras">[join $panels \n]</div>
     <script src="/lib/folk.js"></script>
     <script>$script</script>

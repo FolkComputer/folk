@@ -105,8 +105,8 @@ fn makeAprilTagDetector {TAG_FAMILY QUAD_DECIMATE NTHREADS} {
         return result;
     }
     $cc proc detectCleanup {} void {
-        ${TAG_FAMILY}_destroy(tf);
         apriltag_detector_destroy(td);
+        ${TAG_FAMILY}_destroy(tf);
     }
 
     set detector [$cc compile]
@@ -120,6 +120,10 @@ set tagFamily "tagStandard52h13"
 When /someone/ wishes camera /camera/ detects tags {
     set entireFrameDetector [makeAprilTagDetector $tagFamily 2.0 1]
     set incrementalDetector [makeAprilTagDetector $tagFamily 1.5 1]
+    On unmatch {
+        Hold! -key [list $this entire-frame $camera] {}
+        Hold! -key [list $this incremental $camera] {}
+    }
 
     # Entire-frame tag detector:
     When -serially camera $camera has gray frame /frame/ at timestamp /frameTs/ {
@@ -130,7 +134,7 @@ When /someone/ wishes camera /camera/ detects tags {
             set aprilTime [time {
                 set tags [$entireFrameDetector detect $frame]
             }]
-            Hold! -key [list $this entire-frame] \
+            Hold! -key [list $this entire-frame $camera] \
                 Claim [list $this entire-frame] detects tags $tags on camera $camera \
                 at timestamp $frameTs in time $aprilTime
         } finally {
@@ -199,7 +203,7 @@ When /someone/ wishes camera /camera/ detects tags {
             }]]
         }
 
-        Hold! -key [list $this incremental] \
+        Hold! -key [list $this incremental $camera] \
             Claim [list $this incremental] detects tags $tags on camera $camera \
             at timestamp $frameTs in time $aprilTime
 
