@@ -351,6 +351,7 @@ When /someone/ wishes to really load SAM2 &\
     Claim the SAM2 prompt adder is [fn SAM2AddPrompt]
     fn SAM2AutomaticSegments {image} { $py automaticSegments $image }
     Claim the SAM2 automatic segmenter is [fn SAM2AutomaticSegments]
+    Claim the SAM2 Python worker is $py
     Claim the SAM2 segmenter is [fn SAM2Segment]
     Claim the SAM2 object saver is [fn SAM2SaveObject]
     Claim the SAM2 object loader is [fn SAM2LoadObject]
