@@ -145,9 +145,36 @@ When the collected results for {camera /camera/ has CNC bed corners /points/ wit
     }
 }
 
-fn cncProjectContours {encoded mapping pk pw ph} {
+fn cncStereoPoint {a b lk le rk re lw lh rw rh pk pw ph expected} {
+    package require linalg
+    namespace import ::math::linearalgebra::*
+    fn cncRay
+    fn cncProject
+    set A {}
+    foreach pixel [list $a $b] k [list $lk $rk] e [list $le $re] w [list $lw $rw] h [list $lh $rh] {
+        set R [transpose $e(R)];set P [lmap row $R t [scale -1 [matmul $R $e(t)]] {concat $row [list $t]}]
+        lassign [cncRay $k $w $h $pixel] x y
+        lappend A [sub [scale $x [lindex $P 2]] [lindex $P 0]] [sub [scale $y [lindex $P 2]] [lindex $P 1]]
+    }
+    lassign [determineSVD $A] U S V
+    set v [getcol $V [lsearch -exact $S [lindex [lsort -real $S] 0]]]
+    if {abs([lindex $v 3])<1e-10} {error {Tag rays do not triangulate}}
+    set point [scale [expr {1.0/[lindex $v 3]}] [lrange $v 0 2]]
+    set error 0
+    foreach pixel [list $a $b] k [list $lk $rk] e [list $le $re] w [list $lw $rw] h [list $lh $rh] {
+        set projected [cncProject $k $w $h [matmul [transpose $e(R)] [sub $point $e(t)]]]
+        set distance [norm [sub $pixel $projected]];if {$distance>$error} {set error $distance}
+    }
+    set projectorError 0
+    if {[llength $expected]} {set projectorError [norm [sub [cncProject $pk $pw $ph $point] $expected]]}
+    if {$error>4 || $projectorError>20} {error [format {Tag correspondence error: camera %.1f px, projector %.1f px} $error $projectorError]}
+    dict create point $point cameraError $error projectorError $projectorError
+}
+
+fn cncProjectContours {encoded mapping display pk pw ph} {
     package require linalg
     fn cncProject
+    fn cncStereoPoint
     set geometry [json::decode $mapping];set h [dict get $geometry metric]
     set projected {}
     foreach match [json::decode $encoded] {
@@ -163,6 +190,26 @@ fn cncProjectContours {encoded mapping pk pw ph} {
             }
             if {[llength $points]>2} {lappend contours $points}
         }
+        if {[dict exists $match centers]} {
+            lassign [dict get $geometry cameras] left right
+            set lc $left(name);set rc $right(name)
+            set lk [QueryOne! camera $lc has intrinsics /./];set rk [QueryOne! camera $rc has intrinsics /./]
+            set le [QueryOne! camera $lc to display $display has extrinsics /./];set re [QueryOne! camera $rc to display $display has extrinsics /./]
+            set lsize [lindex [Query! camera $lc has width /w/ height /h/] 0];set rsize [lindex [Query! camera $rc has width /w/ height /h/] 0]
+            lassign $match(centers) a b
+            if {[catch {cncStereoPoint $a $b $lk $le $rk $re $lsize(w) $lsize(h) $rsize(w) $rsize(h) $pk $pw $ph {}} point]} continue
+            set center [cncProject $pk $pw $ph [dict get $point point]]
+            set area 0;set cx 0;set cy 0
+            foreach contour $contours {
+                foreach a $contour b [concat [lrange $contour 1 end] [list [lindex $contour 0]]] {
+                    set cross [expr {[lindex $a 0]*[lindex $b 1]-[lindex $b 0]*[lindex $a 1]}]
+                    set area [expr {$area+$cross}];set cx [expr {$cx+([lindex $a 0]+[lindex $b 0])*$cross}];set cy [expr {$cy+([lindex $a 1]+[lindex $b 1])*$cross}]
+                }
+            }
+            if {abs($area)<1} {error {The projected segment is too small}}
+            set dx [expr {[lindex $center 0]-$cx/(3*$area)}];set dy [expr {[lindex $center 1]-$cy/(3*$area)}]
+            set contours [lmap contour $contours {lmap p $contour {list [expr {[lindex $p 0]+$dx}] [expr {[lindex $p 1]+$dy}]}}]
+        }
         lappend projected [dict create color [dict get $match color] contours $contours]
     }
     return $projected
@@ -173,7 +220,7 @@ When /someone/ wishes CNC matched contours /encoded/ for mapping /mapping/ &\
      display /display/ has intrinsics /pk/ &\
      display /display/ has width /pw/ height /ph/ {
     fn cncProjectContours
-    foreach match [cncProjectContours $encoded $mapping $pk $pw $ph] {
+    foreach match [cncProjectContours $encoded $mapping $display $pk $pw $ph] {
         foreach points [dict get $match contours] {
             Wish to draw a line onto $display with points [concat $points [list [lindex $points 0]]] width 3 color [concat [lmap c [dict get $match color] {expr {$c/255.0}}] 1] layer 110
         }
@@ -407,32 +454,6 @@ When the SAM2 Python worker is /py/ {
     Claim the CNC bed segmenter is [fn cncSegmentPair]
 }
 
-fn cncStereoPoint {a b lk le rk re lw lh rw rh pk pw ph expected} {
-    package require linalg
-    namespace import ::math::linearalgebra::*
-    fn cncRay
-    fn cncProject
-    set A {}
-    foreach pixel [list $a $b] k [list $lk $rk] e [list $le $re] w [list $lw $rw] h [list $lh $rh] {
-        set R [transpose $e(R)];set P [lmap row $R t [scale -1 [matmul $R $e(t)]] {concat $row [list $t]}]
-        lassign [cncRay $k $w $h $pixel] x y
-        lappend A [sub [scale $x [lindex $P 2]] [lindex $P 0]] [sub [scale $y [lindex $P 2]] [lindex $P 1]]
-    }
-    lassign [determineSVD $A] U S V
-    set v [getcol $V [lsearch -exact $S [lindex [lsort -real $S] 0]]]
-    if {abs([lindex $v 3])<1e-10} {error {Tag rays do not triangulate}}
-    set point [scale [expr {1.0/[lindex $v 3]}] [lrange $v 0 2]]
-    set error 0
-    foreach pixel [list $a $b] k [list $lk $rk] e [list $le $re] w [list $lw $rw] h [list $lh $rh] {
-        set projected [cncProject $k $w $h [matmul [transpose $e(R)] [sub $point $e(t)]]]
-        set distance [norm [sub $pixel $projected]];if {$distance>$error} {set error $distance}
-    }
-    set projectorError 0
-    if {[llength $expected]} {set projectorError [norm [sub [cncProject $pk $pw $ph $point] $expected]]}
-    if {$error>4 || $projectorError>20} {error [format {Tag correspondence error: camera %.1f px, projector %.1f px} $error $projectorError]}
-    dict create point $point cameraError $error projectorError $projectorError
-}
-
 # Slice even-odd contour interiors into trapezoids, preserving concavities and holes.
 fn cncBackdropQuads {contours} {
     set ys {};set edges {};set quads {}
@@ -478,24 +499,8 @@ When /client/ wishes CNC probe /request/ segment /encoded/ for mapping /mapping/
         fn cncProjectContours
         fn cncStereoPoint
         fn cncProject
-        set projected [lindex [cncProjectContours "\[$encoded\]" $mapping $pk $pw $ph] 0]
+        set projected [lindex [cncProjectContours "\[$encoded\]" $mapping $display $pk $pw $ph] 0]
         set contours [dict get $projected contours]
-        set selected [json::decode $encoded]
-        if {[dict exists $selected centers]} {
-            lassign $selected(centers) a b
-            set point [cncStereoPoint $a $b $lk $le $rk $re $lsize(w) $lsize(h) $rsize(w) $rsize(h) $pk $pw $ph {}]
-            set center [cncProject $pk $pw $ph [dict get $point point]]
-            set area 0;set cx 0;set cy 0
-            foreach contour $contours {
-                foreach a $contour b [concat [lrange $contour 1 end] [list [lindex $contour 0]]] {
-                    set cross [expr {[lindex $a 0]*[lindex $b 1]-[lindex $b 0]*[lindex $a 1]}]
-                    set area [expr {$area+$cross}];set cx [expr {$cx+([lindex $a 0]+[lindex $b 0])*$cross}];set cy [expr {$cy+([lindex $a 1]+[lindex $b 1])*$cross}]
-                }
-            }
-            if {abs($area)<1} {error {The projected segment is too small}}
-            set dx [expr {[lindex $center 0]-$cx/(3*$area)}];set dy [expr {[lindex $center 1]-$cy/(3*$area)}]
-            set contours [lmap contour $contours {lmap p $contour {list [expr {[lindex $p 0]+$dx}] [expr {[lindex $p 1]+$dy}]}}]
-        }
         fn cncBackdropQuads
         set backdrop {}
         foreach quad [cncBackdropQuads $contours] {
@@ -611,15 +616,13 @@ When the collected results for {/client/ wishes to segment CNC bed} are /clients
         fn segmenter
         set worker cnc-[clock microseconds]
         Claim CNC bed worker $worker is active
-        Hold! -on $worker -key cycle Claim CNC bed worker $worker has cycle 0
         Destructor [list apply {{worker} {
-            foreach key {cycle snapshot contours} {Hold! -on $worker -key $key {}}
+            foreach key {snapshot contours} {Hold! -on $worker -key $key {}}
         }} $worker]
-        When CNC bed worker $worker has cycle /cycle/ {
+        while {[llength [Query! CNC bed worker $worker is active]]} {
             if {[llength [Query! CNC probe /request/ is active for mapping $mapping]]} {
                 after 25
-                if {[llength [Query! CNC bed worker $worker is active]]} {Hold! -on $worker -key cycle Claim CNC bed worker $worker has cycle [expr {$cycle+1}]}
-                return
+                continue
             }
             set files {};set frames {}
             try {
@@ -643,12 +646,10 @@ When the collected results for {/client/ wishes to segment CNC bed} are /clients
             }
             if {![llength [Query! CNC bed worker $worker is active]]} return
             if {[llength [Query! CNC probe /request/ is active for mapping $mapping]]} {
-                Hold! -on $worker -key cycle Claim CNC bed worker $worker has cycle [expr {$cycle+1}]
-                return
+                continue
             }
             Hold! -on $worker -key snapshot Claim CNC bed snapshot for mapping $mapping is $result
             Hold! -on $worker -key contours Wish CNC matched contours $contours for mapping $mapping
-            Hold! -on $worker -key cycle Claim CNC bed worker $worker has cycle [expr {$cycle+1}]
         }
     }
 }
