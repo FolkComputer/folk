@@ -1,0 +1,126 @@
+# Exactly one saved Hold on cnc per camera owns its four pixel corners and the
+# image dimensions at selection time. The projector geometry is derived live.
+When /someone/ wishes to load CNC bed geometry {
+    source lib/python.tcl
+    set py [Uvx --with numpy --with opencv-python-headless]
+    $py exec {
+        import json
+        import runpy
+        geometry = runpy.run_path('lib/camera_sam2_stereo.py')
+    }
+    $py def reconstruct {str payload} {
+        try:
+            return json.dumps(geometry['reconstruct'](payload), allow_nan=False)
+        except ValueError as error:
+            message = str(error).replace('segments', 'corner selections')
+            message = message.replace('Select the same flat face in both cameras.',
+                'Click the same physical corners in the same order in both views.')
+            return json.dumps({'error': message})
+    }
+    Claim the CNC bed geometry library is $py
+}
+
+When the collected results for {cnc claims camera /camera/ has CNC bed corners /points/ with width /width/ height /height/} are /selections/ {
+    if {[llength $selections] != 2} {
+        Claim CNC bed reconstruction is [json::encode [dict create waiting "Select four corners in each of the two camera views."] obj]
+        return
+    }
+    set selections [lsort -command {apply {{a b} {
+        string compare [dict get $a camera] [dict get $b camera]
+    }}} $selections]
+    lassign $selections left right
+    set leftCamera [dict get $left camera]
+    set rightCamera [dict get $right camera]
+    if {$leftCamera eq $rightCamera} { return }
+    Wish to load CNC bed geometry
+    Claim CNC bed reconstruction is [json::encode [dict create waiting "Waiting for saved camera calibration and a connected projector…"] obj]
+
+    When the CNC bed geometry library is /geometry/ &\
+         calibration claims camera $leftCamera has intrinsics /leftIntrinsics/ &\
+         calibration claims camera $rightCamera has intrinsics /rightIntrinsics/ &\
+         calibration claims camera $leftCamera to display /display/ has extrinsics /extLeft/ &\
+         calibration claims camera $rightCamera to display /display/ has extrinsics /extRight/ &\
+         calibration claims display /display/ has intrinsics /projector/ &\
+         display /display/ has width /displayWidth/ height /displayHeight/ {
+        try {
+            set payload [json::encode [dict create \
+                left [json::encode [dict remove $left camera __ref] {obj points {list list num} width num height num}] \
+                right [json::encode [dict remove $right camera __ref] {obj points {list list num} width num height num}] \
+                intrLeft [json::encode $leftIntrinsics obj] intrRight [json::encode $rightIntrinsics obj] \
+                extLeft [json::encode $extLeft {obj R {list list num} t {list num}}] \
+                extRight [json::encode $extRight {obj R {list list num} t {list num}}] \
+                projector [json::encode $projector obj] \
+                displaySize [json::encode [list $displayWidth $displayHeight] {list num}]] obj]
+            set result [$geometry reconstruct $payload]
+            set decoded [json::decode $result]
+            if {![dict exists $decoded error]} {
+                lassign [dict get $decoded projectorQuad] p0 p1 p2 p3
+                Wish to draw a quad onto $display with p0 $p0 p1 $p1 p2 $p2 p3 $p3 color white layer 100
+                Claim CNC bed has quad [dict get $decoded points3d] in display $display
+            }
+        } on error {e opts} {
+            puts stderr "cnc: [errorInfo $e $opts]"
+            set result [json::encode [dict create error $e] obj]
+        }
+        Claim CNC bed reconstruction is $result
+    }
+}
+
+Wish the web server handles route {/cnc} with handler {
+    set panels {}
+    set cameras [lsort -command {apply {{a b} {
+        string compare [dict get $a camera] [dict get $b camera]
+    }}} [Query! camera /camera/ has width /w/ height /h/]]
+    foreach item [lrange $cameras 0 1] {
+        set camera [dict get $item camera]
+        set saved [Query! cnc claims camera $camera has CNC bed corners /points/ with width /width/ height /height/]
+        set savedJson null
+        if {[llength $saved] == 1} {
+            set savedJson [json::encode [dict remove [lindex $saved 0] camera __ref] {obj points {list list num} width num height num}]
+        }
+        lappend panels [subst {
+            <section class="camera-panel" data-camera="[htmlEscape $camera]" data-saved="[htmlEscape $savedJson]">
+                <h2>[htmlEscape $camera]</h2>
+                <div class="camera-image"><canvas data-role="frame"></canvas><svg data-role="corners"></svg></div>
+                <p data-role="status" role="status">Loading camera…</p>
+                <div class="controls">
+                    <button data-role="undo">Undo corner</button>
+                    <button data-role="reset">Clear / redraw</button>
+                    <button data-role="resume">Resume live</button>
+                </div>
+            </section>
+        }]
+    }
+    if {[llength $cameras] != 2} { lappend panels {<p>This page requires two camera views. Enable both cameras in <a href="/setup">setup</a>.</p>} }
+    set fd [open lib/cnc.js r]
+    set script [read $fd]
+    close $fd
+    html [subst {
+<!doctype html>
+<html><head>
+    <title>CNC bed</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { margin: 12px; font-family: sans-serif; }
+        .cameras { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+        .camera-panel { min-width: 0; }
+        h2 { font-size: 13px; overflow-wrap: anywhere; }
+        .camera-image { position: relative; }
+        canvas { display: block; width: 100%; cursor: crosshair; }
+        svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+        .controls { display: flex; gap: 8px; }
+        @media (max-width: 700px) { .cameras { grid-template-columns: minmax(0, 1fr); } }
+    </style>
+</head><body>
+    <h1>CNC bed</h1>
+    <p>Click the four bed corners in order around the perimeter in each view. Start at the <strong>same physical corner</strong> and follow the <strong>same direction</strong> in both cameras. The first click freezes the image; the fourth saves that camera’s corners automatically.</p>
+    <p>Selections persist after closing this page. Once both are saved, the reconstructed bed is projected green.</p>
+    <span id="connectionStatus">Connecting…</span>
+    <p id="bedStatus" role="status">Select four corners in each camera.</p>
+    <div class="cameras">[join $panels \n]</div>
+    <script src="/lib/folk.js"></script>
+    <script src="/lib/camera-frames.js"></script>
+    <script>$script</script>
+</body></html>
+    }]
+}

@@ -180,6 +180,16 @@ When /someone/ wishes to really load SAM2 &\
         return ret
     }
 
+    # Share model weights and the inference lock with the prompted segmenter.
+    $py def automaticSegments {Image image} {
+        import json
+        import runpy
+        global automatic_segments
+        if 'automatic_segments' not in globals():
+            automatic_segments = runpy.run_path('lib/camera_segments.py')['generate']
+        return json.dumps(automatic_segments(image, predictor, device, predictor_lock), allow_nan=False)
+    }
+
     $py def trackObjects {Image image} {
         global predictor_initialized
         image_np = np.array(image.convert("RGB"))
@@ -307,6 +317,10 @@ When /someone/ wishes to really load SAM2 &\
     }
     Claim the SAM2 object tracker is [fn SAM2Track]
     Claim the SAM2 prompt adder is [fn SAM2AddPrompt]
+    fn SAM2AutomaticSegments {image} {
+        $py automaticSegments $image
+    }
+    Claim the SAM2 automatic segmenter is [fn SAM2AutomaticSegments]
     Claim the SAM2 segmenter is [fn SAM2Segment]
     Claim the SAM2 object saver is [fn SAM2SaveObject]
     Claim the SAM2 object loader is [fn SAM2LoadObject]

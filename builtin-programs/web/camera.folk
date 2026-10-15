@@ -46,20 +46,33 @@ Wish the web server handles route {/camera} with handler {
       </div>
     </div>
     <script src="/lib/folk.js"></script>
+    <script src="/lib/camera-frames.js"></script>
     <script>
       const canvas = cameraCanvas;
-      const ctx = canvas.getContext('2d');
-      function advanceCamera() {
-        const img = new Image();
-        img.onload = () => {
-          canvas.width = img.naturalWidth;
-          canvas.height = img.naturalHeight;
-          ctx.drawImage(img, 0, 0);
-          setTimeout(advanceCamera, 0);
-        };
-        img.onerror = () => setTimeout(advanceCamera, 500);
-        img.src = '/camera-frame?camera=[string map [list / %2F " " %20] $camera]&uniq=' + Math.random();
+      let frameTimer;
+      let frameRequest;
+      let stopped = false;
+      async function advanceCamera() {
+        if (stopped) return;
+        if (document.hidden) { frameTimer = setTimeout(advanceCamera, 500); return; }
+        frameRequest = new AbortController();
+        try {
+          await drawCameraFrame(canvas, [json::encode $camera str], {
+            signal: frameRequest.signal, shouldDraw: () => !stopped && !document.hidden,
+          });
+          if (!stopped) frameTimer = setTimeout(advanceCamera, 100);
+        } catch (error) {
+          if (!stopped) frameTimer = setTimeout(advanceCamera, 500);
+        }
       }
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) frameRequest?.abort();
+      });
+      window.addEventListener('pagehide', () => {
+        stopped = true;
+        clearTimeout(frameTimer);
+        frameRequest?.abort();
+      });
       advanceCamera();
 
       const ws = new FolkWS(statusSpan);

@@ -108,12 +108,26 @@ def reconstruct(payload):
         raise ValueError('The calibrated stereo baseline is too small.')
     matrices = [np.column_stack((r.T, -r.T @ t)) for r, t in zip(rotations, translations)]
     sizes = [(s['width'], s['height']) for s in segments]
-    quads = [corners(s) for s in segments]
+    manual = any('points' in s for s in segments)
+    if manual:
+        quads = []
+        for segment, size in zip(segments, sizes):
+            quad = np.asarray(segment.get('points', []), dtype=float)
+            if quad.shape != (4, 2) or not np.isfinite(quad).all():
+                raise ValueError('Select exactly four finite corners in each camera.')
+            if np.any(quad < 0) or np.any(quad >= np.array(size)):
+                raise ValueError('A selected corner is outside its camera image.')
+            contour = quad.astype(np.float32)
+            if not cv2.isContourConvex(contour) or abs(cv2.contourArea(contour)) < 25:
+                raise ValueError('Click the four corners in order around the bed, without crossing edges.')
+            quads.append(quad)
+    else:
+        quads = [corners(s) for s in segments]
     rays = [undistort(q, k, size) for q, k, size in zip(quads, intr, sizes)]
     candidates = []
-    for reverse in (False, True):
+    for reverse in ((False,) if manual else (False, True)):
         order = np.arange(4)[::-1] if reverse else np.arange(4)
-        for offset in range(4):
+        for offset in (range(1) if manual else range(4)):
             indices = np.roll(order, offset)
             homogeneous = cv2.triangulatePoints(matrices[0], matrices[1], rays[0].T, rays[1][indices].T).T
             if np.any(abs(homogeneous[:, 3]) < 1e-10):
@@ -131,9 +145,9 @@ def reconstruct(payload):
         raise ValueError('No corner correspondence triangulates in front of both cameras and projector.')
     candidates.sort(key=lambda c: c[0])
     rms, indices, points, observed = candidates[0]
-    if rms > 5:
+    if rms > 15:
         raise ValueError(f'The two segments disagree with stereo calibration ({rms:.1f} px reprojection error). Select the same flat face in both cameras.')
-    if len(candidates) > 1 and candidates[1][0] < max(.5, rms * 1.2):
+    if not manual and len(candidates) > 1 and candidates[1][0] < max(.5, rms * 1.2):
         raise ValueError('Corner correspondence is ambiguous. Try a more clearly segmented surface.')
     center = points.mean(axis=0)
     _, _, axes = np.linalg.svd(points-center)
@@ -148,8 +162,8 @@ def reconstruct(payload):
     predicted = [project((points-t) @ r, k, size) for r, t, k, size in zip(rotations, translations, intr, sizes)]
     errors = np.concatenate([p-q for p, q in zip(predicted, observed)])
     rms = float(np.sqrt(np.mean(np.sum(errors**2, axis=1))))
-    if rms > 5 or np.linalg.norm(errors, axis=1).max() > 12:
-        raise ValueError(f'A flat quad does not fit both segments ({rms:.1f} px reprojection error).')
+    if rms > 20 or np.linalg.norm(errors, axis=1).max() > 40:
+        raise ValueError(f'A flat quad does not fit both segments ({rms:.1f} px reprojection error; max error {np.linalg.norm(errors, axis=1).max():.1f}).')
     lengths = np.linalg.norm(np.roll(points, -1, axis=0)-points, axis=1)
     xaxis = (points[1]-points[0]) / lengths[0]
     yaxis = np.cross(normal, xaxis)

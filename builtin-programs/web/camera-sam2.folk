@@ -1,6 +1,11 @@
-# A request owns one frozen JPEG, one positive point, and one segmentation.
+# A request owns one frozen JPEG, a complete point prompt, and one segmentation.
 # There is deliberately no subscription to camera frames or SAM2 tracking.
+# Keep already-open single-point clients working.
 When /someone/ wishes camera-sam2 request /request/ segments jpeg /encoded/ at /x/ /y/ {
+    Wish camera-sam2 request $request segments jpeg $encoded with points [list [list $x $y]] labels {1}
+}
+
+When /someone/ wishes camera-sam2 request /request/ segments jpeg /encoded/ with points /points/ labels /labels/ {
     Wish to load SAM2
 
     When the SAM2 segmenter is /segment/ &\
@@ -18,9 +23,16 @@ When /someone/ wishes camera-sam2 request /request/ segments jpeg /encoded/ at /
                 } finally { close $fd }
                 set image [$jpegLib loadJpeg $filename]
             } finally { file delete $filename }
-            if {![string is integer -strict $x] || ![string is integer -strict $y] ||
-                $x < 0 || $y < 0 || $x >= $image(width) || $y >= $image(height)} {
-                error "Click is outside the image"
+            if {![llength $points] || [llength $points] != [llength $labels] || [lsearch -exact $labels 1] < 0} {
+                error "A point prompt needs matching points and labels, including a positive point"
+            }
+            foreach point $points label $labels {
+                if {[llength $point] != 2 || $label ni {0 1}} { error "Invalid segmentation point or label" }
+                lassign $point x y
+                if {![string is integer -strict $x] || ![string is integer -strict $y] ||
+                    $x < 0 || $y < 0 || $x >= $image(width) || $y >= $image(height)} {
+                    error "Click is outside the image"
+                }
             }
 
             fn segment
@@ -28,7 +40,7 @@ When /someone/ wishes camera-sam2 request /request/ segments jpeg /encoded/ at /
             # Reuse a reserved transient slot: the predictor serializes calls,
             # and distinct request ids must not accumulate model object slots.
             set transientObject -2147483648
-            foreach object [segment $image $transientObject [list [list $x $y]] {1}] {
+            foreach object [segment $image $transientObject $points $labels] {
                 lassign $object objectId mask
                 if {$objectId != $transientObject} continue
                 set contours [$contoursLib findMaskContours $image(width) $image(height) $mask 1.0 1.0 1.0]
@@ -98,7 +110,7 @@ Wish the web server handles route {/camera-sam2} with handler {
     </style>
 </head>
 <body>
-    <p>Click an object to segment one frame. Each camera pauses independently while you inspect its outline.</p>
+    <p>Left-click to add positive points and include areas. Right-click to add negative points and exclude areas. Resume live clears the points and starts a new selection. Each camera pauses independently.</p>
     <div id="connectionStatus">Connecting…</div>
     <div class="cameras">[join $panels \n]</div>
     <section>
@@ -107,6 +119,7 @@ Wish the web server handles route {/camera-sam2} with handler {
         <svg id="stereoQuad" style="width: 100%; max-width: 600px; height: 300px" aria-label="Reconstructed quad with side lengths in meters"></svg>
     </section>
     <script src="/lib/folk.js"></script>
+    <script src="/lib/camera-frames.js"></script>
     <script>$script</script>
 </body>
 </html>

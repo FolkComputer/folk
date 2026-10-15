@@ -1,0 +1,79 @@
+When /someone/ wishes camera-segments request /request/ segments jpeg /encoded/ {
+    Wish to load SAM2
+    When the SAM2 automatic segmenter is /automatic/ &\
+         the jpeg library is /jpegLib/ {
+        try {
+            if {![string is integer -strict $request] || $request <= 0 || $request > 2147483647} {
+                error "Invalid automatic segmentation request id"
+            }
+            set filename [file tempfile /tmp/camera-segments-XXXXXX]
+            try {
+                set fd [open $filename wb]
+                try { puts -nonewline $fd [binary decode base64 $encoded] } finally { close $fd }
+                set image [$jpegLib loadJpeg $filename]
+            } finally { file delete $filename }
+            fn automatic
+            set result [automatic $image]
+        } on error {e opts} {
+            puts stderr "camera-segments: [errorInfo $e $opts]"
+            set result [json::encode [dict create error $e] obj]
+        }
+        Claim camera-segments request $request has result $result
+    }
+}
+
+Wish the web server handles route {/camera-segments} with handler {
+    set panels {}
+    foreach item [Query! camera /camera/ has width /w/ height /h/] {
+        set camera [dict get $item camera]
+        lappend panels [subst {
+            <section class="camera-panel" data-camera="[htmlEscape $camera]">
+                <h2>[htmlEscape $camera]</h2>
+                <div class="camera-image">
+                    <canvas data-role="frame"></canvas>
+                    <canvas class="segment-overlay" data-role="overlay" aria-label="Colored automatic segments" hidden></canvas>
+                </div>
+                <p><button data-role="refresh">Segment new frame</button>
+                   <span data-role="status" role="status">Loading camera…</span></p>
+            </section>
+        }]
+    }
+    if {![llength $panels]} { lappend panels {<p>No cameras are available.</p>} }
+    set fd [open lib/camera-segments.js r]
+    set script [read $fd]
+    close $fd
+    html [subst {
+<!doctype html>
+<html>
+<head>
+    <title>Camera segments</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { margin: 12px; font-family: sans-serif; }
+        .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin: 12px 0; }
+        .cameras { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+        .camera-panel { min-width: 0; }
+        h2 { font-size: 13px; overflow-wrap: anywhere; }
+        .camera-image { position: relative; }
+        .camera-image > canvas:first-child { display: block; width: 100%; }
+        .camera-image .segment-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+        @media (max-width: 700px) { .cameras { grid-template-columns: minmax(0, 1fr); } }
+    </style>
+</head>
+<body>
+    <h1>Camera segments</h1>
+    <p>Automatic SAM2 masks across each scene, with no point prompts. Colors identify regions within each image; they do not match objects between cameras.</p>
+    <div class="toolbar">
+        <button id="refreshAll">Segment new frames</button>
+        <label><input id="autoUpdate" type="checkbox">Auto-update</label>
+        <label>Overlay opacity <input id="opacity" type="range" min="0" max="100" value="80"></label>
+        <span id="connectionStatus">Connecting…</span>
+    </div>
+    <div class="cameras">[join $panels \n]</div>
+    <script src="/lib/folk.js"></script>
+    <script src="/lib/camera-frames.js"></script>
+    <script>$script</script>
+</body>
+</html>
+    }]
+}
