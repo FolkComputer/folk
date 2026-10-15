@@ -90,6 +90,33 @@ fn cncReconstruct {left right lk le rk re pk pw ph} {
     dict create points3d $points projectorQuad [lmap p $points {cncProject $pk $pw $ph $p}] reprojectionRms $rms
 }
 
+# Unit-square coordinates preserve the four selected corner correspondences.
+fn cncHomography {points} {
+    package require linalg
+    set A {};set b {}
+    foreach p $points uv {{0 0} {1 0} {1 1} {0 1}} {
+        lassign $uv u v;lassign $p x y
+        lappend A [list $u $v 1 0 0 0 [expr {-$x*$u}] [expr {-$x*$v}]] [list 0 0 0 $u $v 1 [expr {-$y*$u}] [expr {-$y*$v}]]
+        lappend b $x $y
+    }
+    concat [::math::linearalgebra::solvePGauss $A $b] 1
+}
+
+fn cncBedMapping {left right points} {
+    package require linalg
+    namespace import ::math::linearalgebra::*
+    fn cncHomography
+    set origin [lindex $points 0];set xAxis [sub [lindex $points 1] $origin];set xAxis [scale [expr {1.0/[norm $xAxis]}] $xAxis]
+    set yAxis [sub [lindex $points 3] $origin];set yAxis [sub $yAxis [scale [dotproduct $yAxis $xAxis] $xAxis]];set yAxis [scale [expr {1.0/[norm $yAxis]}] $yAxis]
+    set metric [cncHomography [lmap p $points {set d [sub $p $origin];list [dotproduct $d $xAxis] [dotproduct $d $yAxis]}]]
+    set cameras {}
+    foreach selection [list $left $right] {
+        set normalized [lmap p $selection(points) {list [expr {[lindex $p 0]/double($selection(width))}] [expr {[lindex $p 1]/double($selection(height))}]}]
+        lappend cameras [dict create name $selection(camera) h [cncHomography $normalized]]
+    }
+    dict create origin $origin xAxis $xAxis yAxis $yAxis metric $metric cameras $cameras
+}
+
 When the collected results for {camera /camera/ has CNC bed corners /points/ with width /width/ height /height/} are /selections/ {
     Claim CNC bed reconstruction is {waiting {Select four corners in each camera; both need saved calibration.}}
     if {[llength $selections]!=2} return
@@ -107,11 +134,54 @@ When the collected results for {camera /camera/ has CNC bed corners /points/ wit
             set result [cncReconstruct $left $right $lk $le $rk $re $pk $pw $ph]
             if {![dict exists $result error]} {
                 lassign [dict get $result projectorQuad] p0 p1 p2 p3
-                Wish to draw a quad onto $display with p0 $p0 p1 $p1 p2 $p2 p3 $p3 color green layer 100
+                # Wish to draw a quad onto $display with p0 $p0 p1 $p1 p2 $p2 p3 $p3 color green layer 100
                 Claim CNC bed has quad [dict get $result points3d] in display $display
+                fn cncBedMapping
+                set mapping [json::encode [cncBedMapping $left $right [dict get $result points3d]] {obj origin {list num} xAxis {list num} yAxis {list num} metric {list num} cameras {list obj h {list num}}}]
+                Claim CNC bed mapping is $mapping in display $display
             }
         } on error {e} {set result [dict create error $e]}
         Claim CNC bed reconstruction is $result
+    }
+}
+
+When /someone/ wishes CNC matched contours /encoded/ for mapping /mapping/ &\
+     CNC bed mapping is /mapping/ in display /display/ &\
+     display /display/ has intrinsics /pk/ &\
+     display /display/ has width /pw/ height /ph/ {
+    package require linalg
+    fn cncProject
+    set geometry [json::decode $mapping];set h [dict get $geometry metric]
+    foreach match [json::decode $encoded] {
+        foreach contour [dict get $match contours] {
+            set points {}
+            foreach uv $contour {
+                lassign $uv u v
+                set d [expr {[lindex $h 6]*$u+[lindex $h 7]*$v+1}]
+                set x [expr {([lindex $h 0]*$u+[lindex $h 1]*$v+[lindex $h 2])/$d}];set y [expr {([lindex $h 3]*$u+[lindex $h 4]*$v+[lindex $h 5])/$d}]
+                set world [::math::linearalgebra::add [dict get $geometry origin] [::math::linearalgebra::add [::math::linearalgebra::scale $x [dict get $geometry xAxis]] [::math::linearalgebra::scale $y [dict get $geometry yAxis]]]]
+                lappend points [cncProject $pk $pw $ph $world]
+            }
+            if {[llength $points]>2} {Wish to draw a line onto $display with points [concat $points [list [lindex $points 0]]] width 3 color [concat [lmap c [dict get $match color] {expr {$c/255.0}}] 1] layer 110}
+        }
+    }
+}
+
+When /someone/ wishes CNC bed segmentation request /request/ uses jpeg /encoded/ {
+    Wish to load SAM2
+    When the SAM2 automatic segmenter is /automatic/ &\
+         the jpeg library is /jpegLib/ {
+        try {
+            set filename [file tempfile /tmp/cnc-segments-XXXXXX]
+            try {
+                set fd [open $filename wb]
+                try {puts -nonewline $fd [binary decode base64 $encoded]} finally {close $fd}
+                set image [$jpegLib loadJpeg $filename]
+            } finally {file delete $filename}
+            fn automatic
+            set result [automatic $image]
+        } on error {e} {set result [json::encode [dict create error $e] obj]}
+        Claim CNC bed segmentation request $request has result $result
     }
 }
 
@@ -125,6 +195,7 @@ Wish the web server handles route {/cnc} with handler {
                 <h3>[htmlEscape $camera]</h3>
                 <div class="image">
                     <canvas></canvas>
+                    <canvas class="segments" style="display: none"></canvas>
                     <svg></svg>
                 </div>
                 <p class="status">Loading…</p>
@@ -136,6 +207,124 @@ Wish the web server handles route {/cnc} with handler {
     }
     set script {
         const ws = new FolkWS(document.getElementById('connectionStatus'));
+        ws.send('Wish to load SAM2');
+        const size = 512, views = new Map();
+        let mapping, mappingText, weights;
+
+        function transform(h, x, y) {
+            const d = h[6]*x + h[7]*y + h[8];
+            return [(h[0]*x + h[1]*y + h[2])/d, (h[3]*x + h[4]*y + h[5])/d];
+        }
+
+        function clearMatches() {
+            for (const view of views.values()) { view.contours = []; view.draw(); }
+            ws.hold('cnc-matched-contours', '');
+            document.getElementById('matches').textContent = 'Waiting for segments from both cameras.';
+        }
+
+        ws.watchCollected('/any/ claims CNC bed mapping is /json/ in display /display/', matches => {
+            const text = matches[0]?.json;
+            if (text === mappingText) return;
+            mappingText = text;
+            mapping = text ? JSON.parse(text) : null;
+            for (const view of views.values()) view.masks = null;
+            clearMatches();
+            if (!mapping) return;
+            weights = new Float64Array(size*size);
+            for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+                const p = [[x,y],[x+1,y],[x+1,y+1],[x,y+1]].map(([u,v]) => transform(mapping.metric, u/size, v/size));
+                weights[y*size+x] = Math.abs(p.reduce((a, q, i) => a + q[0]*p[(i+1)%4][1] - q[1]*p[(i+1)%4][0], 0))/2;
+            }
+        });
+
+        function warpMasks(result, camera, crop) {
+            const h = mapping.cameras.find(c => c.name === camera)?.h;
+            if (!h) return [];
+            const indices = new Int32Array(size*size).fill(-1);
+            for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+                const p = transform(h, (x+.5)/size, (y+.5)/size);
+                const u = Math.floor((p[0]*crop.width-crop.x)*result.maskWidth/crop.w);
+                const v = Math.floor((p[1]*crop.height-crop.y)*result.maskHeight/crop.h);
+                if (u >= 0 && u < result.maskWidth && v >= 0 && v < result.maskHeight) indices[y*size+x] = v*result.maskWidth+u;
+            }
+            return result.masks.map(mask => {
+                const source = new Uint8Array(result.maskWidth*result.maskHeight);
+                for (let i = 0; i < mask.runs.length; i += 2) source.fill(1, mask.runs[i], mask.runs[i]+mask.runs[i+1]);
+                const pixels = new Uint8Array(size*size);
+                let area = 0;
+                for (let i = 0; i < pixels.length; i++) if (indices[i] >= 0 && source[indices[i]]) { pixels[i] = 1; area += weights[i]; }
+                return {pixels, area, color: mask.color};
+            }).filter(mask => mask.area > .0009);
+        }
+
+        function contours(pixels) {
+            const edges = new Map(), stride = size+1;
+            const edge = (a, b) => { if (!edges.has(a)) edges.set(a, []); edges.get(a).push(b); };
+            for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+                const i = y*size+x, a = y*stride+x;
+                if (!pixels[i]) continue;
+                if (!y || !pixels[i-size]) edge(a, a+1);
+                if (x === size-1 || !pixels[i+1]) edge(a+1, a+1+stride);
+                if (y === size-1 || !pixels[i+size]) edge(a+1+stride, a+stride);
+                if (!x || !pixels[i-1]) edge(a+stride, a);
+            }
+            const loops = [];
+            while (edges.size) {
+                const start = edges.keys().next().value, loop = [];
+                let a = start;
+                do {
+                    loop.push([a%stride, Math.floor(a/stride)]);
+                    const next = edges.get(a);
+                    if (!next) break;
+                    const b = next.pop();
+                    if (!next.length) edges.delete(a);
+                    a = b;
+                } while (a !== start);
+                if (a !== start || loop.length < 3) continue;
+                loop.push(loop[0]);
+                const keep = new Set([0, loop.length-1]), stack = [[0, loop.length-1]];
+                while (stack.length) {
+                    const [first,last] = stack.pop(), p = loop[first], q = loop[last];
+                    const dx = q[0]-p[0], dy = q[1]-p[1], length = dx*dx+dy*dy;
+                    let maximum = .5625, split;
+                    for (let i = first+1; i < last; i++) {
+                        const t = length ? Math.max(0, Math.min(1, ((loop[i][0]-p[0])*dx+(loop[i][1]-p[1])*dy)/length)) : 0;
+                        const d = (loop[i][0]-p[0]-t*dx)**2 + (loop[i][1]-p[1]-t*dy)**2;
+                        if (d > maximum) { maximum = d; split = i; }
+                    }
+                    if (split !== undefined) { keep.add(split); stack.push([first,split], [split,last]); }
+                }
+                const simplified = [...keep].sort((a,b) => a-b).slice(0,-1).map(i => loop[i].map(v => v/size));
+                if (simplified.length > 2) loops.push(simplified);
+            }
+            return loops;
+        }
+
+        function matchSegments() {
+            const cameras = mapping?.cameras.map(c => views.get(c.name));
+            if (!cameras || cameras.some(c => !c?.masks)) { clearMatches(); return; }
+            const [a,b] = cameras, candidates = [];
+            a.masks.forEach((left, i) => b.masks.forEach((right, j) => {
+                let intersection = 0;
+                for (let k = 0; k < weights.length; k++) if (left.pixels[k] && right.pixels[k]) intersection += weights[k];
+                if (intersection > .4*left.area && intersection > .4*right.area)
+                    candidates.push({i, j, intersection, score: intersection/(left.area+right.area-intersection)});
+            }));
+            const usedA = new Set(), usedB = new Set(), matched = [];
+            for (const candidate of candidates.sort((a,b) => b.score-a.score)) {
+                const {i,j,intersection} = candidate;
+                if (usedA.has(i) || usedB.has(j)) continue;
+                usedA.add(i); usedB.add(j);
+                const left = a.masks[i], right = b.masks[j];
+                const common = left.pixels.map((value,k) => value & right.pixels[k]);
+                matched.push({color: left.color, contours: contours(common), areaA: left.area, areaB: right.area,
+                    overlapA: intersection/left.area, overlapB: intersection/right.area});
+            }
+            for (const view of cameras) { view.contours = matched; view.draw(); }
+            ws.hold('cnc-matched-contours', tcl`Wish CNC matched contours ${JSON.stringify(matched)} for mapping ${mappingText}`);
+            document.getElementById('matches').textContent = `${matched.length} matched segments (>9 cm² each, >40% overlap in each view). Outlines assume the bed plane.`;
+        }
+
         ws.watchCollected('/any/ claims CNC bed reconstruction is /result/', matches => {
             const results = matches.map(match => loadDict(match.result));
             const s = results.find(result => !result.waiting) || results[0];
@@ -151,12 +340,96 @@ Wish the web server handles route {/cnc} with handler {
             const camera = panel.dataset.camera;
             const canvas = panel.querySelector('canvas');
             const ctx = canvas.getContext('2d');
+            const segments = panel.querySelector('.segments');
             const svg = panel.querySelector('svg');
             const label = panel.querySelector('.status');
             const saved = JSON.parse(panel.dataset.saved);
             let points = saved?.points || [];
             let width = saved?.width || 0, height = saved?.height || 0;
             let live = true, busy = false, ready = false, version = 0, timer, request;
+
+            let cancelSegment;
+            const segmentKey = 'cnc-segments ' + camera;
+            const view = {masks: null, contours: [], draw() { const text = label.textContent; draw(); label.textContent = text; }};
+            views.set(camera, view);
+
+            function clearSegments() {
+                if (cancelSegment) cancelSegment();
+                segments.style.display = 'none';
+                view.masks = null;
+                clearMatches();
+            }
+
+            async function segment(generation, frame) {
+                const requestedMapping = mappingText;
+                const xs = points.map(p => p[0] * frame.width / width);
+                const ys = points.map(p => p[1] * frame.height / height);
+                const x = Math.max(0, Math.floor(Math.min(...xs)));
+                const y = Math.max(0, Math.floor(Math.min(...ys)));
+                const w = Math.min(frame.width, Math.ceil(Math.max(...xs))) - x;
+                const h = Math.min(frame.height, Math.ceil(Math.max(...ys))) - y;
+                if (w < 1 || h < 1) throw Error('The bed bounding box is empty.');
+                const crop = document.createElement('canvas');
+                crop.width = w; crop.height = h;
+                crop.getContext('2d').drawImage(frame, x, y, w, h, 0, 0, w, h);
+                const jpeg = crop.toDataURL('image/jpeg', .95).split(',')[1];
+                crop.width = crop.height = 0;
+                const id = (crypto.getRandomValues(new Uint32Array(1))[0] & 0x7fffffff) || 1;
+                label.textContent = 'Segmenting the bed bounding box…';
+                let channel, timeout, finish, cancel, settled = false;
+                const done = new Promise((resolve, reject) => {
+                    finish = error => {
+                        if (settled) return;
+                        settled = true;
+                        clearTimeout(timeout);
+                        if (channel) channel.stop();
+                        ws.hold(segmentKey, '');
+                        if (cancelSegment === cancel) cancelSegment = null;
+                        if (error) reject(error); else resolve();
+                    };
+                });
+                cancel = () => finish();
+                cancelSegment = cancel;
+                try {
+                    const subscription = await ws.watch(tcl`/any/ claims CNC bed segmentation request ${id} has result /json/`, {add: async match => {
+                        if (settled || stopped || generation !== version) return;
+                        try {
+                            const result = JSON.parse(match.json);
+                            if (result.error) throw Error(result.error);
+                            if (result.width !== w || result.height !== h) throw Error('Segmentation crop size changed.');
+                            const bytes = Uint8Array.from(atob(result.overlay), c => c.charCodeAt(0));
+                            const image = await createImageBitmap(new Blob([bytes], {type: 'image/png'}));
+                            try {
+                                if (settled || stopped || generation !== version) return;
+                                if (canvas.width !== frame.width) canvas.width = frame.width;
+                                if (canvas.height !== frame.height) canvas.height = frame.height;
+                                ctx.drawImage(frame, 0, 0);
+                                draw();
+                                if (segments.width !== image.width) segments.width = image.width;
+                                if (segments.height !== image.height) segments.height = image.height;
+                                const context = segments.getContext('2d');
+                                context.clearRect(0, 0, segments.width, segments.height);
+                                context.drawImage(image, 0, 0);
+                                Object.assign(segments.style, {display: 'block',
+                                    left: `${100*x/canvas.width}%`, top: `${100*y/canvas.height}%`,
+                                    width: `${100*w/canvas.width}%`, height: `${100*h/canvas.height}%`});
+                                if (mapping && requestedMapping === mappingText) {
+                                    view.masks = warpMasks(result, camera, {x, y, w, h, width: frame.width, height: frame.height});
+                                    matchSegments();
+                                }
+                                label.textContent = `${result.count} segments in the bed bounding box.`;
+                            } finally { image.close(); }
+                            finish();
+                        } catch (e) { if (generation === version) finish(e); }
+                    }});
+                    if (settled || stopped || generation !== version) { subscription.stop(); finish(); return; }
+                    channel = subscription;
+                    timeout = setTimeout(() => finish(Error('Segmentation timed out.')), 180000);
+                    // Base64 is a Tcl-safe word; avoid the old serializer's regex on the image.
+                    await ws.hold(segmentKey, tcl`Wish CNC bed segmentation request ${id} uses jpeg ` + jpeg);
+                } catch (e) { finish(e); }
+                await done;
+            }
 
             function draw() {
                 svg.setAttribute('viewBox', `0 0 ${width || canvas.width} ${height || canvas.height}`);
@@ -172,6 +445,11 @@ Wish the web server handles route {/cnc} with handler {
                         font-size="${14 * scale}" fill="white" stroke="black"
                         stroke-width="${2 * scale}" paint-order="stroke">${i + 1}</text>
                 `).join('');
+                const h = mapping?.cameras.find(c => c.name === camera)?.h;
+                if (h) svg.innerHTML += view.contours.map(match => match.contours.map(contour => {
+                    const points = contour.map(p => transform(h, ...p)).map(p => `${p[0]*width},${p[1]*height}`).join(' ');
+                    return `<polygon points="${points}" fill="none" stroke="rgb(${match.color.join(',')})" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
+                }).join('')).join('');
                 label.textContent = points.length === 4 ? 'Four corners saved.' :
                     `Click corner ${points.length + 1} of 4.`;
             }
@@ -192,22 +470,26 @@ Wish the web server handles route {/cnc} with handler {
                     const image = await createImageBitmap(await r.blob());
                     try {
                         if (!live || stopped || generation !== version) return;
-                        if (canvas.width !== image.width) canvas.width = image.width;
-                        if (canvas.height !== image.height) canvas.height = image.height;
-                        ctx.drawImage(image, 0, 0);
-                        ready = true;
-                        draw();
+                        if (points.length !== 4 || !ready) {
+                            if (canvas.width !== image.width) canvas.width = image.width;
+                            if (canvas.height !== image.height) canvas.height = image.height;
+                            ctx.drawImage(image, 0, 0);
+                            ready = true;
+                            draw();
+                        }
+                        if (points.length === 4) await segment(generation, image);
                     } finally {
                         image.close();
                     }
                 } catch (e) {
                     if (live) label.textContent = e.message;
                 }
-                if (live && !stopped && generation === version) timer = setTimeout(frame, 100);
+                if (live && !stopped && generation === version) timer = setTimeout(frame, points.length === 4 ? 1000 : 100);
             }
 
             function resume() {
                 version++;
+                clearSegments();
                 request?.abort();
                 clearTimeout(timer);
                 live = true;
@@ -236,6 +518,7 @@ Wish the web server handles route {/cnc} with handler {
                     try {
                         await ws.run(tcl`Hold! -save -on cnc -key ${camera} -- cnc claims camera ${camera} has CNC bed corners ${points} with width ${width} height ${height}`);
                         draw();
+                        resume();
                     } catch (e) {
                         points.pop();
                         draw();
@@ -248,6 +531,7 @@ Wish the web server handles route {/cnc} with handler {
 
             panel.querySelector('.undo').onclick = async () => {
                 if (busy || !points.length) return;
+                live = false; version++; request?.abort(); clearTimeout(timer); clearSegments();
                 busy = true;
                 try {
                     await ws.hold(camera, '', 'cnc', true);
@@ -262,6 +546,7 @@ Wish the web server handles route {/cnc} with handler {
 
             panel.querySelector('.clear').onclick = async () => {
                 if (busy) return;
+                live = false; version++; request?.abort(); clearTimeout(timer); clearSegments();
                 busy = true;
                 try {
                     await ws.hold(camera, '', 'cnc', true);
@@ -282,6 +567,7 @@ Wish the web server handles route {/cnc} with handler {
             });
             window.addEventListener('pagehide', () => {
                 version++;
+                clearSegments();
                 request?.abort();
                 clearTimeout(timer);
             });
@@ -315,6 +601,7 @@ Wish the web server handles route {/cnc} with handler {
             width: 100%;
             cursor: crosshair;
         }
+        .segments { position: absolute; pointer-events: none; }
         svg {
             position: absolute;
             inset: 0;
@@ -332,9 +619,11 @@ Wish the web server handles route {/cnc} with handler {
     <p>
         Click the same four bed corners in perimeter order in both views: same starting corner, same direction.
         First click freezes the image; fourth click saves. Selections and projection persist after closing this page.
+        Saved bed bounding boxes are automatically segmented and colored; each overlay stays aligned with its source frame.
     </p>
     <span id="connectionStatus">Connecting…</span>
     <p id="bed">Select four corners in each camera.</p>
+    <p id="matches">Waiting for segments from both cameras.</p>
     <div class="cameras">[join $panels \n]</div>
     <script src="/lib/folk.js"></script>
     <script>$script</script>
