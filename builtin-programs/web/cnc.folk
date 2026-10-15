@@ -108,11 +108,11 @@ When the collected results for {cnc claims camera /camera/ has CNC bed corners /
     set lc [dict get $left camera];set rc [dict get $right camera]
     if {$lc eq $rc} return
     When the CNC bed geometry library is /geometry/ &\
-         calibration claims camera $lc has intrinsics /lk/ &\
-         calibration claims camera $rc has intrinsics /rk/ &\
-         calibration claims camera $lc to display /display/ has extrinsics /le/ &\
-         calibration claims camera $rc to display /display/ has extrinsics /re/ &\
-         calibration claims display /display/ has intrinsics /pk/ &\
+         camera $lc has intrinsics /lk/ &\
+         camera $rc has intrinsics /rk/ &\
+         camera $lc to display /display/ has extrinsics /le/ &\
+         camera $rc to display /display/ has extrinsics /re/ &\
+         display /display/ has intrinsics /pk/ &\
          display /display/ has width /pw/ height /ph/ {
         try {
             foreach selection [list $left $right] {
@@ -123,7 +123,7 @@ When the collected results for {cnc claims camera /camera/ has CNC bed corners /
                                              $right(points) $right(width) $right(height) $rk $re(R) $re(t) $pk $pw $ph]
             if {![dict exists $result error]} {
                 lassign [dict get $result projectorQuad] p0 p1 p2 p3
-                Wish to draw a quad onto $display with p0 $p0 p1 $p1 p2 $p2 p3 $p3 color white layer 100
+                Wish to draw a quad onto $display with p0 $p0 p1 $p1 p2 $p2 p3 $p3 color green layer 100
                 Claim CNC bed has quad [dict get $result points3d] in display $display
             }
         } on error {e} {set result [dict create error $e]}
