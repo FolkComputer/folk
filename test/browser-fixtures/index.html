@@ -1,0 +1,28 @@
+<!doctype html>
+<!-- Fixture for test/browser-*.folk. Layout is in fixed CSS pixels
+     (viewport 1024x640) so tests can check exact pixels. -->
+<html>
+<head>
+<meta charset="utf-8">
+<title>Folk browser fixture</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #ffffff; font-family: sans-serif; }
+  #top { position: absolute; left: 0; top: 0; width: 1024px; height: 200px; background: #ff0000; }
+  #go { position: absolute; left: 100px; top: 300px; width: 400px; height: 80px;
+        display: block; background: #0000ff; color: #ffffff; font-size: 40px;
+        line-height: 80px; text-decoration: none; text-align: center; }
+  #band { position: absolute; left: 0; top: 1000px; width: 1024px; height: 400px; background: #00ff00; }
+  #essay { position: absolute; left: 40px; top: 2400px; width: 900px; font-size: 48px; line-height: 64px; }
+  #spacer { height: 4000px; }
+</style>
+</head>
+<body>
+  <div id="top"></div>
+  <a id="go" href="two.html">Go to page two</a>
+  <div id="band"></div>
+  <p id="essay">Some preamble. The bad news is that interpretability
+    was never going to be easy, and we should have known that from
+    the first place we looked. More text follows.</p>
+  <div id="spacer"></div>
+</body>
+</html>

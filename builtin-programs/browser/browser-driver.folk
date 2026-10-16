@@ -1,0 +1,316 @@
+# browser-driver.folk: headless Chromium (via Playwright) for
+# browser.folk.
+#
+# Chromium is only started once some program is waiting on
+# `the browser driver is /driver/`, and is shut down again when nobody
+# is (same lazy-loading trick as recognition/craft.folk).
+#
+# Setup on a Folk machine (once):
+#
+#     uvx --with playwright==1.56.0 playwright install --with-deps chromium
+#
+# or point FOLK_BROWSER_CHROMIUM at an existing Chromium/Chrome binary.
+#
+# Every Playwright call happens on one Python thread (the sync API is
+# not thread-safe), while Folk may call the driver from any thread.
+
+When when the browser driver is /any/ /any/ with environment /any/ {
+    Wish -keep 2000ms to load the browser driver
+}
+
+When /someone/ wishes to load the browser driver {
+    set py [Uvx --with playwright==1.56.0]
+
+    $py exec {
+        import os, sys, time, threading, queue, tempfile
+        from playwright.sync_api import sync_playwright
+
+        _jobs = queue.Queue()
+
+        def _worker():
+            pw = sync_playwright().start()
+            kwargs = {}
+            exe = os.environ.get("FOLK_BROWSER_CHROMIUM")
+            if exe:
+                kwargs["executable_path"] = exe
+            browser = pw.chromium.launch(
+                args=["--autoplay-policy=no-user-gesture-required",
+                      "--hide-scrollbars"],
+                **kwargs)
+            state = {"browser": browser}
+            while True:
+                fn, args, box, done = _jobs.get()
+                try:
+                    box["ok"] = fn(state, *args)
+                except Exception as e:
+                    box["err"] = e
+                done.set()
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+        def _call(fn, *args):
+            box = {}
+            done = threading.Event()
+            _jobs.put((fn, args, box, done))
+            done.wait()
+            if "err" in box:
+                raise box["err"]
+            return box["ok"]
+
+        SESSIONS = {}
+
+        # Finds each scroll-to-text directive in the page, paints it
+        # with a CSS custom highlight, and scrolls the first one into
+        # view. Returns the matches' viewport rects.
+        FRAGMENT_JS = r"""
+        (flat) => {
+          const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+          const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+          const nodes = []; let text = '';
+          while (walker.nextNode()) {
+            const n = walker.currentNode;
+            nodes.push([n, text.length]); text += n.data;
+          }
+          const at = (offset) => {
+            let lo = 0, hi = nodes.length - 1;
+            while (lo < hi) {
+              const mid = (lo + hi + 1) >> 1;
+              if (nodes[mid][1] <= offset) lo = mid; else hi = mid - 1;
+            }
+            const [n, start] = nodes[lo];
+            return [n, Math.min(offset - start, n.data.length)];
+          };
+          const ranges = [];
+          for (let i = 0; i < flat.length; i += 4) {
+            const [prefix, start, end, suffix] = flat.slice(i, i + 4);
+            let re = (prefix ? esc(prefix) + '\\s*' : '') + '(' + esc(start) + ')';
+            const m = new RegExp(re, 'i').exec(text);
+            if (!m) continue;
+            const s = m.index + m[0].length - m[1].length;
+            let e = s + m[1].length;
+            if (end) {
+              const m2 = new RegExp(esc(end) + (suffix ? '(?=\\s*' + esc(suffix) + ')' : ''), 'i')
+                .exec(text.slice(e));
+              if (!m2) continue;
+              e = e + m2.index + m2[0].length;
+            }
+            const r = document.createRange();
+            r.setStart(...at(s)); r.setEnd(...at(e));
+            ranges.push(r);
+          }
+          if (!ranges.length) return [];
+          if (window.CSS && CSS.highlights) {
+            CSS.highlights.set('folk-fragment', new Highlight(...ranges));
+            const style = document.createElement('style');
+            style.textContent = '::highlight(folk-fragment) { background-color: #ffeb3b; color: #000; }';
+            document.head.appendChild(style);
+          }
+          const first = ranges[0].getBoundingClientRect();
+          window.scrollTo(0, window.scrollY + first.top - window.innerHeight / 4);
+          return ranges.map(r => { const b = r.getBoundingClientRect();
+                                   return [b.left, b.top, b.width, b.height]; });
+        }
+        """
+
+        # Visible links, in viewport CSS pixels.
+        LINKS_JS = r"""
+        () => {
+          const out = [];
+          const vw = window.innerWidth, vh = window.innerHeight;
+          document.querySelectorAll('a[href]').forEach((a) => {
+            for (const b of a.getClientRects()) {
+              if (b.width < 1 || b.height < 1) continue;
+              if (b.right < 0 || b.bottom < 0 || b.left > vw || b.top > vh) continue;
+              out.push([a.href, b.left, b.top, b.width, b.height]);
+            }
+          });
+          return out;
+        }
+        """
+
+        # Outlines the hovered link and fills it left-to-right as the
+        # dwell progresses, so pointing feedback shows up in the
+        # rendered texture itself.
+        HOVER_JS = r"""
+        ([href, progress]) => {
+          document.querySelectorAll('[data-folk-hover]').forEach((a) => {
+            a.removeAttribute('data-folk-hover');
+            a.style.outline = a.dataset.folkOutline || '';
+            a.style.backgroundImage = a.dataset.folkBg || '';
+          });
+          if (!href) return;
+          for (const a of document.querySelectorAll('a[href]')) {
+            if (a.href !== href) continue;
+            a.setAttribute('data-folk-hover', '');
+            a.dataset.folkOutline = a.style.outline;
+            a.dataset.folkBg = a.style.backgroundImage;
+            a.style.outline = '4px solid #00c853';
+            const pct = Math.round(progress * 100);
+            a.style.backgroundImage =
+              `linear-gradient(to right, rgba(0,200,83,0.45) ${pct}%, transparent ${pct}%)`;
+          }
+        }
+        """
+
+        def _navigate(state, sid, url, directives):
+            s = SESSIONS[sid]
+            page = s["page"]
+            try:
+                page.goto(url, wait_until="load", timeout=20000)
+            except Exception as e:
+                print(f"browser: navigate {url}: {e}", file=sys.stderr, flush=True)
+            s["url"] = url
+            s["fragment"] = []
+            if directives:
+                try:
+                    s["fragment"] = page.evaluate(FRAGMENT_JS, directives)
+                except Exception as e:
+                    print(f"browser: text fragment: {e}", file=sys.stderr, flush=True)
+            s["hover"] = None
+            s["dirty"] = True
+
+        def _open(state, sid, url, width, height, directives):
+            width, height = int(width), int(height)
+            s = SESSIONS.get(sid)
+            if s is not None and s["size"] != (width, height):
+                s["page"].set_viewport_size({"width": width, "height": height})
+                s["size"] = (width, height)
+                s["dirty"] = True
+            if s is None:
+                ctx = state["browser"].new_context(
+                    viewport={"width": width, "height": height})
+                s = SESSIONS[sid] = {
+                    "context": ctx, "page": ctx.new_page(), "size": (width, height),
+                    "requested": None, "url": None, "n": 0, "frames": [],
+                    "last_frame": 0.0, "dirty": True, "hover": None,
+                    "last_tilt": None, "tilt_rest": None, "fragment": [],
+                }
+            if s["requested"] != url:
+                s["requested"] = url
+                _navigate(state, sid, url, directives)
+            return s["url"]
+
+        def _close(state, sid):
+            s = SESSIONS.pop(sid, None)
+            if s is None:
+                return False
+            s["context"].close()
+            for path in s["frames"]:
+                try: os.unlink(path)
+                except OSError: pass
+            return True
+
+        def _scroll(state, sid, dx, dy):
+            s = SESSIONS[sid]
+            s["page"].evaluate("([dx, dy]) => window.scrollBy(dx, dy)", [dx, dy])
+            s["dirty"] = True
+            return s["page"].evaluate("() => [window.scrollX, window.scrollY]")
+
+        def _tilt(state, sid, vx, vy):
+            # Integrates a scroll velocity (CSS px/s) over the time
+            # since the last tilt call, so the scroll speed doesn't
+            # depend on how often Folk calls us.
+            s = SESSIONS[sid]
+            now = time.monotonic()
+            last = s["last_tilt"]
+            s["last_tilt"] = now
+            if last is None or (vx == 0 and vy == 0):
+                return [0, 0]
+            dt = min(now - last, 0.25)
+            dx, dy = vx * dt, vy * dt
+            if abs(dx) >= 0.5 or abs(dy) >= 0.5:
+                _scroll(state, sid, dx, dy)
+            return [dx, dy]
+
+        def _tilt_rest(state, sid, normal):
+            s = SESSIONS[sid]
+            if s["tilt_rest"] is None:
+                s["tilt_rest"] = list(normal)
+            return s["tilt_rest"]
+
+        def _hover(state, sid, href, dwell):
+            # Returns [href, progress 0..1, clicked?]. Hovering the same
+            # link for `dwell` seconds navigates to it.
+            s = SESSIONS[sid]
+            now = time.monotonic()
+            h = s["hover"]
+            if not href:
+                if h is not None:
+                    h["left"] = now
+                return ["", 0, False]
+            if h is None or h["href"] != href or \
+               (h.get("left") is not None and now - h["left"] > 0.3):
+                h = s["hover"] = {"href": href, "since": now, "left": None}
+            h["left"] = None
+            progress = min(1.0, (now - h["since"]) / dwell) if dwell > 0 else 1.0
+            s["page"].evaluate(HOVER_JS, [href, progress])
+            s["dirty"] = True
+            if progress >= 1.0:
+                s["hover"] = None
+                _navigate(state, sid, href, [])
+                return [href, 1.0, True]
+            return [href, progress, False]
+
+        def _frame(state, sid, outdir, refresh):
+            # Screenshot if something changed (or every `refresh`
+            # seconds, for animated pages and videos).
+            s = SESSIONS.get(sid)
+            if s is None:
+                return {}
+            now = time.monotonic()
+            if not s["dirty"] and now - s["last_frame"] < refresh:
+                return {}
+            h = s["hover"]
+            if h is not None and h.get("left") is not None and now - h["left"] > 0.3:
+                s["page"].evaluate(HOVER_JS, ["", 0])
+                s["hover"] = None
+            page = s["page"]
+            os.makedirs(outdir, exist_ok=True)
+            s["n"] += 1
+            path = os.path.join(outdir, f"{sid}-{s['n']}.png")
+            page.screenshot(path=path)
+            s["frames"].append(path)
+            while len(s["frames"]) > 4:
+                try: os.unlink(s["frames"].pop(0))
+                except OSError: pass
+            s["dirty"] = False
+            s["last_frame"] = now
+            scroll = page.evaluate("() => [window.scrollX, window.scrollY, document.documentElement.scrollHeight]")
+            return {
+                "path": path, "n": s["n"],
+                "url": page.url, "title": page.title(),
+                "width": s["size"][0], "height": s["size"][1],
+                "scrollX": scroll[0], "scrollY": scroll[1], "scrollHeight": scroll[2],
+                "links": page.evaluate(LINKS_JS),
+                "fragment": s["fragment"],
+                "hover": h["href"] if h else "",
+            }
+    }
+
+    $py def openSession {str sid str url num width num height {list str} directives} {
+        return _call(_open, sid, url, width, height, directives)
+    }
+    $py def closeSession {str sid} {
+        return _call(_close, sid)
+    }
+    $py def navigate {str sid str url {list str} directives} {
+        return _call(_navigate, sid, url, directives)
+    }
+    $py def scrollBy {str sid num dx num dy} {
+        return _call(_scroll, sid, dx, dy)
+    }
+    $py def tilt {str sid num vx num vy} {
+        return _call(_tilt, sid, vx, vy)
+    }
+    $py def tiltRest {str sid {list num} normal} {
+        return _call(_tilt_rest, sid, normal)
+    }
+    $py def hover {str sid str href num dwell} {
+        return _call(_hover, sid, href, dwell)
+    }
+    $py def frame {str sid str outdir num refresh} {
+        return _call(_frame, sid, outdir, refresh)
+    }
+
+    Claim the browser driver is $py
+}

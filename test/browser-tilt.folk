@@ -1,0 +1,99 @@
+# End-to-end test of tilt-to-scroll and scroll-to-text fragments,
+# through browser.folk wishes. We tilt the page by changing its quad
+# (as the camera would see it) and watch the rendered page scroll.
+
+source test/browser-test-helpers.tcl
+requireBrowserDriver
+source builtin-programs/image/image-lib.folk
+source builtin-programs/image/png-lib.folk
+source builtin-programs/quad-lib.folk
+source builtin-programs/browser/browser-lib.folk
+source builtin-programs/browser/browser-driver.folk
+source builtin-programs/browser/browser.folk
+
+set index "$browserFixtureUrl/index.html"
+
+expectSteps {
+    flat-stays tilt-reading tilt-down tilt-up fragment-scrolled fragment-highlighted
+} 150
+
+# A 20cm x 12.5cm page, hinged along its top edge (raiseBottom > 0) or
+# its bottom edge (raiseTop > 0) by `degrees`. The viewer is on the
+# -z side, so "raised" means toward -z.
+fn tiltedQuad {edge degrees} {
+    set w 0.2; set h 0.125
+    set a [expr {$degrees * 3.14159265358979 / 180.0}]
+    set dy [expr {$h * cos($a)}]; set dz [expr {-$h * sin($a)}]
+    if {$edge eq "bottom"} {
+        set verts [list {0 0 1} [list $w 0 1] \
+                       [list $w $dy [expr {1 + $dz}]] [list 0 $dy [expr {1 + $dz}]]]
+    } else {
+        set verts [list [list 0 [expr {$h - $dy}] [expr {1 + $dz}]] \
+                       [list $w [expr {$h - $dy}] [expr {1 + $dz}]] \
+                       [list $w $h 1] [list 0 $h 1]]
+    }
+    list table $verts
+}
+
+Claim tiltpage has resolved geometry {width 0.2 height 0.125}
+Hold! -key tiltquad Claim tiltpage has quad [tiltedQuad bottom 0]
+Wish tiltpage renders $index in a browser
+Wish tiltpage browser is tilt-sensitive
+
+# Phases, driven off the clock: flat -> bottom raised -> top raised.
+Hold! -key phase Claim test phase flat
+When the clock time is /t/ & test phase /phase/ {
+    set frames [Query! tiltpage has browser frame /im/ with metadata /meta/]
+    set tilts [Query! tiltpage has browser tilt /deg/ degrees velocity /v/]
+    if {[llength $frames] == 0 || [llength $tilts] == 0} { return }
+    set scrollY [dict get [lindex $frames 0] meta scrollY]
+    set deg [dict get [lindex $tilts 0] deg]
+    set v [dict get [lindex $tilts 0] v]
+
+    check $phase {
+        if {$phase eq "flat"} {
+            assertNear $deg 0 1
+            assertEq $v 0.0
+            assertNear $scrollY 0 1
+            pass flat-stays
+            Hold! -key tiltquad Claim tiltpage has quad [tiltedQuad bottom 30]
+            Hold! -key phase Claim test phase down
+        } elseif {$phase eq "down"} {
+            if {abs($deg + 30) < 1} {
+                if {$v <= 0} { error "bottom raised should scroll down, velocity $v" }
+                pass tilt-reading
+            }
+            if {$scrollY > 400} {
+                pass tilt-down
+                Hold! -key scrollMark Claim scroll mark is $scrollY
+                Hold! -key tiltquad Claim tiltpage has quad [tiltedQuad top 30]
+                Hold! -key phase Claim test phase up
+            }
+        } elseif {$phase eq "up"} {
+            set mark [dict get [lindex [Query! scroll mark is /y/] 0] y]
+            if {$scrollY < $mark - 200} {
+                pass tilt-up
+                Hold! -key phase Claim test phase done
+            }
+        }
+    }
+}
+
+# Text fragment through the wish, drawn to the right of its page.
+Claim fragpage has quad {table {{1 0 1} {1.2 0 1} {1.2 0.125 1} {1 0.125 1}}}
+Claim fragpage has resolved geometry {width 0.2 height 0.125}
+Wish fragpage renders "$index#:~:text=The%20bad%20news,the%20first%20place" in a browser rightward
+
+When the image library is /imageLib/ &\
+     {fragpage browser rightward} has browser frame /im/ with metadata /meta/ {
+    check fragment {
+        set fragment [dict get $meta fragment]
+        if {[llength $fragment] != 1} { error "fragment matches: $fragment" }
+        if {[dict get $meta scrollY] < 1800} { error "scrollY [dict get $meta scrollY]" }
+        pass fragment-scrolled
+        lassign [lindex $fragment 0] fx fy fw fh
+        set yellow [fractionMatching $imageLib $im [list $fx $fy $fw $fh] {255 235 59}]
+        if {$yellow < 0.3} { error "fragment isn't highlighted (yellow fraction $yellow)" }
+        pass fragment-highlighted
+    }
+}

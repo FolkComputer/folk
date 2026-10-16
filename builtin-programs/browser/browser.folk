@@ -1,0 +1,316 @@
+# browser.folk: render live web pages onto pages.
+#
+#     Wish $this renders https://example.com in a browser
+#     Wish $this renders https://example.com in a browser below
+#         (or above, leftward, rightward: draw next to the page instead
+#          of on top of it)
+#     Wish $this renders https://example.com in an interactive browser
+#
+#     Wish $this browser is tilt-sensitive
+#         (tilt the page to scroll: raise the top edge to scroll up,
+#          the bottom edge to scroll down)
+#     Wish $this browser is tilt-sensitive with axis horizontal inverted true
+#
+#     Wish $this plays YouTube video "dQw4w9WgXcQ"
+#     Wish $this plays YouTube video "dQw4w9WgXcQ" rightward
+#     Notify: print a YouTube binder with videos {{dQw4w9WgXcQ "Title"} ...}
+#
+# Scroll-to-text fragments (`#:~:text=start,end`) are highlighted and
+# scrolled into view.
+#
+# Selecting links: point a page at a browser (any page with `Wish
+# $this points up`, see geometric/points-at.folk). The link under the
+# whisker gets outlined and fills up green; hold it there for a second
+# to follow it. While hovered, these are claimed:
+#
+#     $surface has hovered link $href
+#     $href is a link
+#
+# so another page can do
+#
+#     When /target/ is a link { Wish $this renders $target in a browser }
+#
+# to open whatever link is being pointed at.
+#
+# Browser-produced statements:
+#
+#     $surface is a browser with session $sid url $url
+#     $p has browser $surface with session $sid
+#     $surface has browser frame $image with metadata $meta
+#         (meta: url title width height scrollX scrollY scrollHeight
+#          links fragment hover n path)
+#
+# where $surface is the page itself, or {$p browser $placement} for
+# adjacent placements.
+
+# Seconds to hold a pointer on a link before following it. Override
+# with `Wish the browser link dwell is 2 seconds`.
+set BrowserDwellSeconds 1.0
+# Re-screenshot at least this often even if nothing changed (videos,
+# animations, pages still loading).
+set BrowserRefreshSeconds 0.5
+# Viewport width in CSS pixels; height follows the surface's aspect.
+set BrowserViewportWidth 1024
+set BrowserFrameDir "/tmp/folk-browser-[pid]"
+
+# ---- Wish normalization ----
+
+When /someone/ wishes /p/ renders /url/ in a browser {
+    Wish $p has a browser showing $url placed here
+}
+When /someone/ wishes /p/ renders /url/ in an interactive browser {
+    Wish $p has a browser showing $url placed here
+}
+When the browser library is /lib/ &\
+     /someone/ wishes /p/ renders /url/ in a browser /placement/ {
+    if {[catch {$lib placementMoveArgs $placement} e]} {
+        Claim $p has error $e with info $e
+        return
+    }
+    Wish $p has a browser showing $url placed $placement
+}
+
+When the browser library is /lib/ &\
+     /someone/ wishes /p/ plays YouTube video /video/ {
+    Wish $p renders [$lib youtubeEmbedUrl $video] in a browser
+}
+When the browser library is /lib/ &\
+     /someone/ wishes /p/ plays YouTube video /video/ /placement/ {
+    Wish $p renders [$lib youtubeEmbedUrl $video] in a browser $placement
+}
+
+When /someone/ wishes /p/ browser is tilt-sensitive {
+    Wish $p browser is tilt-sensitive with axis vertical
+}
+
+# ---- Sessions ----
+
+When the browser library is /lib/ &\
+     /someone/ wishes /p/ has a browser showing /url/ placed /placement/ {
+    try {
+        set url [$lib normalizeUrl $url]
+        set moveArgs [$lib placementMoveArgs $placement]
+    } on error e {
+        Claim $p has error $e with info $e
+        return
+    }
+    set surface [$lib surfaceFor $p $placement]
+    set sid "b[regsub -all {[^A-Za-z0-9_-]+} $surface _]"
+
+    if {$moveArgs ne {}} {
+        # A virtual page next to $p, the same size as $p.
+        When the quad library is /quadLib/ &\
+             $p has quad /q/ & $p has resolved geometry /geom/ {
+            Claim $surface has quad [$quadLib move $q {*}$moveArgs]
+            Claim $surface has resolved geometry $geom
+        }
+        Wish $surface has a canvas
+    }
+
+    Claim $surface is a browser with session $sid url $url
+    Claim $p has browser $surface with session $sid
+}
+
+# Persistent image slots per session, recycled round-robin so that a
+# live page doesn't leak an Image per frame. Bumping `uniq` makes each
+# frame a distinct statement value, so the GPU reloads the texture.
+When the image library is /imageLib/ {
+    set cc [C]
+    $cc extend $imageLib
+    $cc include <stdlib.h>
+    $cc include <string.h>
+    $cc include <pthread.h>
+    $cc code {
+        #define FRAME_RING_SLOTS 3
+        #define FRAME_RINGS 64
+        typedef struct FrameRing {
+            char key[128];
+            Image slots[FRAME_RING_SLOTS];
+            int next;
+        } FrameRing;
+        static FrameRing rings[FRAME_RINGS];
+        static uint64_t frameUniq = 1;
+        static pthread_mutex_t ringsMutex = PTHREAD_MUTEX_INITIALIZER;
+
+        static FrameRing* findRing(const char* key, int create) {
+            FrameRing* empty = NULL;
+            for (int i = 0; i < FRAME_RINGS; i++) {
+                if (strncmp(rings[i].key, key, sizeof(rings[i].key)) == 0) { return &rings[i]; }
+                if (empty == NULL && rings[i].key[0] == '\0') { empty = &rings[i]; }
+            }
+            if (!create || empty == NULL) { return NULL; }
+            strncpy(empty->key, key, sizeof(empty->key) - 1);
+            return empty;
+        }
+    }
+    # Takes ownership of `im` (frees its data) and returns a copy that
+    # lives in the ring.
+    $cc proc adoptFrame {char* key Image im} Image {
+        pthread_mutex_lock(&ringsMutex);
+        FrameRing* ring = findRing(key, 1);
+        if (ring == NULL) {
+            pthread_mutex_unlock(&ringsMutex);
+            free(im.data);
+            FOLK_ERROR("browser: too many browser sessions");
+        }
+        Image* slot = &ring->slots[ring->next];
+        ring->next = (ring->next + 1) % FRAME_RING_SLOTS;
+        size_t size = (size_t)im.bytesPerRow * im.height;
+        if (slot->data == NULL ||
+            (size_t)slot->bytesPerRow * slot->height != size) {
+            free(slot->data);
+            slot->data = malloc(size);
+        }
+        memcpy(slot->data, im.data, size);
+        free(im.data);
+        slot->width = im.width;
+        slot->height = im.height;
+        slot->components = im.components;
+        slot->bytesPerRow = im.bytesPerRow;
+        slot->uniq = frameUniq++;
+        Image ret = *slot;
+        pthread_mutex_unlock(&ringsMutex);
+        return ret;
+    }
+    $cc proc releaseFrames {char* key} void {
+        pthread_mutex_lock(&ringsMutex);
+        FrameRing* ring = findRing(key, 0);
+        if (ring != NULL) {
+            for (int i = 0; i < FRAME_RING_SLOTS; i++) { free(ring->slots[i].data); }
+            memset(ring, 0, sizeof(*ring));
+        }
+        pthread_mutex_unlock(&ringsMutex);
+    }
+    Claim the browser frame library is [$cc compile]
+}
+
+When the browser library is /lib/ &\
+     the browser driver is /driver/ &\
+     the png library is /pngLib/ &\
+     the browser frame library is /frameLib/ &\
+     /surface/ is a browser with session /sid/ url /url/ &\
+     /surface/ has resolved geometry /geom/ {
+
+    set vw $BrowserViewportWidth
+    set vh [expr {int(round($vw * double([dict get $geom height]) / [dict get $geom width]))}]
+    if {$vh < 64} { set vh 64 } elseif {$vh > 4 * $vw} { set vh [expr {4 * $vw}] }
+
+    set directives {}
+    foreach d [$lib textFragmentDirectives $url] {
+        lappend directives [dict get $d prefix] [dict get $d start] \
+            [dict get $d end] [dict get $d suffix]
+    }
+    $driver openSession $sid $url $vw $vh $directives
+
+    set frameKey [list browser frame $surface]
+    set frameDir $BrowserFrameDir
+    set refresh $BrowserRefreshSeconds
+    On unmatch {
+        # The URL or size may just be changing; only tear the session
+        # down if nobody re-opened it meanwhile.
+        if {[llength [Query! /surface/ is a browser with session $sid url /any/]] == 0} {
+            catch {$driver closeSession $sid}
+            Hold! -key $frameKey {}
+            $frameLib releaseFrames $sid
+        }
+    }
+
+    When the clock time is /t/ {
+        set meta [$driver frame $sid $frameDir $refresh]
+        if {[dict size $meta] == 0} { return }
+        set im [$frameLib adoptFrame $sid [$pngLib loadPng [dict get $meta path]]]
+        Hold! -key $frameKey \
+            Claim $surface has browser frame $im with metadata $meta
+    }
+}
+
+When /surface/ has browser frame /im/ with metadata /meta/ &\
+     /surface/ has resolved geometry /geom/ {
+    Wish to draw an image onto $surface with \
+        image $im position {0 0} anchor topleft width [dict get $geom width]
+}
+
+# ---- Pointing at links ----
+
+When the browser library is /lib/ &\
+     the browser driver is /driver/ &\
+     /pointer/ points /direction/ with length /l/ at /surface/ &\
+     /surface/ is a browser with session /sid/ url /any/ &\
+     /surface/ has browser frame /any/ with metadata /meta/ &\
+     /pointer/ has quad /pq/ & /surface/ has quad /sq/ {
+
+    set pverts [lindex $pq 1]
+    set sverts [lindex $sq 1]
+    if {[lindex $pq 0] ne [lindex $sq 0]} {
+        # Different spaces: bring the surface into the pointer's space.
+        set changes [Query! the quad changer is /quadChange/]
+        if {[llength $changes] == 0} { return }
+        set quadChange [dict get [lindex $changes 0] quadChange]
+        set sverts [lindex [{*}$quadChange $sq [lindex $pq 0]] 1]
+    }
+
+    set tip [$lib whiskerTip $pverts $direction $l]
+    set uv [$lib pointToUv $sverts $tip]
+    if {![$lib uvInside $uv]} { return }
+    lassign [$lib uvToViewport $uv [dict get $meta width] [dict get $meta height]] px py
+    set link [$lib linkAt [dict get $meta links] $px $py]
+    Claim $pointer points at browser $surface at viewport point [list $px $py]
+    if {$link eq ""} { return }
+    set href [lindex $link 0]
+
+    Claim $surface has hovered link $href
+    Claim $pointer is pointing at link $href on $surface
+    Claim $href is a link
+
+    set dwell $BrowserDwellSeconds
+    foreach r [Query! /someone/ wishes the browser link dwell is /s/ seconds] {
+        set dwell [dict get $r s]
+    }
+    $driver hover $sid $href $dwell
+    On unmatch { catch {$driver hover $sid "" $dwell} }
+
+    # Keep the dwell timer advancing while the pointer holds still
+    # (the quads only change when the camera sees movement).
+    When the clock time is /t/ {
+        $driver hover $sid $href $dwell
+    }
+}
+
+# ---- Tilt to scroll ----
+
+When the browser library is /lib/ &\
+     the browser driver is /driver/ &\
+     /someone/ wishes /p/ browser is tilt-sensitive with /...options/ &\
+     /p/ has browser /surface/ with session /sid/ &\
+     /surface/ has browser frame /any/ with metadata /any/ {
+    if {![info exists options]} { return }
+    set axis [dict getdef $options axis vertical]
+    set inverted [dict getdef $options inverted false]
+    set deadzone [dict getdef $options deadzone 6]
+    set gain [dict getdef $options gain 40]
+
+    When $p has quad /q/ & the clock time is /t/ {
+        set verts [lindex $q 1]
+        set rest [$driver tiltRest $sid [$lib quadNormal $verts]]
+        set degrees [$lib tiltDegrees $rest $verts $axis]
+        set v [$lib tiltVelocity $degrees $deadzone $gain 2000 [expr {!!$inverted}]]
+        if {$axis eq "vertical"} {
+            $driver tilt $sid 0 $v
+        } else {
+            $driver tilt $sid $v 0
+        }
+        Claim $p has browser tilt $degrees degrees velocity $v
+    }
+}
+
+# ---- YouTube binder ----
+
+When the browser library is /lib/ {
+    # videos: list of {video ?title?}; video can be an id or a URL.
+    Subscribe: print a YouTube binder with videos /videos/ {
+        foreach v $videos {
+            lassign $v video title
+            Notify: print code [$lib youtubeBinderPageCode $video $title]
+        }
+    }
+}

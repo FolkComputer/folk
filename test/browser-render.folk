@@ -1,0 +1,144 @@
+# End-to-end test of the browser driver: real headless Chromium renders
+# test/browser-fixtures/*.html, and we check the actual pixels of the
+# frames after they go through Folk's PNG loader (the same path that
+# browser.folk uses to put frames on the table).
+#
+# Needs uvx + network on first run (to fetch Playwright) and a Chromium
+# Playwright can launch (PLAYWRIGHT_BROWSERS_PATH, or
+# FOLK_BROWSER_CHROMIUM).
+
+source test/browser-test-helpers.tcl
+requireBrowserDriver
+source builtin-programs/image/image-lib.folk
+source builtin-programs/image/png-lib.folk
+source builtin-programs/browser/browser-lib.folk
+source builtin-programs/browser/browser-driver.folk
+
+set frameDir "/tmp/folk-browser-test-[pid]"
+
+expectSteps {render links scroll text-fragment hover-feedback dwell-navigates tilt-scrolls} 150
+
+When the browser driver is /driver/ &\
+     the png library is /pngLib/ &\
+     the image library is /imageLib/ &\
+     the browser library is /lib/ {
+
+    # Grabs a fresh frame (forcing a screenshot) and loads it.
+    fn grab {sid} {
+        set meta [$driver frame $sid $frameDir 0]
+        if {[dict size $meta] == 0} { error "no frame for $sid" }
+        list [$pngLib loadPng [dict get $meta path]] $meta
+    }
+
+    set index "$browserFixtureUrl/index.html"
+    $driver openSession s1 $index 1024 640 {}
+
+    check render {
+        lassign [grab s1] im meta
+        assertEq [$imageLib Image_width $im] 1024
+        assertEq [$imageLib Image_height $im] 640
+        assertEq [dict get $meta title] "Folk browser fixture"
+        # Red header, blue link, white page.
+        assertPixel $imageLib $im 10 10 {255 0 0}
+        assertPixel $imageLib $im 1000 190 {255 0 0}
+        assertPixel $imageLib $im 110 310 {0 0 255}
+        assertPixel $imageLib $im 700 500 {255 255 255}
+        # Link text is white on blue: some of the link box should be
+        # neither, i.e. text actually got drawn.
+        assert {[fractionMatching $imageLib $im {100 300 400 80} {0 0 255}] < 0.98}
+        pass render
+    }
+
+    check links {
+        lassign [grab s1] im meta
+        set links [dict get $meta links]
+        assertEq [llength $links] 1
+        lassign [lindex $links 0] href x y w h
+        assertEq $href "$browserFixtureUrl/two.html"
+        assertNear $x 100 1; assertNear $y 300 1
+        assertNear $w 400 1; assertNear $h 80 1
+        # And the library's hit test finds it from a viewport point.
+        assertEq [lindex [$lib linkAt $links 300 340] 0] $href
+        pass links
+    }
+
+    check scroll {
+        $driver scrollBy s1 0 1000
+        lassign [grab s1] im meta
+        assertNear [dict get $meta scrollY] 1000 1
+        # The green band (document y 1000..1400) is now at the top.
+        assertPixel $imageLib $im 10 10 {0 255 0}
+        assertPixel $imageLib $im 500 390 {0 255 0}
+        assertPixel $imageLib $im 500 450 {255 255 255}
+        # The link scrolled out of view.
+        assertEq [llength [dict get $meta links]] 0
+        $driver scrollBy s1 0 -1000
+        pass scroll
+    }
+
+    check text-fragment {
+        set url "$index#:~:text=The%20bad%20news,the%20first%20place"
+        set directives {}
+        foreach d [$lib textFragmentDirectives $url] {
+            lappend directives {*}[dict values $d]
+        }
+        # dict order is prefix start end suffix
+        assertEq [llength $directives] 4
+        $driver openSession s2 $url 1024 640 $directives
+        lassign [grab s2] im meta
+        set fragment [dict get $meta fragment]
+        if {[llength $fragment] != 1} { error "fragment matches: $fragment" }
+        # Scrolled down to the essay (document y 2400+).
+        if {[dict get $meta scrollY] < 1800} {
+            error "didn't scroll to the fragment (scrollY [dict get $meta scrollY])"
+        }
+        # The highlighted range is painted yellow on screen.
+        lassign [lindex $fragment 0] fx fy fw fh
+        if {$fy < 0 || $fy > 640} { error "fragment not in view: $fragment" }
+        set yellow [fractionMatching $imageLib $im [list $fx $fy $fw $fh] {255 235 59}]
+        if {$yellow < 0.3} { error "fragment isn't highlighted (yellow fraction $yellow)" }
+        # Text before the fragment is not highlighted.
+        assertPixel $imageLib $im 45 [expr {int($fy) - 30}] {255 255 255}
+        $driver closeSession s2
+        pass text-fragment
+    }
+
+    check hover-feedback {
+        set href "$browserFixtureUrl/two.html"
+        lassign [$driver hover s1 $href 0.6] hovered progress clicked
+        assertEq $hovered $href
+        assert {!$clicked}
+        lassign [grab s1] im meta
+        assertEq [dict get $meta hover] $href
+        # Green outline just outside the link box.
+        assertPixel $imageLib $im 98 340 {0 200 83} 60
+        pass hover-feedback
+    }
+
+    check dwell-navigates {
+        set href "$browserFixtureUrl/two.html"
+        sleep 0.7
+        lassign [$driver hover s1 $href 0.6] hovered progress clicked
+        assert {$clicked}
+        lassign [grab s1] im meta
+        assertEq [dict get $meta url] $href
+        assertPixel $imageLib $im 10 10 {255 0 255}
+        assertPixel $imageLib $im 512 320 {255 0 255}
+        pass dwell-navigates
+    }
+
+    check tilt-scrolls {
+        $driver openSession s3 $index 1024 640 {}
+        $driver tilt s3 0 0
+        sleep 0.2
+        lassign [$driver tilt s3 0 2000] dx dy
+        # dt is capped at 0.25s, so dy is 2000 * [0.2, 0.25].
+        if {$dy < 300 || $dy > 600} { error "unexpected tilt scroll $dy" }
+        lassign [grab s3] im meta
+        assertNear [dict get $meta scrollY] $dy 2
+        $driver closeSession s3
+        pass tilt-scrolls
+    }
+
+    $driver closeSession s1
+}

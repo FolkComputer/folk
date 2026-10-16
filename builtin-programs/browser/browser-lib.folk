@@ -1,0 +1,267 @@
+# browser-lib.folk: pure-Tcl helpers for browser.folk.
+#
+# Everything here is side-effect free (no Chromium, no GPU, no
+# camera), so it can be unit-tested directly; see
+# test/browser-lib.folk.
+
+set browserLib [library create browserLib {
+    # ---- URLs -----------------------------------------------------
+
+    # Decodes %XX escapes (as UTF-8) and, if plusIsSpace, `+`.
+    proc percentDecode {s {plusIsSpace 0}} {
+        set out ""
+        set hex ""
+        set n [string length $s]
+        for {set i 0} {$i < $n} {incr i} {
+            set c [string index $s $i]
+            if {$c eq "%" && $i + 2 < $n &&
+                [string is xdigit -strict [string range $s $i+1 $i+2]]} {
+                append hex [string range $s $i+1 $i+2]
+                incr i 2
+                continue
+            }
+            if {$hex ne ""} { append out [binary format H* $hex]; set hex "" }
+            if {$plusIsSpace && $c eq "+"} { set c " " }
+            append out $c
+        }
+        if {$hex ne ""} { append out [binary format H* $hex] }
+        return $out
+    }
+
+    # Splits off a scroll-to-text fragment (`#:~:text=...`, see
+    # https://wicg.github.io/scroll-to-text-fragment/). Returns a list
+    # of directives, each a dict with keys prefix, start, end, suffix
+    # (missing parts are "").
+    proc textFragmentDirectives {url} {
+        set idx [string first ":~:" $url]
+        if {$idx < 0} { return {} }
+        set directives {}
+        foreach part [split [string range $url $idx+3 end] &] {
+            if {![string match "text=*" $part]} { continue }
+            set pieces [split [string range $part 5 end] ,]
+            set prefix ""; set suffix ""
+            if {[llength $pieces] > 1 && [string index [lindex $pieces 0] end] eq "-"} {
+                set prefix [string range [lindex $pieces 0] 0 end-1]
+                set pieces [lrange $pieces 1 end]
+            }
+            if {[llength $pieces] > 1 && [string index [lindex $pieces end] 0] eq "-"} {
+                set suffix [string range [lindex $pieces end] 1 end]
+                set pieces [lrange $pieces 0 end-1]
+            }
+            if {[llength $pieces] < 1 || [llength $pieces] > 2} { continue }
+            lassign $pieces start end
+            if {$start eq ""} { continue }
+            lappend directives [dict create \
+                prefix [percentDecode $prefix] \
+                start [percentDecode $start] \
+                end [percentDecode $end] \
+                suffix [percentDecode $suffix]]
+        }
+        return $directives
+    }
+
+    proc isUrl {s} {
+        regexp {^(https?|file|data|about):} $s
+    }
+
+    # Normalizes things people write on paper ("example.com",
+    # "goodfire.com/research") into navigable URLs.
+    proc normalizeUrl {s} {
+        set s [string trim $s]
+        if {[isUrl $s]} { return $s }
+        if {[regexp {^[A-Za-z0-9.-]+\.[A-Za-z]{2,}(/.*)?$} $s]} {
+            return "https://$s"
+        }
+        error "browser: Not a URL: $s"
+    }
+
+    # ---- YouTube --------------------------------------------------
+
+    # Accepts a bare 11-character video id, a youtu.be link, or a
+    # youtube.com watch/embed/shorts link and returns the video id.
+    proc youtubeId {s} {
+        set s [string trim $s]
+        if {[regexp {^[A-Za-z0-9_-]{11}$} $s]} { return $s }
+        foreach re {
+            {youtu\.be/([A-Za-z0-9_-]{11})}
+            {[?&]v=([A-Za-z0-9_-]{11})}
+            {/(?:embed|shorts|live)/([A-Za-z0-9_-]{11})}
+        } {
+            if {[regexp $re $s -> id]} { return $id }
+        }
+        error "browser: Not a YouTube video: $s"
+    }
+
+    proc youtubeEmbedUrl {s} {
+        set id [youtubeId $s]
+        # mute=1 because Chromium blocks unmuted autoplay without a
+        # user gesture.
+        return "https://www.youtube.com/embed/$id?autoplay=1&mute=1&playsinline=1&controls=0&rel=0"
+    }
+
+    # Program code for one page of a printed YouTube binder.
+    proc youtubeBinderPageCode {video {title ""} {placement ""}} {
+        set id [youtubeId $video]
+        set code ""
+        if {$title ne ""} {
+            append code "# [string map [list \n { }] $title]\n"
+        }
+        append code "# https://youtu.be/$id\n"
+        append code "Wish \$this is titled [list $title]\n"
+        if {$placement eq ""} {
+            append code "Wish \$this plays YouTube video [list $id]\n"
+        } else {
+            append code "Wish \$this plays YouTube video [list $id] $placement\n"
+        }
+        return $code
+    }
+
+    # ---- Placement ------------------------------------------------
+
+    proc placements {} { list above below leftward rightward }
+
+    # Where the browser texture goes relative to the page that wished
+    # for it. Returns args for `$quadLib move`, or {} for "on the page
+    # itself".
+    proc placementMoveArgs {placement} {
+        switch -- $placement {
+            "" - here - on - onto { return {} }
+            above { return {up 100%} }
+            below { return {down 100%} }
+            leftward { return {left 100%} }
+            rightward { return {right 100%} }
+        }
+        error "browser: Invalid placement $placement (expected one of [placements])"
+    }
+
+    # The Folk object that the browser texture is drawn onto.
+    proc surfaceFor {p placement} {
+        if {[placementMoveArgs $placement] eq {}} { return $p }
+        return [list $p browser $placement]
+    }
+
+    # ---- Vector math (plain lists so it works on any quad space) --
+
+    proc vsub {a b} { lmap x $a y $b {expr {$x - $y}} }
+    proc vadd {a b} { lmap x $a y $b {expr {$x + $y}} }
+    proc vscale {s a} { lmap x $a {expr {$s * $x}} }
+    proc vdot {a b} { set s 0.0; foreach x $a y $b { set s [expr {$s + $x*$y}] }; return $s }
+    proc vnorm {a} { expr {sqrt([vdot $a $a])} }
+    proc vunit {a} {
+        set n [vnorm $a]
+        if {$n < 1e-12} { error "browser: zero-length vector" }
+        vscale [expr {1.0/$n}] $a
+    }
+    proc vcross {a b} {
+        lassign $a ax ay az; lassign $b bx by bz
+        list [expr {$ay*$bz - $az*$by}] [expr {$az*$bx - $ax*$bz}] [expr {$ax*$by - $ay*$bx}]
+    }
+
+    # ---- Pointing -------------------------------------------------
+
+    # Mirrors builtin-programs/geometric/points-at.folk: the whisker
+    # starts at the center of the given edge and extends `length`
+    # times the page's extent in that direction. verts are
+    # {topLeft topRight bottomRight bottomLeft} (3D).
+    proc whiskerTip {verts direction {length 1}} {
+        lassign $verts tl tr br bl
+        set top [vscale 0.5 [vadd $tl $tr]]
+        set bottom [vscale 0.5 [vadd $bl $br]]
+        set left [vscale 0.5 [vadd $tl $bl]]
+        set right [vscale 0.5 [vadd $tr $br]]
+        switch -- $direction {
+            up { return [vadd $top [vscale $length [vsub $top $bottom]]] }
+            down { return [vadd $bottom [vscale $length [vsub $bottom $top]]] }
+            left { return [vadd $left [vscale $length [vsub $left $right]]] }
+            right { return [vadd $right [vscale $length [vsub $right $left]]] }
+        }
+        error "browser: Invalid direction $direction"
+    }
+
+    # Projects a 3D point onto the plane of a quad and returns {u v}
+    # in [0,1] when the point is over the quad (top-left is 0,0).
+    proc pointToUv {verts point} {
+        lassign $verts tl tr br bl
+        set xAxis [vsub $tr $tl]
+        set yAxis [vsub $bl $tl]
+        set d [vsub $point $tl]
+        list [expr {[vdot $d $xAxis] / [vdot $xAxis $xAxis]}] \
+             [expr {[vdot $d $yAxis] / [vdot $yAxis $yAxis]}]
+    }
+
+    proc uvInside {uv} {
+        lassign $uv u v
+        expr {$u >= 0 && $u <= 1 && $v >= 0 && $v <= 1}
+    }
+
+    proc uvToViewport {uv width height} {
+        lassign $uv u v
+        list [expr {$u * $width}] [expr {$v * $height}]
+    }
+
+    # links is a list of {href x y w h} in viewport CSS pixels (as
+    # reported by the browser driver). Returns the link under (px,
+    # py), or the nearest one within `slop` pixels (fiducial pointing
+    # is noisy), or "".
+    proc linkAt {links px py {slop 12}} {
+        set best ""
+        set bestDist 1e300
+        foreach link $links {
+            lassign $link href x y w h
+            set dx [expr {$px < $x ? $x - $px : ($px > $x + $w ? $px - ($x + $w) : 0)}]
+            set dy [expr {$py < $y ? $y - $py : ($py > $y + $h ? $py - ($y + $h) : 0)}]
+            set dist [expr {sqrt($dx*$dx + $dy*$dy)}]
+            if {$dist <= $slop && $dist < $bestDist} {
+                set best $link
+                set bestDist $dist
+            }
+        }
+        return $best
+    }
+
+    # ---- Tilt -----------------------------------------------------
+
+    proc quadNormal {verts} {
+        lassign $verts tl tr br bl
+        vunit [vcross [vsub $tr $tl] [vsub $bl $tl]]
+    }
+
+    # Signed tilt in degrees of the page `verts` relative to its rest
+    # normal `restNormal`.
+    #
+    #   axis vertical:   > 0 when the top edge is raised (toward the
+    #                    viewer), < 0 when the bottom edge is raised.
+    #   axis horizontal: > 0 when the left edge is raised, < 0 when the
+    #                    right edge is raised.
+    #
+    # The normal is cross(right, down), so it points away from the
+    # viewer; "raised" means moved against it.
+    proc tiltDegrees {restNormal verts {axis vertical}} {
+        lassign $verts tl tr br bl
+        if {$axis eq "vertical"} {
+            set along [vunit [vsub [vscale 0.5 [vadd $bl $br]] [vscale 0.5 [vadd $tl $tr]]]]
+        } elseif {$axis eq "horizontal"} {
+            set along [vunit [vsub [vscale 0.5 [vadd $tr $br]] [vscale 0.5 [vadd $tl $bl]]]]
+        } else {
+            error "browser: Invalid tilt axis $axis"
+        }
+        set s [vdot [vunit $restNormal] $along]
+        if {$s > 1} { set s 1 } elseif {$s < -1} { set s -1 }
+        expr {asin($s) * 180.0 / 3.14159265358979}
+    }
+
+    # Scroll velocity in CSS px/s for a tilt. Raising the top edge
+    # scrolls up (negative), raising the bottom scrolls down, like
+    # tipping the page to let the text slide. There's a deadzone so
+    # a page lying roughly flat stays put.
+    proc tiltVelocity {degrees {deadzone 6} {gain 40} {maxSpeed 2000} {inverted 0}} {
+        set mag [expr {abs($degrees)}]
+        if {$mag <= $deadzone} { return 0.0 }
+        set v [expr {($mag - $deadzone) * $gain}]
+        if {$v > $maxSpeed} { set v $maxSpeed }
+        if {$degrees > 0} { set v [expr {-$v}] }
+        if {$inverted} { set v [expr {-$v}] }
+        return $v
+    }
+}]
+Claim the browser library is $browserLib

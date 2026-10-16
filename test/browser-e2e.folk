@@ -1,0 +1,163 @@
+# End-to-end test of browser.folk through the Folk database: the real
+# points-at.folk whisker picks out the browser page, browser.folk maps
+# the whisker tip onto a link in the rendered page, a separate
+# `When /target/ is a link` program opens that link in its own browser,
+# and holding the pointer still follows the link. Frames are checked
+# pixel-by-pixel.
+#
+# No camera/projector: pages are given quads directly, in a flat
+# "table" space, and the display is a fake orthographic projection.
+
+source test/browser-test-helpers.tcl
+requireBrowserDriver
+source builtin-programs/image/image-lib.folk
+source builtin-programs/image/png-lib.folk
+source builtin-programs/quad-lib.folk
+source builtin-programs/geometric/points-at.folk
+source builtin-programs/browser/browser-lib.folk
+source builtin-programs/browser/browser-driver.folk
+source builtin-programs/browser/browser.folk
+
+set index "$browserFixtureUrl/index.html"
+set two "$browserFixtureUrl/two.html"
+
+expectSteps {
+    render whisker hover hover-in-texture link-claim link-opens-viewer dwell-navigates
+    placement-below youtube-wish binder
+} 150
+
+# ---- Fake table + display (1 m = 1000 display px) ----
+
+Claim display fakedisp has width 1920 height 1080
+Claim display fakedisp has intrinsics {}
+Claim the pose library is [library create fakePose {} {
+    proc project {intrinsics width height v} {
+        list [expr {[lindex $v 0] * 1000}] [expr {[lindex $v 1] * 1000}]
+    }
+}]
+fn identityQuadChange {q space} { return $q }
+Claim the quad changer is [fn identityQuadChange]
+
+# A 20cm x 12.5cm browser page (so its viewport is 1024x640).
+fn page {name x y w h} {
+    Claim $name has quad [list table [list \
+        [list $x $y 1] [list [expr {$x + $w}] $y 1] \
+        [list [expr {$x + $w}] [expr {$y + $h}] 1] [list $x [expr {$y + $h}] 1]]]
+    Claim $name has resolved geometry [dict create width $w height $h]
+}
+page browserpage 0 0 0.2 0.125
+page viewer 0.5 0 0.2 0.125
+page belowsrc 1.0 0 0.2 0.125
+
+# The pointer sits just below the browser page, pointing up with a
+# whisker twice its height. Its tip lands at (0.0586, 0.0664) =
+# viewport (300, 340): the middle of the "Go to page two" link.
+page pointer 0.0486 0.1264 0.02 0.03
+Wish pointer points up with length 2
+
+Wish the browser link dwell is 4 seconds
+Wish browserpage renders $index in a browser
+
+# Someone else's program: open whatever link is being pointed at.
+When /target/ is a link {
+    Wish viewer renders $target in a browser
+}
+
+# ---- Checks ----
+
+When the image library is /imageLib/ &\
+     browserpage has browser frame /im/ with metadata /meta/ {
+    check render {
+        if {[dict get $meta url] ne $index} { return }
+        assertPixel $imageLib $im 10 10 {255 0 0}
+        if {[dict get $meta hover] eq ""} {
+            assertPixel $imageLib $im 110 310 {0 0 255}
+            pass render
+        } else {
+            # The pointer's hover shows up in the texture: a green
+            # outline around the link.
+            assertEq [dict get $meta hover] $two
+            assertPixel $imageLib $im 98 340 {0 200 83} 60
+            pass hover-in-texture
+        }
+    }
+    check dwell-navigates {
+        if {[dict get $meta url] ne $two} { return }
+        assertPixel $imageLib $im 10 10 {255 0 255}
+        assertPixel $imageLib $im 512 320 {255 0 255}
+        pass dwell-navigates
+    }
+}
+
+When pointer points up at browserpage {
+    pass whisker
+}
+
+When browserpage has hovered link /href/ &\
+     pointer is pointing at link /href2/ on browserpage {
+    check hover {
+        assertEq $href $two
+        assertEq $href2 $two
+        pass hover
+    }
+}
+
+When /href/ is a link {
+    check link-claim {
+        assertEq $href $two
+        pass link-claim
+    }
+}
+
+When the image library is /imageLib/ &\
+     viewer has browser frame /im/ with metadata /meta/ {
+    check link-opens-viewer {
+        assertEq [dict get $meta url] $two
+        assertPixel $imageLib $im 10 10 {255 0 255}
+        pass link-opens-viewer
+    }
+}
+
+# Adjacent placement: a virtual surface the same size, directly below.
+Wish belowsrc renders $index in a browser below
+When the image library is /imageLib/ &\
+     {belowsrc browser below} has quad /q/ &\
+     {belowsrc browser below} has browser frame /im/ with metadata /meta/ {
+    check placement-below {
+        lassign [lindex $q 1] tl tr br bl
+        assertNear [lindex $tl 0] 1.0 1e-6
+        assertNear [lindex $tl 1] 0.125 1e-6
+        assertNear [lindex $bl 1] 0.25 1e-6
+        assertPixel $imageLib $im 10 10 {255 0 0}
+        pass placement-below
+    }
+}
+
+# YouTube: no geometry for ytpage, so no session (and no network);
+# just check the wish is turned into an embed URL.
+Wish ytpage plays YouTube video "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+When /someone/ wishes ytpage has a browser showing /url/ placed /placement/ {
+    check youtube-wish {
+        assertEq $placement here
+        if {![string match "https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1*" $url]} {
+            error "bad embed url $url"
+        }
+        pass youtube-wish
+    }
+}
+
+# Binder: printing goes through `print code`, which we intercept.
+Subscribe: print code /code/ {
+    check binder {
+        if {[string match "*Wish \$this plays YouTube video jNQXAC9IVRw*" $code] &&
+            [string match "*Me at the zoo*" $code]} {
+            pass binder
+        }
+    }
+}
+When test step render passed {
+    Notify: print a YouTube binder with videos {
+        {dQw4w9WgXcQ "Never Gonna Give You Up"}
+        {https://youtu.be/jNQXAC9IVRw "Me at the zoo"}
+    }
+}

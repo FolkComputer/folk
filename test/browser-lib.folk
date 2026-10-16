@@ -1,0 +1,122 @@
+# Unit tests for builtin-programs/browser/browser-lib.folk. No
+# Chromium needed.
+
+source test/browser-test-helpers.tcl
+source builtin-programs/browser/browser-lib.folk
+
+fn assertErrors {script pattern} {
+    if {![catch {uplevel 1 $script} e]} { error "Expected error from: $script" }
+    if {![string match $pattern $e]} { error "Error \"$e\" doesn't match $pattern" }
+}
+
+When the browser library is /lib/ { check browser-lib {
+    # -- percent decoding / text fragments --
+    assertEq [$lib percentDecode "The%20bad%20news"] "The bad news"
+    assertEq [$lib percentDecode "caf%C3%A9"] "café"
+    assertEq [$lib percentDecode "a+b" 1] "a b"
+    assertEq [$lib percentDecode "100%"] "100%"
+
+    set url {https://already-clean.goodfire.com/#:~:text=The%20bad%20news,the%20first%20place}
+    set ds [$lib textFragmentDirectives $url]
+    assertEq [llength $ds] 1
+    assertEq [dict get [lindex $ds 0] start] "The bad news"
+    assertEq [dict get [lindex $ds 0] end] "the first place"
+    assertEq [dict get [lindex $ds 0] prefix] ""
+
+    set ds [$lib textFragmentDirectives {https://x.com/#sec:~:text=an-,example,-text&text=other}]
+    assertEq [llength $ds] 2
+    assertEq [dict get [lindex $ds 0] prefix] "an"
+    assertEq [dict get [lindex $ds 0] start] "example"
+    assertEq [dict get [lindex $ds 0] end] ""
+    assertEq [dict get [lindex $ds 0] suffix] "text"
+    assertEq [dict get [lindex $ds 1] start] "other"
+    # Encoded commas/dashes stay inside the term.
+    set ds [$lib textFragmentDirectives {https://x.com/#:~:text=a%2C%20b%2Dc}]
+    assertEq [dict get [lindex $ds 0] start] "a, b-c"
+    assertEq [$lib textFragmentDirectives {https://x.com/#plain}] {}
+
+    # -- URL normalization --
+    assertEq [$lib normalizeUrl "goodfire.com/research"] "https://goodfire.com/research"
+    assertEq [$lib normalizeUrl " https://a.b/c "] "https://a.b/c"
+    assertEq [$lib normalizeUrl "file:///tmp/x.html"] "file:///tmp/x.html"
+    assertErrors {$lib normalizeUrl "not a url"} "*Not a URL*"
+
+    # -- YouTube --
+    foreach s {dQw4w9WgXcQ https://youtu.be/dQw4w9WgXcQ
+               https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=10
+               https://www.youtube.com/embed/dQw4w9WgXcQ
+               https://youtube.com/shorts/dQw4w9WgXcQ} {
+        assertEq [$lib youtubeId $s] dQw4w9WgXcQ
+    }
+    assertErrors {$lib youtubeId "abc"} "*Not a YouTube video*"
+    assert {[string match "https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1*" \
+                 [$lib youtubeEmbedUrl dQw4w9WgXcQ]]}
+    set code [$lib youtubeBinderPageCode https://youtu.be/dQw4w9WgXcQ "Never Gonna"]
+    assert {[string match "*Wish \$this plays YouTube video dQw4w9WgXcQ\n*" $code]}
+    assert {[string match "*Wish \$this is titled {Never Gonna}*" $code]}
+    # The generated program must be valid Tcl.
+    assert {[info complete $code]}
+
+    # -- placement --
+    assertEq [$lib placementMoveArgs above] {up 100%}
+    assertEq [$lib placementMoveArgs rightward] {right 100%}
+    assertEq [$lib placementMoveArgs ""] {}
+    assertErrors {$lib placementMoveArgs sideways} "*Invalid placement*"
+    assertEq [$lib surfaceFor page7 ""] page7
+    assertEq [$lib surfaceFor page7 below] {page7 browser below}
+
+    # -- pointing geometry --
+    # A 0.2m x 0.1m page lying in the z=1 plane.
+    set browser {{0 0 1} {0.2 0 1} {0.2 0.1 1} {0 0.1 1}}
+    assertEq [$lib pointToUv $browser {0.1 0.05 1}] {0.5 0.5}
+    assertEq [$lib pointToUv $browser {0.0 0.0 1}] {0.0 0.0}
+    assert {[$lib uvInside {0.5 0.5}]}
+    assert {![$lib uvInside {1.2 0.5}]}
+    assertEq [$lib uvToViewport {0.5 0.25} 1280 800] {640.0 200.0}
+
+    # A 0.04 x 0.04 pointer below the browser, pointing up.
+    set pointer {{0.08 0.14 1} {0.12 0.14 1} {0.12 0.18 1} {0.08 0.18 1}}
+    set tip [$lib whiskerTip $pointer up 1]
+    assertNear [lindex $tip 0] 0.1 1e-9
+    assertNear [lindex $tip 1] 0.10 1e-9
+    set tip [$lib whiskerTip $pointer up 2]
+    assertNear [lindex $tip 1] 0.06 1e-9
+    lassign [$lib pointToUv $browser $tip] u v
+    assertNear $u 0.5 1e-9; assertNear $v 0.6 1e-9
+    set tip [$lib whiskerTip $pointer left 1]
+    assertNear [lindex $tip 0] 0.04 1e-9
+
+    # -- link hit testing --
+    set links {{https://a/ 10 10 100 20} {https://b/ 10 50 100 20}}
+    assertEq [lindex [$lib linkAt $links 50 20] 0] https://a/
+    assertEq [lindex [$lib linkAt $links 50 60] 0] https://b/
+    # Near-miss within slop picks the nearest link.
+    assertEq [lindex [$lib linkAt $links 50 45] 0] https://b/
+    assertEq [$lib linkAt $links 500 500] ""
+
+    # -- tilt --
+    set flat {{0 0 0} {0.2 0 0} {0.2 0.1 0} {0 0.1 0}}
+    set rest [$lib quadNormal $flat]
+    assertNear [$lib tiltDegrees $rest $flat] 0 1e-9
+    # Raise the top edge toward the viewer by 30 degrees (the viewer
+    # is on the -normal side).
+    set c [expr {cos(3.14159265358979/6)}]; set s [expr {sin(3.14159265358979/6)}]
+    set h 0.1
+    set topRaised [list [list 0 0 [expr {-$h*$s}]] [list 0.2 0 [expr {-$h*$s}]] \
+                       [list 0.2 [expr {$h*$c}] 0] [list 0 [expr {$h*$c}] 0]]
+    assertNear [$lib tiltDegrees $rest $topRaised] 30 1e-6
+    assertNear [$lib tiltDegrees $rest $topRaised horizontal] 0 1e-6
+    set bottomRaised [list [list 0 0 0] [list 0.2 0 0] \
+                          [list 0.2 [expr {$h*$c}] [expr {-$h*$s}]] [list 0 [expr {$h*$c}] [expr {-$h*$s}]]]
+    assertNear [$lib tiltDegrees $rest $bottomRaised] -30 1e-6
+
+    assertEq [$lib tiltVelocity 3] 0.0
+    assert {[$lib tiltVelocity 30] < 0}
+    assert {[$lib tiltVelocity -30] > 0}
+    assert {[$lib tiltVelocity -30 6 40 2000 1] < 0}
+    assertNear [$lib tiltVelocity -16 6 40] 400 1e-9
+    assertNear [$lib tiltVelocity -89 6 40 500] 500 1e-9
+
+    testLog "all tests passed"
+    Exit! 0
+} }
