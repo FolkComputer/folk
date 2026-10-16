@@ -77,30 +77,6 @@ $cc proc project {Intrinsics intr double width double height
     };
     return Jim_NewListObj(interp, retObjs, 2);
 }
-# Returns a homogenous point.
-$cc proc unproject {Intrinsics intr double width double height
-                    double u double v} Jim_Obj* {
-    // Normalize the provided `u` and `v` to our width and height.
-    double pixel[2] = {
-        u * intr.width / width,
-        v * intr.height / height
-    };
-
-    undistort(intr.fx, intr.fy, intr.cx, intr.cy,
-              intr.k1, intr.k2, intr.p1, intr.p2,
-              pixel, pixel);
-
-    // Apply inverse intrinsic matrix.
-    double y = (pixel[1] - intr.cy) / intr.fy;
-    double x = (pixel[0] - intr.cx - intr.s * y) / intr.fx;
-
-    Jim_Obj* retObjs[3] = {
-        Jim_NewDoubleObj(interp, x),
-        Jim_NewDoubleObj(interp, y),
-        Jim_NewDoubleObj(interp, 1)
-    };
-    return Jim_NewListObj(interp, retObjs, 3);
-}
 $cc proc rescaleAndUndistort {Intrinsics intr
                               double cameraWidth double cameraHeight
                               double* in
