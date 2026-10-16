@@ -46,7 +46,7 @@ set pointsLib [library create pointsLib {} {
 }]
 Claim the points library is $pointsLib
 
-When when point /point/ has point /anything/ on /targetSurface/ /lambda/ with environment /anything/ {
+When when point /point/ corresponds to point /anything/ on /targetSurface/ /lambda/ with environment /anything/ {
     Wish point $point is projected to surface $targetSurface
 }
 
@@ -78,6 +78,6 @@ When the quad library is /quadLib/ &\
         # Flatland has entered the chat.
         set pointOnTargetSurface [$pointsLib surfacePoint $targetSurface $targetXY]
 
-        Claim point $point has point $pointOnTargetSurface on $targetSurface
+        Claim point $point corresponds to $pointOnTargetSurface on $targetSurface
     }
 }
