@@ -976,7 +976,7 @@ void matchRemoveSelf(Db* db, Match* match) {
 
             char buf[10000]; traceItem(buf, sizeof(buf), item);
             fprintf(stderr, "KILL (%.150s)\n", buf);
-#ifdef __LINUX__
+#ifdef __linux__
             syscall(SYS_tgkill, getpid(), workerThread->tid, SIGUSR1);
 #else
             kill(workerThread->tid, SIGUSR1);
