@@ -145,6 +145,92 @@ When the collected results for {camera /camera/ has CNC bed corners /points/ wit
     }
 }
 
+# XY toolpaths in meters. Position supplies the initial point for modal/relative
+# moves; absolute coordinates stay anchored at the first saved bed corner.
+fn cncGcodePaths {gcode pos} {
+    lassign $pos x y
+    set x [expr {$x*.0254}];set y [expr {$y*.0254}]
+    set unit .0254;set absolute 1;set motion 0;set paths {};set points {};set lastRapid -1
+    foreach line [split $gcode \n] {
+        regsub -all {\([^)]*\)} $line {} line
+        set line [string toupper [lindex [split $line {;}] 0]]
+        set words {};set skip 0
+        foreach {word letter value} [regexp -all -inline {([A-Z])\s*([-+]?(?:[0-9]+\.?[0-9]*|\.[0-9]+))} $line] {
+            set value [expr {double($value)}]
+            if {$letter eq {G}} {
+                switch -- $value {
+                    0.0 - 1.0 - 2.0 - 3.0 {set motion [expr {int($value)}]}
+                    20.0 {set unit .0254}
+                    21.0 {set unit .001}
+                    90.0 {set absolute 1}
+                    91.0 {set absolute 0}
+                    17.0 {}
+                    default {set skip 1}
+                }
+            } else {dict set words $letter $value}
+        }
+        # In particular, G4 X4 is a dwell, not an X move.
+        if {$skip} continue
+        if {![dict exists $words X] && ![dict exists $words Y] && !($motion in {2 3} && ([dict exists $words I] || [dict exists $words J]))} continue
+        set nx $x;set ny $y
+        if {[dict exists $words X]} {set nx [expr {$words(X)*$unit+($absolute?0:$x)}]}
+        if {[dict exists $words Y]} {set ny [expr {$words(Y)*$unit+($absolute?0:$y)}]}
+        set rapid [expr {$motion==0}]
+        if {$rapid!=$lastRapid} {
+            if {[llength $points]>1} {lappend paths [dict create rapid $lastRapid points $points]}
+            set points [list [list $x $y]];set lastRapid $rapid
+        }
+        if {$motion in {2 3}} {
+            if {![dict exists $words I] && ![dict exists $words J]} {error {CNC arcs need I/J center offsets}}
+            set cx [expr {$x+[dict getdef $words I 0]*$unit}];set cy [expr {$y+[dict getdef $words J 0]*$unit}]
+            set radius [expr {hypot($x-$cx,$y-$cy)}]
+            if {$radius<=0} {error {CNC arc radius is zero}}
+            set start [expr {atan2($y-$cy,$x-$cx)}]
+            set sweep [expr {atan2($ny-$cy,$nx-$cx)-$start}]
+            set tau [expr {2*acos(-1)}]
+            if {$motion==2 && $sweep>=0} {set sweep [expr {$sweep-$tau}]}
+            if {$motion==3 && $sweep<=0} {set sweep [expr {$sweep+$tau}]}
+            # At most 0.25 mm chord error, with a five-degree angular cap.
+            set cosine [expr {1-.00025/$radius}]
+            set step [expr {2*acos($cosine < -1 ? -1 : $cosine)}]
+            if {$step>acos(-1)/36} {set step [expr {acos(-1)/36}]}
+            set count [expr {int(ceil(abs($sweep)/$step))}]
+            if {$count<1} {set count 1}
+            for {set i 1} {$i<$count} {incr i} {
+                set angle [expr {$start+$sweep*$i/$count}]
+                lappend points [list [expr {$cx+$radius*cos($angle)}] [expr {$cy+$radius*sin($angle)}]]
+            }
+        }
+        if {$nx!=$x || $ny!=$y || $motion in {2 3}} {lappend points [list $nx $ny]}
+        set x $nx;set y $ny
+    }
+    if {[llength $points]>1} {lappend paths [dict create rapid $lastRapid points $points]}
+    return $paths
+}
+
+When the CNC gcode is /gcode/ & the CNC position is /pos/ {
+    fn cncGcodePaths
+    set paths [cncGcodePaths $gcode $pos]
+    When CNC bed mapping is /mapping/ in display /display/ &\
+         display /display/ has intrinsics /pk/ &\
+         display /display/ has width /pw/ height /ph/ {
+        fn cncProject
+        set geometry [json::decode $mapping]
+        lassign [dict get $geometry origin] ox oy oz
+        lassign [dict get $geometry xAxis] xx xy xz
+        lassign [dict get $geometry yAxis] yx yy yz
+        foreach path $paths {
+            set projected {}
+            foreach point [dict get $path points] {
+                lassign $point x y
+                lappend projected [cncProject $pk $pw $ph [list [expr {$ox+$x*$xx+$y*$yx}] [expr {$oy+$x*$xy+$y*$yy}] [expr {$oz+$x*$xz+$y*$yz}]]]
+            }
+            set color [expr {[dict get $path rapid] ? {0 .5 1 .6} : {1 1 0 1}}]
+            Wish to draw a line onto $display with points $projected width 3 color $color layer 115
+        }
+    }
+}
+
 fn cncStereoPoint {a b lk le rk re lw lh rw rh pk pw ph expected {cameraLimit 4}} {
     package require linalg
     namespace import ::math::linearalgebra::*
