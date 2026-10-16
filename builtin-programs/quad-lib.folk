@@ -231,7 +231,7 @@ set quadLib [library create quadLib {} {
         return [create [space $q] [list $topLeft $topRight $bottomRight $bottomLeft]]
     }
 
-    proc XYToPoint {quad xy} {
+    proc xyToPoint {quad xy} {
         lassign $xy x y
         lassign [vertices $quad] topLeft topRight bottomRight bottomLeft
         set width [norm [sub $topRight $topLeft]]

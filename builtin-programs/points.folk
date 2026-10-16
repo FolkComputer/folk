@@ -57,7 +57,7 @@ When the quad library is /quadLib/ &\
     When $pointSurface has quad /pointQuad/ &\
          $targetSurface has quad /targetQuad/ {
         # "Now in 3D!"
-        set pointInSpace [$quadLib XYToPoint $pointQuad [$pointsLib surfacePointVector $point]]
+        set pointInSpace [$quadLib xyToPoint $pointQuad [$pointsLib surfacePointVector $point]]
 
         # HACK currently the `quadChange` changes quads, not points. We
         # construct an artifical quad that has zeros for the last three
