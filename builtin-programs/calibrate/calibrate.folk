@@ -159,7 +159,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             expr {[dict get $a modelToDisplayOpts frameTimestamp] <
                   [dict get $b modelToDisplayOpts frameTimestamp]}
         }] $calibrationStates] end]
-        dict with calibrationState {}
+        dict assign -all $calibrationState
 
         set model [dict get $modelToDisplayOpts model]
         set version [dict get $modelToDisplayOpts version]

@@ -364,9 +364,8 @@ When /someone/ wishes /page/ has a SAM2 object tracker &\
 
         set activeObjectIdsBySam2Id {}
         foreach result $promptResults {
-            dict with result {
-                dict set activeObjectIdsBySam2Id [sam2ObjectId $id] $id
-            }
+            dict assign -all $result
+            dict set activeObjectIdsBySam2Id [sam2ObjectId $id] $id
         }
         if {[dict size $activeObjectIdsBySam2Id] == 0} { return }
 
@@ -407,21 +406,20 @@ When /someone/ wishes /page/ has a SAM2 object tracker &\
 
                     if {[llength $imageResults] > 0} {
                         set imageResult [lindex $imageResults end]
-                        dict with imageResult {
-                            StatementAcquire! $__ref
+                        dict assign -all $imageResult
+                        StatementAcquire! $__ref
 
-                            set filename [format "/tmp/sam2-%s-%s.png" \
-                                [string map {/ _ { } _} $page] \
-                                [string map {/ _ { } _} $id]]
-                            pngLib::saveAsPng $im $filename
+                        set filename [format "/tmp/sam2-%s-%s.png" \
+                            [string map {/ _ { } _} $page] \
+                            [string map {/ _ { } _} $id]]
+                        pngLib::saveAsPng $im $filename
 
-                            set fsize [file size $filename]
-                            set fd [file open $filename r]
-                            set imageData [stream read $fd $fsize]
-                            close $fd
+                        set fsize [file size $filename]
+                        set fd [file open $filename r]
+                        set imageData [stream read $fd $fsize]
+                        close $fd
 
-                            StatementRelease! $__ref
-                        }
+                        StatementRelease! $__ref
 
                         set b64 [binary encode base64 $imageData]
                         set body [format {<img src="data:image/png;base64,%s">} $b64]

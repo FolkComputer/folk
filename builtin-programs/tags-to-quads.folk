@@ -363,9 +363,10 @@ Claim the pose library is $poseLib
 When the collected results for [list the changer from space /sourceSpace/ to space /targetSpace/ is /changer/] are /results/ {
 
     set changers [dict create]
-    foreach result $results { dict with result {
+    foreach result $results {
+        dict assign -all $result
         dict set changers $sourceSpace $targetSpace $changer
-    } }
+    }
 
     fn quadChange {q targetSpace} {
         package require linalg
@@ -453,23 +454,29 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             set stateResults [Query! tag $tag is stabilized with state /state/]
             if {[llength $stateResults] > 0} {
                 set state [dict get [lindex $stateResults 0] state]
-                dict with state {
-                    set distSq [poseLib::poseDistSq $frozenPose $tagPose]
+                dict assign -all $state
+                set distSq [poseLib::poseDistSq $frozenPose $tagPose]
 
-                    if {$distSq > $unfreezeThresholdSq} {
-                        set frozenPose $tagPose
-                        # reset timestamp even if it's already unfrozen to keep it unfrozen
-                        set unfreezeTime $timestamp
-                        set frozen 0
-                    } elseif {!$frozen && $timestamp - $unfreezeTime > $unfreezeLength} {
-                        set frozenPose $tagPose
-                        set frozen 1
-                    }
-
-                    if {$frozen} {
-                        set tagPose $frozenPose
-                    }
+                if {$distSq > $unfreezeThresholdSq} {
+                    set frozenPose $tagPose
+                    # reset timestamp even if it's already unfrozen to keep it unfrozen
+                    set unfreezeTime $timestamp
+                    set frozen 0
+                } elseif {!$frozen && $timestamp - $unfreezeTime > $unfreezeLength} {
+                    set frozenPose $tagPose
+                    set frozen 1
                 }
+
+                if {$frozen} {
+                    set tagPose $frozenPose
+                }
+
+                # `dict with` wrote these back into $state, which is claimed
+                # below; `dict assign` does not. `tagPose` is deliberately not
+                # among them -- it belongs to the enclosing scope, not to $state.
+                dict set state frozenPose $frozenPose
+                dict set state unfreezeTime $unfreezeTime
+                dict set state frozen $frozen
             } else {
                 # first time, so we'll init some stuff
                 # (starts unfrozen)

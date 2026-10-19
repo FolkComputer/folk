@@ -10,10 +10,10 @@ fn UvxCleanup {pid endpoint} {
     catch {exec {kill $pid}}
     catch {file {delete -force $endpoint}}
 
-    after 1000 [list apply {{pid} {
+    after 1000 [list apply [fn {pid} {
         catch {exec {pkill -KILL -P $pid}}
         catch {exec {kill SIGKILL $pid}}
-    }} $pid]
+    }] $pid]
 }
 
 set cc [dict link $C {}]
@@ -40,6 +40,30 @@ cc::proc sockConnect {char* path} int {
     }
     Zicl_SetResultString(interp, "sockConnect: failed to connect", -1);
     return -1;
+}
+
+# Returns this thread's connection to `endpoint`, dialing on first use.
+cc::proc sockForEndpoint {char* endpoint} int {
+    for (int i = 0; i < 16; i++) {
+        if (threadSockets[i].key[0] != '\0' &&
+            strcmp(threadSockets[i].key, endpoint) == 0) {
+            return threadSockets[i].fd;
+        }
+    }
+
+    int slot = -1;
+    for (int i = 0; i < 16; i++) {
+        if (threadSockets[i].key[0] == '\0') { slot = i; break; }
+    }
+    if (slot == -1) { FOLK_ERROR("sockForEndpoint: no free slots\n"); }
+
+    int fd = sockConnect(endpoint);
+    if (fd < 0) { FOLK_ERROR("sockForEndpoint: failed to connect to %s\n", endpoint); }
+
+    strncpy(threadSockets[slot].key, endpoint, ENDPOINT_MAX - 1);
+    threadSockets[slot].key[ENDPOINT_MAX - 1] = '\0';
+    threadSockets[slot].fd = fd;
+    return fd;
 }
 
 cc::proc sockSendStr {int fd char* data} void {
@@ -96,6 +120,17 @@ cc::addcode {
 
     EndpointStringKV functions[64];
     pthread_mutex_t functionsMutex = PTHREAD_MUTEX_INITIALIZER;
+
+    // One connection per (thread, endpoint). The wire protocol is
+    // length-prefixed request/response, so two Folk workers sharing an fd
+    // would interleave frames and desync it. Thread-local because a Folk
+    // value is shared across worker threads, so the fd cannot ride along in
+    // the library dict the way it did under Jim's per-thread namespaces.
+    typedef struct EndpointSocket {
+        char key[ENDPOINT_MAX];
+        int fd;
+    } EndpointSocket;
+    _Thread_local EndpointSocket threadSockets[16];
 }
 cc::proc getFunctions {char* endpoint} char* {
     pthread_mutex_lock(&functionsMutex);
@@ -330,133 +365,140 @@ while True:
                  python -u -c $harnessCode &]
     # HACK: This is a bit of Folk poking down into the library level,
     # which is awkward.
-    catch { uplevel [list On unmatch [list UvxCleanup $pid $endpoint]] } res
+    catch { On unmatch { UvxCleanup $pid $endpoint } } res
 
     # Return a library that runs internal state through the Folk db so
     # it can be called from any thread.
-    return [library create uvx {impl endpoint} {
+    # The library is a plain dict of closures. Everything below is defined as
+    # an ordinary local first and only assembled into the dict at the end, so
+    # each one captures this frame and can call the ones above it by name.
+    # Nothing here may be named `exec` or `eval`: this frame calls both.
 
-variable impl
-variable endpoint
-# We need to boot a new socket when this library is loaded onto a new
-# thread. Do that now.
-variable socket [$impl sockConnect $endpoint]
-if {$socket < 0} { error "Uvx: failed to connect to Python at $endpoint" }
+    fn pyGetFunctions {} { return [impl::getFunctions $endpoint] }
+    fn pyGetRegisteredArgtypes {} { return [impl::getRegisteredArgtypes $endpoint] }
 
-fn getFunctions {} {
-    variable impl; variable endpoint
-    return [$impl getFunctions $endpoint] }
-fn getRegisteredArgtypes {} {
-    variable impl; variable endpoint
-    return [$impl getRegisteredArgtypes $endpoint]
-}
-fn registerFunction {fnName fnInfo} {
-    variable impl; variable endpoint
-    set functions [$impl getFunctions $endpoint]
-    dict set functions $fnName $fnInfo
-    $impl setFunctions $endpoint $functions
-}
-fn registerArgtype {typeName serializer} {
-    variable impl; variable endpoint
-    set argtypes [$impl getRegisteredArgtypes $endpoint]
-    dict set argtypes $typeName $serializer
-    $impl setRegisteredArgtypes $endpoint $argtypes
-}
-
-fn unknown {fnName args} {
-    variable impl; variable socket; variable endpoint
-    # We need normal `unknown` to call methods on $impl, so need to
-    # pass it through to ::unknown.
-    if {$fnName eq $impl} {
-        tailcall ::unknown $fnName {*}$args
+    fn pyRegisterFunction {fnName fnInfo} {
+        set functions [impl::getFunctions $endpoint]
+        dict set functions $fnName $fnInfo
+        impl::setFunctions $endpoint $functions
+    }
+    fn pyRegisterArgtype {typeName serializer} {
+        set argtypes [impl::getRegisteredArgtypes $endpoint]
+        dict set argtypes $typeName $serializer
+        impl::setRegisteredArgtypes $endpoint $argtypes
     }
 
-    # Send function name first
-    $impl sockSendStr $socket $fnName
+    fn pyCall {fnName args} {
+        # Dialed per thread, since a Folk value is shared across workers and a
+        # shared fd would interleave frames on this request/response protocol.
+        set socket [impl::sockForEndpoint $endpoint]
 
-    # Check if this function has registered types
-    set functions [getFunctions]
-    set registeredArgtypes [getRegisteredArgtypes]
-    if {[dict exists $functions $fnName]} {
-        set fnInfo [dict get $functions $fnName]
-        set argTypes [dict get $fnInfo argTypes]
+        # Send function name first
+        impl::sockSendStr $socket $fnName
 
-        # Send each argument according to its type
-        foreach schema $argTypes arg $args {
-            # Check if this is a custom argtype
-            if {[dict exists $registeredArgtypes $schema]} {
-                set serializerCode [dict get $registeredArgtypes $schema]
-                apply [list {socket arg} $serializerCode] $socket $arg
-            } else {
-                # Use JSON encoding
-                set encoded [json::encode $arg $schema]
-                $impl sockSendStr $socket $encoded
+        # Check if this function has registered types
+        set functions [pyGetFunctions]
+        set registeredArgtypes [pyGetRegisteredArgtypes]
+        if {[dict exists $functions $fnName]} {
+            set fnInfo [dict get $functions $fnName]
+            set argTypes [dict get $fnInfo argTypes]
+
+            # Send each argument according to its type
+            foreach schema $argTypes arg $args {
+                # Check if this is a custom argtype
+                if {[dict exists $registeredArgtypes $schema]} {
+                    # A closure rather than a code string: zicl's [apply] has no
+                    # `{argList body}` lambda form. It round-trips through the C
+                    # slot as its string, scope hash and all.
+                    apply [dict get $registeredArgtypes $schema] $socket $arg
+                } else {
+                    # Use JSON encoding
+                    set encoded [json::encode $arg $schema]
+                    impl::sockSendStr $socket $encoded
+                }
             }
+
+        } else {
+            # No type info, send args as strings
+            foreach arg $args { impl::sockSendStr $socket $arg }
         }
 
-    } else {
-        # No type info, send args as strings
-        foreach arg $args { $impl sockSendStr $socket $arg }
+        # Send terminator.
+        impl::sockSendStr $socket ""
+
+        set response [impl::sockRecvMulti $socket]
+        if {[llength $response] == 0} {
+            error "Python worker at $endpoint closed the connection"
+        }
+
+        lassign $response status value
+        if {$status eq "error"} { error $value }
+        if {$status eq "okb"} { return $value }
+        if {$status ne "ok"} {
+            error "Python worker at $endpoint returned invalid response: $response"
+        }
+        return [json::decode $value]
     }
 
-    # Send terminator.
-    $impl sockSendStr $socket ""
+    fn pyExec {code} {
+        lassign [info source $code] file line
+        if {$file eq ""} { set file "<unknown>"; set line 1 }
+        return [pyCall "__exec__" [textutil::adjust::undent $code] $file $line]
+    }
+    fn pyEval {code} { return [pyCall "eval" $code] }
 
-    set response [$impl sockRecvMulti $socket]
-    if {[llength $response] == 0} {
-        error "Python worker at $endpoint closed the connection"
+    # `serializer` is a closure taking {socket arg}; `deserializer` is Python
+    # source that reads from `socket` and returns the value.
+    fn pyArgtype {typeName serializer deserializer} {
+        # Store the Tcl serializer:
+        pyRegisterArgtype $typeName $serializer
+        # Store the Python deserializer:
+        pyCall __register_argtype__ $typeName $deserializer
     }
 
-    lassign $response status value
-    if {$status eq "error"} { error $value }
-    if {$status eq "okb"} { return $value }
-    if {$status ne "ok"} {
-        error "Python worker at $endpoint returned invalid response: $response"
+    # A method, so that the closure it defines lands in the caller's own copy
+    # of the library dict: `$py::def foo` writes `foo` back into `$py`.
+    method pyDef {self fnName argSpec body} {
+        lassign [info source $body] file line
+        if {$file eq ""} { set file "<unknown>"; set line 1 }
+
+        # Parse argument specification: {Type1 name1 Type2 name2 ...}
+        set argNames {}
+        set argTypes {}
+        foreach {argType argName} $argSpec {
+            lappend argNames $argName
+            lappend argTypes $argType
+        }
+
+        # Store function metadata
+        pyRegisterFunction $fnName [dict create \
+            argNames $argNames \
+            argTypes $argTypes]
+
+        # Register function signature with Python
+        pyCall __register_function__ $fnName {*}$argTypes
+
+        # Strip common leading whitespace and add function body indentation
+        set dedented [textutil::adjust::undent $body]
+        set indentedBody [textutil::adjust::indent $dedented "    "]
+        # If body is empty, add pass statement
+        if {[string trim $indentedBody] eq ""} {
+            set indentedBody "    pass\n"
+        }
+        # line - 1 because the def header line takes the place of the opening brace
+        pyCall "__exec__" "def $fnName\([join $argNames ", "]):\n$indentedBody" $file [expr {$line - 1}]
+
+        # Bind it as a real key, so `$py::$fnName` is an ordinary dict lookup
+        # rather than something an [unknown] handler has to intercept.
+        dict set self $fnName [fn args { return [pyCall $fnName {*}$args] }]
     }
-    return [json::decode $value]
-}
-fn exec {code} {
-    lassign [info source $code] file line
-    if {$file eq ""} { set file "<unknown>"; set line 1 }
-    return [unknown "__exec__" [undent $code] $file $line]
-}
-fn eval {code} { return [unknown "eval" $code] }
 
-fn argtype {typeName serializer deserializer} {
-    # Store the Tcl serializer:
-    registerArgtype $typeName $serializer
-    # Store the Python deserializer:
-    __register_argtype__ $typeName $deserializer
-}
-fn def {fnName argSpec body} {
-    lassign [info source $body] file line
-    if {$file eq ""} { set file "<unknown>"; set line 1 }
-
-    # Parse argument specification: {Type1 name1 Type2 name2 ...}
-    set argNames {}
-    set argTypes {}
-    foreach {argType argName} $argSpec {
-        lappend argNames $argName
-        lappend argTypes $argType
-    }
-
-    # Store function metadata
-    registerFunction $fnName [dict create \
-        argNames $argNames \
-        argTypes $argTypes]
-
-    # Register function signature with Python
-    __register_function__ $fnName {*}$argTypes
-
-    # Strip common leading whitespace and add function body indentation
-    set dedented [undent $body]
-    set indentedBody [indent $dedented "    "]
-    # If body is empty, add pass statement
-    if {[string trim $indentedBody] eq ""} {
-        set indentedBody "    pass\n"
-    }
-    # line - 1 because the def header line takes the place of the opening brace
-    unknown "__exec__" "def $fnName\([join $argNames ", "]):\n$indentedBody" $file [::expr {$line - 1}]
-}
-    }]
+    return [dict create \
+                call $pyCall \
+                exec $pyExec \
+                eval $pyEval \
+                argtype $pyArgtype \
+                def $pyDef \
+                getFunctions $pyGetFunctions \
+                getRegisteredArgtypes $pyGetRegisteredArgtypes]
 }

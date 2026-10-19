@@ -178,7 +178,6 @@ When /nobody/ wishes to calibrate camera /any/ to display /any/ /...etc/ &\
         }
     }
 
-    namespace import ::math::min ::math::max
     set tags [list]
     set frameWidth [dict get $frame width]
     set frameHeight [dict get $frame height]
@@ -200,10 +199,10 @@ When /nobody/ wishes to calibrate camera /any/ to display /any/ /...etc/ &\
         set subimage [imageLib::slice $frame $x $y [- $x1 $x] [- $y1 $y]]
         set aprilTime [+ $aprilTime [baretime {
             foreach tag [incrementalDetector::detect $subimage] {
-                dict with tag {
-                    set c [vec2 add $c [list $x $y]]
-                    set p [lmap corner $p {vec2 add $corner [list $x $y]}]
-                }
+                dict assign -all $tag
+                # `dict with` wrote these back into the dict; `dict assign` does not.
+                dict set tag c [vec2 add $c [list $x $y]]
+                dict set tag p [lmap corner $p {vec2 add $corner [list $x $y]}]
                 lappend tags $tag
             }
         }]]
@@ -232,12 +231,11 @@ When the collected results for \
         foreach tag [dict get $result tags] {
             dict set tag timestamp $timestamp
             dict set tag camera $camera
-            dict with tag {
-                if {![dict exists $latestTagDets $id] ||
-                    [dict get $latestTagDets $id timestamp] < $timestamp} {
+            dict assign -all $tag
+            if {![dict exists $latestTagDets $id] ||
+                [dict get $latestTagDets $id timestamp] < $timestamp} {
 
-                    dict set latestTagDets $id $tag
-                }
+                dict set latestTagDets $id $tag
             }
         }
     }

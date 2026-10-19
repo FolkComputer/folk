@@ -11,6 +11,7 @@ lappend auto_path "./vendor"
 source "lib/c.tcl"
 source "lib/math.tcl"
 source "lib/text.tcl"
+source "lib/json.tcl"
 
 set folkPid [pid]
 
@@ -83,6 +84,10 @@ fn assert condition {
 }
 fn baretime {body} {
     string map {" microseconds per iteration" ""} [uplevel [list time $body]]
+}
+
+fn Notify: {args} {
+    NotifyImpl {*}$args
 }
 
 fn Hold! {args} {
@@ -367,18 +372,23 @@ fn Subscribe: {args} {
 
     set sourceInfo [info source $body]
 
+    lassign [desugarWhen $pattern $body] clauseFront bodyToWrap boundVars
+    set clauseFront [lreplace $clauseFront 0 0 subscribe]
+
+    # Note that by using `uplevel` on fn, we capture the parent's lexical scope.
+    set closure [uplevel 1 [info source [list fn $boundVars $bodyToWrap] {*}$sourceInfo]]
+
     tailcall SayWithSource {*}$sourceInfo \
         0 {} {} \
-        subscribe {*}$pattern $body
+        {*}$clauseFront $closure
 }
-fn Notify: {args} {
-    NotifyImpl {*}$args
-}
-fn On {event fn} {
+fn On {event body} {
     if {$event eq "unmatch"} {
-        Destructor [list apply $fn]
+        set sourceInfo [info source $body]
+        set closure [uplevel 1 [info source [list fn {} $body] {*}$sourceInfo]]
+        Destructor [list apply $closure]
     } else {
-        error "On: Unknown '$event' (called with: [string range $args 0 50]...)"
+        error "On: Unknown '$event' (called with: [string range $body 0 50]...)"
     }
 }
 

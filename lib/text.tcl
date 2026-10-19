@@ -39,7 +39,7 @@ fn textutil::string::longestCommonPrefixList {list} {
 
     set prefix ""
     set i 0
-    while {[string index $min $i] == [string index $max $i]} {
+    while {[string index $min $i] eq [string index $max $i]} {
 	append prefix [string index $min $i]
 	if {[incr i] > $n} {break}
     }
@@ -89,7 +89,7 @@ fn textutil::adjust::indent {text prefix {skip 0}} {
 
 fn textutil::adjust::undent {text} {
 
-    if {$text == {}} {return {}}
+    if {$text eq {}} {return {}}
 
     set lines [split $text \n]
     set ne [list]
@@ -97,7 +97,7 @@ fn textutil::adjust::undent {text} {
 	if {[string length [string trim $l]] == 0} continue
 	lappend ne $l
     }
-    set lcp [::textutil::string::longestCommonPrefixList $ne]
+    set lcp [textutil::string::longestCommonPrefixList $ne]
 
     if {[string length $lcp] == 0} {return $text}
 

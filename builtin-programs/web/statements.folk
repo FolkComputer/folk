@@ -4,7 +4,8 @@ When the db library is /dbLib/ {
     set l [list]
     # You need to use the Simple form so it doesn't auto-claimize it.
     set results [QuerySimple! false /...terms/]
-    foreach result $results { dict with result {
+    foreach result $results {
+        dict assign -all $result
         set childMatchRefs [dbLib::childMatches $db $__ref]
         set childMatchInfo [join [lmap childMatchRef $childMatchRefs {
             set childStatementRefs [dbLib::childStatements $db $childMatchRef]
@@ -25,7 +26,7 @@ When the db library is /dbLib/ {
             </details>
             </li>
         }]
-    } }
+    }
 
     html [subst {
         <html>

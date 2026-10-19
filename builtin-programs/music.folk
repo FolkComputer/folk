@@ -93,7 +93,7 @@ default (Pattern String, Integer, Double)
 set scStartup [file open $musicDir/startup.sc w]
 # via https://club.tidalcycles.org/t/tidal-synth-doesnt-work/800 -- it
 # doesn't work if you just do SuperDirt.start; for some reason
-puts $scStartup {(
+stream write $scStartup {(
 s.reboot { // server options are only updated on reboot
 	// configure the sound server: here you could add hardware specific options
 	// see http://doc.sccode.org/Classes/ServerOptions.html
@@ -133,7 +133,8 @@ s.reboot { // server options are only updated on reboot
 
 
 };
-);}
+);
+}
 close $scStartup
 
 set uid [exec id -u $env::USER]
@@ -172,7 +173,7 @@ fn musicFinishSetup {} {
   musicExec sh -c "ghci < $fifo" &
 
   set fifoId [file open $fifo w]
-  puts $fifoId $bootTidal; flush $fifoId
+  stream write $fifoId "$bootTidal\n"
   # We keep $fifoId open so that ghci doesn't get an EOF.
 }
 

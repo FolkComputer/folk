@@ -704,10 +704,8 @@ fn refineCalibration {modelLib matLib setCameraToProjectorExtrinsics
                              [dict get $calibration R_cameraToProjector]] \
                     {*}[dict get $calibration t_cameraToProjector]]
     foreach extrinsic $poseExtrinsics {
-        dict with extrinsic {
-            lappend params {*}[rotationMatrixToRotationVector $R]
-            lappend params {*}$t
-        }
+        lappend params {*}[rotationMatrixToRotationVector $extrinsic::R]
+        lappend params {*}$extrinsic::t
     }
 
     puts ".\nStereo refine ($poseCount poses):"

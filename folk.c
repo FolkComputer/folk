@@ -376,6 +376,9 @@ static int DestructorFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv)
     if (self->inSubscription) {
         return Zicl_SetErrorString(interp, "Cannot create destructor in a subscribe block", -1);
     }
+    if (self->currentMatch == NULL) {
+        return Zicl_SetErrorString(interp, "Cannot create destructor outside of a match", -1);
+    }
 
     Destructor* d = destructorNew(destructorHelper, Zicl_DuplicateAsBoxed(Zicl_Current(&argv[1])));
     matchAddDestructor(self->currentMatch, d);

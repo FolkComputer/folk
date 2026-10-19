@@ -12,26 +12,24 @@ When the color map is /colorMap/ {
     When /someone/ wishes to draw a triangle onto /p/ with /...options/ &\
         /p/ has canvas /id/ with /...wiOptions/ &\
         /p/ has canvas projection /surfaceToClip/ {
-            dict with options {
-                if {![info exists layer]} { set layer 0 }
-                set color [dict getdef $colorMap $color $color]
-                Wish the GPU draws pipeline "fillTriangle" onto canvas $id with arguments \
-                    [list $surfaceToClip $p0 $p1 $p2 $color] layer $layer
-            }
+            dict assign $options colorMap color surfaceToClip p0 p1 p2 layer
+            if {![info exists layer]} { set layer 0 }
+            set color [dict getdef $colorMap $color $color]
+            Wish the GPU draws pipeline "fillTriangle" onto canvas $id with arguments \
+                [list $surfaceToClip $p0 $p1 $p2 $color] layer $layer
         }
 
     When /someone/ wishes to draw a quad onto /p/ with /...options/ &\
         /p/ has canvas /id/ with /...wiOptions/ &\
         /p/ has canvas projection /surfaceToClip/ {
-            dict with options {
-                if {![info exists layer]} { set layer 0 }
-                set color [dict getdef $colorMap $color $color]
-                Wish the GPU draws pipeline "fillTriangle" onto canvas $id with instances \
-                    [list \
-                    [list $surfaceToClip $p1 $p2 $p3 $color] \
-                    [list $surfaceToClip $p0 $p1 $p3 $color]] \
-                    layer $layer
-            }
+            dict assign $options colorMap color surfaceToClip p0 p1 p2 p3 layer
+            if {![info exists layer]} { set layer 0 }
+            set color [dict getdef $colorMap $color $color]
+            Wish the GPU draws pipeline "fillTriangle" onto canvas $id with instances \
+                [list \
+                [list $surfaceToClip $p1 $p2 $p3 $color] \
+                [list $surfaceToClip $p0 $p1 $p3 $color]] \
+                layer $layer
         }
 
     When /someone/ wishes to draw a polygon onto /p/ with /...options/ &\
@@ -76,12 +74,11 @@ When the color map is /colorMap/ {
         /page/ has resolved geometry /geom/ {
             set fillOpts [list]
             if {[info exists options]} { set fillOpts $options } else { set fillOpts {color white} }
-            dict with geom {
-                set points [list [list 0 0] \
-                    [list $width 0] \
-                    [list $width $height] \
-                    [list 0 $height]]
-            }
+            dict assign $geom width height
+            set points [list [list 0 0] \
+                [list $width 0] \
+                [list $width $height] \
+                [list 0 $height]]
 
             Wish to draw a polygon onto $page with points $points {*}$fillOpts
         }

@@ -250,7 +250,7 @@ fn defineImageArgtype {uvx} {
     }
     set lib [cc::compile]
 
-    uvx::argtype Image "$lib sockSendImage \$socket \$arg" {
+    uvx::argtype Image [fn {socket arg} { lib::sockSendImage $socket $arg }] {
         import struct
         from PIL import Image
 

@@ -349,21 +349,20 @@ When the png library is /pngLib/ &\
                     [llength $geomResults] > 0} {
 
                     set imageResult [lindex $imageResults end]
-                    dict with imageResult {
-                        StatementAcquire! $__ref
+                    dict assign -all $imageResult
+                    StatementAcquire! $__ref
 
-                        set filename [format "/tmp/sam2-foot-contour-%s-%s.png" \
-                            [string map {/ _ { } _} $page] \
-                            [string map {/ _ { } _} $id]]
-                        pngLib::saveAsPng $im $filename
+                    set filename [format "/tmp/sam2-foot-contour-%s-%s.png" \
+                        [string map {/ _ { } _} $page] \
+                        [string map {/ _ { } _} $id]]
+                    pngLib::saveAsPng $im $filename
 
-                        set fsize [file size $filename]
-                        set fd [file open $filename r]
-                        set imageData [stream read $fd $fsize]
-                        close $fd
+                    set fsize [file size $filename]
+                    set fd [file open $filename r]
+                    set imageData [stream read $fd $fsize]
+                    close $fd
 
-                        StatementRelease! $__ref
-                    }
+                    StatementRelease! $__ref
 
                     set footContour [dict get [lindex $contourResults end] footContour]
                     set maskOpts [dict get [lindex $maskResults end] maskOpts]

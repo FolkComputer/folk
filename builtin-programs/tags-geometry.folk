@@ -43,10 +43,9 @@ When the default program geometry is /defaultGeom/ &\
             return [expr {[string map {mm ""} $x] / 1000.0}]
         }
         dict for {k v} $geom { dict set geom $k [dim $v] }
-        dict with geom {
-            set width [expr {$left + $tagSize + $right}]
-            set height [expr {$top + $tagSize + $bottom}]
-        }
+        dict assign -all $geom
+        set width [expr {$left + $tagSize + $right}]
+        set height [expr {$top + $tagSize + $bottom}]
         dict set geom width $width
         dict set geom height $height
         # This (resolved geometry) feels like a hack.

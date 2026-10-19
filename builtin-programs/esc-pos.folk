@@ -34,14 +34,15 @@ When the print library is /printLib/ &\
 
     fn writeFolkFile {id code} {
         set folkFile [file open "$saveDir/$id.folk" w]
-        puts $folkFile $code
+        stream write $folkFile "$code\n"
         close $folkFile
     }
 
     fn writeMetaFile {printer id} {
         Require! $printer has tag geometry /geometry/
         set metaFile [file open "$saveDir/$id.meta.folk" w]
-        puts $metaFile [subst {Claim tag \$this has geometry {$geometry}}]
+        set metaLine [subst {Claim tag \$this has geometry {$geometry}}]
+        stream write $metaFile "$metaLine\n"
         close $metaFile
     }
 
