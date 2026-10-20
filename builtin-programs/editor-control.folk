@@ -1,6 +1,6 @@
 When /page/ has editor code /editorCode/ & /page/ has program code /programCode/ {
-    Claim $page has base64 editor code [binary encode base64 $editorCode] \
-                           program code [binary encode base64 $programCode]
+    Claim $page has base64 editor code [codec encode base64 $editorCode] \
+                           program code [codec encode base64 $programCode]
 }
 
 Wish the web server handles route "/editor-control" with hidden true handler {
@@ -63,8 +63,8 @@ function updateProgramCode() {
         Hold (non-capturing) (on builtin-programs/editor.folk) ${"cursor" + kbPath} {
             Claim the ${kbPath} cursor is [list ${cursorPosition[0]} ${cursorPosition[1]}]
             Hold (on builtin-programs/editor.folk) ${"code" + kbPath} {
-                Claim ${id} has program code [binary decode base64 ${btoa(currentCode)}]
-                Claim ${id} has editor code [binary decode base64 ${btoa(currentCode)}]
+                Claim ${id} has program code [codec decode base64 ${btoa(currentCode)}]
+                Claim ${id} has editor code [codec decode base64 ${btoa(currentCode)}]
             }
         }
     `);
@@ -91,8 +91,8 @@ function updateCursorAndCode(ev) {
         Hold (non-capturing) (on builtin-programs/editor.folk) ${"cursor" + kbPath} {
             Claim the ${kbPath} cursor is [list ${x} ${y}]
             Hold (on builtin-programs/editor.folk) ${"code" + kbPath} {
-                Claim ${id} has program code [binary decode base64 ${btoa(programCode)}]
-                Claim ${id} has editor code [binary decode base64 ${btoa(newCode)}]
+                Claim ${id} has program code [codec decode base64 ${btoa(programCode)}]
+                Claim ${id} has editor code [codec decode base64 ${btoa(newCode)}]
             }
         }
     `);

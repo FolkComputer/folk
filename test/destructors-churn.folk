@@ -3,13 +3,13 @@ When {
     while true {
         sleep 0.01
         Hold! -key boop \
-            -destructor [list apply {{n} {
+            -destructor [list apply [fn {n} {
                 Retract! the $n is present
                 if {$n > 200} {
                     puts [Query! the /n/ is present]
                     Exit! 0
                 }
-            }} $n] \
+            }] $n] \
             Claim the n is [incr n]
         Assert! the $n is present
     }

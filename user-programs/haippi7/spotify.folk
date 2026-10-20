@@ -190,7 +190,7 @@ proc ::handleReadSpotify {chan addr port} {
             puts -nonewline $chan "HTTP/1.1 302 Found\nSet-Cookie: spotify_auth_state=$state\nLocation: https://accounts.spotify.com/authorize?$responseTypeParam&$clientIdParam&$scopeParam&$redirectUrlParam&$stateParam"
         } elseif {[string match "/callback*" $path]} {
             regexp {/?code=(.+)&state=(.+)} $path qpFullMatch qpCode qpState
-            set encodedAuthorization [binary encode base64 "$clientId:$clientSecret"]
+            set encodedAuthorization [codec encode base64 "$clientId:$clientSecret"]
             dict set hd "Content-Type" "application/x-www-form-urlencoded"
             dict set hd Authorization "Basic $encodedAuthorization"
             set token [::http::geturl "https://accounts.spotify.com/api/token" -headers $hd -query [::http::formatQuery grant_type authorization_code redirect_uri $redirectUrl code $qpCode]]
@@ -204,7 +204,7 @@ proc ::handleReadSpotify {chan addr port} {
             puts -nonewline $chan "HTTP/1.1 302 Found\nSet-Cookie: spotify_auth_state=0; Max-Age=0\nLocation: /?access_token=$accessToken&refresh_token=$refreshToken"
         } elseif {[string match "/refresh_token*" $path]} {
             regexp {/?refresh_token=(.+)} $path qpFullMatch qpRefreshToken
-            set encodedAuthorization [binary encode base64 "$clientId:$clientSecret"]
+            set encodedAuthorization [codec encode base64 "$clientId:$clientSecret"]
             dict set hd "Content-Type" "application/x-www-form-urlencoded"
             dict set hd Authorization "Basic $encodedAuthorization"
             set token [::http::geturl "https://accounts.spotify.com/api/token" -headers $hd -query [::http::formatQuery grant_type refresh_token refresh_token $qpRefreshToken]]

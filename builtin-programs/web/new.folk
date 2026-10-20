@@ -241,8 +241,7 @@ Wish the web server handles route "/new" with nav "<button>New program</button>"
     // preserved in the code and printout (otherwise, braced-string-parsing
     // would elide them: https://www.tcl.tk/man/tcl8.7/TclCmd/Tcl.html#M10)
     ws.hold('code', tcl`
-      package require base64
-      Claim ${program} has program code [binary decode base64 ${btoa(code)}]
+      Claim ${program} has program code [codec decode base64 ${btoa(code)}]
     `);
   }
   function handlePrint() {

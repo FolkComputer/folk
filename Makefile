@@ -36,7 +36,7 @@ folk: workqueue.o db.o trie.o sysmon.o epoch.o folk.o output-redirection.o block
 		-L./vendor/jimtcl \
 		-L./vendor/zicl/zig-out/lib \
 		$(filter %.o %.a,$^) \
-		-ljim -lzicl -lm -lssl -lcrypto -lz $(INTERPOSE_LDFLAGS)
+		-ljim -lzicl -lm -lz $(INTERPOSE_LDFLAGS)
 	if [ "$$(uname)" = "Darwin" ]; then \
 		dsymutil $@; \
 	fi

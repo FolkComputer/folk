@@ -1,21 +1,6 @@
 set UVX "$env::HOME/.local/bin/uvx"
 if {![file exists $UVX]} { set UVX "uvx" }
 
-fn UvxCleanup {pid endpoint} {
-    # `uvx` may keep the real Python worker as a child process. Kill children
-    # first, then the wrapper. Both commands are best-effort because the worker
-    # may already have exited by the time the match is retracted.
-    catch {exec {pkill -TERM -P $pid}}
-    catch {exec {kill SIGTERM $pid}}
-    catch {exec {kill $pid}}
-    catch {file {delete -force $endpoint}}
-
-    after 1000 [list apply [fn {pid} {
-        catch {exec {pkill -KILL -P $pid}}
-        catch {exec {kill SIGKILL $pid}}
-    }] $pid]
-}
-
 set cc [dict link $C {}]
 cc::include <sys/socket.h>
 cc::include <sys/un.h>
@@ -110,15 +95,15 @@ cc::addcode {
 
     #define ENDPOINT_MAX 256
 
-    typedef struct EndpointStringKV {
+    typedef struct EndpointKV {
         char key[ENDPOINT_MAX];
-        char* value;
-    } EndpointStringKV;
+        Zicl_Value value;
+    } EndpointKV;
 
-    EndpointStringKV registeredArgtypes[64];
+    EndpointKV registeredArgtypes[64];
     pthread_mutex_t registeredArgtypesMutex = PTHREAD_MUTEX_INITIALIZER;
 
-    EndpointStringKV functions[64];
+    EndpointKV functions[64];
     pthread_mutex_t functionsMutex = PTHREAD_MUTEX_INITIALIZER;
 
     // One connection per (thread, endpoint). The wire protocol is
@@ -132,36 +117,37 @@ cc::addcode {
     } EndpointSocket;
     _Thread_local EndpointSocket threadSockets[16];
 }
-cc::proc getFunctions {char* endpoint} char* {
+cc::proc getFunctions {char* endpoint} Zicl_Value {
     pthread_mutex_lock(&functionsMutex);
     for (int i = 0; i < 64; i++) {
-        if (strcmp(functions[i].key, endpoint) == 0) {
-            char* result = functions[i].value;
+        if (functions[i].key[0] != '\0' && strcmp(functions[i].key, endpoint) == 0) {
+            Zicl_Value result = Zicl_Ref(functions[i].value);
             pthread_mutex_unlock(&functionsMutex);
-            return result ? result : "";
+            return result;
         }
     }
     pthread_mutex_unlock(&functionsMutex);
-    return "";
+    return Zicl_BoxDict(ziclNewDict(NULL, 0));
 }
-cc::proc getRegisteredArgtypes {char* endpoint} char* {
+cc::proc getRegisteredArgtypes {char* endpoint} Zicl_Value {
     pthread_mutex_lock(&registeredArgtypesMutex);
     for (int i = 0; i < 64; i++) {
-        if (strcmp(registeredArgtypes[i].key, endpoint) == 0) {
-            char* result = registeredArgtypes[i].value;
+        if (registeredArgtypes[i].key[0] != '\0' && strcmp(registeredArgtypes[i].key, endpoint) == 0) {
+            Zicl_Value result = Zicl_Ref(registeredArgtypes[i].value);
             pthread_mutex_unlock(&registeredArgtypesMutex);
-            return result ? result : "";
+            return result;
         }
     }
     pthread_mutex_unlock(&registeredArgtypesMutex);
-    return "";
+    return Zicl_BoxDict(ziclNewDict(NULL, 0));
 }
-cc::proc setFunctions {char* endpoint char* value} void {
+cc::proc setFunctions {char* endpoint Zicl_Value value} void {
+    Zicl_MakeCrossthread(value);
     pthread_mutex_lock(&functionsMutex);
 
     int slot = -1;
     for (int i = 0; i < 64; i++) {
-        if (strcmp(functions[i].key, endpoint) == 0) {
+        if (functions[i].key[0] != '\0' && strcmp(functions[i].key, endpoint) == 0) {
             slot = i;
             break;
         }
@@ -175,21 +161,22 @@ cc::proc setFunctions {char* endpoint char* value} void {
         FOLK_ERROR("setFunctions: No free slots\n");
     }
 
-    if (functions[slot].value) {
-        free(functions[slot].value);
+    if (functions[slot].key[0] != '\0') {
+        Zicl_DropRef(functions[slot].value);
     }
     strncpy(functions[slot].key, endpoint, ENDPOINT_MAX - 1);
     functions[slot].key[ENDPOINT_MAX - 1] = '\0';
-    functions[slot].value = strdup(value);
+    functions[slot].value = Zicl_Ref(value);
 
     pthread_mutex_unlock(&functionsMutex);
 }
-cc::proc setRegisteredArgtypes {char* endpoint char* value} void {
+cc::proc setRegisteredArgtypes {char* endpoint Zicl_Value value} void {
+    Zicl_MakeCrossthread(value);
     pthread_mutex_lock(&registeredArgtypesMutex);
 
     int slot = -1;
     for (int i = 0; i < 64; i++) {
-        if (strcmp(registeredArgtypes[i].key, endpoint) == 0) {
+        if (registeredArgtypes[i].key[0] != '\0' && strcmp(registeredArgtypes[i].key, endpoint) == 0) {
             slot = i;
             break;
         }
@@ -203,17 +190,53 @@ cc::proc setRegisteredArgtypes {char* endpoint char* value} void {
         FOLK_ERROR("setRegisteredArgtypes: No free slots\n");
     }
 
-    if (registeredArgtypes[slot].value) {
-        free(registeredArgtypes[slot].value);
+    if (registeredArgtypes[slot].key[0] != '\0') {
+        Zicl_DropRef(registeredArgtypes[slot].value);
     }
     strncpy(registeredArgtypes[slot].key, endpoint, ENDPOINT_MAX - 1);
     registeredArgtypes[slot].key[ENDPOINT_MAX - 1] = '\0';
-    registeredArgtypes[slot].value = strdup(value);
+    registeredArgtypes[slot].value = Zicl_Ref(value);
 
+    pthread_mutex_unlock(&registeredArgtypesMutex);
+}
+cc::proc cleanupEndpoint {char* endpoint} void {
+    pthread_mutex_lock(&functionsMutex);
+    for (int i = 0; i < 64; i++) {
+        if (functions[i].key[0] != '\0' && strcmp(functions[i].key, endpoint) == 0) {
+            functions[i].key[0] = '\0';
+            Zicl_DropRef(functions[i].value);
+            break;
+        }
+    }
+    pthread_mutex_unlock(&functionsMutex);
+
+    pthread_mutex_lock(&registeredArgtypesMutex);
+    for (int i = 0; i < 64; i++) {
+        if (registeredArgtypes[i].key[0] != '\0' && strcmp(registeredArgtypes[i].key, endpoint) == 0) {
+            registeredArgtypes[i].key[0] = '\0';
+            Zicl_DropRef(registeredArgtypes[i].value);
+            break;
+        }
+    }
     pthread_mutex_unlock(&registeredArgtypesMutex);
 }
 
 set impl [cc::compile]
+
+fn UvxCleanup {pid endpoint} {
+    # `uvx` may keep the real Python worker as a child process. Kill children
+    # first, then the wrapper. Both commands are best-effort because the worker
+    # may already have exited by the time the match is retracted.
+    catch {exec {pkill -TERM -P $pid}}
+    catch {exec {kill $pid}}
+    catch {impl::cleanupEndpoint $endpoint}
+    catch {file {delete -force $endpoint}}
+
+    after 1000 [list apply [fn {pid} {
+        catch {exec {pkill -KILL -P $pid}}
+        catch {exec {kill SIGKILL $pid}}
+    }] $pid]
+}
 
 fn Uvx args {
     set endpoint "/tmp/uvx-[clock milliseconds]-[expr {int(rand() * 100000)}].sock"

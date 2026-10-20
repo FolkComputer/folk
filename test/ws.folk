@@ -6,7 +6,7 @@ When {
 while true {
     try {
         set script {puts "test/ws: server is online; continuing."}
-        exec websocat --one-message "ws://127.0.0.1:4273/ws" \
+        exec websocat --one-message -u "ws://127.0.0.1:4273/ws" \
             <<$script
         break
     } on error e {
@@ -15,32 +15,41 @@ while true {
     }
 }
 
-lassign [pipe] chRead chRead2
-lassign [pipe] chWrite2 chWrite
-# Hack to get around https://github.com/vi/websocat/issues/23
-set websocat [exec websocat --null-terminated "ws://127.0.0.1:4273/ws" <@$chWrite2 >@$chRead2 &]
-close $chRead2
-close $chWrite2
+set ws [dict get [QueryOne! the websocket library is /ws/] ws]
+dict assign $ws wsSend wsReadMsg
 
-proc wsSend {code} {chRead chWrite} {
-    puts -nonewline $chWrite "$code\0"
-    flush $chWrite
+set client [socket connect 127.0.0.1 4273]
+set clientKey "dGhlIHNhbXBsZSBub25jZQ=="
+stream write $client "GET /ws HTTP/1.1\r\nHost: 127.0.0.1:4273\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: $clientKey\r\nSec-WebSocket-Version: 13\r\n\r\n"
+
+while true {
+    set line [string trimright [stream gets $client] "\r"]
+    if {$line eq ""} { break }
 }
 
-wsSend {
-    # Copied from folk.js.
-    Assert! when websocket $chan is connected {
+# Emulate what folk.js sends:
+wsSend $client {
+    Assert! when websocket $chan is connected [fn {} {
+        wsSend $ctx [list test-channel pong]
         Claim there is a sent statement
-        puts stderr X
-    } with environment [list [list this $chan __ctx $ctx __seq 0]]
+    }]
 }
+
+# Verify the client receives the message sent by wsSend $ctx.
+set reply [wsReadMsg $client]
+set payload [dict get $reply payload]
+if {$payload ne "test-channel pong"} {
+    error "Expected 'test-channel pong', got '$payload'"
+}
+puts "test/ws: successfully received response from wsSend: $payload"
 
 When there is a sent statement {
     # Test to make sure this statement gets retracted on WS
     # disconnect.
     On unmatch {
+        puts "test/ws: disconnected cleanly and statement retracted; test passed."
         Exit! 0
     }
 
-    kill $websocat
+    close $client
 }

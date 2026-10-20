@@ -1,21 +1,9 @@
-# sha1 for stable, content-addressed pipeline names.
-set cc [dict link $C {}]
-cc::include <string.h>
-cc::include <openssl/sha.h>
-cc::proc sha1 {char* d} Zicl_Value {
-    unsigned char md[20];
-    SHA1((unsigned char *)d, strlen(d), md);
-    return ziclNewString((char *)md, 20);
-}
-cc::addendcflags -lssl -lcrypto
-set sha1Lib [cc::compile]
-
 When the GPU Vulkan C prototype is /Vulkan/ &\
      the GPU pipeline library is /pipelineLib/ {
 
 # Custom push-constants encoder for ShaderToy uniforms.
 # Layout (std430):
-#   offset  0  vec3  iResolution    (12 bytes — no trailing pad,
+#   offset  0  vec3  iResolution    (12 bytes -- no trailing pad,
 #                                    since the next member is a scalar)
 #   offset 12 float iTime          (4 bytes)
 #
@@ -104,7 +92,7 @@ set toyPushConstantsBlock {
 }
 
 When /wisher/ wishes /p/ draws toy shader /shaderCode/ {
-    binary scan [sha1Lib::sha1 $shaderCode] H* sha1
+    set sha1 [codec encode hex [codec hash sha-1 $shaderCode]]
 
     set vertGlsl [csubst {
         #version 450

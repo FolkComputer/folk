@@ -421,7 +421,7 @@ When /someone/ wishes /page/ has a SAM2 object tracker &\
 
                         StatementRelease! $__ref
 
-                        set b64 [binary encode base64 $imageData]
+                        set b64 [codec encode base64 $imageData]
                         set body [format {<img src="data:image/png;base64,%s">} $b64]
                     }
 

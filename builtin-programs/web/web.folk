@@ -2,143 +2,13 @@ try {
 
 puts "web: [__threadId] (PID [pid])"
 
+set ws [import "lib/ws.tcl"]
+Claim the websocket library is $ws
+dict assign $ws wsUpgradeHandshake wsReadMsg wsSend
 
-# To force a rebuild: rm vendor/wslay/Makefile
-if {![file exists vendor/wslay/Makefile]} {
-    puts "web: Configuring libwslay..."
-    exec sh -c {cd vendor/wslay && autoreconf -i && automake && autoconf && ./configure} \
-        >@stdout 2>@stderr
-}
-puts "web: Building libwslay..."
-# Only the library, not the whole tree: wslay's examples pull in extra
-# dependencies we don't have or need (fork-echoserv.c wants <nettle/sha.h>),
-# and a failure building one of those would otherwise take the web server
-# down with it. We only ever use vendor/wslay/lib (see lib/ws.tcl).
-exec make -C vendor/wslay/lib >@stdout 2>@stderr
-puts "web: libwslay built."
-
-source "lib/ws.tcl"
-# We export wsLib so that other threads can emit messages onto
-# websockets.
-Claim the websocket library is $wsLib
 
 fn htmlEscape {s} {
     string map {& "&amp;" < "&lt;" > "&gt;" "\"" "&quot;"} $s
-}
-
-fn handleRead {chan addr} {
-    chan::buffering none
-
-    set line [stream gets $chan]; set line [string range $line 0 end-1]
-    set firstline $line
-
-    # puts "Http ([clock format [clock seconds] -format "%H:%M:%S"]): $chan $addr: $line"
-    set headers [list]
-    while true {
-        set line [stream gets $chan]; set line [string range $line 0 end-1]
-        if {$line eq ""} { break }
-
-        # puts "  Http: ($line)"
-        if {[regexp {^([^\s:]+)\s*:\s*(.+)} $line -> k v]} {
-            lappend headers $k $v
-        } else {
-            # puts stderr "Http: Weird line: $line"
-            break
-        }
-    }
-
-    if {[regexp {GET ([^ ]*) HTTP/1.1} $firstline -> path] && $path ne "/ws"} {
-        set response {}
-        try {
-            ForEach! /someone/ wishes the web server handles route /route/ with /...options/ {
-                set handler [dict get $options handler]
-                set vars [regexp -inline ^${route}(\\?.*)?$ $path]
-                if {[llength $vars] > 0} {
-                    set queryString [lindex $vars end]
-                    set QUERY [parseQueryString $queryString]
-
-                    fn html {body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: text/html; charset=utf-8\n\n" body $body}
-                    fn json {body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: application/json; charset=utf-8\n\n" body $body}
-
-                    set varNames [lseq [llength $vars]]
-                    lappend varNames QUERY
-                    set response [handler {*}$vars $QUERY]
-                    break
-                }
-            }
-            if {$response eq ""} {
-                set httpStatus "HTTP/1.1 200 OK"
-                set contentType "text/html; charset=utf-8"
-                set body [handlePage $path httpStatus contentType]
-                set response [dict create statusAndHeaders "$httpStatus\nConnection: close\nContent-Type: $contentType\n\n" body $body]
-            }
-            if {![dict exists $response statusAndHeaders]} {
-                error "Response not generated"
-            }
-        } on error {err opts} {
-            # -errorstack is the flat {name file line args ...} frame list;
-            # index 1 is the innermost frame's file.
-            set errorStack [expr {[dict exists $opts -errorstack] ?
-                                  [dict get $opts -errorstack] : {}}]
-            set src [lindex $errorStack 1]
-            stream write $realStderr "Web error in $src ($path): $err\n  [errorInfoFor $err $opts]\n"
-
-            set contentType "text-html; charset=utf-8"
-            set body [subst {
-                <html>
-                <head>
-                <title>folk: 500 Internal Server Error</title>
-                </head>
-                <body>
-                <pre>[htmlEscape $err]:
-[htmlEscape [errorInfoFor $err $opts]]</pre>
-                </body>
-                </html>
-            }]
-            set response [dict create statusAndHeaders "HTTP/1.1 500 Internal Server Error\nConnection: close\nContent-Type: $contentType\n\n" body $body]
-        }
-        puts -nonewline $chan [dict get $response statusAndHeaders]
-        if {[dict exists $response body]} {
-            puts -nonewline $chan [dict get $response body]
-        }
-        close $chan
-
-    } elseif {[regexp {POST ([^ ]*) HTTP/1.1} $firstline -> path]} {
-        set httpStatus "HTTP/1.1 200 OK"
-        set contentType "text/plain; charset=utf-8"
-        puts -nonewline $chan "$httpStatus\r\nConnection: close\r\nContent-Type: $contentType\r\n\r\n"
-
-        set body [chan::read [headerGet $headers Content-Length]]
-        # puts "  ($body)"
-        try {
-            puts -nonewline $chan [eval $body]
-        } on error e {
-            puts "Error: $e"
-            puts -nonewline $chan "Error: $e"
-        }
-        close $chan
-
-    } elseif {[info exists path] && $path eq "/ws"} {
-        puts "web: Request for /ws ($headers)"
-        set clientKey [headerGet $headers Sec-WebSocket-Key ""]
-        if {$clientKey eq ""} {
-            puts -nonewline $chan "HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nMissing Sec-WebSocket-Key\r\n"
-            close $chan
-            return
-        }
-
-        WsConnection upgrade $chan $clientKey \
-            [list Retract! websocket $chan is connected]
-        Assert! websocket $chan is connected
-
-    } else { puts "Closing: $chan $addr $headers"; close $chan }
-}
-
-fn handleConnect {chan addr} {
-    chan::timeout 2000
-    fileevent $chan readable [fn {} {
-        handleRead $chan $addr
-    }]
 }
 
 fn readFile {filename contentTypeVar} {
@@ -154,6 +24,28 @@ fn headerGet {headers name args} {
 
     if {[llength $args] > 0} { return [lindex $args 0] }
     error "missing HTTP header $name"
+}
+
+fn parseQueryString {queryString} {
+    set QUERY [dict create]
+    if {$queryString eq ""} { return $QUERY }
+
+    set queryString [string range $queryString 1 end]
+    foreach pair [split $queryString &] {
+        if {[regexp {^([^=]*)=(.*)$} $pair -> key value]} {
+            # URL decode key and value.
+            regsub -all {\+} $key { } key
+            regsub -all {%([0-9A-Fa-f]{2})} $key {[format %c 0x\1]} key
+            set key [subst $key]
+
+            regsub -all {\+} $value { } value
+            regsub -all {%([0-9A-Fa-f]{2})} $value {[format %c 0x\1]} value
+            set value [subst $value]
+
+            dict set QUERY $key $value
+        }
+    }
+    return $QUERY
 }
 
 fn handlePage {path httpStatusVar contentTypeVar} {
@@ -187,26 +79,136 @@ fn handlePage {path httpStatusVar contentTypeVar} {
     }
 }
 
-fn parseQueryString {queryString} {
-    set QUERY [dict create]
-    if {$queryString eq ""} { return $QUERY }
+fn handleConnection {chan} {
+    try {
+        set line [string trimright [stream gets $chan] "\r"]
+        set firstline $line
 
-    set queryString [string range $queryString 1 end]
-    foreach pair [split $queryString &] {
-        if {[regexp {^([^=]*)=(.*)$} $pair -> key value]} {
-            # URL decode key and value
-            regsub -all {\+} $key { } key
-            regsub -all {%([0-9A-Fa-f]{2})} $key {[format %c 0x\1]} key
-            set key [subst $key]
+        set headers [list]
+        while true {
+            set line [string trimright [stream gets $chan] "\r"]
+            if {$line eq ""} { break }
 
-            regsub -all {\+} $value { } value
-            regsub -all {%([0-9A-Fa-f]{2})} $value {[format %c 0x\1]} value
-            set value [subst $value]
-
-            dict set QUERY $key $value
+            if {[regexp {^([^\s:]+)\s*:\s*(.+)} $line -> k v]} {
+                lappend headers $k $v
+            } else {
+                break
+            }
         }
+
+        if {[regexp {GET ([^ ]*) HTTP/1.1} $firstline -> path] && $path ne "/ws"} {
+            set response {}
+            try {
+                ForEach! /someone/ wishes the web server handles route /route/ with /...options/ {
+                    set handler [dict get $options handler]
+                    set vars [regexp -inline ^${route}(\\?.*)?$ $path]
+                    if {[llength $vars] > 0} {
+                        set queryString [lindex $vars end]
+                        set QUERY [parseQueryString $queryString]
+
+                        fn html {body} {dict create statusAndHeaders "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: text/html; charset=utf-8\r\n\r\n" body $body}
+                        fn json {body} {dict create statusAndHeaders "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: application/json; charset=utf-8\r\n\r\n" body $body}
+
+                        set varNames [lseq [llength $vars]]
+                        lappend varNames QUERY
+                        set response [handler {*}$vars $QUERY]
+                        break
+                    }
+                }
+                if {$response eq ""} {
+                    set httpStatus "HTTP/1.1 200 OK"
+                    set contentType "text/html; charset=utf-8"
+                    set body [handlePage $path httpStatus contentType]
+                    set response [dict create statusAndHeaders "$httpStatus\r\nConnection: close\r\nContent-Type: $contentType\r\n\r\n" body $body]
+                }
+                if {![dict exists $response statusAndHeaders]} {
+                    error "Response not generated"
+                }
+            } on error {err opts} {
+                set errorStack [expr {[dict exists $opts -errorstack] ?
+                                      [dict get $opts -errorstack] : {}}]
+                set src [lindex $errorStack 1]
+                stream write $realStderr "Web error in $src ($path): $err\n  [errorInfoFor $err $opts]\n"
+
+                set contentType "text/html; charset=utf-8"
+                set body [subst {
+                    <html>
+                    <head>
+                    <title>folk: 500 Internal Server Error</title>
+                    </head>
+                    <body>
+                    <pre>[htmlEscape $err]:
+[htmlEscape [errorInfoFor $err $opts]]</pre>
+                    </body>
+                    </html>
+                }]
+                set response [dict create statusAndHeaders "HTTP/1.1 500 Internal Server Error\r\nConnection: close\r\nContent-Type: $contentType\r\n\r\n" body $body]
+            }
+            stream write $chan [dict get $response statusAndHeaders]
+            if {[dict exists $response body]} {
+                stream write $chan [dict get $response body]
+            }
+            close $chan
+
+        } elseif {[regexp {POST ([^ ]*) HTTP/1.1} $firstline -> path]} {
+            set httpStatus "HTTP/1.1 200 OK"
+            set contentType "text/plain; charset=utf-8"
+            stream write $chan "$httpStatus\r\nConnection: close\r\nContent-Type: $contentType\r\n\r\n"
+
+            set contentLength [headerGet $headers Content-Length 0]
+            set body ""
+            if {$contentLength > 0} {
+                set body [stream read $chan $contentLength]
+            }
+            try {
+                stream write $chan [eval $body]
+            } on error e {
+                stream write $chan "Error: $e"
+            }
+            close $chan
+
+        } elseif {[info exists path] && $path eq "/ws"} {
+            set clientKey [headerGet $headers Sec-WebSocket-Key ""]
+            if {$clientKey eq ""} {
+                stream write $chan "HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nMissing Sec-WebSocket-Key\r\n"
+                close $chan
+                return
+            }
+
+            set acceptKey [wsUpgradeHandshake $clientKey]
+            stream write $chan "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: $acceptKey\r\n\r\n"
+
+            set this $chan
+            set ctx $chan
+            Assert! websocket $chan is connected
+            try {
+                while true {
+                    set msg [wsReadMsg $chan]
+                    set opcode [dict get $msg opcode]
+                    if {$opcode eq "close"} {
+                        break
+                    } elseif {$opcode eq "text"} {
+                        set text [dict get $msg payload]
+                        try {
+                            eval $text
+                        } on error e {
+                            stream write $realStderr "Web socket eval error: $e\n"
+                        }
+                    }
+                }
+            } on error e {
+                # Client disconnected or read error.
+            } finally {
+                Retract! websocket $chan is connected
+                try { close $chan } on error e {}
+            }
+
+        } else {
+            close $chan
+        }
+    } on error {e opts} {
+        stream write $realStderr "handleConnection uncaught error: $e\n[errorInfoFor $e $opts]\n"
     }
-    return $QUERY
 }
 
 fn HtmlWhen {args} {
@@ -273,14 +275,13 @@ fn HtmlWhen {args} {
     }]
 }
 
+Subscribe: http client /client/ arrived {
+    handleConnection $client
+}
+
 while true {
     try {
-        set f [socket stream.server 4273]
-        f::listen 128
-        f::readable [lambda {} {f} {
-            set client [f::accept addr]
-            handleConnect $client $addr
-        }]
+        set listener [socket listen 4273]
         break
     } on error e {
         # Handles failure to bind to :4273. We try again in a second.
@@ -289,10 +290,15 @@ while true {
     }
 }
 
+while true {
+    set client [socket accept $listener]
+    stream write $realStderr "web: accepted client $client\n"
+    Notify: http client $client arrived
+}
+
 } on error {e opts} {
     stream write $realStderr "WARNING: web.folk failed to initialize;
 the web server is probably down; check /var/tmp/folk-[pid]/ for log files.
-(Make sure libtool and autoconf-archive are installed.)
 ------------------------------------------
 [errorInfoFor $e $opts]\n"
     return -code error -errorstack [dict get $opts -errorstack] $e

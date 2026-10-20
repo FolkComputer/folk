@@ -372,7 +372,7 @@ When the png library is /pngLib/ &\
 
                     set contourPoints [svgPoints $footContour $geom $width $height]
 
-                    set b64 [binary encode base64 $imageData]
+                    set b64 [codec encode base64 $imageData]
                     set body [subst {
                         <div class="overlay" data-object-id="[htmlEscape $id]"
                              data-width="$width" data-height="$height"

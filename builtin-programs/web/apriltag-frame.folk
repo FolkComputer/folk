@@ -18,11 +18,10 @@ When the jpeg library is /jpegLib/ {
 
         StatementRelease! $__ref
 
-        package require base64
         html [subst {
             <html>
             <body>
-            <img src="data:image/png;base64,[binary encode base64 $imageData]"
+            <img src="data:image/png;base64,[codec encode base64 $imageData]"
                  style="position:absolute;top:0;left:0">
             <svg width="100%" height="100%" style="position:absolute;top:0;left:0;pointer-events:none;">
                 [join [lmap tag $tags {

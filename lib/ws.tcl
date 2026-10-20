@@ -1,296 +1,209 @@
-error "Need to fix"
+# WebSocket RFC 6455 protocol codec and connection helpers.
 
-set cc [C]
-$cc cflags -I./vendor/wslay/lib/includes
+set cc [dict link $C {}]
+cc::include <string.h>
+cc::include <stdlib.h>
+cc::include <stdint.h>
+cc::include <stdbool.h>
 
-
-$cc include <errno.h>
-$cc include <sys/socket.h>
-$cc include <string.h>
-$cc include <unistd.h>
-$cc include <fcntl.h>
-
-$cc include <wslay/wslay.h>
-
-# FIXME I need to add a signal handler here, since Zicl doesn't handle signals.
-
-$cc code {
-    typedef struct WsSession {
-        int fd;
-        Jim_Obj* onMsgRecv;
-    } WsSession;
-
-    static ssize_t recv_callback(wslay_event_context_ptr ctx,
-                                 uint8_t* buf, size_t len, int flags,
-                                 void* user_data) {
-        WsSession* session = (WsSession*) user_data;
-
-        ssize_t r;
-        while((r = recv(session->fd, buf, len, 0)) == -1 && errno == EINTR);
-        if(r == -1) {
-            if(errno == EAGAIN || errno == EWOULDBLOCK) {
-                wslay_event_set_error(ctx, WSLAY_ERR_WOULDBLOCK);
-            } else {
-                wslay_event_set_error(ctx, WSLAY_ERR_CALLBACK_FAILURE);
-            }
-        } else if(r == 0) {
-            /* Unexpected EOF is also treated as an error */
-            wslay_event_set_error(ctx, WSLAY_ERR_CALLBACK_FAILURE);
-            r = -1;
-        }
-        return r;
-    }
-    static ssize_t send_callback(wslay_event_context_ptr ctx,
-                                 const uint8_t* data, size_t len, int flags,
-                                 void* user_data) {
-        WsSession* session = (WsSession*) user_data;
-
-        ssize_t r;
-        int sflags = 0;
-#ifdef MSG_MORE
-        if(flags & WSLAY_MSG_MORE) {
-            sflags |= MSG_MORE;
-        }
-#endif // MSG_MORE
-        while((r = send(session->fd, data, len, sflags)) == -1 && errno == EINTR);
-        if(r == -1) {
-            if(errno == EAGAIN || errno == EWOULDBLOCK) {
-                wslay_event_set_error(ctx, WSLAY_ERR_WOULDBLOCK);
-            } else {
-                wslay_event_set_error(ctx, WSLAY_ERR_CALLBACK_FAILURE);
-            }
-        }
-        return r;
-    }
-    static void on_msg_recv_callback(wslay_event_context_ptr ctx,
-                                     const struct wslay_event_on_msg_recv_arg* arg,
-                                     void* user_data) {
-        WsSession* session = (WsSession*) user_data;
-        if (!wslay_is_ctrl_frame(arg->opcode)) {
-            Jim_Obj* msgObj = Jim_NewStringObj(interp, (char *)arg->msg, arg->msg_length);
-            if (Jim_EvalObjPrefix(interp, session->onMsgRecv,
-                                  1, &msgObj) == JIM_ERR) {
-                Jim_MakeErrorMessage(interp);
-                fprintf(stderr, "ws.tcl: on_msg_recv_callback: Error: (%s)\n",
-                        Jim_GetString(Jim_GetResult(interp), NULL));
-            }
-        }
-    }
-
-    struct wslay_event_callbacks callbacks = {
-        .recv_callback = recv_callback,
-        .send_callback = send_callback,
-        .genmask_callback = NULL,
-        .on_frame_recv_start_callback = NULL,
-        .on_frame_recv_chunk_callback = NULL,
-        .on_frame_recv_end_callback = NULL,
-        .on_msg_recv_callback = on_msg_recv_callback
-    };
-
-    int wsPipeRead;
-    int wsPipeWrite;
-}
-$cc typedef {struct wslay_event_context*} wslay_event_context_ptr
-$cc proc init {Jim_Obj* pipeReadObj Jim_Obj* pipeWriteObj} void {
-    wsPipeRead = Jim_AioFilehandle(interp, pipeReadObj);
-    if (wsPipeRead < 0) { FOLK_ERROR("ws: wsPipeRead is invalid\n"); }
-
-    int flags = fcntl(wsPipeRead, F_GETFL, 0);
-    fcntl(wsPipeRead, F_SETFL, flags | O_NONBLOCK);
-
-    wsPipeWrite = Jim_AioFilehandle(interp, pipeWriteObj);
-    if (wsPipeWrite < 0) { FOLK_ERROR("ws: wsPipeWrite is invalid\n"); }
-}
-$cc proc wsNew {Jim_Obj* chan Jim_Obj* onMsgRecv} wslay_event_context_ptr {
-    // Convert chan to an int fd:
-    int fd = Jim_AioFilehandle(interp, chan);
-    if (fd < 0) {
-        FOLK_ERROR("web: Unable to open channel as file\n");
-    }
-
-    WsSession* session = (WsSession*) malloc(sizeof(WsSession));
-    session->fd = fd;
-    session->onMsgRecv = onMsgRecv;
-    Jim_IncrRefCount(onMsgRecv);
-
-    wslay_event_context_ptr ctx;
-    wslay_event_context_server_init(&ctx, &callbacks, (void*) session);
-    fprintf(stderr, "wsInit\n");
-    return ctx;
-}
-
-$cc proc wsReadable {wslay_event_context_ptr ctx} void {
-    int r = wslay_event_recv(ctx);
-    if (r != 0) {
-        FOLK_ERROR("ws: wslay_event_recv: %d", r);
-    }
-}
-$cc proc wsWritable {wslay_event_context_ptr ctx} void {
-    int r = wslay_event_send(ctx);
-    if (r != 0) {
-        FOLK_ERROR("ws: wslay_event_send: %d", r);
-    }
-}
-$cc proc wsWantRead {wslay_event_context_ptr ctx} bool {
-    return wslay_event_want_read(ctx);
-}
-$cc proc wsWantWrite {wslay_event_context_ptr ctx} bool {
-    return wslay_event_want_write(ctx);
-}
-
-# This function is designed to be callable from any thread, so
-# arbitrary When bodies can emit data onto the WebSocket (since they
-# may run on any thread).
-$cc proc wsEmitMsg {wslay_event_context_ptr ctx char* data} void {
-    uint8_t pipedata[sizeof(ctx) + sizeof(data)];
-    memcpy(&pipedata[0], &ctx, sizeof(ctx));
-    char* datadup = strdup(data);
-    // The datadup string will be freed at the web thread on receipt.
-    memcpy(&pipedata[sizeof(ctx)], &datadup, sizeof(datadup));
-    if (write(wsPipeWrite, pipedata, sizeof(pipedata)) != sizeof(pipedata)) {
-        FOLK_ERROR("ws: wsEmitMsg: write failed\n");
-    }
-}
-
-# This function runs on the web thread.
-$cc proc wsPipeReadMsg {} wslay_event_context_ptr {
-    uint8_t pipedata[sizeof(wslay_event_context_ptr) + sizeof(char*)];
-    if (read(wsPipeRead, pipedata, sizeof(pipedata)) == sizeof(pipedata)) {
-        wslay_event_context_ptr ctx; memcpy(&ctx, &pipedata[0], sizeof(ctx));
-        char* data; memcpy(&data, &pipedata[sizeof(ctx)], sizeof(data));
-
-        struct wslay_event_msg msg = {
-            .opcode = WSLAY_TEXT_FRAME,
-            .msg = (unsigned char *)data,
-            .msg_length = strlen(data)
-        };
-        wslay_event_queue_msg(ctx, &msg);
-
-        free(data);
-        return ctx;
-    }
-    return NULL;
-}
-
-$cc proc wsDestroy {wslay_event_context_ptr ctx} void {
-    // FIXME: free the WsSession
-    wslay_event_context_free(ctx);
-}
-$cc endcflags ./vendor/wslay/lib/.libs/libwslay.a
-
-set wsLib [$cc compile]
-# This pipe is used so that other threads can queue up messages to
-# send out through WebSockets.
-lassign [pipe] wsPipeRead wsPipeWrite
-
-$wsLib init $wsPipeRead $wsPipeWrite
-
-package require base64
-
-set cc [C]
-$cc include <string.h>
-$cc include <openssl/sha.h>
-$cc proc sha1 {char* d} Jim_Obj* {
-    unsigned char md[20];
-    SHA1((unsigned char *)d, strlen(d), md);
-    return Jim_NewStringObj(interp, (char *)md, 20);
-}
-$cc endcflags -lssl -lcrypto
-set sha1Lib [$cc compile]
-
-class WsConnection {
-    chan {}
-    ctx {}
-
-    wsLib {}
-
-    destructor {}
-}
-WsConnection method onChanReadable {} {
-    try {
-        $wsLib wsReadable $ctx
-        $self updateChanReadableWritable
-    } on error e {
-        $self destroy
-    }
-}
-WsConnection method onChanWritable {} {
-    try {
-        $wsLib wsWritable $ctx
-        $self updateChanReadableWritable
-    } on error e {
-        $self destroy
-    }
-}
-WsConnection method updateChanReadableWritable {} {
-    set wantRead [$wsLib wsWantRead $ctx]
-    if {$wantRead} {
-        $chan readable [list $self onChanReadable]
+# Encode a WebSocket frame (server to client: unmasked).
+# Opcode: 1 = text, 2 = binary, 8 = close, 9 = ping, 10 = pong.
+cc::proc wsEncodeFrame {int opcode Zicl_Shimmerable* payload} Zicl_Value {
+    int len = 0;
+    const char* data = Zicl_ShimGetString(payload, &len);
+    uint8_t header[10];
+    int headerLen = 0;
+    header[0] = (uint8_t)(0x80 | (opcode & 0x0f));
+    if (len < 126) {
+        header[1] = (uint8_t)len;
+        headerLen = 2;
+    } else if (len <= 65535) {
+        header[1] = 126;
+        header[2] = (uint8_t)((len >> 8) & 0xff);
+        header[3] = (uint8_t)(len & 0xff);
+        headerLen = 4;
     } else {
-        $chan readable {}
-    }
-
-    set wantWrite [$wsLib wsWantWrite $ctx]
-    if {$wantWrite} {
-        $chan writable [list $self onChanWritable]
-    } else {
-        $chan writable {}
-    }
-
-    if {!$wantRead && !$wantWrite} {
-        $self destroy
-    }
-}
-
-WsConnection method onMsgRecv {msg} {
-    # puts stderr "onMsgRecv ($msg)"
-    eval $msg
-}
-
-WsConnection method destroy {} {
-    dict unset wsConnections $ctx
-    close $chan
-    $wsLib wsDestroy $ctx
-    {*}$destructor
-    rename $self ""
-}
-
-$wsPipeRead readable [lambda {} {wsLib} {
-    try {
-        while true {
-            set ctx [$wsLib wsPipeReadMsg]
-            set conn [dict get $wsConnections $ctx]
-            $conn updateChanReadableWritable
+        header[1] = 127;
+        uint64_t ulen = (uint64_t)len;
+        for (int i = 0; i < 8; i++) {
+            header[2 + i] = (uint8_t)((ulen >> ((7 - i) * 8)) & 0xff);
         }
-    } on error e {}
-}]
+        headerLen = 10;
+    }
 
-set wsConnections [dict create]
+    char* buf = (char*) malloc(headerLen + len);
+    memcpy(buf, header, headerLen);
+    if (len > 0) {
+        memcpy(buf + headerLen, data, len);
+    }
+    Zicl_Value result = ziclNewString(buf, headerLen + len);
+    free(buf);
+    return result;
+}
 
-# This class method creates a new WsConnection from an active HTTP
-# channel and key from /ws upgrade request header.
-fn {WsConnection upgrade} {chan clientKey destructor} {wsLib sha1Lib} {
+# Unmask WebSocket payload from client.
+cc::proc wsUnmask {Zicl_Shimmerable* payload Zicl_Shimmerable* maskKey} Zicl_Value {
+    int payloadLen = 0;
+    const char* payloadBytes = Zicl_ShimGetString(payload, &payloadLen);
+    int maskLen = 0;
+    const char* maskBytes = Zicl_ShimGetString(maskKey, &maskLen);
+    if (maskLen < 4) {
+        FOLK_ERROR("wsUnmask: mask key must be at least 4 bytes\n");
+    }
+    char* out = (char*) malloc(payloadLen);
+    for (int i = 0; i < payloadLen; i++) {
+        out[i] = payloadBytes[i] ^ maskBytes[i % 4];
+    }
+    Zicl_Value result = ziclNewString(out, payloadLen);
+    free(out);
+    return result;
+}
+
+# Parse 2-byte WebSocket frame header into a dict.
+cc::proc wsParseHeader {Zicl_Shimmerable* header2Bytes} Zicl_Value {
+    int len = 0;
+    const unsigned char* h = (const unsigned char*) Zicl_ShimGetString(header2Bytes, &len);
+    if (len < 2) {
+        FOLK_ERROR("wsParseHeader: expected 2 bytes\n");
+    }
+    int fin = (h[0] & 0x80) ? 1 : 0;
+    int opcode = h[0] & 0x0f;
+    int masked = (h[1] & 0x80) ? 1 : 0;
+    int payloadLen = h[1] & 0x7f;
+
+    Zicl_Value pairs[8];
+    pairs[0] = ziclNewString("fin", 3);
+    pairs[1] = Zicl_NewBool(fin != 0);
+    pairs[2] = ziclNewString("opcode", 6);
+    pairs[3] = Zicl_NewLong(opcode);
+    pairs[4] = ziclNewString("masked", 6);
+    pairs[5] = Zicl_NewBool(masked != 0);
+    pairs[6] = ziclNewString("length", 6);
+    pairs[7] = Zicl_NewLong(payloadLen);
+    return Zicl_BoxDict(ziclNewDict(pairs, 8));
+}
+
+# Parse 16-bit extended payload length.
+cc::proc wsParseLength16 {Zicl_Shimmerable* bytes2} int {
+    int len = 0;
+    const unsigned char* b = (const unsigned char*) Zicl_ShimGetString(bytes2, &len);
+    if (len < 2) {
+        FOLK_ERROR("wsParseLength16: expected 2 bytes\n");
+    }
+    return (int)((b[0] << 8) | b[1]);
+}
+
+# Parse 64-bit extended payload length.
+cc::proc wsParseLength64 {Zicl_Shimmerable* bytes8} uint64_t {
+    int len = 0;
+    const unsigned char* b = (const unsigned char*) Zicl_ShimGetString(bytes8, &len);
+    if (len < 8) {
+        FOLK_ERROR("wsParseLength64: expected 8 bytes\n");
+    }
+    uint64_t res = 0;
+    for (int i = 0; i < 8; i++) {
+        res = (res << 8) | (uint64_t)b[i];
+    }
+    return res;
+}
+
+set wsCodecLib [cc::compile]
+
+# Read exact number of bytes from stream, or error on EOF.
+fn wsReadExact {chan n} {
+    set buf ""
+    while {[string bytelength $buf] < $n} {
+        set remaining [expr {$n - [string bytelength $buf]}]
+        set chunk [stream read $chan $remaining]
+        if {[string bytelength $chunk] == 0} {
+            error "ws: unexpected EOF while reading $n bytes"
+        }
+        append buf $chunk
+    }
+    return $buf
+}
+
+# Read a WebSocket message from connection.
+# Returns dict: opcode ("text", "binary", "close") and payload.
+fn wsReadMsg {chan} {
+    while true {
+        set hBytes [wsReadExact $chan 2]
+        set header [wsCodecLib::wsParseHeader $hBytes]
+        set opcode [dict get $header opcode]
+        set length [dict get $header length]
+        set masked [dict get $header masked]
+
+        if {$length == 126} {
+            set lBytes [wsReadExact $chan 2]
+            set length [wsCodecLib::wsParseLength16 $lBytes]
+        } elseif {$length == 127} {
+            set lBytes [wsReadExact $chan 8]
+            set length [wsCodecLib::wsParseLength64 $lBytes]
+        }
+
+        set maskKey ""
+        if {$masked} {
+            set maskKey [wsReadExact $chan 4]
+        }
+
+        set payload ""
+        if {$length > 0} {
+            set rawPayload [wsReadExact $chan $length]
+            if {$masked} {
+                set payload [wsCodecLib::wsUnmask $rawPayload $maskKey]
+            } else {
+                set payload $rawPayload
+            }
+        }
+
+        switch -exact -- $opcode {
+            1 {
+                # Text frame.
+                return [dict create opcode text payload $payload]
+            }
+            2 {
+                # Binary frame.
+                return [dict create opcode binary payload $payload]
+            }
+            8 {
+                # Close frame. Send close response and return.
+                try {
+                    stream write $chan [wsCodecLib::wsEncodeFrame 8 ""]
+                } on error e {}
+                return [dict create opcode close payload ""]
+            }
+            9 {
+                # Ping frame. Reply with Pong.
+                try {
+                    stream write $chan [wsCodecLib::wsEncodeFrame 10 $payload]
+                } on error e {}
+            }
+            10 {
+                # Pong frame. Ignore.
+            }
+            default {
+                error "ws: unsupported opcode $opcode"
+            }
+        }
+    }
+}
+
+# Send a text message over WebSocket connection.
+fn wsSend {chan text} {
+    set frame [wsCodecLib::wsEncodeFrame 1 $text]
+    stream write $chan $frame
+}
+
+# Compute Sec-WebSocket-Accept handshake header value.
+fn wsUpgradeHandshake {clientKey} {
     set acceptKeyRaw "${clientKey}258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-    set acceptKey [binary encode base64 [$sha1Lib sha1 $acceptKeyRaw]]
-
-    puts -nonewline $chan \
-        "HTTP/1.1 101 Switching Protocols\r
-Upgrade: websocket\r
-Connection: Upgrade\r
-Sec-WebSocket-Accept: $acceptKey\r
-\r
-"
-    $chan ndelay 1
-
-    set conn [WsConnection new \
-                  [list chan $chan ctx {} wsLib $wsLib \
-                      destructor $destructor]]
-    set ctx [$wsLib wsNew $chan [lambda {msg} {conn} {
-        $conn onMsgRecv $msg
-    }]]
-    $conn eval [list set ctx $ctx]
-
-    $conn updateChanReadableWritable
-    dict set wsConnections $ctx $conn
-    return $conn
+    set acceptHash [codec hash sha-1 $acceptKeyRaw]
+    return [codec encode base64 $acceptHash]
 }
+
+# Aliases for module usage.
+set send $wsSend
+set readMsg $wsReadMsg
+set upgradeHandshake $wsUpgradeHandshake
+
+

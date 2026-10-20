@@ -236,8 +236,6 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
     texturesLib::texturesLibInit
 
     Wish the web server handles route {/textures} with handler {
-        package require base64
-
         set images [texturesLib::copyAllTexturesFromGpu]
 
         html [subst {
@@ -250,7 +248,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
             </head>
             <body>
                 [join [lmap {description imageData} $images {
-                    set b64 [binary encode base64 $imageData]
+                    set b64 [codec encode base64 $imageData]
                     format {<div><p>%s</p><img src="data:image/png;base64,%s"></div>} $description $b64
                 }] "\n"]
             </body>

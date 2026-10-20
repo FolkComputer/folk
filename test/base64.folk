@@ -1,2 +1,2 @@
-assert {[binary decode base64 [binary encode base64 "hello"]] eq "hello"}
+assert {[codec decode base64 [codec encode base64 "hello"]] eq "hello"}
 Exit! 0
