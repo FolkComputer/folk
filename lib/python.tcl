@@ -223,19 +223,22 @@ cc::proc cleanupEndpoint {char* endpoint} void {
 
 set impl [cc::compile]
 
-fn UvxCleanup {pid endpoint} {
+fn UvxCleanup {process endpoint} {
     # `uvx` may keep the real Python worker as a child process. Kill children
     # first, then the wrapper. Both commands are best-effort because the worker
     # may already have exited by the time the match is retracted.
-    catch {exec {pkill -TERM -P $pid}}
-    catch {exec {kill $pid}}
+    catch {
+        if {[catch {pid $process} pids]} {
+            set pids [list $process]
+        }
+        foreach p $pids {
+            catch {exec pkill -TERM -P $p}
+            catch {exec kill $p}
+        }
+    }
+    catch {close $process}
     catch {impl::cleanupEndpoint $endpoint}
-    catch {file {delete -force $endpoint}}
-
-    after 1000 [list apply [fn {pid} {
-        catch {exec {pkill -KILL -P $pid}}
-        catch {exec {kill SIGKILL $pid}}
-    }] $pid]
+    catch {file delete -force $endpoint}
 }
 
 fn Uvx args {

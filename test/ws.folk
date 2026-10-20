@@ -5,13 +5,11 @@ When {
 # Wait for the Web server to boot.
 while true {
     try {
-        set script {puts "test/ws: server is online; continuing."}
-        exec websocat --one-message -u "ws://127.0.0.1:4273/ws" \
-            <<$script
+        set probe [socket connect 127.0.0.1 4273]
+        close $probe
         break
     } on error e {
-        # puts stderr $e
-        sleep 0.3
+        sleep 0.1
     }
 }
 

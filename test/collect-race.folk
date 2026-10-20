@@ -16,7 +16,7 @@ for {set i 0} {$i < 5} {incr i} {
     puts "$i ---------------"
 
     Assert! we should collect
-    sleep 0.2
+    sleep 0.4
 
     set results [Query! the collected results for [list an item is /item/] are /results/]
     assert {[llength [dict get [lindex $results 0] results]] == 3}

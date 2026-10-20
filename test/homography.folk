@@ -1,3 +1,9 @@
+set Apriltag [dict link $C {}]
+Apriltag::addcflags -I./vendor/apriltag
+Apriltag::addendcflags -Wl,-rpath,[pwd]/vendor/apriltag/build \
+    ./vendor/apriltag/build/libapriltag.so
+Claim libapriltag has been built with C prototype $Apriltag
+
 source builtin-programs/calibrate/matlib.folk
 
 set projectedPointPairs {
@@ -14,25 +20,28 @@ set projectedPointPairs {
     {786.611633 533.021545 791.594557518 799.470858828}
     {825.331299 538.702209 724.39268217 797.443219831}
 }
-set H [estimateHomography $projectedPointPairs]
-# set H {
-#     {-0.977984 -0.525122 1506.031606}
-#     {-0.187860 -0.859344 1071.484363}
-#     {-0.000362 -0.000245 1.000000}
-# }
 
-foreach pair $projectedPointPairs {
-    lassign $pair x y u v
-    puts "$x $y -> $u $v"
-    puts "      -> [$matLib applyHomography $H [list $x $y]]"
+When the calibration matrix library is /matLib/ {
+    set H [matLib::estimateHomography $projectedPointPairs]
+    # set H {
+    #     {-0.977984 -0.525122 1506.031606}
+    #     {-0.187860 -0.859344 1071.484363}
+    #     {-0.000362 -0.000245 1.000000}
+    # }
+
+    foreach pair $projectedPointPairs {
+        lassign $pair x y u v
+        puts "$x $y -> $u $v"
+        puts "      -> [matLib::applyHomography $H [list $x $y]]"
+    }
+
+    # set pp2 {
+    #     {1 1 70 70}
+    #     {1 0 70 0}
+    #     {0 1 0 70}
+    #     {0 0 0 0}
+    # }
+    # puts [estimateHomography $pp2]
+
+    Exit! 0
 }
-
-# set pp2 {
-#     {1 1 70 70}
-#     {1 0 70 0}
-#     {0 1 0 70}
-#     {0 0 0 0}
-# }
-# puts [estimateHomography $pp2]
-
-Exit! 0
