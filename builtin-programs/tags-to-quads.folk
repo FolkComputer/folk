@@ -1,6 +1,8 @@
 When the quad library is /quadLib/ &\
      libapriltag has been built with C prototype /Apriltag/ {
 
+dict assign [import lib/linalg.tcl] add sub matmul transpose
+
 set cc [dict link $Apriltag {}]
 
 # Represents camera or projector intrinsics, including the classic
@@ -369,9 +371,6 @@ When the collected results for [list the changer from space /sourceSpace/ to spa
     }
 
     fn quadChange {q targetSpace} {
-        package require linalg
-        dict assign [import lib/linalg.tcl] add sub matmul
-
         set sourceSpace [quadLib::space $q]
         if {$sourceSpace eq $targetSpace} { return $q }
 
@@ -395,7 +394,7 @@ When camera /camera/ to display /display/ has extrinsics /extrinsics/ {
     Claim the changer from space "display $display" to space $camera is \
         [list apply [list {Rt t v} {
             add [matmul $Rt [sub $v $t]] $v
-        }] [math::linearalgebra::transpose $R] $t]
+        }] [transpose $R] $t]
 }
 
 
@@ -416,9 +415,6 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
     When tag /tag/ has detection /det/ on camera $camera at timestamp /timestamp/ &\
          /tag/ has resolved geometry /geom/ {
-
-        package require linalg
-        dict assign [import lib/linalg.tcl] add matmul
 
         set tagSize [dict get $geom tagSize]
 

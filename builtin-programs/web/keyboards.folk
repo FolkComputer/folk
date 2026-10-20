@@ -1,4 +1,4 @@
-Wish the web server handles route "/keyboards$" with handler {
+Wish the web server handles route "/keyboards$" with handler [fn {args} {
     set keyboards [lmap result [Query! /someone/ claims /keyboard/ is a keyboard device] {
         dict get $result keyboard
     }]
@@ -56,5 +56,5 @@ Wish the web server handles route "/keyboards$" with handler {
       </body>
       </html>
     }]
-}
+}]
 

@@ -1,6 +1,6 @@
 When the db library is /dbLib/ {
   set db [__db]
-  Wish the web server handles route "/report" with handler {
+  Wish the web server handles route "/report" with handler [fn {args} {
     set aliveCount [dbLib::countAliveStatements $db]
 
     html [subst {
@@ -15,5 +15,5 @@ When the db library is /dbLib/ {
       </div>
       </html>
     }]
-  }
+  }]
 }

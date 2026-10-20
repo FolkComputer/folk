@@ -55,7 +55,7 @@ void tfree(void *ptr) {
             .retireValue = trieRetireValue,
         };
 
-        static Zicl_List* jimObjToClause(Zicl_Interp* interp, Zicl_Value clauseObj) {
+        static Zicl_List* valueToClause(Zicl_Interp* interp, Zicl_Value clauseObj) {
             Zicl_List* list; folkZiclAssert(Zicl_DupAsList(interp, clauseObj, &list));
             return list;
         }
@@ -92,22 +92,23 @@ void tfree(void *ptr) {
     cc::proc new {} Trie* {
         return (Trie *)trieNew();
     }
-    cc::proc add {Trie@ trie Zicl_Value patternObj uint64_t value} Trie@ {
-        Zicl_List* pattern = jimObjToClause(interp, patternObj);
-        const Trie* result = trieAdd(trie.ptr, &trieAllocator, pattern, value);
+    cc::proc add {Zicl_Shimmerable* trieShim Zicl_Value patternObj uint64_t value} Zicl_Value {
+        Trie* trie = Trie_unwrap(trieShim);
+        Zicl_List* pattern = valueToClause(interp, patternObj);
+        const Trie* result = trieAdd(trie, &trieAllocator, pattern, value);
         Zicl_DropRefList(pattern);
-        if (result == trie.ptr) {
+        if (result == trie) {
             // trieAdd is a no-op when the clause is already present (see its
             // own comment): the returned pointer is byte-identical to the
             // input, so propagate the input's capability instead of minting
             // a new, unrelated one.
-            return (Trie_capPair){ .ptr = (Trie*)result, .cap = trie.cap };
+            return Zicl_Ref(Zicl_Current(trieShim));
         }
-        return (Trie_capPair){ .ptr = (Trie*)result };  // .cap left zero -> mint fresh
+        return Trie_wrapFresh((Trie*)result);
     }
     cc::proc lookup {Trie* trie Zicl_Value patternObj} Zicl_Value {
         uint64_t results[50];
-        Zicl_List* pattern = jimObjToClause(interp, patternObj);
+        Zicl_List* pattern = valueToClause(interp, patternObj);
         int resultCount = trieLookup(trie, pattern, results, 50);
         Zicl_DropRefList(pattern);
 
@@ -122,7 +123,7 @@ void tfree(void *ptr) {
     }
     cc::proc remove_ {Trie* trie Zicl_Value patternObj} Trie* {
         uint64_t results[50];
-        Zicl_List* pattern = jimObjToClause(interp, patternObj);
+        Zicl_List* pattern = valueToClause(interp, patternObj);
         int resultCount;
         trie = (Trie *)trieRemove(trie, &trieAllocator,
                                   pattern, results, 50, &resultCount);
@@ -174,7 +175,7 @@ set getDotAsPdf {{dot} {
     }
 }}
 
-Wish the web server handles route {/trie-graph\.pdf} with handler {
+Wish the web server handles route {/trie-graph\.pdf} with handler [fn {args} {
     set trie []
     set dot [apply $trieDotify $trieLib [trieLib::dbTrieTclify]]
 
@@ -184,4 +185,4 @@ Content-Type: application/pdf
 
 " \
         body [apply $getDotAsPdf $dot]
-}
+}]

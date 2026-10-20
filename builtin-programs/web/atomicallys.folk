@@ -1,6 +1,6 @@
 When the db library is /dbLib/ {
   set db [__db]
-  Wish the web server handles route "/atomicallys" with handler {
+  Wish the web server handles route "/atomicallys" with handler [fn {args} {
     set atomicallys [dbLib::atomicallys $db]
 
     html [subst {
@@ -18,5 +18,5 @@ When the db library is /dbLib/ {
       </ol>
       </html>
     }]
-  }
+  }]
 }

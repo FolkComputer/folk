@@ -35,7 +35,7 @@ Claim the db library is [apply [fn {} {
     cc::argtype MatchRef { MatchRef $argname; sscanf(ziclShimString($shim), "m%d:%d", &$argname.idx, &$argname.gen); }
 
     cc::addcode {
-        static Zicl_Value clauseToJimObj(Zicl_List* clause) {
+        static Zicl_Value clauseToValue(Zicl_List* clause) {
             return Zicl_BoxList(Zicl_RefList(clause));
         }
     }
@@ -58,7 +58,7 @@ Claim the db library is [apply [fn {} {
     cc::proc clause {Db* db StatementRef stmtRef} Zicl_Value {
         Statement* stmt = statementAcquire(db, stmtRef);
         if (stmt == NULL) { return ziclNewString("(null)", -1); }
-        Zicl_Value ret = clauseToJimObj(statementClause(stmt));
+        Zicl_Value ret = clauseToValue(statementClause(stmt));
         statementRelease(db, stmt);
         return ret;
     }

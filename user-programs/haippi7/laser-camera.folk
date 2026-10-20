@@ -2,10 +2,8 @@
 
 if {$isLaptop} return
 
-namespace eval ::Camera {
-    variable WIDTH 1280
-    variable HEIGHT 720
-}
+set Camera::WIDTH 1280
+set Camera::HEIGHT 720
 
 On process {
     source pi/Camera.tcl
@@ -20,7 +18,7 @@ On process {
         }]
         set aprilTime [time {
             set threshold 128
-            set tags [::BlobDetect::detect $grayFrame $threshold]
+            set tags [BlobDetect::detect $grayFrame $threshold]
         }]
         
         Hold {

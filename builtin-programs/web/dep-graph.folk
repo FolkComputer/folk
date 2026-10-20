@@ -1,4 +1,6 @@
-set dbDotify {{dbLib db} {
+Expect! the db library is /dbLib/
+
+fn dbNotify {db} {
     set dot [list]
     set matchRefs [dict create]
     foreach stmt [Query! /...anything/] {
@@ -31,7 +33,7 @@ set dbDotify {{dbLib db} {
         dbLib::matchRel $db $match
     }
     return "digraph { rankdir=LR; [join $dot "\n"] }"
-}}
+}
 
 set getDotAsPdf {{dot} {
     set fd [file open |[list dot -Tpdf <<$dot] r]
@@ -46,15 +48,13 @@ set getDotAsPdf {{dot} {
     }
 }}
 
-When the db library is /dbLib/ {
-    Wish the web server handles route {/dep-graph\.pdf} with handler {
-        set dot [apply $dbDotify $dbLib [__db]]
+Wish the web server handles route {/dep-graph\.pdf} with handler [fn {args} {
+    set dot [dbNotify [__db]]
 
-        dict create statusAndHeaders "HTTP/1.1 200 OK
+    dict create statusAndHeaders "HTTP/1.1 200 OK
 Connection: close
 Content-Type: application/pdf
 
 " \
-            body [apply $getDotAsPdf $dot]
-    }
-}
+        body [apply $getDotAsPdf $dot]
+}]

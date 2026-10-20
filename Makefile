@@ -29,14 +29,13 @@ endif
 
 folk: workqueue.o db.o trie.o sysmon.o epoch.o folk.o output-redirection.o block-stats.o \
 	vendor/c11-queues/mpmc_queue.o vendor/c11-queues/memory.o \
-	vendor/jimtcl/libjim.a vendor/zicl/zig-out/lib/libzicl.a $(TRACY_TARGET) CFLAGS $(INTERPOSE_DYLIB)
+	vendor/zicl/zig-out/lib/libzicl.a $(TRACY_TARGET) CFLAGS $(INTERPOSE_DYLIB)
 
-	$(LINKER) -g3 -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) $(if $(TSAN_ENABLE),-fsanitize=thread,) -o$@ \
+	$(LINKER) -g3 -fno-omit-frame-pointer $(if $(filter Linux,$(shell uname)),-no-pie,) $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) $(if $(TSAN_ENABLE),-fsanitize=thread,) -o$@ \
 		$(CFLAGS) $(BUILTIN_CFLAGS) \
-		-L./vendor/jimtcl \
 		-L./vendor/zicl/zig-out/lib \
 		$(filter %.o %.a,$^) \
-		-ljim -lzicl -lm -lz $(INTERPOSE_LDFLAGS)
+		-lzicl -lm -lz $(INTERPOSE_LDFLAGS)
 	if [ "$$(uname)" = "Darwin" ]; then \
 		dsymutil $@; \
 	fi
@@ -48,7 +47,7 @@ folk: workqueue.o db.o trie.o sysmon.o epoch.o folk.o output-redirection.o block
 %.o: %.c trie.h workqueue.h folk-zicl.h CFLAGS
 	cc -c -O2 -g3 -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) $(if $(TSAN_ENABLE),-fsanitize=thread,) -o$@  \
 		-D_GNU_SOURCE -U_FORTIFY_SOURCE $(CFLAGS) $(BUILTIN_CFLAGS) \
-		$< -I./vendor/jimtcl -I./vendor/tracy/public -I./vendor/zicl/zig-out/include
+		$< -I./vendor/tracy/public -I./vendor/zicl/zig-out/include
 
 folk_interpose.dylib: output-redirection.c
 	cc -dynamiclib -undefined dynamic_lookup \
@@ -93,17 +92,13 @@ debug: folk
 clean:
 	rm -f folk *.o *.dylib vendor/tracy/public/TracyClient.o vendor/c11-queues/*.o
 distclean: clean
-	make -C vendor/jimtcl distclean
+	rm -Rf vendor/zicl/.zig-cache vendor/zicl/zig-out
 
 remote-clean: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make clean'
 remote-distclean: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make distclean'
 deps:
-	if [ ! -f vendor/jimtcl/Makefile ]; then \
-		cd vendor/jimtcl && ./configure CFLAGS='-g -fno-omit-frame-pointer'; \
-	fi
-	make -C vendor/jimtcl
 	zig build --build-file ./vendor/zicl/build.zig -Dstatic-link=false -Dtrace-mem=false -Doptimize=ReleaseSafe
 
 
@@ -129,13 +124,14 @@ sync:
 		--exclude='vendor/tracy/public/TracyClient.o' \
 		--include='vendor/tracy/public/***' \
 		--exclude='vendor/tracy/*' \
+		--exclude='vendor/zicl' \
 		--exclude-from='.git/ignores.tmp' \
 		./ $(FOLK_REMOTE_NODE):~/folk/
 
 remote-setup:
 	ssh-copy-id $(FOLK_REMOTE_NODE)
 	make sync
-	ssh $(FOLK_REMOTE_NODE) -- 'sudo usermod -a -G tty folk && chmod +rwx ~/folk-calibration-poses; sudo apt update && sudo apt install libssl-dev gdb libwslay-dev google-perftools libgoogle-perftools-dev linux-perf && cd folk/vendor/jimtcl && make distclean; ./configure CFLAGS="-g -fno-omit-frame-pointer"'
+	ssh $(FOLK_REMOTE_NODE) -- 'sudo usermod -a -G tty folk && chmod +rwx ~/folk-calibration-poses; sudo apt update && sudo apt install libssl-dev gdb libwslay-dev google-perftools libgoogle-perftools-dev linux-perf'
 
 remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make start CFLAGS="$(CFLAGS)" ASAN_ENABLE=$(ASAN_ENABLE)'

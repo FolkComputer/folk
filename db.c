@@ -225,8 +225,6 @@ typedef struct Statement {
     ListOfEdgeTo* childMatches;
     pthread_mutex_t childMatchesMutex;
 
-    // TODO: Cache of Jim-local clause objects?
-
 } Statement;
 
 // Match datatype:
@@ -967,7 +965,7 @@ ResultSet* dbQuery(Db* db, Zicl_List* pattern) {
         maxResults *= 2;
         if (maxResults > 10 * 1000) {
             /* fprintf(stderr, "dbQuery: Too many results for query (%s)\n", */
-            /*         Jim_String(interp, pattern)); */
+            /*         ziclListString(pattern)); */
             exit(1);
         }
         free(resultSet);

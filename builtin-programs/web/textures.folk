@@ -22,15 +22,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
     cc::typedef {struct PushConstantsEncoder} PushConstantsEncoder
     cc::typedef {struct Pipeline} Pipeline
     cc::typedef {struct VmaAllocation_T*} VmaAllocation
-    cc::argtype VmaAllocation {
-        VmaAllocation $argname;
-        sscanf(ziclShimString($shim), "(VmaAllocation) %p", &$argname);
-    }
-    cc::rtype VmaAllocation {
-        char buf[100];
-        snprintf(buf, 100, "(VmaAllocation) %p", $rvalue);
-        $robj = ziclNewString(buf, -1);
-    }
+    cc::addcap VmaAllocation /vma-allocation -exact
     cc::extend $gpuLib
     cc::extend $imageLib
     cc::extend $gpuTextureLib
@@ -235,7 +227,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
     set texturesLib [cc::compile]
     texturesLib::texturesLibInit
 
-    Wish the web server handles route {/textures} with handler {
+    Wish the web server handles route {/textures} with handler [fn {args} {
         set images [texturesLib::copyAllTexturesFromGpu]
 
         html [subst {
@@ -254,5 +246,5 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
             </body>
             </html>
         }]
-    }
+    }]
 }

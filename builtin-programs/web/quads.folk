@@ -1,4 +1,7 @@
-Wish the web server handles route "/quads" with handler {
+Expect! the html library is /htmlLib/
+dict assign $htmlLib html
+
+Wish the web server handles route "/quads" with handler [fn {args} {
     html {
         <!DOCTYPE html>
         <html>
@@ -280,4 +283,4 @@ Wish the web server handles route "/quads" with handler {
         </body>
         </html>
     }
-}
+}]

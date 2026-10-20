@@ -342,7 +342,7 @@ Stereo RMSE [dict getdef $calibration rmse (unavailable)]
     }
 }
 
-Wish the web server handles route {/calibration-poses/([^/]+)$} with handler {
+Wish the web server handles route {/calibration-poses/([^/]+)$} with handler [fn {args} {
     set filename "$env::HOME/folk-calibration-poses/$1"
 
     set fsize [file size $filename]
@@ -356,6 +356,6 @@ Content-Length: $fsize
 
 " \
         body $body
-}
+}]
 
 }

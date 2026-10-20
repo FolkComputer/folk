@@ -74,7 +74,7 @@ static interpose_t write_interpose[] __attribute__((section("__DATA,__interpose"
 
 #else
 // Normal build (linked into main binary): output redirection globals,
-// per-thread fd substitution, and Jim command registration.
+// per-thread fd substitution, and Zicl command registration.
 
 
 int realStdout = -1;

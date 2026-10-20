@@ -1,4 +1,7 @@
-Wish the web server handles route "/setup" with nav "<button>Setup</button>" handler {
+Expect! the html library is /htmlLib/
+dict assign $htmlLib html HtmlWhen
+
+Wish the web server handles route "/setup" with nav "<button>Setup</button>" handler [fn {args} {
     html [subst {
 <!DOCTYPE html>
 <html>
@@ -240,9 +243,9 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
             lappend resolutions {*}$format::resolutions
         }
     }
-    set resolutions [lsort -command {apply [fn {a b} {
+    set resolutions [lsort -command [fn {a b} {
         expr {[dict get $b width] - [dict get $a width]}
-    }]} $resolutions]
+    }] $resolutions]
 
     if {[llength $resolutions] == 0} {
       # Cameras often have extra camera devices with no formats (or no
@@ -594,4 +597,4 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
 </body>
 </html>
 }]
-}
+}]

@@ -1,6 +1,6 @@
 When the db library is /dbLib/ {
   set db [__db]
-  Wish the web server handles route "/holds" with handler {
+  Wish the web server handles route "/holds" with handler [fn {args} {
     set holds [dbLib::holds $db]
 
     html [subst {
@@ -18,5 +18,5 @@ When the db library is /dbLib/ {
       </ol>
       </html>
     }]
-  }
+  }]
 }

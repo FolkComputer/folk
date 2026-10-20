@@ -1,11 +1,11 @@
+dict assign [import lib/linalg.tcl] scale add sub norm
+
 When display /display/ has width /displayWidth/ height /displayHeight/ &\
      the calibration matrix library is /matLib/ &\
      the calibration model library is /modelLib/ &\
      /someone/ wishes to draw calibration model /model/ \
         using model-to-display homography /H_modelToDisplay/ \
         with message /calibrationMessage/ {
-
-    dict assign [import lib/linalg.tcl] scale add sub
 
     fn innerToOuter {center corner {s 1.66666667}} {
         set r [sub $corner $center]
@@ -44,9 +44,6 @@ When display /display/ has width /displayWidth/ height /displayHeight/ &\
     set bgColor [list 1 1 1 1]
 
     When $board has canvas /any/ with /...wiOpts/ {
-        package require linalg
-        dict assign [import lib/linalg.tcl] scale add sub norm
-
         # White backdrop on board:
         Wish the GPU draws pipeline "fillTriangle" onto canvas $boardCanvas \
             with arguments [list {{1 0 0} {0 1 0} {0 0 1}} \
@@ -91,13 +88,6 @@ When display /display/ has width /displayWidth/ height /displayHeight/ &\
                  [list $boardBottomRight $boardBottomLeft] \
                  [list $boardBottomLeft $boardTopLeft] \
                  [list $boardTopRight $boardBottomRight]]
-
-        foreach p {add norm sub scale matmul
-            getelem transpose determineSVD shape mkIdentity show
-            solvePGauss crossproduct getcol setcol unitLengthVector det
-        } {
-            dict assign [import lib/linalg.tcl] $p
-        }
 
         foreach side $sides {
             lassign $side start end

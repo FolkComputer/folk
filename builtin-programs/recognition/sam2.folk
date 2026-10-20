@@ -265,9 +265,9 @@ When /someone/ wishes to load SAM2 &\
     When the image library is /imageLib/ {
         set cc [dict link $C {}]
         cc::extend $imageLib
-        cc::proc maskToBinaryImage {int width int height Jim_Obj* mask} Image {
+        cc::proc maskToBinaryImage {int width int height Zicl_Shimmerable* mask} Image {
             int maskLen = 0;
-            const uint8_t *maskData = (const uint8_t *)Jim_GetString(mask, &maskLen);
+            const uint8_t *maskData = (const uint8_t *)Zicl_ShimGetString(mask, &maskLen);
             FOLK_ENSURE(maskLen == width * height);
             Image result = imageNew(width, height, 1, 0);
             for (int y = 0; y < height; y++) {
@@ -277,11 +277,11 @@ When /someone/ wishes to load SAM2 &\
             }
             return result;
         }
-        cc::proc applyMaskToImage {Image im Jim_Obj* mask} Image {
+        cc::proc applyMaskToImage {Image im Zicl_Shimmerable* mask} Image {
             FOLK_ENSURE(im.components == 3); // hack for now.
 
             int maskLen = 0;
-            const uint8_t *maskData = (const uint8_t *)Jim_GetString(mask, &maskLen);
+            const uint8_t *maskData = (const uint8_t *)Zicl_ShimGetString(mask, &maskLen);
             FOLK_ENSURE(maskLen == im.width * im.height);
             Image result = imageNew(im.width, im.height, im.components, im.uniq);
             for (int y = 0; y < im.height; y++) {

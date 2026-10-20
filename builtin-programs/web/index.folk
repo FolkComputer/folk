@@ -1,4 +1,7 @@
-Wish the web server handles route "/" with handler {
+Expect! the html library is /htmlLib/
+dict assign $htmlLib html htmlEscape HtmlWhen
+
+Wish the web server handles route "/" with handler [fn {args} {
     fn readOutputFile {path} {
         if {[catch {set fp [file open $path r]}] != 0} { return "" }
         set content [stream read $fp]
@@ -7,7 +10,7 @@ Wish the web server handles route "/" with handler {
     }
 
     fn emitHtmlForProgramList {programList label} {
-        set programList [lsort -command {apply [fn {a b} {string compare $a::programName $b::programName}]} $programList]
+        set programList [lsort -command [fn {a b} {string compare $a::programName $b::programName}] $programList]
         set prettyLabel [string map {- " "} $label]
         set prettyLabel [string totitle $prettyLabel]:
         set returnList [list "<details open data-label='$label' data-count='[llength $programList]'><summary>$prettyLabel ([llength $programList])</summary>"]
@@ -112,4 +115,4 @@ Wish the web server handles route "/" with handler {
         </body>
         </html>
     }]
-}
+}]

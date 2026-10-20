@@ -133,7 +133,7 @@ set threadMonitorLib [apply [fn {} {
     return [cc::compile]
 }]]
 
-Wish the web server handles route "/threads" with handler {
+Wish the web server handles route "/threads" with handler [fn {args} {
     set pid [pid]
     try {
         set tids [glob -tails -directory /proc/$pid/task *]
@@ -231,4 +231,4 @@ Wish the web server handles route "/threads" with handler {
         </body>
         </html>
     }]
-}
+}]

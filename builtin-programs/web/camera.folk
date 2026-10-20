@@ -1,4 +1,4 @@
-Wish the web server handles route {/camera} with handler {
+Wish the web server handles route {/camera} with handler [fn {args} {
     if {[dict exists $QUERY camera]} {
         set camera [dict get $QUERY camera]
     } else {
@@ -96,4 +96,4 @@ Wish the web server handles route {/camera} with handler {
   </body>
 </html>
     }]
-}
+}]

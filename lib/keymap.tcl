@@ -1,152 +1,155 @@
-namespace eval keymap {
-    # Tcl implementation using loadkeys/dumpkeys
-    # needs debian packages: console-data
-    fn _fillRange {range} {
-        lassign [split $range -] from to
-        if {$to eq ""} {return $from}
+# Tcl implementation using loadkeys/dumpkeys
+# needs debian packages: console-data
+fn _fillRange {range} {
+    lassign [split $range -] from to
+    if {$to eq ""} {return $from}
 
-        set out [list]
-        for {set i $from} {$i <= $to} {incr i} {
-            lappend out $i
-        }
-        return $out
+    set out [list]
+    for {set i $from} {$i <= $to} {incr i} {
+        lappend out $i
     }
-
-    fn _parseKey {key} {
-        if {$key eq "VoidSymbol"} return
-
-        if {[string index $key 0] eq "+"} {
-            return [string range $key 1 end]
-        }
-
-        return $key
-    }
-
-    fn _parseUnicode {key} {
-        switch [string index $key 0] {
-            "U" {
-                set key 0x[string range $key 2 end]
-                if {!$key} return
-            }
-
-            "+" {
-                # map from KT_LETTER to KT_LATIN
-                set key [string range $key 1 end]
-                set key [expr {$key & 0xff}]
-            }
-        }
-
-        if {$key & 0xff00} return ;# only support KT_LATIN
-        if {$key < 32 || $key == 127} return ;# no control chars
-
-        return [format %c $key]
-    }
-
-    fn load {name} {
-        try {
-            exec kbd_mode -u $name
-        } on error e {
-            puts stderr "keymap: Warning: Could not do `kbd_mode -u $name`"
-        }
-        set keytable [exec dumpkeys -kf]
-        set unitable [exec dumpkeys -kfn]
-
-        set ksyms [dict create]
-        set mods [_fillRange 0-15]
-        foreach line [split $keytable "\n"] {
-            switch [lindex $line 0] {
-                keymaps {
-                    set map [split [lindex $line 1] ,]
-                    set mods [concat {*}[lmap r $map {_fillRange $r}]]
-                }
-
-                keycode {
-                    set code [lindex $line 1]
-                    set modi 0
-                    foreach key [lrange $line 3 end] {
-                        set mod [lindex $mods $modi]
-                        set str [_parseKey $key]
-                        if {$str eq ""} continue
-
-                        dict append ksyms "$code $mod" $str
-                        incr modi
-                    }
-                }
-            }
-        }
-
-        set chars [dict create]
-        set mods [_fillRange 0-15]
-        foreach line [split $unitable "\n"] {
-            switch [lindex $line 0] {
-                keymaps {
-                    set map [split [lindex $line 1] ,]
-                    set mods [concat {*}[lmap r $map {_fillRange $r}]]
-                }
-
-                keycode {
-                    set code [lindex $line 1]
-                    set modi 0
-                    foreach key [lrange $line 3 end] {
-                        set mod [lindex $mods $modi]
-                        set str [_parseUnicode $key]
-                        if {$str eq ""} continue
-
-                        dict append chars "$code $mod" $str
-                        incr modi
-                    }
-                }
-            }
-        }
-
-        return [list $ksyms $chars]
-    }
-
-    # takes km, keycode and mod-bitfield, returns [ksym char] tuple
-    # char is printable representation of ksym, or "" if unprintable
-    fn resolve {km code mod} {
-        lassign $km ksyms chars
-        set kk "$code $mod"
-
-        if {![dict exists $ksyms $kk]} return
-        return [list [dict get $ksyms $kk] [dict getdef $chars $kk ""]]
-    }
-
-    fn dump {km} {
-        lassign $km ksyms _
-        set range 0-15
-        puts "keymap $range"
-        set mods [_fillRange $range]
-        puts $ksyms
-        for {set code 1} {$code < 256} {incr code} {
-            set out [lmap mod $mods {dict getdef $ksyms "$code $mod" VoidSymbol}]
-            puts "keycode $code = [join $out \t]"
-        }
-    }
-
-    fn destroy {km} {} ;# for compatibility with C impl
-    namespace export load dump resolve destroy
-
-    variable modWeights {
-      Shift 1
-      AltGr 2
-      Control 4
-      Alt 8
-    }
-    namespace ensemble create
+    return $out
 }
 
-if {[info exists argv0] && $argv0 eq [info script]} {
-    set tkm [keymap load "us"]
+fn _parseKey {key} {
+    if {$key eq "VoidSymbol"} return
 
-    keymap dump $tkm
+    if {[string index $key 0] eq "+"} {
+        return [string range $key 1 end]
+    }
+
+    return $key
+}
+
+fn _parseUnicode {key} {
+    switch [string index $key 0] {
+        "U" {
+            set key 0x[string range $key 2 end]
+            if {$key == 0} return
+        }
+
+        "+" {
+            # map from KT_LETTER to KT_LATIN
+            set key [string range $key 1 end]
+            set key [expr {$key & 0xff}]
+        }
+    }
+
+    if {($key & 0xff00) != 0} return ;# only support KT_LATIN
+    if {$key < 32 || $key == 127} return ;# no control chars
+
+    return [format %c $key]
+}
+
+fn keymap::load {name} {
+    try {
+        exec kbd_mode -u $name
+    } on error e {
+        puts stderr "keymap: Warning: Could not do `kbd_mode -u $name`"
+    }
+    set keytable [exec dumpkeys -kf]
+    set unitable [exec dumpkeys -kfn]
+
+    set ksyms [dict create]
+    set mods [_fillRange 0-15]
+    foreach line [split $keytable "\n"] {
+        switch [lindex $line 0] {
+            keymaps {
+                set map [split [lindex $line 1] ,]
+                set mods [concat {*}[lmap r $map {_fillRange $r}]]
+            }
+
+            keycode {
+                set code [lindex $line 1]
+                set modi 0
+                foreach key [lrange $line 3 end] {
+                    set mod [lindex $mods $modi]
+                    set str [_parseKey $key]
+                    if {$str eq ""} continue
+
+                    dict append ksyms "$code $mod" $str
+                    incr modi
+                }
+            }
+        }
+    }
+
+    set chars [dict create]
+    set mods [_fillRange 0-15]
+    foreach line [split $unitable "\n"] {
+        switch [lindex $line 0] {
+            keymaps {
+                set map [split [lindex $line 1] ,]
+                set mods [concat {*}[lmap r $map {_fillRange $r}]]
+            }
+
+            keycode {
+                set code [lindex $line 1]
+                set modi 0
+                foreach key [lrange $line 3 end] {
+                    set mod [lindex $mods $modi]
+                    set str [_parseUnicode $key]
+                    if {$str eq ""} continue
+
+                    dict append chars "$code $mod" $str
+                    incr modi
+                }
+            }
+        }
+    }
+
+    return [list $ksyms $chars]
+}
+
+# takes km, keycode and mod-bitfield, returns [ksym char] tuple
+# char is printable representation of ksym, or "" if unprintable
+fn keymap::resolve {km code mod} {
+    lassign $km ksyms chars
+    set kk "$code $mod"
+
+    if {![dict exists $ksyms $kk]} return
+    return [list [dict get $ksyms $kk] [dict getdef $chars $kk ""]]
+}
+
+fn keymap::dump {km} {
+    lassign $km ksyms _
+    set range 0-15
+    puts "keymap $range"
+    set mods [_fillRange $range]
+    puts $ksyms
+    for {set code 1} {$code < 256} {incr code} {
+        set out [lmap mod $mods {dict getdef $ksyms "$code $mod" VoidSymbol}]
+        puts "keycode $code = [join $out \t]"
+    }
+}
+
+fn keymap::destroy {km} {} ;# for compatibility with C impl
+
+set keymap::modWeights [dict create \
+    Shift 1 \
+    AltGr 2 \
+    Control 4 \
+    Alt 8 \
+]
+
+# For import: flat exports in case callers do [import lib/keymap.tcl]
+fn load {name} { tailcall keymap::load $name }
+fn resolve {km code mod} { tailcall keymap::resolve $km $code $mod }
+fn dump {km} { tailcall keymap::dump $km }
+fn destroy {km} {}
+set modWeights $keymap::modWeights
+
+if {[info exists argv0] && $argv0 eq [info script]} {
+    set tkm [keymap::load "us"]
+
+    keymap::dump $tkm
 
     for {set i 0} {$i < 15} {incr i} {
-        puts "30/$i [keymap resolve $tkm 30 $i]"
+        puts "30/$i [keymap::resolve $tkm 30 $i]"
     }
-    puts "252/0 [keymap resolve $tkm 252 0]"
+    puts "252/0 [keymap::resolve $tkm 252 0]"
     foreach code {5 12 27} {
-      puts "$code/0 [keymap resolve $tkm $code 0]"
+      puts "$code/0 [keymap::resolve $tkm $code 0]"
     }
-    keymap destroy $tkm
+    keymap::destroy $tkm
 }

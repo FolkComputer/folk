@@ -8,7 +8,7 @@ When web claims web-cursor is /data/ {
     Wish $this is outlined white
 }
 
-Wish the web server handles route "/web-cursor" with handler {
+Wish the web server handles route "/web-cursor" with handler [fn {args} {
     html {
         <html><head></head>
         <body>
@@ -45,4 +45,4 @@ ws.onmessage = (msg) => {
         </body>
         </html>
     }
-}
+}]

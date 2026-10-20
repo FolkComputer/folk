@@ -1,4 +1,7 @@
-Wish the web server handles route {/program/(.*)$} with handler {
+Expect! the html library is /htmlLib/
+dict assign $htmlLib html htmlEscape
+
+Wish the web server handles route {/program/(.*)$} with handler [fn {args} {
     set programName $1
     Require! $1 has program code /programCode/
 
@@ -14,4 +17,4 @@ Wish the web server handles route {/program/(.*)$} with handler {
         </body>
         </html>
     }]
-}
+}]

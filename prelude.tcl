@@ -51,31 +51,6 @@ fn exec {args} {
     tailcall __exec {*}$args
 }
 
-fn applyBlock {body envStack} {
-    set env [dict merge {*}$envStack]
-
-    dict set env __envStack $envStack
-    dict set env __env $env
-
-    set newThis [dict getdef $env this <unknown>]
-    # `__this` tracks which program's redirection is currently installed. It
-    # can't just be `this` -- that would collide with the per-block `this`
-    # every Folk program body binds -- hence the __ prefix, matching the other
-    # internals here (__result, __body, __ref).
-    if {![info exists __this] || $newThis ne $__this} {
-        # Flush before switching so any buffered data from the previous
-        # program drains to the correct fd before we switch.
-        if {[info exists __this]} { stdout flush }
-        set __this $newThis
-        # Install thread-local stdout/stderr so all subsequent write()/puts/
-        # fprintf/printf calls go to the local files for this $this.
-        __installLocalStdoutAndStderr $__this
-    }
-
-    set names [dict keys $env]
-    set values [dict values $env]
-    tailcall apply [list $names $body] {*}$values
-}
 
 fn assert condition {
     if {![uplevel [list expr $condition]]} {
@@ -193,16 +168,6 @@ fn Say {args} {
             set destructorCode [lindex $args $i]
         } else {
             lappend pattern $term
-        }
-
-        if {$term eq "with"} {
-            # HACK: now we should keep an eye out for "handler"; we
-            # want to attach the lexical scope to "with handler
-            # {...}".
-            set isWith true
-        } elseif {$isWith && $term eq "handler"} {
-            set handler [lindex $args $($i+1)]
-            lset args $($i+1) [list applyBlock $handler {}]
         }
     }
     tailcall SayWithSource $sourceFileName $sourceLineNumber \

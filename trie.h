@@ -40,8 +40,8 @@ const Trie* trieNew();
 // memory-reclamation scheme so reclamation is deferred until no
 // reader can reach the old node.
 //
-// `retireObj`: called when a trie node's key is released (no successor
-// holds a reference to it). Pass a wrapper around `Jim_DecrRefCount`
+// `retireValue`: called when a trie node's key is released (no successor
+// holds a reference to it). Pass a wrapper around `Zicl_DropRef`
 // for single-threaded use; in a concurrent context pass a deferred
 // variant so the key outlives any epoch-protected readers.
 typedef struct TrieAllocator {
@@ -51,7 +51,7 @@ typedef struct TrieAllocator {
 } TrieAllocator;
 
 // Returns a new Trie that is like `trie` with `clause` added. Holds a
-// reference to each term Jim_Obj for as long as the term remains in
+// reference to each term Zicl_Value for as long as the term remains in
 // the trie.
 const Trie* trieAdd(const Trie* trie,
                     const TrieAllocator* allocator,

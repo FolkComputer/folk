@@ -1783,7 +1783,6 @@ void *tracyDebugAllocator(void *ptr, size_t size) {
 int main(int argc, char** argv) {
     // Do all setup.
 
-    // Jim_Allocator = webDebugAllocator;
     Zicl_InitGlobals(NULL);
 
     if (argc == 1) {

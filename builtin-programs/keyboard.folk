@@ -45,39 +45,11 @@ When /page/ is a keyboard with path /keyboard/ {
 
 When /keyboard/ is a keyboard device {
     source "lib/keymap.tcl"
-    set defaultKeymap [keymap load us]
-
-    set cc [dict link $C {}]
-    cc::include <linux/input.h>
-    cc::include <sys/ioctl.h>
-    cc::include <stdio.h>
-    cc::include <string.h>
-
-    # This needs to be called on this thread (since it depends on
-    # interpreter-local information about the channel), and then the
-    # returned fileno is portable to other threads which can do the
-    # keyboard grab/ungrab later.
-    cc::proc getFileno {Jim_Interp* interp Jim_Obj* channel} int {
-        int fd = Jim_AioFilehandle(interp, channel);
-        if (fd < 0) {
-            printf("unable to open channel '%s' as file\n'", Jim_String(channel));
-            return -1;
-        }
-        return fd;
-    }
-
-    cc::proc setGrabDevice {Jim_Interp* interp int fileno bool grab} void {
-        ioctl(fileno, EVIOCGRAB, (void*)grab);
-    }
-
-    set grabber [cc::compile]
+    set defaultKeymap [keymap::load us]
 
     set KEY_STATES [list up down repeat]
 
     set keyboardChannel [file open $keyboard r]
-
-    set keyboardFileno [grabber::getFileno $keyboardChannel]
-    # $grabber setGrabDevice $keyboardFileno 1
 
     Hold! -key [list local-keymaps $keyboard] \
         Claim $keyboard has keymaps [dict create]
@@ -88,10 +60,10 @@ When /keyboard/ is a keyboard device {
             return
         }
 
-        if {![exists -command keymap]} {
+        if {![info exists keymap]} {
             source "lib/keymap.tcl"
         }
-        set map [keymap load $locale]
+        set map [keymap::load $locale]
         dict set localKeymaps $locale $map
         Hold! -key [list local-keymaps $keyboard] \
             Claim $keyboard has keymaps $localKeymaps
@@ -103,9 +75,6 @@ When /keyboard/ is a keyboard device {
         #     dict unset localKeymaps $map
         #     Hold! [list local-keymaps $keyboard] \
         #         Claim $keyboard has keymaps $localKeymaps
-
-        #     # keymap destroy $map
-        #     $grabber setGrabDevice $keyboardFileno [dict size $localKeymaps]
         # }
     }
 
@@ -133,7 +102,7 @@ When /keyboard/ is a keyboard device {
             }
 
             set mods [+ {*}[dict values $modifiers]]
-            lassign [keymap resolve $activeKeymap $code $mods] key keychar
+            lassign [keymap::resolve $activeKeymap $code $mods] key keychar
             if {$key eq ""} { continue }
 
             set keyState [lindex $KEY_STATES $value]

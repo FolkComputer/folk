@@ -48,16 +48,6 @@ fn csubst {s} {
     }
     join $result ""
 }
-# Translates a *base* type name (no array suffix) to literal C type text:
-# passes through unchanged, except a capability-pair type ("Foo@") becomes
-# the name of its generated {ptr,cap} struct ("Foo_capPair").
-fn cBaseType {basetype} {
-    if {[string index $basetype end] eq "@"} {
-        subst {[string range $basetype 0 end-1]_capPair}
-    } else {
-        set basetype
-    }
-}
 # Whether a (typestyle-canonicalized, e.g. "float[4]") field type is a fixed-size
 # array type. Deliberately kept out of any csubst-scanned code block: its
 # regex's raw '[]' characters would desync csubst's own (escaping-unaware)
@@ -73,7 +63,7 @@ fn cstyle {type name} {
         set basetype $type
         set arraysuffix ""
     }
-    list [cBaseType $basetype] $name$arraysuffix
+    list $basetype $name$arraysuffix
 }
 # Converts something like {int x[10]} to {int[10] x}. That way the array type
 # is moved out of the name and into the type.
@@ -112,6 +102,9 @@ set C {
         #include <stdint.h>
         #include <stdbool.h>
         #include <stdio.h>
+        #include <stdlib.h>
+        #include <stddef.h>
+        #include <string.h>
         #include <setjmp.h>
         #include "folk-zicl.h"
 
@@ -143,6 +136,7 @@ set C {
     objtypes {}
     extendedObjtypes {}
     captypes {}
+    extendedCaptypes {}
 
     extends {}
 
@@ -175,14 +169,10 @@ set C {
         Zicl_Shimmerable* { identity { Zicl_Shimmerable* $argname = $shim; }}
         default {
             if {[string index $argtype end] eq "*"} {
-                # We use `argtype` to ensure that we don't accidentally return a pointer
-                # of the wrong type.
                 identity {
-                    void* $[set argname]_raw;
-                    struct Zicl_CapabilityHead* $[set argname]_cap;
-                    __ENSURE_OK(Zicl_GetPointerCapability($shim, "$argtype", &$[set argname]_raw, &$[set argname]_cap));
-                    (void)$[set argname]_cap;
-                    $argtype $argname = ($argtype)$[set argname]_raw;
+                    $argtype $argname;
+                    __ENSURE(sscanf(ziclShimString($shim), "($argtype) 0x%p", (void**) &$argname) == 1 ||
+                             sscanf(ziclShimString($shim), "0x%p", (void**) &$argname) == 1);
                 }
             } elseif {[regexp {(^[^\[]+)\[([^\]]*)\]$} $argtype -> basetype arraylen]} {
                 # note: arraylen can be "" or a named identifier
@@ -196,13 +186,12 @@ set C {
                     } else {
                         set countvar ${argname}_objc
                     }
-                    set basetypeC [cBaseType $basetype]
                     identity {
                     const Zicl_List *$[set argname]_list;
                     __ENSURE_OK(Zicl_ListShimmer(interp, $shim, &$[set argname]_list));
                     int $countvar = Zicl_ListLength($[set argname]_list);
                     const Zicl_Value *$[set argname]_objv = Zicl_ListItems($[set argname]_list);
-                    $basetypeC $argname[$countvar];
+                    $basetype $argname[$countvar];
                     {
                         for (int i = 0; i < $countvar; i++) {
                             Zicl_Shimmerable $[set argname]_shim = Zicl_NewShimmerable($[set argname]_objv[i]);
@@ -219,13 +208,12 @@ set C {
                 } else {
                     set countvar ${argname}_objc
                 }
-                set basetypeC [cBaseType $basetype]
                 identity {
                     const Zicl_List *$[set argname]_list;
                     __ENSURE_OK(Zicl_ListShimmer(interp, $shim, &$[set argname]_list));
                     int $countvar = Zicl_ListLength($[set argname]_list);
                     const Zicl_Value *$[set argname]_objv = Zicl_ListItems($[set argname]_list);
-                    $basetypeC $argname[$countvar][$arraylen2];
+                    $basetype $argname[$countvar][$arraylen2];
                     {
                         for (int j = 0; j < $countvar; j++) {
                             Zicl_Shimmerable $[set argname]_shim = Zicl_NewShimmerable($[set argname]_objv[j]);
@@ -262,15 +250,7 @@ set C {
         Zicl_Value { identity { $robj = $rvalue; }}
         default {
             if {[string index $rtype end] eq "*"} {
-                # Capabilities encapsulate the pointer to avoid passing around raw
-                # pointer addresses in Zicl. TODO figure out destructors.
-                # A NULL $rvalue is boxed like any other pointer rather than
-                # treated as failure: the capability's identity is independent
-                # of the pointer value it carries, and some C APIs use NULL as
-                # a meaningful, non-error pointer value (e.g. an empty Trie*).
-                identity {
-                    folkZiclAssert(Zicl_NewPointerCapability((void*)$rvalue, "$rtype", NULL, &$robj));
-                }
+                identity { folkZiclAssert(Zicl_NewStringFormatted(&$robj, "($rtype) 0x%" PRIxPTR, (uintptr_t) $rvalue)); }
             } elseif {[regexp {(^[^\[]+)\[(\d*)\]$} $rtype -> basetype arraylen]} {
                 if {$basetype eq "char"} { identity {
                     $robj = ziclValuePrintf($rvalue);
@@ -284,12 +264,11 @@ set C {
                     }
                 } }
             } elseif {[regexp {(^[^\[]+)\[(\d*)\]\[(\d*)\]$} $rtype -> basetype arraylen arraylen2]} {
-                set basetypeC [cBaseType $basetype]
                 identity {
                     {
                         Zicl_Value objv[$arraylen];
                         for (int i = 0; i < $arraylen; i++) {
-                            $basetypeC* rrow = $rvalue[i];
+                            $basetype* rrow = $rvalue[i];
                             Zicl_Value* objrow = &objv[i];
                             $[self::ret ${basetype}\[${arraylen2}\] *objrow rrow]
                         }
@@ -301,7 +280,7 @@ set C {
         }
     }
 
-    cflags {-I./vendor/jimtcl -I./vendor/zicl/zig-out/include -I./}
+    cflags {-I./vendor/zicl/zig-out/include -I./}
     endcflags {}
 
     cfile {}
@@ -412,71 +391,137 @@ method C::typedef {self t newt {emitC true}} {
     }
 }
 
-method C::addcap {self basetype {urlsegment {}}} {
-    if {[dict exists $self::captypes $basetype]} { return }
-    dict set self::captypes $basetype 1
-
-    if {$urlsegment eq {}} {
-        set urlsegment [string tolower $basetype]
+method C::addcap {self basetype urlsegment args} {
+    set urlsegment [string trimleft $urlsegment /]
+    if {$urlsegment eq ""} {
+        error "C addcap: urlsegment is required for capability '$basetype'"
+    }
+    set exact false
+    foreach arg $args {
+        if {$arg eq "-exact"} {
+            set exact true
+        }
+    }
+    if {[string index $basetype end] eq "*"} {
+        set ctype $basetype
+        set ident [string trimright $basetype "* "]
+    } elseif {$exact} {
+        set ctype $basetype
+        set ident [string map {* _ptr " " _} $basetype]
     } else {
-        set urlsegment [string trimleft $urlsegment /]
+        set ctype "${basetype}*"
+        set ident $basetype
     }
 
-    self::include <stdlib.h>
-    self::addcode [csubst {
-        typedef struct { $basetype* ptr; Zicl_Value cap; } ${basetype}_capPair;
+    if {[dict exists $self::captypes $ident]} { return }
 
-        typedef struct {
-            Zicl_CapabilityHead head;
-            $basetype* ptr;
-        } ${basetype}_capBacking;
+    dict set self::captypes $ident [dict create ctype $ctype urlsegment $urlsegment]
 
-        static void ${basetype}_deinitBody(Zicl_CapabilityHead* head) {
-            // TODO: figure out destructors.
-            (void)head;
-        }
-        static void ${basetype}_destroyBacking(Zicl_CapabilityHead* head) {
-            free(Zicl_ContainerOf(head, ${basetype}_capBacking, head));
-        }
-        static const Zicl_CapabilityHeadVTable ${basetype}_capVtable = {
-            .name = "$urlsegment",
-            .deinit_body = ${basetype}_deinitBody,
-            .destroy_backing = ${basetype}_destroyBacking,
-        };
-        static Zicl_Value ${basetype}_wrapFresh($basetype* ptr) {
-            ${basetype}_capBacking* backing = malloc(sizeof(${basetype}_capBacking));
-            backing->head = (Zicl_CapabilityHead){ .vtable = &${basetype}_capVtable };
-            backing->ptr = ptr;
-            Zicl_Value out;
-            folkZiclAssert(Zicl_CapabilityNew(&out, &backing->head));
-            return out;
-        }
+    self::argtype $ctype [csubst {
+        $ctype \$argname = ${ident}_unwrap(\$shim);
     }]
+    self::rtype $ctype [csubst {
+        \$robj = ${ident}_wrapFresh(\$rvalue);
+    }]
+}
 
-    self::argtype ${basetype}* [csubst {
-        Zicl_CapabilityHead* \$[set argname]_head = Zicl_ResolveCapability(\$shim, &${basetype}_capVtable);
-        __ENSURE(\$[set argname]_head != NULL);
-        $basetype* \$argname = Zicl_ContainerOf(\$[set argname]_head, ${basetype}_capBacking, head)->ptr;
-    }]
-    self::rtype ${basetype}* [csubst {
-        \$robj = ${basetype}_wrapFresh(\$rvalue);
-    }]
+method C::emitCaptypeCode {self ident} {
+    set info [dict get $self::captypes $ident]
+    set ctype [dict get $info ctype]
+    set urlsegment [dict get $info urlsegment]
+    set isExtended [dict exists $self::extendedCaptypes $ident]
 
-    self::argtype ${basetype}@ [csubst {
-        Zicl_CapabilityHead* \$[set argname]_head = Zicl_ResolveCapability(\$shim, &${basetype}_capVtable);
-        __ENSURE(\$[set argname]_head != NULL);
-        ${basetype}_capPair \$argname = {
-            .ptr = Zicl_ContainerOf(\$[set argname]_head, ${basetype}_capBacking, head)->ptr,
-            .cap = Zicl_Current(\$shim),
-        };
-    }]
-    self::rtype ${basetype}@ [csubst {
-        if (Zicl_IsNone(Zicl_Wrap(\$rvalue.cap))) {
-            \$robj = ${basetype}_wrapFresh(\$rvalue.ptr);
-        } else {
-            \$robj = Zicl_Ref(\$rvalue.cap);
+    if {$isExtended} {
+        csubst {
+            typedef struct {
+                Zicl_CapabilityHead head;
+                $ctype ptr;
+            } ${ident}_capBacking;
+
+            #ifdef __cplusplus
+            extern "C" {
+            #endif
+            const Zicl_CapabilityHeadVTable* ${ident}_capVtable_ptr = NULL;
+            #ifdef __cplusplus
+            }
+            #endif
+
+            static inline $ctype ${ident}_unwrap(Zicl_Shimmerable* shim) {
+                Zicl_CapabilityHead* head = Zicl_ResolveCapability(shim, ${ident}_capVtable_ptr);
+                __ENSURE(head != NULL);
+                return Zicl_ContainerOf(head, ${ident}_capBacking, head)->ptr;
+            }
+            static inline $ctype ${ident}_unwrapValue(Zicl_Value val) {
+                Zicl_Shimmerable shim = Zicl_NewShimmerable(val);
+                $ctype ret = ${ident}_unwrap(&shim);
+                Zicl_ShimDiscardChanges(&shim);
+                return ret;
+            }
+            static inline Zicl_Value ${ident}_wrapFresh($ctype ptr) {
+                ${ident}_capBacking* backing = (${ident}_capBacking*) malloc(sizeof(${ident}_capBacking));
+                memset(&backing->head, 0, sizeof(backing->head));
+                backing->head.vtable = ${ident}_capVtable_ptr;
+                backing->ptr = ptr;
+                Zicl_Value out;
+                folkZiclAssert(Zicl_CapabilityNew(&out, &backing->head));
+                return out;
+            }
+            static inline Zicl_Value ${ident}_wrap($ctype ptr) {
+                return ${ident}_wrapFresh(ptr);
+            }
         }
-    }]
+    } else {
+        csubst {
+            typedef struct {
+                Zicl_CapabilityHead head;
+                $ctype ptr;
+            } ${ident}_capBacking;
+
+            static void ${ident}_deinitBody(Zicl_CapabilityHead* head) {
+                // TODO: figure out destructors.
+                (void)head;
+            }
+            static void ${ident}_destroyBacking(Zicl_CapabilityHead* head) {
+                free(Zicl_ContainerOf(head, ${ident}_capBacking, head));
+            }
+            #ifdef __cplusplus
+            extern "C" {
+            #endif
+            const Zicl_CapabilityHeadVTable ${ident}_capVtable = {
+                .name = "$urlsegment",
+                .deinit_body = ${ident}_deinitBody,
+                .destroy_backing = ${ident}_destroyBacking,
+            };
+            const Zicl_CapabilityHeadVTable* ${ident}_capVtable_ptr = &${ident}_capVtable;
+            #ifdef __cplusplus
+            }
+            #endif
+
+            static inline $ctype ${ident}_unwrap(Zicl_Shimmerable* shim) {
+                Zicl_CapabilityHead* head = Zicl_ResolveCapability(shim, ${ident}_capVtable_ptr);
+                __ENSURE(head != NULL);
+                return Zicl_ContainerOf(head, ${ident}_capBacking, head)->ptr;
+            }
+            static inline $ctype ${ident}_unwrapValue(Zicl_Value val) {
+                Zicl_Shimmerable shim = Zicl_NewShimmerable(val);
+                $ctype ret = ${ident}_unwrap(&shim);
+                Zicl_ShimDiscardChanges(&shim);
+                return ret;
+            }
+            static inline Zicl_Value ${ident}_wrapFresh($ctype ptr) {
+                ${ident}_capBacking* backing = (${ident}_capBacking*) malloc(sizeof(${ident}_capBacking));
+                memset(&backing->head, 0, sizeof(backing->head));
+                backing->head.vtable = ${ident}_capVtable_ptr;
+                backing->ptr = ptr;
+                Zicl_Value out;
+                folkZiclAssert(Zicl_CapabilityNew(&out, &backing->head));
+                return out;
+            }
+            static inline Zicl_Value ${ident}_wrap($ctype ptr) {
+                return ${ident}_wrapFresh(ptr);
+            }
+        }
+    }
 }
 
 # Registers a hand-written native object type: `code` must define
@@ -515,9 +560,6 @@ method C::struct {self type fields} {
     for {set i 0} {$i < [llength $fields]} {incr i 2} {
         set fieldtype [lindex $fields $i]
         set fieldname [lindex $fields $($i+1)]
-        if {[string index $fieldtype end] eq "@"} {
-            error "C struct $type: capability-pair-typed fields are not supported"
-        }
         # Canonicalize type.
         lassign [typestyle $fieldtype $fieldname] fieldtype fieldname
         lappend fieldnames $fieldname
@@ -783,8 +825,7 @@ method C::proc {self name arguments rtype body} {
         set res [typestyle $argtype $argname]
         lappend loadargs [self::arg {*}$res $obj]
     }
-    if {[regexp {^([^\[]+)(\[.*)?$} $rtype -> rtypeBase rtypeBrackets]} {
-        set decayedRtype [cBaseType $rtypeBase]
+    if {[regexp {^([^\[]+)(\[.*)?$} $rtype -> decayedRtype rtypeBrackets]} {
         if {$rtypeBrackets ne ""} {
             regsub {\[\d*\]} $rtypeBrackets * rtypeBrackets
             append decayedRtype $rtypeBrackets
@@ -893,6 +934,15 @@ method C::compile {self args} {
                 }
             }] "\n"]
 
+            [join [lmap ident [dict keys $self::captypes] {
+                if {[dict exists $self::extendedCaptypes $ident]} {
+                    set addr [dynlib lookup [dict get $self::extendedCaptypes $ident] ${ident}_capVtable_ptr]
+                    subst {${ident}_capVtable_ptr = *(const Zicl_CapabilityHeadVTable**) ${addr}UL;}
+                } else {
+                    list
+                }
+            }] "\n"]
+
             [join [lmap name [dict keys $self::procs] {
                 subst {
                     if (Zicl_RegisterLazyFn("${cid}::${name}", "${cid}", ${cid}_register) != ZICL_OK) {
@@ -917,12 +967,17 @@ extern "C" \{
 \}
 #endif
 }]
+    set capcode [join [lmap ident [dict keys $self::captypes] {
+        self::emitCaptypeCode $ident
+    }] "\n"]
     set sourcecode [join [list \
                               $externC \
                               $self::prelude \
                               $unexternC \
                               \
                               {*}[lmap {snippet extend} $self::code {set snippet}] \
+                              \
+                              $capcode \
                               \
                               $externC \
                               {*}[dict values $self::objtypes] \
@@ -991,6 +1046,7 @@ extern "C" \{
         argtypes $self::argtypes \
         rtypes $self::rtypes \
         objtypes $self::objtypes \
+        captypes $self::captypes \
         procs $self::procs \
         vars $self::vars \
         code $self::code]
@@ -1017,8 +1073,7 @@ method C::import {self srclib srcname {destname {}}} {
 
     set cname [string map {":" "_" "!" "_"} $srcname]
     set addr [dynlib lookup $srcCap $cname]
-    if {[regexp {^([^\[]+)(\[.*)?$} $rtype -> rtypeBase rtypeBrackets]} {
-        set decayedRtype [cBaseType $rtypeBase]
+    if {[regexp {^([^\[]+)(\[.*)?$} $rtype -> decayedRtype rtypeBrackets]} {
         if {$rtypeBrackets ne ""} {
             regsub {\[\d*\]} $rtypeBrackets * rtypeBrackets
             append decayedRtype $rtypeBrackets
@@ -1075,6 +1130,15 @@ method C::extend {self args} {
         if {![dict exists $self::objtypes $objtype]} {
             dict set self::objtypes $objtype $code
             dict set self::extendedObjtypes $objtype $srcCap
+        }
+    }
+
+    if {[dict exists $srcinfo captypes]} {
+        dict for {ident info} [dict get $srcinfo captypes] {
+            if {![dict exists $self::captypes $ident] || ![dict exists $self::extendedCaptypes $ident]} {
+                dict set self::captypes $ident $info
+                dict set self::extendedCaptypes $ident $srcCap
+            }
         }
     }
 

@@ -1,4 +1,4 @@
-Wish the web server handles route "/log$" with handler {
+Wish the web server handles route "/log$" with handler [fn {args} {
   set log [Evaluator::getOperationLog]
   set body [list "<ol>"]
   foreach entry $log {
@@ -10,4 +10,4 @@ Wish the web server handles route "/log$" with handler {
   }
   lappend body "</ol>"
   html [join $body ""]
-}
+}]

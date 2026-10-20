@@ -1,6 +1,6 @@
-package require http
-package require tls 1.7
-package require json
+# package require http
+# package require tls 1.7
+set json [import "lib/json.tcl"]
 
 # # Instructions for use:
 # 0. Make sure additional dependencies are installed:

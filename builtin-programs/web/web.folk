@@ -7,9 +7,97 @@ Claim the websocket library is $ws
 dict assign $ws wsUpgradeHandshake wsReadMsg wsSend
 
 
-fn htmlEscape {s} {
+fn htmlLib::htmlEscape {s} {
     string map {& "&amp;" < "&lt;" > "&gt;" "\"" "&quot;"} $s
 }
+
+fn htmlLib::html {body} {
+    dict create statusAndHeaders "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: text/html; charset=utf-8\r\n\r\n" body $body
+}
+
+fn htmlLib::json {body} {
+    dict create statusAndHeaders "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: application/json; charset=utf-8\r\n\r\n" body $body
+}
+
+fn htmlLib::HtmlWhen {args} {
+    set callbacks [dict create]
+    set pattern [list]
+    for {set i 0} {$i < [llength $args]} {incr i} {
+        set arg [lindex $args $i]
+        if {$arg in [list "-beforeNodeAdded" "-afterNodeAdded" "-beforeNodeMorphed" \
+                         "-afterNodeMorphed" "-beforeNodeRemoved" "-afterNodeRemoved" \
+                         "-beforeAttributeUpdated"]} {
+            incr i
+            dict set callbacks [string range $arg 1 end] \
+                [lindex $args $i]
+        } else {
+            lappend pattern $arg
+        }
+    }
+
+    set body [lindex $pattern end]
+    set pattern [lreplace $pattern end end]
+
+    set sourceInfo [info source $body]
+    set prologue {dict assign -all [lindex $args 0]}
+    set render [uplevel 1 [info source [list fn args "$prologue;$body"] {*}$sourceInfo]]
+
+    # Retract when the page is closed.
+    if {[lrange $pattern 0 3] eq "the collected results for"} {
+        set resultsVar [__scanVariable [lindex $pattern 6]]
+        set whenBody [eval [list fn args "
+            set htmls \[list\]
+            lappend htmls \[render \[dict create $resultsVar \[lindex \$args 0\]\]\]
+            Notify: the html for {$pattern} is \[join \$htmls \\n\]
+        "]]
+        Assert! when {*}$pattern $whenBody
+    } else {
+        set whenBody [eval [list fn args "
+            set htmls \[list\]
+            foreach result \[lindex \$args 0\] {
+                lappend htmls \[render \$result\]
+            }
+            Notify: the html for {$pattern} is \[join \$htmls \\n\]
+        "]]
+        Assert! when the collected results for {*}$pattern are /results/ $whenBody
+    }
+
+    set htmls [list]
+    # HACK: ForEach! won't work on collection since the When when ->
+    # creating wish doesn't exist.
+    if {[lrange $pattern 0 3] eq "the collected results for"} {
+        set results [Query! {*}[lindex $pattern 4]]
+        set resultsVar [__scanVariable [lindex $pattern 6]]
+        lappend htmls [render [dict create $resultsVar $results]]
+    } else {
+        ForEach! {*}$pattern {
+            lappend htmls [render $__result]
+        }
+    }
+
+    set callbacksJs [join [lmap {callbackName callback} $callbacks {
+        subst {$callbackName: $callback}
+    }] ,]
+    return [subst {
+        <div style="display: contents;">[join $htmls \n]</div>
+        <script>
+        (function() {
+          const el = document.currentScript.previousElementSibling;
+          const callbacks = {$callbacksJs};
+          folk.subscribe(`the html for {$pattern} is /html/`, ({html}) => {
+            if (window.Idiomorph) {
+              Idiomorph.morph(el, html, {morphStyle:'innerHTML', callbacks:callbacks});
+            } else {
+              el.innerHTML = html;
+            }
+          });
+        })();
+        </script>
+    }]
+}
+
+Claim the html library is $htmlLib
+dict assign $htmlLib htmlEscape html json
 
 fn readFile {filename contentTypeVar} {
     upvar $contentTypeVar contentType
@@ -105,12 +193,9 @@ fn handleConnection {chan} {
                     if {[llength $vars] > 0} {
                         set queryString [lindex $vars end]
                         set QUERY [parseQueryString $queryString]
+                        set vars [lrange $vars 0 end-1]
+                        while {[llength $vars] < 10} { lappend vars "" }
 
-                        fn html {body} {dict create statusAndHeaders "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: text/html; charset=utf-8\r\n\r\n" body $body}
-                        fn json {body} {dict create statusAndHeaders "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: application/json; charset=utf-8\r\n\r\n" body $body}
-
-                        set varNames [lseq [llength $vars]]
-                        lappend varNames QUERY
                         set response [handler {*}$vars $QUERY]
                         break
                     }
@@ -211,69 +296,7 @@ fn handleConnection {chan} {
     }
 }
 
-fn HtmlWhen {args} {
-    set callbacks [dict create]
-    set pattern [list]
-    for {set i 0} {$i < [llength $args]} {incr i} {
-        set arg [lindex $args $i]
-        if {$arg in [list "-beforeNodeAdded" "-afterNodeAdded" "-beforeNodeMorphed" \
-                         "-afterNodeMorphed" "-beforeNodeRemoved" "-afterNodeRemoved" \
-                         "-beforeAttributeUpdated"]} {
-            incr i
-            dict set callbacks [string range $arg 1 end] \
-                [lindex $args $i]
-        } else {
-            lappend pattern $arg
-        }
-    }
 
-    set body [lindex $pattern end]
-    set pattern [lreplace $pattern end end]
-    # TODO: Retract this when the page is closed.
-    When the collected results for $pattern are /results/ {
-        set htmls [list]
-        foreach result $results {
-            lappend htmls [body {*}$result]
-        }
-        Notify: the html for $pattern is [join $htmls \n]
-    }
-
-    set htmls [list]
-    lappend envStack {}
-    # HACK: ForEach! won't work on collection since the When when ->
-    # creating wish doesn't exist.
-    if {[lrange $pattern 0 3] eq "the collected results for"} {
-        set results [Query! {*}[lindex $pattern 4]]
-        set resultsVar [__scanVariable [lindex $pattern 6]]
-        lset envStack end [list $resultsVar $results]
-        lappend htmls [applyBlock $body $envStack]
-    } else {
-        ForEach! {*}$pattern {
-            lset envStack end $__result
-            lappend htmls [applyBlock $body $envStack]
-        }
-    }
-
-    set callbacksJs [join [lmap {callbackName callback} $callbacks {
-        subst {$callbackName: $callback}
-    }] ,]
-    return [subst {
-        <div style="display: contents;">[join $htmls \n]</div>
-        <script>
-        (function() {
-          const el = document.currentScript.previousElementSibling;
-          const callbacks = {$callbacksJs};
-          folk.subscribe(`the html for {$pattern} is /html/`, ({html}) => {
-            if (window.Idiomorph) {
-              Idiomorph.morph(el, html, {morphStyle:'innerHTML', callbacks:callbacks});
-            } else {
-              el.innerHTML = html;
-            }
-          });
-        })();
-        </script>
-    }]
-}
 
 Subscribe: http client /client/ arrived {
     handleConnection $client

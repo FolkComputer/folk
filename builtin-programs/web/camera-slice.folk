@@ -1,5 +1,5 @@
 When the jpeg library is /jpegLib/ {
-    Wish the web server handles route {/camera-slice/([^/]+)$} with handler {
+    Wish the web server handles route {/camera-slice/([^/]+)$} with handler [fn {args} {
         set id [string map [list %20 " "] $1]
         Hold! -key [list camera-slice $id] Wish $id has camera slice
 
@@ -31,5 +31,5 @@ Connection: close
 Content-Type: image/jpeg
 Content-Length: $fsize\n\n" \
             body $data
-    }
+    }]
 }

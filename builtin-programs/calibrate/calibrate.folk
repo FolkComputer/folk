@@ -12,12 +12,9 @@
 #
 
 
-foreach p {add norm sub scale matmul
-    getelem transpose determineSVD shape mkIdentity show
+dict assign [import lib/linalg.tcl] add norm sub scale matmul \
+    getelem transpose determineSVD shape mkIdentity show \
     solvePGauss crossproduct getcol setcol unitLengthVector det
-} {
-    dict assign [import lib/linalg.tcl] $p
-}
 
 Hold! -key {calibration poses max} \
     Claim the calibration poses max is 10
@@ -56,8 +53,6 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             puts stderr "calibrate: Warning: camera $camera has [llength $camResults] use wishes"
         }
     }
-
-    dict assign [import lib/linalg.tcl] scale
 
     set tagSideLength 1.0
     set tagOuterLength [expr {$tagSideLength * 10/6}]
@@ -111,7 +106,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
         # This has been adjusted with a scaling factor
         # to account for the inclusion of labels on each side.
-        set tagSideLengthPixels [math::min $(($displayWidth * 0.75)/($COLS * ($tagOuterLength + $pad))) \
+        set tagSideLengthPixels [min $(($displayWidth * 0.75)/($COLS * ($tagOuterLength + $pad))) \
                                      $(($displayHeight * 0.75)/($ROWS * ($tagOuterLength + $pad)))]
         set tagSideLengthPixels [expr {$tagSideLengthPixels * $scale}]
 
@@ -174,8 +169,6 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         set aprilTime [time {
             set tags [calibrationTagDetector::detect $frame]
         }]
-
-        package require linalg
 
         # This runs every frame, looks at the detected tags (both
         # projected and printed), and updates the H_modelToDisplay
@@ -258,7 +251,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
         # puts "point pairs (camera -> display): {$projectedPointPairs}"
         set H_cameraToDisplay [matLib::estimateHomography $projectedPointPairs]
-        if {abs([math::linearalgebra::det $H_cameraToDisplay]) < 0.001} {
+        if {abs([det $H_cameraToDisplay]) < 0.001} {
             # Garbage homography that just shrinks the points way down
             # (https://stackoverflow.com/questions/10972438/detecting-garbage-homographies-from-findhomography-in-opencv).
             # It's sort of 'overfitted' and just has a big y-intercept
@@ -418,9 +411,6 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 }
 
 fn processHomography {H} {
-    dict assign [import lib/linalg.tcl] getelem
-    dict assign [import lib/linalg.tcl] sub
-
     fn h {i j} { getelem $H [- $j 1] [- $i 1] }
 
     fn v {i j} {
@@ -456,8 +446,6 @@ fn processHomography {H} {
 #         Hs     a list of N homographies from camera/projector image
 #                plane -> model plane (for N different poses).
 fn zhangUnrefinedCalibrate {name width height Hs} {
-    dict assign [import lib/linalg.tcl] shape transpose matmul determineSVD mkIdentity solvePGauss getcol norm scale crossproduct add sub
-
     # Try to solve for the camera intrinsics:
 
     # Construct V:
@@ -605,9 +593,6 @@ fn setCameraToProjectorExtrinsics {modelLib calibrationVar calibrationPoses} {
 # from a camera detection, `model` with coordinates in meters,
 # `H_modelToDisplay`.
 fn unrefinedCalibrateCameraAndProjector {modelLib matLib calibrationPoses} {
-    dict assign [import lib/linalg.tcl] det
-    dict assign [import lib/linalg.tcl] scale
-
     # Just used to get metadata about cam/proj:
     set pose0 [lindex $calibrationPoses 0]
 

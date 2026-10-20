@@ -83,15 +83,7 @@ cc::addcode [subst {
     static VkDescriptorSet boundDescriptorSet;
 }]
 
-cc::argtype DisplayState* {
-    DisplayState* $argname;
-    sscanf(ziclShimString($shim), "(DisplayState*) %p", &$argname);
-}
-cc::rtype DisplayState* {
-    char buf[100];
-    snprintf(buf, 100, "(DisplayState*) %p", $rvalue);
-    $robj = ziclNewString(buf, -1);
-}
+cc::addcap DisplayState /display-state
 
 cc::proc initDisplay {char* display uint32_t width uint32_t height uint32_t refreshRate} DisplayState* {
     volkInitialize();

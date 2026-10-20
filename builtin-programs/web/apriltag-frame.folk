@@ -1,5 +1,5 @@
 When the jpeg library is /jpegLib/ {
-    Wish the web server handles route {/apriltag-frame} with handler {
+    Wish the web server handles route {/apriltag-frame} with handler [fn {args} {
         set frames [Query! camera /cam/ has frame /im/ at timestamp /ts/]
         set frame [lindex $frames end]
         dict assign -all $frame
@@ -40,5 +40,5 @@ When the jpeg library is /jpegLib/ {
             </body>
             </html>
         }]
-    }
+    }]
 }

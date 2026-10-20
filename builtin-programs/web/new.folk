@@ -161,11 +161,7 @@ Wish the web server handles route "/new" with nav "<button>New program</button>"
       Claim ${program} has resolved geometry {width ${w / 2000} height ${h / 2000}}
    `);
     ws.hold('quad', tcl`
-      package require linalg
-      dict assign [import lib/linalg.tcl] add
-      dict assign [import lib/linalg.tcl] sub
-      dict assign [import lib/linalg.tcl] matmul
-      dict assign [import lib/linalg.tcl] scale
+      dict assign [import lib/linalg.tcl] add sub matmul scale
 
       Require! the quad library is /quadLib/
       Require! display /disp/ has width /displayWidth/ height /displayHeight/

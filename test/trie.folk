@@ -14,10 +14,10 @@ set trie [trieLib::add $trie [list hello i am there] 1004]
 
 # Adding a clause that's already present is a no-op value-wise: trieAdd
 # hands back the same underlying pointer (see its "return the original
-# trie if the clause is already present" comment), and `add`'s Trie@
-# capability-pair type (lib/c.tcl's cc::addcap) reuses the input's own
-# capability in that case rather than minting an unrelated new one, so the
-# result really is `eq` to what went in.
+# trie if the clause is already present" comment), and `add` takes
+# a Zicl_Shimmerable* to reuse the input's own capability in that case
+# rather than minting an unrelated new one, so the result really is `eq`
+# to what went in.
 set trieBefore $trie
 set trie [trieLib::add $trie [list hello i am there] 1005] ;# this should not do anything
 assert {$trie eq $trieBefore}

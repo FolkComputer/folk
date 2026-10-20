@@ -1,4 +1,4 @@
-Wish the web server handles route {/page/(.*)$} with handler {
+Wish the web server handles route {/page/(.*)$} with handler [fn {args} {
     Require! the program save directory is /programDir/
     set program_id $1
     set filenames [list \
@@ -93,4 +93,4 @@ Wish the web server handles route {/page/(.*)$} with handler {
         </body>
         </html>
     }]
-}
+}]

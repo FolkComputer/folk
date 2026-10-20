@@ -1,5 +1,5 @@
 When the collected results for [list laser blob /t/ has center /c/ size /s/] are /results/ {
-  Wish the web server handles route "/laser-web-debug" with handler [list apply {{results} {
+  Wish the web server handles route "/laser-web-debug" with handler [fn {args} {
     upvar ^html ^html
     set blobsHtml "<ol>"
     set blobsJson ""
@@ -74,5 +74,5 @@ Test1();
         </html>
 
     }]
-  }} $results]
+  }}]
 }

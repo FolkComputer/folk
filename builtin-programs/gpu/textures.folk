@@ -31,15 +31,7 @@ gpuc::extend $imageLib
 gpuc::include <pthread.h>
 
 gpuc::typedef {struct VmaAllocation_T*} VmaAllocation
-gpuc::argtype VmaAllocation {
-    VmaAllocation $argname;
-    sscanf(ziclShimString($shim), "(VmaAllocation) %p", &$argname);
-}
-gpuc::rtype VmaAllocation {
-    char buf[100];
-    snprintf(buf, 100, "(VmaAllocation) %p", $rvalue);
-    $robj = ziclNewString(buf, -1);
-}
+gpuc::addcap VmaAllocation /vma-allocation -exact
 
 fn vktry {call} { string map {\n " "} [csubst {{
     VkResult res = $call;

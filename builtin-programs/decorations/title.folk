@@ -5,6 +5,8 @@
 # Wish $this is right-margined "This is right-margined text"
 # Wish $this is left-margined "This is left-margined text"
 
+dict assign [import lib/linalg.tcl] add sub scale unitLengthVector
+
 When /thing/ has quad /quad/ {
     Claim -keep 50ms $thing has a quad
 }
@@ -15,7 +17,6 @@ When the quad library is /quadLib/ &\
      display /disp/ has width /displayWidth/ height /displayHeight/ &\
      display /disp/ has intrinsics /displayIntrinsics/ &\
      /thing/ has a quad {
-
 
     foreach {label edge textAnchor} {
         titled         top    bottom
@@ -28,9 +29,6 @@ When the quad library is /quadLib/ &\
             if {$text eq ""} { return }
 
             When -atomicallyWithKey [list $thing quad $label] $thing has quad /q/ {
-                package require linalg
-                dict assign [import lib/linalg.tcl] add sub scale unitLengthVector
-
                 lassign [quadLib::vertices [quadChange $q "display $disp"]] \
                     topLeft topRight bottomRight bottomLeft
 
@@ -91,7 +89,7 @@ When the quad library is /quadLib/ &\
                 }
 
                 if {$maxLength == 0} { return }
-                set scale [math::min 36.0 [/ 3600.0 $maxLength]]
+                set scale [min 36.0 [/ 3600.0 $maxLength]]
 
                 Wish to draw text onto $disp with \
                     position $dispPosition \
