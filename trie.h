@@ -17,7 +17,7 @@ struct Trie {
     // Owned by the trie: ref count is incremented when stored and
     // decremented when the node is removed (and no successor takes
     // over the key).
-    Zicl_Value key;
+    Zicl_Val key;
 
     // In practice, we store a statement ref in this slot.
     bool hasValue;
@@ -47,11 +47,11 @@ const Trie* trieNew();
 typedef struct TrieAllocator {
     void *(*alloc)(size_t);
     void  (*retire)(void*);
-    void  (*retireValue)(Zicl_Object*);
+    void  (*retireValue)(Zicl_Obj*);
 } TrieAllocator;
 
 // Returns a new Trie that is like `trie` with `clause` added. Holds a
-// reference to each term Zicl_Value for as long as the term remains in
+// reference to each term Zicl_Val for as long as the term remains in
 // the trie.
 const Trie* trieAdd(const Trie* trie,
                     const TrieAllocator* allocator,
@@ -76,7 +76,7 @@ int trieLookup(const Trie* trie, Zicl_List* pattern,
 int trieLookupLiteral(const Trie* trie, Zicl_List* literal,
                       uint64_t* results, size_t maxResults);
 
-bool trieScanVariable(Zicl_Value termValue,
+bool trieScanVariable(Zicl_Val termValue,
                       char* outVarName, size_t sizeOutVarName);
 bool trieVariableNameIsNonCapturing(const char* varName);
 

@@ -4,6 +4,10 @@ cc::include <string.h>
 cc::include <math.h>
 
 cc::struct Image {
+    Zicl_CapHead cap_head;
+    // Pointer to whatever capability manages `data`. Will point
+    // to `&cap_head` on either itself or another image.
+    Zicl_CapHead *cap;
     uint32_t width;
     uint32_t height;
     int components;
@@ -17,9 +21,13 @@ cc::struct Image {
 }
 
 # Note that this returns an image whose lifetime is tied to the original image.
-cc::proc slice {Image im double x double y double subwidth double subheight} Image {
+cc::proc slice {Zicl_Val im double x double y double subwidth double subheight} Zicl_Val {
+    
     uint8_t *subdata = im.data + (int)y*im.bytesPerRow + (int)x*im.components;
     return (Image) {
+        .cap_head = { .vtable = NULL },
+        // Use capability of parent.
+        .cap = Zicl_CapTakeRef(im.cap),
         .width = (uint32_t)subwidth,
         .height = (uint32_t)subheight,
         .components = im.components,
@@ -29,14 +37,14 @@ cc::proc slice {Image im double x double y double subwidth double subheight} Ima
     };
 }
 
-cc::proc get {Image im double x double y} Zicl_Value {
+cc::proc get {Image im double x double y} Zicl_Val {
     int i = y * im.bytesPerRow + x * im.components;
     FOLK_ENSURE(x >= 0 && y >= 0 &&
                 x < im.width && y < im.height);
     uint8_t r = im.data[i];
     uint8_t g = im.data[i + 1];
     uint8_t b = im.data[i + 2];
-    Zicl_Value ret;
+    Zicl_Val ret;
     folkZiclAssert(Zicl_NewStringFormatted(&ret, "%g %g %g",
                          (double)r / 255.0,
                          (double)g / 255.0,

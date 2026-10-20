@@ -250,13 +250,13 @@ void installLocalStdoutAndStderrForProgram(const char *thisProgram) {
     installLocalStdoutAndStderr(stdoutfd, stderrfd);
 }
 
-static int __installLocalStdoutAndStderrFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv) {
+static int __installLocalStdoutAndStderrFunc(Zicl_Interp *interp, int argc, Zicl_Shim *argv) {
     assert(argc == 2);
     installLocalStdoutAndStderrForProgram(ziclShimString(&argv[1]));
     return ZICL_OK;
 }
 
-static int __doNothingFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv) {
+static int __doNothingFunc(Zicl_Interp *interp, int argc, Zicl_Shim *argv) {
     return ZICL_OK;
 }
 

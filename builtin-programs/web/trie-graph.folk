@@ -46,7 +46,7 @@ void tfree(void *ptr) {
 
 #endif
 
-        static void trieRetireValue(Zicl_Object* obj) {
+        static void trieRetireValue(Zicl_Obj* obj) {
             Zicl_DropRef(Zicl_BoxObject(obj));
         }
         static const TrieAllocator trieAllocator = {
@@ -55,16 +55,16 @@ void tfree(void *ptr) {
             .retireValue = trieRetireValue,
         };
 
-        static Zicl_List* valueToClause(Zicl_Interp* interp, Zicl_Value clauseObj) {
+        static Zicl_List* valueToClause(Zicl_Interp* interp, Zicl_Val clauseObj) {
             Zicl_List* list; folkZiclAssert(Zicl_DupAsList(interp, clauseObj, &list));
             return list;
         }
     }
-    cc::proc tclify {Trie* trie} Zicl_Value {
+    cc::proc tclify {Trie* trie} Zicl_Val {
         int objc = 3 + trie->branchesCount;
-        Zicl_Value objv[objc];
+        Zicl_Val objv[objc];
         folkZiclAssert(Zicl_NewStringFormatted(&objv[0], "x%" PRIxPTR, (uintptr_t) trie));
-        if (Zicl_AsPtr(trie->key)) {
+        if (Zicl_AsObj(trie->key)) {
             folkZiclAssert(Zicl_NewStringFormatted(&objv[1], "%s", ziclString(trie->key)));
         } else {
             folkZiclAssert(Zicl_NewStringFormatted(&objv[1], "ROOT"));
@@ -78,21 +78,21 @@ void tfree(void *ptr) {
             // HACK: const isn't supported yet, so have to cast.
             objv[3+i] = trie->branches[i] ? tclify((Trie *)trie->branches[i]) : ziclNewString("", 0);
         }
-        Zicl_Value result = Zicl_BoxList(ziclNewList(objv, objc));
+        Zicl_Val result = Zicl_BoxList(ziclNewList(objv, objc));
         for (int i = 0; i < objc; i++) Zicl_DropRef(objv[i]);
         return result;
     }
-    cc::proc dbTrieTclify {} Zicl_Value {
+    cc::proc dbTrieTclify {} Zicl_Val {
         dbLockClauseToStatementRef(db);
         Trie* trie = dbGetClauseToStatementRef(db);
-        Zicl_Value ret = tclify(trie);
+        Zicl_Val ret = tclify(trie);
         dbUnlockClauseToStatementRef(db);
         return ret;
     }
     cc::proc new {} Trie* {
         return (Trie *)trieNew();
     }
-    cc::proc add {Zicl_Shimmerable* trieShim Zicl_Value patternObj uint64_t value} Zicl_Value {
+    cc::proc add {Zicl_Shim* trieShim Zicl_Val patternObj uint64_t value} Zicl_Val {
         Trie* trie = Trie_unwrap(trieShim);
         Zicl_List* pattern = valueToClause(interp, patternObj);
         const Trie* result = trieAdd(trie, &trieAllocator, pattern, value);
@@ -106,22 +106,22 @@ void tfree(void *ptr) {
         }
         return Trie_wrapFresh((Trie*)result);
     }
-    cc::proc lookup {Trie* trie Zicl_Value patternObj} Zicl_Value {
+    cc::proc lookup {Trie* trie Zicl_Val patternObj} Zicl_Val {
         uint64_t results[50];
         Zicl_List* pattern = valueToClause(interp, patternObj);
         int resultCount = trieLookup(trie, pattern, results, 50);
         Zicl_DropRefList(pattern);
 
-        Zicl_Value resultObjs[resultCount];
+        Zicl_Val resultObjs[resultCount];
         for (int i = 0; i < resultCount; i++) {
             resultObjs[i] = Zicl_NewLong(results[i]);
         }
 
-        Zicl_Value result = Zicl_BoxList(ziclNewList(resultObjs, resultCount));
+        Zicl_Val result = Zicl_BoxList(ziclNewList(resultObjs, resultCount));
         for (int i = 0; i < resultCount; i++) Zicl_DropRef(resultObjs[i]);
         return result;
     }
-    cc::proc remove_ {Trie* trie Zicl_Value patternObj} Trie* {
+    cc::proc remove_ {Trie* trie Zicl_Val patternObj} Trie* {
         uint64_t results[50];
         Zicl_List* pattern = valueToClause(interp, patternObj);
         int resultCount;

@@ -5,7 +5,7 @@ cc::include <fcntl.h>
 cc::include <unistd.h>
 cc::include <sys/ioctl.h>
 cc::include <linux/videodev2.h>
-cc::proc getInfoForCamera {char* camera} Zicl_Value {
+cc::proc getInfoForCamera {char* camera} Zicl_Val {
     int fd = open(camera, O_RDWR);
     FOLK_ENSURE(fd >= 0);
 
@@ -13,8 +13,8 @@ cc::proc getInfoForCamera {char* camera} Zicl_Value {
 
     struct v4l2_capability cap;
     if (ioctl(fd, VIDIOC_QUERYCAP, &cap) >= 0) {
-        Zicl_Value cardKey = ziclNewString("card", -1);
-        Zicl_Value cardVal = ziclNewString((const char *)cap.card, -1);
+        Zicl_Val cardKey = ziclNewString("card", -1);
+        Zicl_Val cardVal = ziclNewString((const char *)cap.card, -1);
         ziclDictPut(infoObj, cardKey, cardVal);
         Zicl_DropRef(cardKey);
         Zicl_DropRef(cardVal);
@@ -59,7 +59,7 @@ cc::proc getInfoForCamera {char* camera} Zicl_Value {
                         double max_fps = (double)frm_interval.stepwise.min.denominator /
                                         frm_interval.stepwise.min.numerator;
 
-                        Zicl_Value rangeDict;
+                        Zicl_Val rangeDict;
                         folkZiclAssert(Zicl_NewStringFormatted(&rangeDict, "min %f max %f", min_fps, max_fps));
                         ziclListAppend(frameratesList, rangeDict);
                         Zicl_DropRef(rangeDict);
@@ -68,7 +68,7 @@ cc::proc getInfoForCamera {char* camera} Zicl_Value {
                 }
 
                 const char *frameratesStr = ziclListString(frameratesList);
-                Zicl_Value resDict;
+                Zicl_Val resDict;
                 folkZiclAssert(Zicl_NewStringFormatted(&resDict, "width %u height %u framerates {%s}",
                     frm_size.discrete.width,
                     frm_size.discrete.height,
@@ -82,7 +82,7 @@ cc::proc getInfoForCamera {char* camera} Zicl_Value {
         }
 
         const char *resolutionsStr = ziclListString(resolutionsList);
-        Zicl_Value formatDict;
+        Zicl_Val formatDict;
         folkZiclAssert(Zicl_NewStringFormatted(&formatDict, "fourcc {%s} description {%s} resolutions {%s}",
             fourcc_str,
             (char*)fmt_desc.description,
@@ -94,8 +94,8 @@ cc::proc getInfoForCamera {char* camera} Zicl_Value {
 
         fmt_desc.index++;
     }
-    Zicl_Value formatsKey = ziclNewString("formats", -1);
-    Zicl_Value formatsVal = Zicl_BoxList(formatsList);
+    Zicl_Val formatsKey = ziclNewString("formats", -1);
+    Zicl_Val formatsVal = Zicl_BoxList(formatsList);
     ziclDictPut(infoObj, formatsKey, formatsVal);
     Zicl_DropRef(formatsKey);
     Zicl_DropRef(formatsVal);

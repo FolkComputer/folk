@@ -55,7 +55,7 @@ typedef struct EpochGlobalGarbage {
 static EpochGlobalGarbage epochGlobalGarbage[3];
 
 typedef struct EpochGlobalDecrRefs {
-    Zicl_Object* _Atomic decrRefs[EPOCH_GARBAGE_MAX];
+    Zicl_Obj* _Atomic decrRefs[EPOCH_GARBAGE_MAX];
     _Atomic int decrRefsNextIdx;
 } EpochGlobalDecrRefs;
 static EpochGlobalDecrRefs epochGlobalDecrRefs[3];
@@ -85,7 +85,7 @@ static __thread void *allocs[ALLOCS_MAX];
 static __thread int allocsNextIdx;
 
 #define DECR_REFS_MAX 1024
-static __thread Zicl_Object *decrRefs[DECR_REFS_MAX];
+static __thread Zicl_Obj *decrRefs[DECR_REFS_MAX];
 static __thread int decrRefsNextIdx;
 
 void epochThreadInit() {
@@ -146,7 +146,7 @@ void epochFree(void *ptr) {
     }
     frees[idx] = ptr;
 }
-void epochDecrRef(Zicl_Object *obj) {
+void epochDecrRef(Zicl_Obj *obj) {
     int idx = decrRefsNextIdx++;
     if (idx >= DECR_REFS_MAX) {
         fprintf(stderr, "epochDecrRef: ran out of decr ref slots\n");

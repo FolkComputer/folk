@@ -14,23 +14,23 @@ cc::include <common/homography.h>
 # a Tcl list-of-lists converts into a matrix, and a matrix renders back out
 # as `{a b c} {d e f}`.
 cc::objtype matd {
-    Zicl_ObjectVTable* matd_ObjectVTable;
+    Zicl_ObjVTable* matd_ObjectVTable;
 
-    static matd_t* matd_fromObject(const Zicl_Object* obj) {
-        return *(matd_t**) Zicl_ObjectBodyConst(obj);
+    static matd_t* matd_fromObject(const Zicl_Obj* obj) {
+        return *(matd_t**) Zicl_ObjBodyConst(obj);
     }
 
-    void matd_freeIntRepProc(Zicl_Object* objPtr) {
-        matd_destroy(*(matd_t**) Zicl_ObjectBody(objPtr));
+    void matd_freeIntRepProc(Zicl_Obj* objPtr) {
+        matd_destroy(*(matd_t**) Zicl_ObjBody(objPtr));
     }
-    Zicl_Object* matd_dupIntRepProc(const Zicl_Object* srcPtr) {
+    Zicl_Obj* matd_dupIntRepProc(const Zicl_Obj* srcPtr) {
         void* body = NULL;
-        Zicl_Object* newObject = Zicl_NewObject(matd_ObjectVTable, sizeof(matd_t*), &body);
+        Zicl_Obj* newObject = Zicl_NewObj(matd_ObjectVTable, sizeof(matd_t*), &body);
         if (newObject == NULL) return NULL;
         *(matd_t**) body = matd_copy(matd_fromObject(srcPtr));
         return newObject;
     }
-    int matd_updateStringProc(Zicl_Object* objPtr) {
+    int matd_updateStringProc(Zicl_Obj* objPtr) {
         matd_t* mat = matd_fromObject(objPtr);
 
         // Worst case per element: "-1.234567e-308 " and similar, so 26 bytes
@@ -63,25 +63,25 @@ cc::objtype matd {
        `return (rc = ...)`. A bare `return ZICL_ERR` would leave `rc` at
        ZICL_OK and leak the matrix, so the assignment is kept inside the
        return rather than as a separate step that can drift apart from it. */
-    int matd_shimmerFrom(Zicl_Interp* interp, Zicl_Shimmerable* shim, matd_t** out) {
-        void* body = Zicl_AsObject(Zicl_Current(shim), matd_ObjectVTable);
+    int matd_shimmerFrom(Zicl_Interp* interp, Zicl_Shim* shim, matd_t** out) {
+        void* body = Zicl_AsObjBody(Zicl_Current(shim), matd_ObjectVTable);
         if (body) { *out = *(matd_t**) body; return ZICL_OK; }
 
         int rc = ZICL_OK;
 
         const Zicl_List* rows;
-        ZICL_TRY(Zicl_ListShimmer(interp, shim, &rows), rc);
+        ZICL_TRY(Zicl_ShimmerToList(interp, shim, &rows), rc);
         int nrows = Zicl_ListLength(rows);
         if (nrows <= 0) return (rc = ZICL_ERR);
-        const Zicl_Value* rowValues = Zicl_ListItems(rows);
+        const Zicl_Val* rowValues = Zicl_ListItems(rows);
 
         // Column count comes from the first row; the rest must agree.
         int ncols;
         {
-            Zicl_Shimmerable row0 = Zicl_NewShimmerable(rowValues[0]);
+            Zicl_Shim row0 = Zicl_NewShim(rowValues[0]);
             defer { Zicl_ShimDiscardChanges(&row0); }
             const Zicl_List* row0List;
-            ZICL_TRY(Zicl_ListShimmer(interp, &row0, &row0List), rc);
+            ZICL_TRY(Zicl_ShimmerToList(interp, &row0, &row0List), rc);
             ncols = Zicl_ListLength(row0List);
         }
         if (ncols <= 0) return (rc = ZICL_ERR);
@@ -93,16 +93,16 @@ cc::objtype matd {
         defer { if (rc != ZICL_OK) matd_destroy(mat); }
 
         for (int row = 0; row < nrows; row++) {
-            Zicl_Shimmerable rowShim = Zicl_NewShimmerable(rowValues[row]);
+            Zicl_Shim rowShim = Zicl_NewShim(rowValues[row]);
             defer { Zicl_ShimDiscardChanges(&rowShim); }
 
             const Zicl_List* rowList;
-            ZICL_TRY(Zicl_ListShimmer(interp, &rowShim, &rowList), rc);
+            ZICL_TRY(Zicl_ShimmerToList(interp, &rowShim, &rowList), rc);
             if (Zicl_ListLength(rowList) != ncols) return (rc = ZICL_ERR);
 
-            const Zicl_Value* cells = Zicl_ListItems(rowList);
+            const Zicl_Val* cells = Zicl_ListItems(rowList);
             for (int col = 0; col < ncols; col++) {
-                Zicl_Shimmerable cell = Zicl_NewShimmerable(cells[col]);
+                Zicl_Shim cell = Zicl_NewShim(cells[col]);
                 defer { Zicl_ShimDiscardChanges(&cell); }
                 ZICL_TRY(Zicl_GetDouble(interp, &cell, &MATD_EL(mat, row, col)), rc);
             }
@@ -117,15 +117,15 @@ cc::objtype matd {
     }
 
     void matd_init(void) {
-        matd_ObjectVTable = malloc(sizeof(Zicl_ObjectVTable));
-        *matd_ObjectVTable = (Zicl_ObjectVTable) {
+        matd_ObjectVTable = malloc(sizeof(Zicl_ObjVTable));
+        *matd_ObjectVTable = (Zicl_ObjVTable) {
             .is_c_vtable = true,
             .name = "matd_t*",
             .duplicate = matd_dupIntRepProc,
             .free_internal_rep = matd_freeIntRepProc,
             .update_string = matd_updateStringProc,
             // Nothing in the body another thread could race on: the matrix is
-            // immutable once built, and holds no Zicl_Values.
+            // immutable once built, and holds no Zicl_Vals.
             .make_crossthread = Zicl_NoopMakeCrossthread,
             .enumerate_struct = NULL
         };
@@ -138,7 +138,7 @@ cc::argtype matd_t* {
 cc::rtype matd_t* {
     {
         void* body = NULL;
-        Zicl_Object* obj = Zicl_NewObject(matd_ObjectVTable, sizeof(matd_t*), &body);
+        Zicl_Obj* obj = Zicl_NewObj(matd_ObjectVTable, sizeof(matd_t*), &body);
         if (obj == NULL) folkZiclAssert(ZICL_OOM);
         *(matd_t**) body = $rvalue;
         $robj = Zicl_BoxObject(obj);
@@ -301,11 +301,11 @@ cc::addcode {
     }
 }
 
-cc::proc applyHomography {matd_t* H double[2] xy} Zicl_Value {
+cc::proc applyHomography {matd_t* H double[2] xy} Zicl_Val {
     double out[2];
     homography_project(H, xy[0], xy[1], &out[0], &out[1]);
 
-    Zicl_Value retObjs[2] = { Zicl_NewDouble(out[0]), Zicl_NewDouble(out[1]) };
+    Zicl_Val retObjs[2] = { Zicl_NewDouble(out[0]), Zicl_NewDouble(out[1]) };
     return Zicl_BoxList(ziclNewList(retObjs, 2));
 }
 cc::proc matdMul {matd_t* a matd_t* b} matd_t* {

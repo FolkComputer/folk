@@ -402,7 +402,7 @@ cc::proc drawStart {DisplayState* ds} void {
 # Draw to the screen using pipeline `pipeline`. Each arg in `args`
 # should be a push-constant parameter of the pipeline. Can only be
 # called between `drawStart` and `drawEnd`.
-cc::proc draw {Zicl_Interp* interp Pipeline pipeline Zicl_Value argsObj} void {
+cc::proc draw {Zicl_Interp* interp Pipeline pipeline Zicl_Val argsObj} void {
     VkCommandBuffer commandBuffer = getCommandBuffer();
 
     if (boundPipeline != pipeline.pipeline) {

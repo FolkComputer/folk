@@ -35,7 +35,7 @@ Claim the db library is [apply [fn {} {
     cc::argtype MatchRef { MatchRef $argname; sscanf(ziclShimString($shim), "m%d:%d", &$argname.idx, &$argname.gen); }
 
     cc::addcode {
-        static Zicl_Value clauseToValue(Zicl_List* clause) {
+        static Zicl_Val clauseToValue(Zicl_List* clause) {
             return Zicl_BoxList(Zicl_RefList(clause));
         }
     }
@@ -55,14 +55,14 @@ Claim the db library is [apply [fn {} {
         statementRelease(db, stmt);
         return ret;
     }
-    cc::proc clause {Db* db StatementRef stmtRef} Zicl_Value {
+    cc::proc clause {Db* db StatementRef stmtRef} Zicl_Val {
         Statement* stmt = statementAcquire(db, stmtRef);
         if (stmt == NULL) { return ziclNewString("(null)", -1); }
-        Zicl_Value ret = clauseToValue(statementClause(stmt));
+        Zicl_Val ret = clauseToValue(statementClause(stmt));
         statementRelease(db, stmt);
         return ret;
     }
-    cc::proc childMatches {Db* db StatementRef stmtRef} Zicl_Value {
+    cc::proc childMatches {Db* db StatementRef stmtRef} Zicl_Val {
         Statement* stmt = statementAcquire(db, stmtRef);
         if (stmt == NULL) { return ziclNewString("", 0); }
 
@@ -76,7 +76,7 @@ Claim the db library is [apply [fn {} {
         Zicl_List* childList = ziclNewList(NULL, 0);
         for (int i = 0; i < stmt->childMatches->nEdges; i++) {
             MatchRef child = { .val = stmt->childMatches->edges[i] };
-            Zicl_Value childStr;
+            Zicl_Val childStr;
             folkZiclAssert(Zicl_NewStringFormatted(&childStr, "m%d:%d", child.idx, child.gen));
             ziclListAppend(childList, childStr);
             Zicl_DropRef(childStr);
@@ -110,7 +110,7 @@ Claim the db library is [apply [fn {} {
     cc::addcode {
         #define CHILD_STATEMENTS_REMOVING ((ListOfEdgeTo*)1)
     }
-    cc::proc childStatements {Db* db MatchRef matchRef} Zicl_Value {
+    cc::proc childStatements {Db* db MatchRef matchRef} Zicl_Val {
         Match* match = matchAcquire(db, matchRef);
         if (match == NULL) { return ziclNewString("", 0); }
 
@@ -126,7 +126,7 @@ Claim the db library is [apply [fn {} {
         Zicl_List* childList = ziclNewList(NULL, 0);
         for (int i = 0; i < match->childStatements->nEdges; i++) {
             StatementRef child = { .val = match->childStatements->edges[i] };
-            Zicl_Value childStr;
+            Zicl_Val childStr;
             folkZiclAssert(Zicl_NewStringFormatted(&childStr, "s%d:%d", child.idx, child.gen));
             ziclListAppend(childList, childStr);
             Zicl_DropRef(childStr);
@@ -148,7 +148,7 @@ Claim the db library is [apply [fn {} {
       return count;
     }
 
-    cc::proc holds {Db* db} Zicl_Value {
+    cc::proc holds {Db* db} Zicl_Val {
         Zicl_List* retList = ziclNewList(NULL, 0);
 
         mutexLock(&db->holdsMutex);
@@ -163,14 +163,14 @@ Claim the db library is [apply [fn {} {
             }
 
             const char* clauseStr = ziclListString(statementClause(stmt));
-            Zicl_Value keyStr = ziclNewString(hold->key, -1);
-            Zicl_Value refStr;
+            Zicl_Val keyStr = ziclNewString(hold->key, -1);
+            Zicl_Val refStr;
             folkZiclAssert(Zicl_NewStringFormatted(&refStr, "s%d:%d", hold->statement.idx, hold->statement.gen));
-            Zicl_Value clauseValStr = ziclNewString(clauseStr, -1);
+            Zicl_Val clauseValStr = ziclNewString(clauseStr, -1);
             statementRelease(db, stmt);
 
-            Zicl_Value holdItems[] = { keyStr, Zicl_NewLong(hold->version), refStr, clauseValStr };
-            Zicl_Value holdVal = Zicl_BoxList(ziclNewList(holdItems, sizeof(holdItems)/sizeof(holdItems[0])));
+            Zicl_Val holdItems[] = { keyStr, Zicl_NewLong(hold->version), refStr, clauseValStr };
+            Zicl_Val holdVal = Zicl_BoxList(ziclNewList(holdItems, sizeof(holdItems)/sizeof(holdItems[0])));
             Zicl_DropRef(keyStr);
             Zicl_DropRef(refStr);
             Zicl_DropRef(clauseValStr);
@@ -183,7 +183,7 @@ Claim the db library is [apply [fn {} {
         return Zicl_BoxList(retList);
     }
 
-    cc::proc atomicallys {Db* db} Zicl_Value {
+    cc::proc atomicallys {Db* db} Zicl_Val {
         Zicl_List* retList = ziclNewList(NULL, 0);
 
         mutexLock(&db->atomicallysMutex);
@@ -205,13 +205,13 @@ Claim the db library is [apply [fn {} {
                 latestConvergedNumber = atomically->latestConvergedVersion->number;
             }
 
-            Zicl_Value keyStr = ziclNewString(atomically->key, -1);
-            Zicl_Value atomicallyItems[] = {
+            Zicl_Val keyStr = ziclNewString(atomically->key, -1);
+            Zicl_Val atomicallyItems[] = {
                 keyStr,
                 Zicl_NewLong(latestConvergedNumber),
                 Zicl_NewLong(versionCount)
             };
-            Zicl_Value atomicallyVal = Zicl_BoxList(ziclNewList(atomicallyItems, sizeof(atomicallyItems)/sizeof(atomicallyItems[0])));
+            Zicl_Val atomicallyVal = Zicl_BoxList(ziclNewList(atomicallyItems, sizeof(atomicallyItems)/sizeof(atomicallyItems[0])));
             Zicl_DropRef(keyStr);
 
             ziclListAppend(retList, atomicallyVal);

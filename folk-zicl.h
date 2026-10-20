@@ -18,13 +18,7 @@
 
 #include <libzicl.h>
 
-/* `defer` -- used by lib/c.tcl's own generated code (the array-argtype
- * conversion path), not just user-written cc::proc bodies, so it needs to be
- * available unconditionally here rather than left to each .folk file to opt
- * into via `cc::include "common.h"`. Duplicated from common.h rather than
- * included from it, since common.h also pulls in Folk's thread-pool
- * internals (workqueue.h, ThreadControlBlock, ...), which have nothing to do
- * with what generated FFI code needs. */
+/* `defer` implementation for Clang and GCC. */
 #if __has_include(<stddefer.h>)
 # include <stddefer.h>
 # if defined(__clang__)
@@ -54,12 +48,12 @@ static inline void folkZiclAssert(int rc) {
     }
 }
 
-static inline Zicl_Value folkZiclCheck(int rc, Zicl_Value value) {
+static inline Zicl_Val folkZiclCheck(int rc, Zicl_Val value) {
     folkZiclAssert(rc);
     return value;
 }
 
-static inline const char *ziclString(Zicl_Value value) {
+static inline const char *ziclString(Zicl_Val value) {
     const char *str = Zicl_String(value);
     if (!str) folkZiclAssert(ZICL_OOM);
     return str;
@@ -71,57 +65,57 @@ static inline const char *ziclListString(Zicl_List* list) {
     return str;
 }
 
-static inline int ziclEquals(Zicl_Value a, Zicl_Value b) {
+static inline int ziclEquals(Zicl_Val a, Zicl_Val b) {
     int out; folkZiclAssert(Zicl_Equals(a, b, &out));
     return out;
 }
 
-static inline const char *ziclShimString(Zicl_Shimmerable* shim) {
+static inline const char *ziclShimString(Zicl_Shim* shim) {
     const char *str = Zicl_ShimString(shim);
     if (!str) folkZiclAssert(ZICL_OOM);
     return str;
 }
 
-static inline const char *ziclGetString(Zicl_Value value, int *len) {
+static inline const char *ziclGetString(Zicl_Val value, int *len) {
     const char *str = Zicl_GetString(value, len);
     if (!str) folkZiclAssert(ZICL_OOM);
     return str;
 }
 
-static inline const char *ziclShimGetString(Zicl_Shimmerable *shim, int *len) {
+static inline const char *ziclShimGetString(Zicl_Shim *shim, int *len) {
     const char *str = Zicl_ShimGetString(shim, len);
     if (!str) folkZiclAssert(ZICL_OOM);
     return str;
 }
 
-static inline Zicl_Value ziclNewString(const char *ptr, int len) {
-    Zicl_Value out; int rc = Zicl_NewString(&out, ptr, len);
+static inline Zicl_Val ziclNewString(const char *ptr, int len) {
+    Zicl_Val out; int rc = Zicl_NewString(&out, ptr, len);
     return folkZiclCheck(rc, out);
 }
 
-static inline Zicl_List *ziclNewList(const Zicl_Value *values, int n_values) {
+static inline Zicl_List *ziclNewList(const Zicl_Val *values, int n_values) {
     Zicl_List *list = Zicl_NewList(values, n_values);
     if (list == NULL) folkZiclAssert(ZICL_OOM);
     return list;
 }
 
-static inline Zicl_List *ziclNewListFromShimmerables(Zicl_Shimmerable *values, int n_values) {
-    Zicl_List *list = Zicl_NewListFromShimmerables(values, n_values);
+static inline Zicl_List *ziclNewListFromShims(Zicl_Shim *values, int n_values) {
+    Zicl_List *list = Zicl_NewListFromShims(values, n_values);
     if (list == NULL) folkZiclAssert(ZICL_OOM);
     return list;
 }
 
-static inline void ziclListAppend(Zicl_List *list, Zicl_Value item) {
+static inline void ziclListAppend(Zicl_List *list, Zicl_Val item) {
     folkZiclAssert(Zicl_ListAppend(list, item));
 }
 
-static inline Zicl_Dict *ziclNewDict(Zicl_Value *values, int n_values) {
+static inline Zicl_Dict *ziclNewDict(Zicl_Val *values, int n_values) {
     Zicl_Dict *dict = Zicl_NewDict(values, n_values);
     if (dict == NULL) folkZiclAssert(ZICL_OOM);
     return dict;
 }
 
-static inline void ziclDictPut(Zicl_Dict *dict, Zicl_Value key, Zicl_Value value) {
+static inline void ziclDictPut(Zicl_Dict *dict, Zicl_Val key, Zicl_Val value) {
     folkZiclAssert(Zicl_DictPut(dict, key, value));
 }
 

@@ -17,15 +17,15 @@ cc::addcode {
     extern Db* db;
     extern Zicl_List* claimizeClause(Zicl_List* clause);
     extern void HoldStatementGlobally(const char *key, double version,
-                                      Zicl_List *clause, long keepMs, Zicl_OptionalValue destructorCode,
+                                      Zicl_List *clause, long keepMs, Zicl_OptVal destructorCode,
                                       const char *sourceFileName, int sourceLineNumber);
     extern Statement* HoldStatementGloballyAcquiring(const char *key, double version,
-                                          Zicl_List *clause, long keepMs, Zicl_OptionalValue destructorCode,
+                                          Zicl_List *clause, long keepMs, Zicl_OptVal destructorCode,
                                           const char *sourceFileName, int sourceLineNumber);
 
     typedef struct EnvironmentBinding {
         char name[100];
-        Zicl_Value value;
+        Zicl_Val value;
     } EnvironmentBinding;
     typedef struct Environment {
         int nBindings;
@@ -51,7 +51,7 @@ cc::addcode {
         return (int64_t)ts.tv_sec * 1000000000 + (int64_t)ts.tv_nsec;
     }
 
-    char* makeCollectKey(Zicl_Value patternObj) {
+    char* makeCollectKey(Zicl_Val patternObj) {
         const char COLLECT[] = "collect ";
         int collectLen = sizeof(COLLECT) - 1;
 
@@ -68,9 +68,9 @@ cc::addcode {
 cc::proc init {} void {
     pthread_mutex_init(&collectsMutex, NULL);
 }
-cc::proc Recollect! {Zicl_Value patternObj bool isAtomically} void {
+cc::proc Recollect! {Zicl_Val patternObj bool isAtomically} void {
     // First, query for collect patterns.
-    Zicl_Value collectorTerms[10];
+    Zicl_Val collectorTerms[10];
     collectorTerms[0] = ziclNewString("/someone/", -1);
     collectorTerms[1] = ziclNewString("wishes", -1);
     collectorTerms[2] = ziclNewString("to", -1);
@@ -160,8 +160,8 @@ cc::proc Recollect! {Zicl_Value patternObj bool isAtomically} void {
         // statements in rs. We need to hang onto them to inherit
         // their destructors.
 
-        Zicl_Value resultsVal = Zicl_BoxList(resultsList);
-        Zicl_Value collectedTerms[9];
+        Zicl_Val resultsVal = Zicl_BoxList(resultsList);
+        Zicl_Val collectedTerms[9];
         collectedTerms[0] = ziclNewString("builtin-programs/collect.folk", -1);
         collectedTerms[1] = ziclNewString("claims", -1);
         collectedTerms[2] = ziclNewString("the", -1);
@@ -206,7 +206,7 @@ cc::proc Recollect! {Zicl_Value patternObj bool isAtomically} void {
 # If the recollect doesn't have a settle time, we should recollect
 # immediately. If the recollect has a settle time, then we should bump
 # its next occurrence forward by the settle time.
-cc::proc ScheduleRecollect! {Zicl_Value patternObj uint64_t settle} void {
+cc::proc ScheduleRecollect! {Zicl_Val patternObj uint64_t settle} void {
     if (settle == 0) {
         Recollect_(patternObj, false);
         return;
@@ -249,7 +249,7 @@ cc::proc RunScheduledRecollects! {} void {
         if (collects[i].patternStr != NULL &&
             collects[i].collectAtTime <= now) {
 
-            Zicl_Value patternObj = ziclNewString(collects[i].patternStr, -1);
+            Zicl_Val patternObj = ziclNewString(collects[i].patternStr, -1);
             Recollect_(patternObj, true);
             Zicl_DropRef(patternObj);
 

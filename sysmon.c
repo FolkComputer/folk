@@ -34,7 +34,7 @@ extern ThreadControlBlock threads[];
 extern Db* db;
 extern void trace(const char* format, ...);
 void HoldStatementGlobally(const char *key, double version,
-                           Zicl_List *clause, long keepMs, Zicl_OptionalValue destructorCode,
+                           Zicl_List *clause, long keepMs, Zicl_OptVal destructorCode,
                            const char *sourceFileName, int sourceLineNumber);
 
 extern void workerReactivateOrSpawn(int64_t msSinceBoot, int targetNotBlockedWorkersCount);
@@ -293,9 +293,9 @@ void *sysmonMain(void *ptr) {
 #ifdef TRACY_ENABLE
         TracyCZoneN(zone, "sysmon", 1);
 #endif
-        Zicl_ArenaSnapshot snapshot = Zicl_LocalArenaSnapshot();
+        Zicl_ArenaSnapshot snapshot = Zicl_LocalArenaTakeSnapshot();
         sysmon();
-        Zicl_LocalArenaRewind(snapshot);
+        Zicl_LocalArenaRestore(snapshot);
 
 #ifdef TRACY_ENABLE
         TracyCZoneEnd(zone);

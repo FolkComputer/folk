@@ -73,7 +73,7 @@ fn makeAprilTagDetector {TAG_FAMILY QUAD_DECIMATE NTHREADS} {
         td->quad_decimate = ${QUAD_DECIMATE};
         td->nthreads = ${NTHREADS};
     }
-    cc::proc detect {Image gray} Zicl_Value {
+    cc::proc detect {Image gray} Zicl_Val {
         FOLK_ENSURE(gray.components == 1 || gray.components == 3);
         uint8_t* grayBuf = gray.data;
         if (gray.components == 3) {
@@ -88,7 +88,7 @@ fn makeAprilTagDetector {TAG_FAMILY QUAD_DECIMATE NTHREADS} {
         zarray_t *detections = apriltag_detector_detect(td, &im);
         int detectionCount = zarray_size(detections);
 
-        Zicl_Value detectionObjs[detectionCount];
+        Zicl_Val detectionObjs[detectionCount];
         for (int i = 0; i < detectionCount; i++) {
             apriltag_detection_t *det;
             zarray_get(detections, i, &det);
@@ -109,7 +109,7 @@ fn makeAprilTagDetector {TAG_FAMILY QUAD_DECIMATE NTHREADS} {
         zarray_destroy(detections);
         if (gray.components == 3) free(grayBuf);
 
-        Zicl_Value result = Zicl_BoxList(ziclNewList(detectionObjs, detectionCount));
+        Zicl_Val result = Zicl_BoxList(ziclNewList(detectionObjs, detectionCount));
         for (int i = 0; i < detectionCount; i++) Zicl_DropRef(detectionObjs[i]);
         return result;
     }

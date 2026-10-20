@@ -37,7 +37,7 @@ typedef struct WorkQueueItem {
             Zicl_List* notifyClause;
         } runSubscribe;
         struct {
-            Zicl_Object* code;
+            Zicl_Obj* code;
         } eval;
     };
 } WorkQueueItem;

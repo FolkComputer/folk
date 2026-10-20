@@ -17,9 +17,9 @@ static pthread_mutex_t holdMutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Linear scan is fine here: `holds` has at most one entry per loaded/held
 // file, not a hot-path lookup.
-static Zicl_OptionalValue holdsGet(Zicl_Value key) {
+static Zicl_OptVal holdsGet(Zicl_Val key) {
     int n = Zicl_DictLength(holds);
-    const Zicl_Value* items = Zicl_DictItems(holds);
+    const Zicl_Val* items = Zicl_DictItems(holds);
     for (int i = 0; i < n; i++) {
         if (ziclEquals(items[2 * i], key)) return Zicl_Wrap(items[2 * i + 1]);
     }
@@ -39,8 +39,8 @@ cc::proc init {} void {
 
 cc::proc loadHolds {char* canonicalName char* holdStr} void {
     pthread_mutex_lock(&holdMutex);
-    Zicl_Value key = ziclNewString(canonicalName, -1);
-    Zicl_Value val = ziclNewString(holdStr, -1);
+    Zicl_Val key = ziclNewString(canonicalName, -1);
+    Zicl_Val val = ziclNewString(holdStr, -1);
     ziclDictPut(holds, key, val);
     Zicl_DropRef(key);
     Zicl_DropRef(val);
@@ -48,14 +48,14 @@ cc::proc loadHolds {char* canonicalName char* holdStr} void {
 }
 
 # canonical, tclEscaped, and filename all have to do with the value from -on in Hold!
-cc::proc saveHold {char* canonical Zicl_Value tclEscaped char* filename Zicl_Value key Zicl_Value clause} void {
+cc::proc saveHold {char* canonical Zicl_Val tclEscaped char* filename Zicl_Val key Zicl_Val clause} void {
     pthread_mutex_lock(&holdMutex);
     assert(areHoldsInitialized);
 
-    Zicl_Value canonicalKey = ziclNewString(canonical, -1);
+    Zicl_Val canonicalKey = ziclNewString(canonical, -1);
 
     Zicl_Dict* holdDict;
-    Zicl_OptionalValue existing = holdsGet(canonicalKey);
+    Zicl_OptVal existing = holdsGet(canonicalKey);
     if (Zicl_IsNone(existing)) {
         // this is this files' first hold
         holdDict = ziclNewDict(NULL, 0);
@@ -67,13 +67,13 @@ cc::proc saveHold {char* canonical Zicl_Value tclEscaped char* filename Zicl_Val
     int clauseLen;
     ziclGetString(clause, &clauseLen);
     if (clauseLen == 0) {
-        int removed;
+        bool removed;
         folkZiclAssert(Zicl_DictRemove(holdDict, key, &removed));
     } else {
         ziclDictPut(holdDict, key, clause);
     }
 
-    Zicl_Value newHoldVal = Zicl_BoxDict(holdDict);
+    Zicl_Val newHoldVal = Zicl_BoxDict(holdDict);
     ziclDictPut(holds, canonicalKey, newHoldVal);
     Zicl_DropRef(canonicalKey);
 
@@ -81,7 +81,7 @@ cc::proc saveHold {char* canonical Zicl_Value tclEscaped char* filename Zicl_Val
 
     // grab entries from dict
     int pairCount = Zicl_DictLength(holdDict);
-    const Zicl_Value* dictItems = Zicl_DictItems(holdDict);
+    const Zicl_Val* dictItems = Zicl_DictItems(holdDict);
 
     if (pairCount > 0) {
         // write changes
@@ -96,8 +96,8 @@ cc::proc saveHold {char* canonical Zicl_Value tclEscaped char* filename Zicl_Val
 
         // write all hash entries, with one entry per line
         for (int i = 0; i < pairCount; i++) {
-            Zicl_Value pair[] = { dictItems[2 * i], dictItems[2 * i + 1] };
-            Zicl_Value pairList = Zicl_BoxList(ziclNewList(pair, 2));
+            Zicl_Val pair[] = { dictItems[2 * i], dictItems[2 * i + 1] };
+            Zicl_Val pairList = Zicl_BoxList(ziclNewList(pair, 2));
 
             int pairLen;
             const char* pairStr = ziclGetString(pairList, &pairLen);

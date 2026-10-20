@@ -26,8 +26,8 @@ cc::proc vec2f_rotate {vec2f a float radians} vec2f {
         -a.x*sinf(radians) + a.y*cosf(radians)
     };
 }
-cc::proc vec2f_toObj {vec2f a} Zicl_Value {
-    Zicl_Value v[] = { Zicl_NewDouble(a.x), Zicl_NewDouble(a.y) };
+cc::proc vec2f_toObj {vec2f a} Zicl_Val {
+    Zicl_Val v[] = { Zicl_NewDouble(a.x), Zicl_NewDouble(a.y) };
     return Zicl_BoxList(ziclNewList(v, 2));
 }
 cc::proc charOrFallback {Font* font int ch} int {
@@ -52,11 +52,11 @@ cc::proc textExtent {Font* font char* text float scale} vec2f {
     }
     return (vec2f) { width, y };
 }
-cc::proc textShape {Zicl_Value viewport Zicl_Value surfaceToClip
+cc::proc textShape {Zicl_Val viewport Zicl_Val surfaceToClip
                     Font* font char* text
                     float x0 float y0 float scale
                     float blockAnchorX float blockAnchorY float lineAnchorX float lineAnchorY
-                    float radians Zicl_Value color} Zicl_Value {
+                    float radians Zicl_Val color} Zicl_Val {
     vec2f extent = textExtent(font, text, scale);
     float em = scale;
 
@@ -155,7 +155,7 @@ cc::proc textShape {Zicl_Value viewport Zicl_Value surfaceToClip
         relCharX += glyphInfo->advance * em;
     }
 
-    Zicl_Value result = ziclNewString(buf, pos);
+    Zicl_Val result = ziclNewString(buf, pos);
     free(buf);
     return result;
 }

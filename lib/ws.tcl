@@ -6,7 +6,7 @@ cc::include <stdlib.h>
 cc::include <stdint.h>
 
 # Unmask WebSocket payload from client.
-cc::proc wsUnmask {Zicl_Shimmerable* payload Zicl_Shimmerable* maskKey} Zicl_Value {
+cc::proc wsUnmask {Zicl_Shim* payload Zicl_Shim* maskKey} Zicl_Val {
     int payloadLen = 0;
     const char* payloadBytes = Zicl_ShimGetString(payload, &payloadLen);
     int maskLen = 0;
@@ -18,7 +18,7 @@ cc::proc wsUnmask {Zicl_Shimmerable* payload Zicl_Shimmerable* maskKey} Zicl_Val
     for (int i = 0; i < payloadLen; i++) {
         out[i] = payloadBytes[i] ^ maskBytes[i % 4];
     }
-    Zicl_Value result = ziclNewString(out, payloadLen);
+    Zicl_Val result = ziclNewString(out, payloadLen);
     free(out);
     return result;
 }

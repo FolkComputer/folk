@@ -25,7 +25,7 @@
 
 #include "vendor/stb_ds.h"
 
-static void epochDecrRefWrapper(Zicl_Object* value) { epochDecrRef(value); }
+static void epochDecrRefWrapper(Zicl_Obj* value) { epochDecrRef(value); }
 static const TrieAllocator epochAllocator = {
     .alloc = epochAlloc,
     .retire = epochFree,
@@ -1209,7 +1209,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Zicl_List* clause, long keepMs,
         *outReusedStatementRef = (_ref); \
     }
 
-    Zicl_Value clauseAsValue = Zicl_BoxList(clause);
+    Zicl_Val clauseAsValue = Zicl_BoxList(clause);
     Zicl_Ref(clauseAsValue);
     Zicl_MakeCrossthread(clauseAsValue);
 

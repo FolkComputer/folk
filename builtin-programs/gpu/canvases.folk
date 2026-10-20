@@ -183,7 +183,7 @@ When the GPU library is /gpuLib/ &\
         boundPipeline = VK_NULL_HANDLE;
         boundDescriptorSet = VK_NULL_HANDLE;
     }
-    gpuc::proc draw {Zicl_Interp* interp Pipeline pipeline Zicl_Value argsObj} void {
+    gpuc::proc draw {Zicl_Interp* interp Pipeline pipeline Zicl_Val argsObj} void {
         VkCommandBuffer commandBuffer = getCommandBuffer();
 
         if (boundPipeline != pipeline.pipeline) {

@@ -59,7 +59,7 @@ void blockStatsUpdate(const char *sourceFileName, int sourceLineNumber,
     pthread_rwlock_unlock(&blockStatsLock);
 }
 
-int __blockRuntimeStatsFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *argv) {
+int __blockRuntimeStatsFunc(Zicl_Interp *interp, int argc, Zicl_Shim *argv) {
     (void)argc;
     (void)argv;
     Zicl_List* result = ziclNewList(NULL, 0);
@@ -69,13 +69,13 @@ int __blockRuntimeStatsFunc(Zicl_Interp *interp, int argc, Zicl_Shimmerable *arg
         snprintf(ewma_buf, sizeof(ewma_buf), "%.3f", blockStats[i].ewma_ns);
         snprintf(count_buf, sizeof(count_buf), "%llu",
                  (unsigned long long)blockStats[i].count);
-        Zicl_Value items[3] = {
+        Zicl_Val items[3] = {
             ziclNewString(blockStats[i].key, -1),
             ziclNewString(ewma_buf, -1),
             ziclNewString(count_buf, -1),
         };
-        defer { Zicl_DropRefArrayItems(items, sizeof(items)/sizeof(Zicl_Value)); };
-        Zicl_Value entry = Zicl_BoxList(ziclNewList(items, 3));
+        defer { Zicl_DropRefArrayItems(items, sizeof(items)/sizeof(Zicl_Val)); };
+        Zicl_Val entry = Zicl_BoxList(ziclNewList(items, 3));
         defer { Zicl_DropRef(entry); }
         ziclListAppend(result, entry);
     }

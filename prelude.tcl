@@ -640,10 +640,10 @@ if {[__isTracyEnabled]} {
             __thread int __zoneCtxIdx;
         }
         $tracyCpp proc zoneBegin {} void {
-            Zicl_Value script = Zicl_GetScriptBeingEvaluated(interp);
+            Zicl_Val script = Zicl_GetScriptBeingEvaluated(interp);
             const char* sourceFileName = Zicl_SourceGetFilename(script);
             sourceFileName = sourceFileName ? sourceFileName : "<unknown>";
-            Zicl_OptionalValue fnName = Zicl_GetClosureNameBeingEvaluated(interp);
+            Zicl_OptVal fnName = Zicl_GetClosureNameBeingEvaluated(interp);
             const char *fnName = "<unknown>";
             if (Zicl_IsSome(fnName)) {
                 fnName = ziclString(Zicl_Unwrap(fnName));

@@ -44,7 +44,7 @@ cc::proc distort {double fx double fy double cx double cy
     out[1] = (y * (1.0 + radial) + dy)*fy + cy;
 }
 cc::proc project {Intrinsics intr double width double height
-                  double[3] v} Zicl_Value {
+                  double[3] v} Zicl_Val {
     double out[3] = {
         v[0]*intr.fx +  v[1]*intr.s + v[2]*intr.cx,
                    0 + v[1]*intr.fy + v[2]*intr.cy,
@@ -56,7 +56,7 @@ cc::proc project {Intrinsics intr double width double height
             out, out);
     out[0] *= width / intr.width;
     out[1] *= height / intr.height;
-    Zicl_Value retObjs[2] = {
+    Zicl_Val retObjs[2] = {
         Zicl_NewDouble(out[0]),
         Zicl_NewDouble(out[1])
     };

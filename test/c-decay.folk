@@ -18,7 +18,7 @@ set lib1 [cc::compile]
 # decayed (pointer) return types, not array return types.
 set dd [dict link $C {}]
 dd::extend $lib1
-dd::proc getR00 {Zicl_Shimmerable* p} double {
+dd::proc getR00 {Zicl_Shim* p} double {
     return Pose_R(interp, p, 0)[0];
 }
 set lib2 [dd::compile]

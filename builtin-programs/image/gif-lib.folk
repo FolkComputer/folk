@@ -6,7 +6,7 @@ When the image library is /imageLib/ {
     cc::include "gifdec.h"
     cc::include <stdlib.h>
 
-    cc::proc loadGif {char* filename} Zicl_Value {
+    cc::proc loadGif {char* filename} Zicl_Val {
         gd_GIF *gif = gd_open_gif(filename);
         if (!gif) {
             FOLK_ERROR("loadGif: Failed to open %s", filename);
@@ -27,7 +27,7 @@ When the image library is /imageLib/ {
             gd_render_frame(gif, im.data);
 
             // Box the Image struct into a Zicl value.
-            Zicl_Value imObj;
+            Zicl_Val imObj;
             $[cc::ret Image imObj im]
             ziclListAppend(framesList, imObj);
             Zicl_DropRef(imObj);
@@ -41,12 +41,12 @@ When the image library is /imageLib/ {
         gd_close_gif(gif);
 
         Zicl_Dict* result = ziclNewDict(NULL, 0);
-        Zicl_Value framesKey = ziclNewString("frames", -1);
-        Zicl_Value delaysKey = ziclNewString("delays", -1);
-        Zicl_Value widthKey = ziclNewString("width", -1);
-        Zicl_Value heightKey = ziclNewString("height", -1);
-        Zicl_Value framesVal = Zicl_BoxList(framesList);
-        Zicl_Value delaysVal = Zicl_BoxList(delaysList);
+        Zicl_Val framesKey = ziclNewString("frames", -1);
+        Zicl_Val delaysKey = ziclNewString("delays", -1);
+        Zicl_Val widthKey = ziclNewString("width", -1);
+        Zicl_Val heightKey = ziclNewString("height", -1);
+        Zicl_Val framesVal = Zicl_BoxList(framesList);
+        Zicl_Val delaysVal = Zicl_BoxList(delaysList);
         ziclDictPut(result, framesKey, framesVal);
         ziclDictPut(result, delaysKey, delaysVal);
         ziclDictPut(result, widthKey, Zicl_NewLong(w));

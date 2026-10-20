@@ -295,7 +295,7 @@ cc::proc monoComputeError {double[paramsCount] params} double {
     printf("RMSE: %f\n", rmse);
     return rmse;
 }
-cc::proc monoRefineCalibrationOptimize {double[paramsCount] params} Zicl_Value {
+cc::proc monoRefineCalibrationOptimize {double[paramsCount] params} Zicl_Val {
     setvbuf(stdout, NULL, _IONBF, BUFSIZ);
 
     mp_result result = {0};
@@ -318,7 +318,7 @@ cc::proc monoRefineCalibrationOptimize {double[paramsCount] params} Zicl_Value {
     printf("Refined -------------------\n");
     double rmse = monoComputeError(paramsCount, params);
 
-    Zicl_Value paramObjs[1 + paramsCount];
+    Zicl_Val paramObjs[1 + paramsCount];
     paramObjs[0] = Zicl_NewDouble(rmse);
     for (int i = 0; i < paramsCount; i++) {
         FOLK_ENSURE(!isnan(params[i]));
@@ -465,7 +465,7 @@ cc::proc stereoComputeError {double[paramsCount] params} double {
     printf("RMSE: %f\n", rmse);
     return rmse;
 }
-cc::proc stereoRefineCalibrationOptimize {double[paramsCount] params} Zicl_Value {
+cc::proc stereoRefineCalibrationOptimize {double[paramsCount] params} Zicl_Val {
     mp_result result = {0};
 
     FOLK_ENSURE(paramsCount == 6 + StereoPoseCount*6);
@@ -486,7 +486,7 @@ cc::proc stereoRefineCalibrationOptimize {double[paramsCount] params} Zicl_Value
     printf("Refined -------------------\n");
     double rmse = stereoComputeError(paramsCount, params);
 
-    Zicl_Value paramObjs[1 + paramsCount];
+    Zicl_Val paramObjs[1 + paramsCount];
     paramObjs[0] = Zicl_NewDouble(rmse);
     for (int i = 0; i < paramsCount; i++) {
         paramObjs[1 + i] = Zicl_NewDouble(params[i]);

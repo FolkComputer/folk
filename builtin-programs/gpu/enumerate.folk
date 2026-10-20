@@ -5,7 +5,7 @@ cc::addcode {
     #include "volk/volk.h"
 }
 
-cc::proc enumerateDisplays {} Zicl_Value {
+cc::proc enumerateDisplays {} Zicl_Val {
     FOLK_ENSURE(volkInitialize() == VK_SUCCESS);
 
     // Create a minimal Vulkan instance for display enumeration.
@@ -72,7 +72,7 @@ cc::proc enumerateDisplays {} Zicl_Value {
 
             Zicl_List *modesList = ziclNewList(NULL, 0);
             for (uint32_t j = 0; j < modeCount; j++) {
-                Zicl_Value modeDict;
+                Zicl_Val modeDict;
                 folkZiclAssert(Zicl_NewStringFormatted(&modeDict,
                     "visibleRegion {%u %u} refreshRate %u",
                     modeProps[j].parameters.visibleRegion.width,
@@ -83,7 +83,7 @@ cc::proc enumerateDisplays {} Zicl_Value {
             }
 
             const char *modesStr = ziclListString(modesList);
-            Zicl_Value displayDict;
+            Zicl_Val displayDict;
             folkZiclAssert(Zicl_NewStringFormatted(&displayDict,
                 "name {%s} physicalDimensions {%u %u} "
                 "physicalResolution {%u %u} modes {%s}",

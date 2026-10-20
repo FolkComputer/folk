@@ -23,7 +23,7 @@ Zicl_List* clauseFormat(const char* fmt, ...) {
     char* saveptr;
     char* token = strtok_r(formatted, " ", &saveptr);
     while (token != NULL) {
-        Zicl_Value tokenValue = ziclNewString(token, -1);
+        Zicl_Val tokenValue = ziclNewString(token, -1);
         Zicl_ListAppend(list, tokenValue);
         Zicl_DropRef(tokenValue);
         token = strtok_r(NULL, " ", &saveptr);
@@ -49,7 +49,7 @@ const Trie* trieNew() {
 // in it. Terms must already be crossthread.
 static const Trie* trieAddImpl(const Trie* trie,
                                const TrieAllocator* allocator,
-                               int32_t nTerms, const Zicl_Value terms[], uint64_t value) {
+                               int32_t nTerms, const Zicl_Val terms[], uint64_t value) {
     if (nTerms == 0) {
         if (trie->hasValue) {
             // This clause is already present.
@@ -62,7 +62,7 @@ static const Trie* trieAddImpl(const Trie* trie,
         allocator->retire((void *)trie);
         return newTrie;
     }
-    Zicl_Value term = terms[0];
+    Zicl_Val term = terms[0];
 
     // Is there an existing branch that already matches the first
     // term?
@@ -129,12 +129,12 @@ const Trie* trieAdd(const Trie* trie,
                     const TrieAllocator* allocator,
                     Zicl_List* clause, uint64_t value) {
     int nTerms = Zicl_ListLength(clause);
-    const Zicl_Value* terms = Zicl_ListItems(clause);
+    const Zicl_Val* terms = Zicl_ListItems(clause);
     Zicl_MakeCrossthread(Zicl_BoxList(clause));
     return trieAddImpl(trie, allocator, nTerms, terms, value);
 }
 
-bool trieScanVariable(Zicl_Value termValue, char* outVarName, size_t sizeOutVarName) {
+bool trieScanVariable(Zicl_Val termValue, char* outVarName, size_t sizeOutVarName) {
     int termLen;
     const char* term = ziclGetString(termValue, &termLen);
     if (termLen < 2) { return false; }
@@ -181,7 +181,7 @@ static void trieLookupAll(const Trie* trie,
 
 static void trieLookupImpl(bool isLiteral,
                            const Trie* trie,
-                           int patternNTerms, const Zicl_Value patternTerms[],
+                           int patternNTerms, const Zicl_Val patternTerms[],
                            int patternIdx,
                            uint64_t* results, size_t maxResults,
                            int* resultsIdx) {
@@ -197,7 +197,7 @@ static void trieLookupImpl(bool isLiteral,
         return;
     }
 
-    Zicl_Value term = patternTerms[patternIdx];
+    Zicl_Val term = patternTerms[patternIdx];
     enum { TERM_TYPE_LITERAL, TERM_TYPE_VARIABLE, TERM_TYPE_REST_VARIABLE } termType;
     char termVarName[100];
     if (!isLiteral && trieScanVariable(term, termVarName, 100)) {
@@ -253,7 +253,7 @@ static void trieLookupImpl(bool isLiteral,
 static const Trie* trieRemoveImpl(bool isLiteral,
                                   const Trie* trie,
                                   const TrieAllocator* allocator,
-                                  int patternNTerms, const Zicl_Value patternTerms[],
+                                  int patternNTerms, const Zicl_Val patternTerms[],
                                   int patternIdx,
                                   uint64_t* results, size_t maxResults,
                                   int* resultsIdx) {
@@ -263,14 +263,14 @@ static const Trie* trieRemoveImpl(bool isLiteral,
             if (*resultsIdx < maxResults) {
                 results[(*resultsIdx)++] = trie->value;
             }
-            if (Zicl_AsPtr(trie->key)) allocator->retireValue(Zicl_AsPtr(trie->key));
+            if (Zicl_AsObj(trie->key)) allocator->retireValue(Zicl_AsObj(trie->key));
             allocator->retire((void *)trie);
             return NULL;
         }
         return trie;
     }
 
-    Zicl_Value term = patternTerms[patternIdx];
+    Zicl_Val term = patternTerms[patternIdx];
     enum { TERM_TYPE_LITERAL, TERM_TYPE_VARIABLE, TERM_TYPE_REST_VARIABLE } termType;
     char termVarName[100];
     if (!isLiteral && trieScanVariable(term, termVarName, 100)) {
@@ -341,7 +341,7 @@ static const Trie* trieRemoveImpl(bool isLiteral,
         }
     }
     if (newBranchesCount == 0) {
-        if (Zicl_AsPtr(trie->key)) allocator->retireValue(Zicl_AsPtr(trie->key));
+        if (Zicl_AsObj(trie->key)) allocator->retireValue(Zicl_AsObj(trie->key));
         allocator->retire((void *)trie);
         return NULL;
     }
@@ -358,7 +358,7 @@ int trieLookup(const Trie* trie, Zicl_List* pattern,
                uint64_t* results, size_t maxResults) {
     int resultCount = 0;
     int nTerms = Zicl_ListLength(pattern);
-    const Zicl_Value* terms = Zicl_ListItems(pattern);
+    const Zicl_Val* terms = Zicl_ListItems(pattern);
     trieLookupImpl(false, trie, nTerms, terms, 0,
                    results, maxResults,
                    &resultCount);
@@ -369,7 +369,7 @@ int trieLookupLiteral(const Trie* trie, Zicl_List* pattern,
                       uint64_t* results, size_t maxResults) {
     int resultCount = 0;
     int nTerms = Zicl_ListLength(pattern);
-    const Zicl_Value* terms = Zicl_ListItems(pattern);
+    const Zicl_Val* terms = Zicl_ListItems(pattern);
     trieLookupImpl(true, trie, nTerms, terms, 0,
                    results, maxResults,
                    &resultCount);
@@ -383,7 +383,7 @@ const Trie* trieRemove(const Trie* trie,
                        uint64_t* results, size_t maxResults,
                        int* resultCount) {
     int nTerms = Zicl_ListLength(pattern);
-    const Zicl_Value* terms = Zicl_ListItems(pattern);
+    const Zicl_Val* terms = Zicl_ListItems(pattern);
     return trieRemoveImpl(true, trie,
                           allocator,
                           nTerms, terms, 0,

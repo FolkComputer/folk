@@ -14,7 +14,7 @@ cc::include <stdint.h>
 cc::addcode {
     // HACK: copied from pipelines.folk
     typedef struct PushConstantsEncoder {
-        int (*encode)(Zicl_Interp* interp, Zicl_Value obj, uint8_t out[128]);
+        int (*encode)(Zicl_Interp* interp, Zicl_Val obj, uint8_t out[128]);
     } PushConstantsEncoder;
 
     typedef struct Args {
@@ -25,25 +25,25 @@ cc::addcode {
     // Reads item `index` of `list` as a double. Returns 0 on success.
     static int toyGetDouble(Zicl_Interp* interp, const Zicl_List* list, int index, double* out) {
         if (index >= Zicl_ListLength(list)) return -1;
-        Zicl_Shimmerable el = Zicl_NewShimmerable(Zicl_ListItems(list)[index]);
+        Zicl_Shim el = Zicl_NewShim(Zicl_ListItems(list)[index]);
         int rc = Zicl_GetDouble(interp, &el, out);
         Zicl_ShimDiscardChanges(&el);
         return rc == ZICL_OK ? 0 : -1;
     }
 
-    static int encodeToy(Zicl_Interp* interp, Zicl_Value obj, uint8_t out[128]) {
+    static int encodeToy(Zicl_Interp* interp, Zicl_Val obj, uint8_t out[128]) {
         Args args = {0};
         int ret = -1;
 
-        Zicl_Shimmerable objShim = Zicl_NewShimmerable(obj);
+        Zicl_Shim objShim = Zicl_NewShim(obj);
         const Zicl_List* items;
-        if (Zicl_ListShimmer(interp, &objShim, &items) != ZICL_OK) goto done;
+        if (Zicl_ShimmerToList(interp, &objShim, &items) != ZICL_OK) goto done;
         if (Zicl_ListLength(items) < 2) goto done;
 
         // iResolution: caller passes {width height}; we synthesize z=1.
-        Zicl_Shimmerable resShim = Zicl_NewShimmerable(Zicl_ListItems(items)[0]);
+        Zicl_Shim resShim = Zicl_NewShim(Zicl_ListItems(items)[0]);
         const Zicl_List* res;
-        if (Zicl_ListShimmer(interp, &resShim, &res) == ZICL_OK &&
+        if (Zicl_ShimmerToList(interp, &resShim, &res) == ZICL_OK &&
             Zicl_ListLength(res) == 2) {
             double w, h, t;
             if (toyGetDouble(interp, res, 0, &w) == 0 &&

@@ -61,7 +61,7 @@ cc::proc sockSendStr {int fd char* data} void {
 #pragma GCC diagnostic pop
 }
 
-cc::proc sockRecvMulti {int fd} Zicl_Value {
+cc::proc sockRecvMulti {int fd} Zicl_Val {
     Zicl_List* result = ziclNewList(NULL, 0);
     while (1) {
         uint32_t len = 0;
@@ -97,7 +97,7 @@ cc::addcode {
 
     typedef struct EndpointKV {
         char key[ENDPOINT_MAX];
-        Zicl_Value value;
+        Zicl_Val value;
     } EndpointKV;
 
     EndpointKV registeredArgtypes[64];
@@ -117,11 +117,11 @@ cc::addcode {
     } EndpointSocket;
     _Thread_local EndpointSocket threadSockets[16];
 }
-cc::proc getFunctions {char* endpoint} Zicl_Value {
+cc::proc getFunctions {char* endpoint} Zicl_Val {
     pthread_mutex_lock(&functionsMutex);
     for (int i = 0; i < 64; i++) {
         if (functions[i].key[0] != '\0' && strcmp(functions[i].key, endpoint) == 0) {
-            Zicl_Value result = Zicl_Ref(functions[i].value);
+            Zicl_Val result = Zicl_Ref(functions[i].value);
             pthread_mutex_unlock(&functionsMutex);
             return result;
         }
@@ -129,11 +129,11 @@ cc::proc getFunctions {char* endpoint} Zicl_Value {
     pthread_mutex_unlock(&functionsMutex);
     return Zicl_BoxDict(ziclNewDict(NULL, 0));
 }
-cc::proc getRegisteredArgtypes {char* endpoint} Zicl_Value {
+cc::proc getRegisteredArgtypes {char* endpoint} Zicl_Val {
     pthread_mutex_lock(&registeredArgtypesMutex);
     for (int i = 0; i < 64; i++) {
         if (registeredArgtypes[i].key[0] != '\0' && strcmp(registeredArgtypes[i].key, endpoint) == 0) {
-            Zicl_Value result = Zicl_Ref(registeredArgtypes[i].value);
+            Zicl_Val result = Zicl_Ref(registeredArgtypes[i].value);
             pthread_mutex_unlock(&registeredArgtypesMutex);
             return result;
         }
@@ -141,7 +141,7 @@ cc::proc getRegisteredArgtypes {char* endpoint} Zicl_Value {
     pthread_mutex_unlock(&registeredArgtypesMutex);
     return Zicl_BoxDict(ziclNewDict(NULL, 0));
 }
-cc::proc setFunctions {char* endpoint Zicl_Value value} void {
+cc::proc setFunctions {char* endpoint Zicl_Val value} void {
     Zicl_MakeCrossthread(value);
     pthread_mutex_lock(&functionsMutex);
 
@@ -170,7 +170,7 @@ cc::proc setFunctions {char* endpoint Zicl_Value value} void {
 
     pthread_mutex_unlock(&functionsMutex);
 }
-cc::proc setRegisteredArgtypes {char* endpoint Zicl_Value value} void {
+cc::proc setRegisteredArgtypes {char* endpoint Zicl_Val value} void {
     Zicl_MakeCrossthread(value);
     pthread_mutex_lock(&registeredArgtypesMutex);
 
