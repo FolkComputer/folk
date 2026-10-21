@@ -179,11 +179,7 @@ fn Say {args} {
 fn Claim {args} { upvar this this; tailcall Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
 fn Wish {args} { upvar this this; tailcall Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }
 # returns the statement to Say/Assert (minus the envStack), as well as all bound variable names
-# Returns the front of the clause to Say/Assert (everything up to but not
-# including the body), the body script to build the block closure from, and
-# the list of variable names that will be bound to it, in the exact order
-# clauseUnify will bind them at match time.
-fn desugarWhen {pattern body} {
+proc desugarWhen {pattern body {whenOptions {}}} {
     set varNamesWillBeBound [list]
     set isNegated false
     for {set i 0} {$i < [llength $pattern]} {incr i} {
@@ -199,7 +195,8 @@ fn desugarWhen {pattern body} {
                     lset remainingPattern $j \$$remainingVarName
                 }
             }
-            set body [list When {*}$remainingPattern $body]
+            set body [list When {*}$whenOptions {*}$remainingPattern $body]
+            set whenOptions {}
             break
 
         } elseif {[set varName [__scanVariable $term]] ne "false"} {
@@ -222,20 +219,14 @@ fn desugarWhen {pattern body} {
     }
 
     if {$isNegated} {
-        # The outer pattern here only ever binds /__results/ -- $pattern is
-        # spliced in as a single already-built term (collect.folk's
-        # Recollect! ran the pre-negation pattern as a query to build it),
-        # not scanned for its own variables at this level. The body only
-        # runs when $__results is empty, so there's no candidate match left
-        # to pull any of the other pattern's variables' values from anyway.
         set negateBody [list if {[llength $__results] == 0} $body]
         return [list \
             [list when the collected results for $pattern are /__results/] \
-            $negateBody {__results}]
+            $negateBody {__results} $whenOptions]
     } else {
         return [list \
             [list when {*}$pattern] \
-            $body $varNamesWillBeBound]
+            $body $varNamesWillBeBound $whenOptions]
     }
 }
 fn When {args} {
@@ -249,6 +240,7 @@ fn When {args} {
     set isAfterAmpersand false
     set isNonCapturing false
     set isSerially false
+    set keepMs 0
     set atomicallyVersion "default"
 
     set pattern [list]
@@ -265,6 +257,13 @@ fn When {args} {
             set isNonCapturing true
         } elseif {$term eq "-serially"} {
             set isSerially true
+        } elseif {$term eq "-keep"} {
+            incr i; set keep [lindex $args $i]
+            set keepMs [string range $keep 0 end-2]
+            if {![string match {*ms} $keep] ||
+                ![string is integer -strict $keepMs] || $keepMs < 0} {
+                error "When: invalid keep value: $keep"
+            }
         } elseif {$term eq "-atomically"} {
             # Defer key construction until after the loop so the key
             # uses the full pattern, not just the terms parsed before
@@ -292,8 +291,10 @@ fn When {args} {
         set inheritAtomicallyVersion [__currentAtomicallyVersion]
         if {$inheritAtomicallyVersion eq {}} {
             # HACK: Default atomically on certain patterns:
-            if {([lrange $pattern 1 end-1] eq {has camera slice} ||
-                 [lrange $pattern 0 end-1] eq {the clock time is})} {
+            set ampersand [lsearch -exact $pattern &]
+            set firstPattern [lrange $pattern 0 [expr {$ampersand < 0 ? [llength $pattern]-1 : $ampersand-1}]]
+            if {([lrange $firstPattern 1 end-1] eq {has camera slice} ||
+                 [lrange $firstPattern 0 end-1] eq {the clock time is})} {
 
                 set key [list $this $sourceInfo $pattern]
                 set atomicallyVersion [list "fresh" $key]
@@ -311,24 +312,32 @@ fn When {args} {
         set body "$prologue;$body"
     }
 
+    set whenOptions {}
     if {[llength $atomicallyVersion] == 2 &&
         [lindex $atomicallyVersion 0] eq "fresh"} {
-        # The AtomicallyVersion should be set _inside_ the When body,
-        # uniquely for each execution.
-        set key [lindex $atomicallyVersion 1]
-        set prologue [list __setFreshAtomicallyVersionOnKey $key]
-        set body "$prologue;$body"
-
+        set whenOptions [list -atomicallyWithKey [lindex $atomicallyVersion 1]]
+        if {[info exists keep]} { lappend whenOptions -keep $keep }
+        set atomicTimeout [expr {([info exists keep] ? $keepMs : 100) * 1000000}]
+        # For a fresh atomic version, keep controls its timeout, not the
+        # lifetime of the rule statement. Zero disables atomic expiry.
+        set keepMs 0
         set atomicallyVersion {}
     }
 
-    lassign [desugarWhen $pattern $body] clauseFront bodyToWrap boundVars
+    lassign [desugarWhen $pattern $body $whenOptions] clauseFront bodyToWrap boundVars whenOptions
+    if {$whenOptions ne {}} {
+        # The runtime consumes this metadata before attaching the match and
+        # removes the frame before evaluation, so nested rules don't capture it.
+        set metadata [list __atomicallyKey [lindex $whenOptions 1]]
+        if {[info exists keep]} { lappend metadata $atomicTimeout }
+        lappend envStack $metadata
+    }
 
     # Note that by using `uplevel` on fn, we capture the parent's lexical scope.
     set closure [uplevel 1 [info source [list fn $boundVars $bodyToWrap] {*}$sourceInfo]]
 
     tailcall SayWithSource {*}$sourceInfo \
-        0 $atomicallyVersion {} \
+        $keepMs $atomicallyVersion {} \
         {*}$clauseFront $closure
 }
 fn Subscribe: {args} {
@@ -517,22 +526,39 @@ fn Require! {args} {
 }
 
 # Sort of like QueryOne!, but picks an arbitrary result if >1 result,
-# and introduces the bindings directly into caller scope.
+# and introduces the bindings directly into caller scope. The matched
+# statement's destructors are inherited by the current match, so Wishes/Whens
+# created after Expect! retain them until those descendants have dissipated.
 #
 #     Expect! the dog is /val/
 #     puts $val ;# -> cool
 #
 # Also polls and retries if there are 0 results.
 fn Expect! {args} {
-    set results [list]
-    while {[llength $results] == 0} {
+    while true {
         set results [Query! {*}$args]
         if {[llength $results] == 0} {
             sleep 0.1
+            continue
         }
+
+        set result [lindex $results 0]
+        if {[dict exists $result __ref] && [__currentMatchRef] ne ""} {
+            set ref [dict get $result __ref]
+            try {
+                CurrentMatchInheritStatementDestructors! $ref
+            } on error e {
+                # The sampled statement dissipated before we could inherit
+                # its destructors.
+                # Query again rather than returning bindings from a stale
+                # result.
+                continue
+            }
+        }
+        break
     }
 
-    dict for {k v} [lindex $results 0] {
+    dict for {k v} $result {
         uplevel 1 [list set $k $v]
     }
 }

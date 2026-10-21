@@ -4,6 +4,7 @@
 void sysmonInit(int targetNotBlockedWorkersCount);
 void *sysmonMain(void *ptr);
 
-void sysmonScheduleRemoveAfter(StatementRef stmtRef, int afterMs);
+void sysmonScheduleRemoveAfter(StatementRef stmtRef, int afterMs,
+                               uint64_t keepGeneration);
 
 #endif

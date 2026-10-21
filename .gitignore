@@ -8,3 +8,4 @@ CFLAGS
 .DS_Store
 play
 .vscode/settings.json
+.agent-shell

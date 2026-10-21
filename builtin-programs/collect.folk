@@ -114,21 +114,16 @@ cc::proc Recollect! {Zicl_Val patternObj bool isAtomically} void {
 
         Statement** resultStmts = malloc(sizeof(Statement*) * rs->nResults);
         int resultStmtsCount = 0;
+        bool allConverged = true;
 
         Zicl_List* resultsList = ziclNewList(NULL, 0);
         for (size_t i = 0; i < rs->nResults; i++) {
             Statement* result = statementAcquire(db, rs->results[i]);
-            if (result == NULL) { continue; }
+            if (result == NULL) { allConverged = false; continue; }
 
-            // If `isAtomically` is on, then throw away any
-            // statement that has an AtomicallyVersion _and_ that
-            // AtomicallyVersion isn't converged yet.
-            if (isAtomically &&
-                statementAtomicallyVersion(result) != NULL &&
-                !dbAtomicallyVersionHasConverged(statementAtomicallyVersion(result))) {
-
-                // fprintf(stderr, "DISCARD %.100s\n",
-                //   clauseToString(statementClause(result)));
+            // Atomic collections require every inherited version to converge.
+            if (isAtomically && !statementAtomicallyHasConverged(result)) {
+                allConverged = false;
                 statementRelease(db, result);
                 continue;
             }
@@ -155,6 +150,16 @@ cc::proc Recollect! {Zicl_Val patternObj bool isAtomically} void {
         }
         Zicl_DropRefList(pattern);
         free(rs);
+
+        if (!allConverged) {
+            for (int i = 0; i < resultStmtsCount; i++) statementRelease(db, resultStmts[i]);
+            free(resultStmts);
+            Jim_DecrRefCount(interp, resultsObj);
+            free(collectKey);
+            clauseFree(collectorPattern);
+            free(collectorsSet);
+            return false;
+        }
 
         // Note that at this point, we've still acquired all the
         // statements in rs. We need to hang onto them to inherit
@@ -202,6 +207,7 @@ cc::proc Recollect! {Zicl_Val patternObj bool isAtomically} void {
     free(collectKey);
     Zicl_DropRefList(collectorPattern);
     free(collectorsSet);
+    return true;
 }
 # If the recollect doesn't have a settle time, we should recollect
 # immediately. If the recollect has a settle time, then we should bump
@@ -248,14 +254,16 @@ cc::proc RunScheduledRecollects! {} void {
     for (int i = 0; i < COLLECTS_MAX; i++) {
         if (collects[i].patternStr != NULL &&
             collects[i].collectAtTime <= now) {
-
-            Zicl_Val patternObj = ziclNewString(collects[i].patternStr, -1);
-            Recollect_(patternObj, true);
-            Zicl_DropRef(patternObj);
-
-            free(collects[i].patternStr);
-            collects[i].patternStr = NULL;
-            collects[i].collectAtTime = 0;
+            
+            Zicl_Val to_recollect = ziclNewString(interp, collects[i].patternStr, -1);
+            if (Recollect_(to_recollect, true)) {
+                free(collects[i].patternStr);
+                collects[i].patternStr = NULL;
+                collects[i].collectAtTime = 0;
+            } else {
+                collects[i].collectAtTime = now + 1000000;
+            }
+            Zicl_DropRef(to_recollect);
         }
     }
     pthread_mutex_unlock(&collectsMutex);
