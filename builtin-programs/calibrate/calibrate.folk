@@ -108,6 +108,9 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     On unmatch { Hold! -key last-seen-poses {} }
     set SEEN_POSES_MAX 3
 
+    # Backward compatibility: clear legacy poses so old and scoped counts
+    # cannot coexist and double the projected labels.
+    Hold! -save -on calibration -key poses {}
     # The poses to use for actual calibration at the end. We'll want
     # at least 10 poses to do ultimate calibration+refinement.
     Hold! -on calibration -key [list poses $camera $display] \
@@ -434,7 +437,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             Hold! -save -on calibration -key calibration-measurements \
                 Claim the calibration measurements are $measurements
 
-            # Wipe any old-key (unscoped) calibration data.
+            # Backward compatibility: prevent legacy poses from doubling labels,
+            # and retire the old unscoped calibration result.
             Hold! -save -on calibration -key poses {}
             Hold! -save -on calibration -key calibration {}
 
