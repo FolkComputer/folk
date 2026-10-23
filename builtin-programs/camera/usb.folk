@@ -211,8 +211,10 @@ $camc code {
         }
         CameraBuffer source = camera->buffers[buf.index];
         bool valid = !(buf.flags & V4L2_BUF_FLAG_ERROR) &&
-            buf.bytesused >= 2 && buf.bytesused <= source.length &&
-            source.start[0] == 0xff && source.start[1] == 0xd8;
+            buf.bytesused >= 4 && buf.bytesused <= source.length &&
+            source.start[0] == 0xff && source.start[1] == 0xd8 &&
+            source.start[buf.bytesused-2] == 0xff &&
+            source.start[buf.bytesused-1] == 0xd9;
         if (valid) {
             memcpy(camera->head.start, source.start, buf.bytesused);
             camera->head.length = buf.bytesused;
