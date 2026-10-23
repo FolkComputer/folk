@@ -34,6 +34,7 @@ $camc struct Camera {
     size_t buffer_count;
     CameraBuffer* buffers;
     CameraBuffer head;
+    uint64_t dropped_frames;
 }
 
 $camc code {
@@ -68,6 +69,7 @@ $camc proc cameraOpen {char* device int width int height} Camera* {
     camera->buffers = NULL;
     camera->head.length = 0;
     camera->head.start = NULL;
+    camera->dropped_frames = 0;
     return camera;
 }
 $camc proc cameraClose {Camera* camera} void {
@@ -203,39 +205,64 @@ $camc code {
             fprintf(stderr, "camera_capture: VIDIOC_DQBUF failed: %d: %s\n", errno, strerror(errno));
             return 0;
         }
-        memcpy(camera->head.start, camera->buffers[buf.index].start, buf.bytesused);
-        camera->head.length = buf.bytesused;
+        if (buf.index >= camera->buffer_count) {
+            fprintf(stderr, "camera_capture: invalid buffer index %u\n", buf.index);
+            return 0;
+        }
+        CameraBuffer source = camera->buffers[buf.index];
+        bool valid = !(buf.flags & V4L2_BUF_FLAG_ERROR) &&
+            buf.bytesused >= 2 && buf.bytesused <= source.length &&
+            source.start[0] == 0xff && source.start[1] == 0xd8;
+        if (valid) {
+            memcpy(camera->head.start, source.start, buf.bytesused);
+            camera->head.length = buf.bytesused;
+        } else {
+            camera->dropped_frames++;
+            if (camera->dropped_frames <= 3 || camera->dropped_frames % 120 == 0) {
+                fprintf(stderr, "camera/usb: fd %d dropped corrupt MJPEG frame "
+                        "(%u bytes, flags 0x%x, total %llu)\n", camera->fd,
+                        buf.bytesused, buf.flags,
+                        (unsigned long long)camera->dropped_frames);
+            }
+        }
         if (xioctl(camera->fd, VIDIOC_QBUF, &buf) == -1) {
             fprintf(stderr, "camera_capture: VIDIOC_QBUF failed: %d: %s\n", errno, strerror(errno));
             return 0;
         }
-        return 1;
+        return valid ? 1 : 2;
     }
 }
 
 $camc proc cameraFrameJpeg {Camera* camera} CameraBuffer {
-    // Retry select() up to 5 times with 2 second timeout each
-    // Some cameras need time to start streaming
-    int r = 0;
-    for (int attempt = 0; attempt < 5 && r == 0; attempt++) {
-        struct timeval timeout;
-        timeout.tv_sec = 2;
-        timeout.tv_usec = 0;
-        fd_set fds;
-        FD_ZERO(&fds);
-        FD_SET(camera->fd, &fds);
-        r = select(camera->fd + 1, &fds, 0, 0, &timeout);
-        if (r == -1) quit("select");
-        if (r == 0 && attempt < 4) {
-            fprintf(stderr, "camera/usb: select timeout on fd %d, retry %d/4\n",
-                    camera->fd, attempt + 1);
+    for (int dropped = 0; ; dropped++) {
+        if (dropped >= 120) {
+            FOLK_ERROR("camera/usb: fd %d received 120 consecutive corrupt MJPEG frames", camera->fd);
         }
-    }
-    if (r == 0) {
-        FOLK_ERROR("selection failed of fd %d after 5 attempts\n", camera->fd);
-    }
+        // Retry select() up to 5 times with 2 second timeout each
+        // Some cameras need time to start streaming
+        int r = 0;
+        for (int attempt = 0; attempt < 5 && r == 0; attempt++) {
+            struct timeval timeout;
+            timeout.tv_sec = 2;
+            timeout.tv_usec = 0;
+            fd_set fds;
+            FD_ZERO(&fds);
+            FD_SET(camera->fd, &fds);
+            r = select(camera->fd + 1, &fds, 0, 0, &timeout);
+            if (r == -1) quit("select");
+            if (r == 0 && attempt < 4) {
+                fprintf(stderr, "camera/usb: select timeout on fd %d, retry %d/4\n",
+                        camera->fd, attempt + 1);
+            }
+        }
+        if (r == 0) {
+            FOLK_ERROR("selection failed of fd %d after 5 attempts\n", camera->fd);
+        }
 
-    FOLK_ENSURE(camera_capture(camera) != 0);
+        int captured = camera_capture(camera);
+        FOLK_ENSURE(captured != 0);
+        if (captured == 1) { break; }
+    }
 
     // Clone the head buffer into a new independent buffer that can be
     // owned by the caller.
