@@ -117,9 +117,15 @@ Claim the AprilTag detector maker is [fn makeAprilTagDetector]
 
 set tagFamily "tagStandard52h13"
 
-When /someone/ wishes camera /camera/ detects tags {
-    set entireFrameDetector [makeAprilTagDetector $tagFamily 2.0 1]
-    set incrementalDetector [makeAprilTagDetector $tagFamily 1.5 1]
+When camera /camera/ has width /width/ height /height/ &\
+     /someone/ wishes camera /camera/ detects tags {
+    if {$width >= 3840 && $height >= 2160} {
+        set entireFrameDetector [makeAprilTagDetector $tagFamily 4.0 2]
+        set incrementalDetector [makeAprilTagDetector $tagFamily 2.0 1]
+    } else {
+        set entireFrameDetector [makeAprilTagDetector $tagFamily 2.0 1]
+        set incrementalDetector [makeAprilTagDetector $tagFamily 1.5 1]
+    }
 
     # Entire-frame tag detector:
     When -serially camera $camera has gray frame /frame/ at timestamp /frameTs/ {

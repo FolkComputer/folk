@@ -55,7 +55,11 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     set printedSideLengthMm [string trimright $measurements(tagSideLength) mm]
 
     fn makeAprilTagDetector
-    set calibrationTagDetector [makeAprilTagDetector "tagStandard52h13" 2.0 3]
+    if {$cameraWidth >= 3840 && $cameraHeight >= 2160} {
+        set calibrationTagDetector [makeAprilTagDetector "tagStandard52h13" 4.0 2]
+    } else {
+        set calibrationTagDetector [makeAprilTagDetector "tagStandard52h13" 2.0 3]
+    }
 
     set calibrationId [clock milliseconds]
 
