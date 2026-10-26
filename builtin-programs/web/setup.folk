@@ -271,7 +271,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
         </label>
         <label style="display: block; margin-left: 20px; margin-top: 10px;">
           <input type="checkbox" name="camera-detect-apriltags"
-                 $($detectsTags ? "checked" : "")
+                 $(!$isUsingCamera || $detectsTags ? "checked" : "")
                  value="$camera"
                  onchange="cameraDetectApriltagsChange.call(this, event)">
           Detect AprilTags
@@ -360,6 +360,10 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
     function cameraEnabledChange(event) {
       const camera = this.value;
       if (this.checked) {
+        const detectApriltags = Array.from(
+          document.getElementsByName('camera-detect-apriltags')
+        ).find(input => input.value === camera);
+        detectApriltags.dispatchEvent(new Event('change'));
         const firstFramerateRadio = document.querySelector(
           `input\[type="radio"\]\[name^="camera-framerate-"\]\[data-camera="\${camera}"]`
         );
