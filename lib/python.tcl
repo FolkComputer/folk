@@ -23,16 +23,42 @@ $cc include <unistd.h>
 $cc include <pthread.h>
 $cc include <string.h>
 $cc include <stdlib.h>
+$cc include <fcntl.h>
+
+$cc code {
+    static void closeInterpreterSocket(Jim_Interp* owner, void* data) {
+        int* fd = data;
+        close(*fd);
+        free(fd);
+    }
+}
 
 $cc proc sockConnect {char* path} int {
     for (int i = 0; i < 1000; i++) {
         int fd = socket(AF_UNIX, SOCK_STREAM, 0);
         if (fd < 0) { usleep(1000000); continue; }
+        if (fcntl(fd, F_SETFD, FD_CLOEXEC) == -1) {
+            close(fd);
+            FOLK_ERROR("sockConnect: failed to set close-on-exec");
+        }
         struct sockaddr_un addr;
         memset(&addr, 0, sizeof(addr));
         addr.sun_family = AF_UNIX;
         strncpy(addr.sun_path, path, sizeof(addr.sun_path) - 1);
         if (connect(fd, (struct sockaddr*)&addr, sizeof(addr)) == 0) {
+            int* ownedFd = malloc(sizeof(*ownedFd));
+            if (ownedFd == NULL) {
+                close(fd);
+                FOLK_ERROR("sockConnect: failed to allocate socket owner");
+            }
+            *ownedFd = fd;
+            char key[64];
+            snprintf(key, sizeof(key), "uvx::socket:%d", fd);
+            if (Jim_SetAssocData(interp, key, closeInterpreterSocket, ownedFd) != JIM_OK) {
+                close(fd);
+                free(ownedFd);
+                FOLK_ERROR("sockConnect: failed to register socket cleanup");
+            }
             return fd;
         }
         close(fd);
@@ -331,6 +357,10 @@ def handle_conn(conn):
                 send_frame(conn, b"ok")
                 send_frame(conn, json.dumps(result).encode('utf-8'))
             send_frame(conn, b"")
+
+        except ConnectionError:
+            conn.close()
+            return
 
         except Exception as e:
             import traceback
