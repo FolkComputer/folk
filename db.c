@@ -679,14 +679,6 @@ Destructor* destructorNewFromStatementDestructors(Statement** statements, int co
     return destructorNew(releaseBundledDestructors, snapshot);
 }
 
-void statementInheritDestructors(Statement* stmt, Statement* fromStmt) {
-    pthread_mutex_lock(&fromStmt->destructorSetMutex);
-    pthread_mutex_lock(&stmt->destructorSetMutex);
-    destructorSetInherit(&stmt->destructorSet,
-                         &fromStmt->destructorSet);
-    pthread_mutex_unlock(&stmt->destructorSetMutex);
-    pthread_mutex_unlock(&fromStmt->destructorSetMutex);
-}
 
 // Fails to increment parentCount if the statement is already being
 // removed. A kept statement with no current parents can be revived;
