@@ -85,6 +85,15 @@ void appropriateWorkQueuePush(WorkQueueItem item) {
 // error handling.
 __thread Jim_Interp* interp = NULL;
 
+// Jim interpreters install and restore process-wide signal handlers. Keep a
+// permanent cancellation handler beneath them so freeing the first interpreter
+// cannot restore SIG_DFL and terminate a different worker on its next cancel.
+static void workerCancellationHandler(int signalNumber) {
+    if (interp != NULL) {
+        // Mark this signal pending for Jim to handle during interpreter execution.
+        interp->sigmask |= ((jim_wide)1 << signalNumber);
+    }
+}
 __thread jmp_buf __onError;
 // __onError can only be set once for one call into C; if it's already
 // set and you try to set it again (maybe because you called a _Cmd
@@ -1573,7 +1582,17 @@ void workerExit() {
         }
     }
 
-    // TODO: Clear everything else out?
+    // No more cancellation can be handled by this exiting interpreter. Its
+    // assoc-data and channel destructors release Python sockets and other fds.
+    sigset_t cancelSignals;
+    sigemptyset(&cancelSignals);
+    sigaddset(&cancelSignals, SIGUSR1);
+    pthread_sigmask(SIG_BLOCK, &cancelSignals, NULL);
+    if (interp != NULL) {
+        Jim_FreeInterp(interp);
+        interp = NULL;
+    }
+
     self->tid = 0;
     epochThreadDestroy();
 
@@ -1739,6 +1758,13 @@ int main(int argc, char** argv) {
     // Jim_Allocator = webDebugAllocator;
 
     outputRedirectionInit();
+
+    struct sigaction cancellationAction = {0};
+    cancellationAction.sa_handler = workerCancellationHandler;
+    sigemptyset(&cancellationAction.sa_mask);
+    if (sigaction(SIGUSR1, &cancellationAction, NULL) == -1) {
+        FATAL("Could not install worker cancellation handler: %s\n", strerror(errno));
+    }
 
     // Set up database.
     db = dbNew();
