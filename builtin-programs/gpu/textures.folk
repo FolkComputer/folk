@@ -316,12 +316,34 @@ $gpuc proc endSingleTimeCommands {VkCommandBuffer commandBuffer VkFence fence} v
 
 $gpuc code {
     static __thread VkFence _fence = VK_NULL_HANDLE;
+    static pthread_key_t fenceCleanupKey;
+    static pthread_once_t fenceCleanupOnce = PTHREAD_ONCE_INIT;
+
+    static void destroyWorkerFence(void* value) {
+        VkFence* fence = value;
+        pthread_mutex_lock(graphicsQueueMutex_ptr());
+        vkQueueWaitIdle(*graphicsQueue_ptr());
+        vkDestroyFence(device, *fence, NULL);
+        pthread_mutex_unlock(graphicsQueueMutex_ptr());
+        free(fence);
+    }
+    static void initializeFenceCleanup() {
+        if (pthread_key_create(&fenceCleanupKey, destroyWorkerFence) != 0) {
+            fprintf(stderr, "gpu/textures: cannot create fence cleanup key\n");
+            exit(1);
+        }
+    }
 }
 $gpuc proc getFence {} VkFence {
     if (_fence == VK_NULL_HANDLE) {
         VkFenceCreateInfo fenceInfo = {0};
         fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
         $[vktry {vkCreateFence(device, &fenceInfo, NULL, &_fence)}]
+        pthread_once(&fenceCleanupOnce, initializeFenceCleanup);
+        VkFence* owned = malloc(sizeof(*owned));
+        if (owned == NULL) { exit(1); }
+        *owned = _fence;
+        if (pthread_setspecific(fenceCleanupKey, owned) != 0) { exit(1); }
     } else {
         vkResetFences(device, 1, &_fence);
     }

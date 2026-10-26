@@ -38,6 +38,7 @@ fn gpuInit {useGlfw} {
     set gpuc [C]
     $gpuc cflags -I./vendor
     $gpuc include <pthread.h>
+    $gpuc include <stdlib.h>
     $gpuc code {
         #define VOLK_IMPLEMENTATION
         #include "volk/volk.h"
@@ -291,6 +292,25 @@ fn gpuInit {useGlfw} {
     $gpuc code {
         __thread VkCommandPool _commandPool;
         __thread VkCommandBuffer _commandBuffer;
+        static pthread_key_t commandPoolCleanupKey;
+        static pthread_once_t commandPoolCleanupOnce = PTHREAD_ONCE_INIT;
+
+        static void destroyWorkerCommandPool(void* value) {
+            VkCommandPool* pool = value;
+            // Submitted GPU commands may still be running when the worker exits.
+            // Wait for them before destroying the pool and its command buffers.
+            pthread_mutex_lock(&graphicsQueueMutex);
+            vkQueueWaitIdle(graphicsQueue);
+            vkDestroyCommandPool(device, *pool, NULL);
+            pthread_mutex_unlock(&graphicsQueueMutex);
+            free(pool);
+        }
+        static void initializeCommandPoolCleanup() {
+            if (pthread_key_create(&commandPoolCleanupKey, destroyWorkerCommandPool) != 0) {
+                fprintf(stderr, "gpu: cannot create command pool cleanup key\n");
+                exit(1);
+            }
+        }
     }
     defineVulkanHandleType $gpuc VkCommandPool
     defineVulkanHandleType $gpuc VkCommandBuffer
@@ -303,6 +323,11 @@ fn gpuInit {useGlfw} {
 
             VkResult res = vkCreateCommandPool(device, &poolInfo, NULL, &_commandPool);
             if (res != VK_SUCCESS) { fprintf(stderr, "Failed to create command pool: %d\\n", res); exit(1); }
+            pthread_once(&commandPoolCleanupOnce, initializeCommandPoolCleanup);
+            VkCommandPool* owned = malloc(sizeof(*owned));
+            if (owned == NULL) { exit(1); }
+            *owned = _commandPool;
+            if (pthread_setspecific(commandPoolCleanupKey, owned) != 0) { exit(1); }
         }
         return _commandPool;
     }
