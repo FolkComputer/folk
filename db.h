@@ -14,7 +14,13 @@ typedef struct Atomically Atomically;
 
 typedef struct Destructor Destructor;
 Destructor* destructorNew(void (*fn)(void*), void* arg);
+void destructorRetain(Destructor* d);
+void destructorRelease(Destructor* d);
 void destructorRun(Destructor* d);
+// Sources must be acquired by the caller. The returned snapshot starts with
+// rc=0 and retains only resource destructors, never source statement slots.
+// Attaching it as a statement destructor flattens and deduplicates resources.
+Destructor* statementResourcesSnapshot(Statement** statements, int count);
 
 // Refs are _weak_ references, meaning that the thing they are
 // pointing at may be invalid. A ref {0, 0} is always a null reference
@@ -131,15 +137,23 @@ void dbAtomicallyVersionInflightDecr(Db* db, AtomicallyVersion* atomicallyVersio
 // Pass a null MatchRef for `parent` if this is an assertion.
 //
 // The new Statement is returned acquired and needs to be released by
-// the caller. (This is mainly so that the caller can insert
-// destructors at will before doing the release.) Returns NULL if no
-// new statement was created.
+// the caller. The statement is already queryable when this returns,
+// so we must install `destructor` and any destructors from
+// `inheritDestructorsFromMatch` before that publication. Returns NULL
+// if no new statement was created.
+//
 // atomicallyVersions is a set (no duplicate pointers); creation copies it.
+// The caller retains destructor across this call. A new statement acquires
+// its own reference before becoming visible to queries and child matches.
+//
+// inheritDestructorsFromMatch is an acquired match whose resources
+// should be retained without making the new statement its child (used
+// for independent Holds).
 Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
                                     long keepMs, AtomicallyVersion* const* atomicallyVersions,
                                     int atomicallyVersionsCount,
                                     const char* sourceFileName, int sourceLineNumber,
-                                    MatchRef parent,
+                                    MatchRef parent, Destructor* destructor, Match* inheritDestructorsFromMatch,
                                     StatementRef* outReusedStatementRef);
 
 // Call when you're about to begin a match (i.e., evaluating the body
@@ -168,13 +182,14 @@ void dbRetractStatements(Db* db, Clause* pattern);
 // DB, which then becomes responsible for freeing it later.
 //
 // The new Statement is returned acquired and needs to be released by
-// the caller. (This is mainly so that the caller can insert
-// destructors at will before doing the release.) Returns NULL if no
-// new statement was created.
+// the caller. destructor and inheritDestructorsFromMatch attach resource ownership
+// before publication; either may be NULL. Returns NULL if no new statement
+// was created.
 Statement* dbHoldStatement(Db* db,
                            const char* key, double version,
                            Clause* clause, long keepMs,
                            const char* sourceFileName, int sourceLineNumber,
+                           Destructor* destructor, Match* inheritDestructorsFromMatch,
                            StatementRef* outOldStatement);
 
 #endif

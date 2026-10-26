@@ -319,6 +319,7 @@ proc Hold! {args} {
     set destructorCode {}
     set isNonCapturing false
     set saveHold false
+    set retainResources false
     for {set i 0} {$i < [llength $args]} {incr i} {
         set arg [lindex $args $i]
         if {$arg eq "-on"} {
@@ -354,6 +355,13 @@ proc Hold! {args} {
     } elseif {[llength $clause] == 1} {
         # Hold! { ... body ... }
         set body [lindex $clause 0]
+        # HACK: if we have a capturing body `Hold! {...}`, then we
+        # retain resources by default (unlike when we Hold! a plain
+        # statement), because the body may use any destructor-bound
+        # resource, so we need to keep them all alive just in case (so
+        # the held statement must inherit the current Match's
+        # destructor set).
+        if {!$isNonCapturing} { set retainResources true }
 
         if {$isNonCapturing} {
             set envStack {}
@@ -384,7 +392,7 @@ proc Hold! {args} {
 
     tailcall HoldStatementGlobally! \
         $key $version $clause $keepMs $destructorCode \
-        $filename $lineno
+        $filename $lineno $retainResources
 }
 
 proc Say {args} {

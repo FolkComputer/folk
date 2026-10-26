@@ -119,10 +119,10 @@ void destructorRun(Destructor* d) {
     d->fn = NULL;
 }
 
-static void destructorRetain(Destructor* d) {
+void destructorRetain(Destructor* d) {
     d->rc++;
 }
-static void destructorRelease(Destructor* d) {
+void destructorRelease(Destructor* d) {
     if (--d->rc == 0) {
         destructorRun(d);
         free(d);
@@ -1285,7 +1285,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
                                     long keepMs, AtomicallyVersion* const* atomicallyVersions,
                                     int atomicallyVersionsCount,
                                     const char* sourceFileName, int sourceLineNumber,
-                                    MatchRef parentMatchRef,
+                                    MatchRef parentMatchRef, Destructor* destructor, Match* inheritDestructorsFromMatch,
                                     StatementRef* outReusedStatementRef) {
 #define setReusedStatementRef(_ref) \
     if (outReusedStatementRef != NULL) { \
@@ -1331,6 +1331,37 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
     StatementRef ref = statementNew(db, clause,
                                     keepMs, atomicallyVersions, atomicallyVersionsCount,
                                     sourceFileName, sourceLineNumber);
+
+    // Inherit destructors BEFORE publishing the statement in the
+    // trie. If you inherit the destructors too late, there's a
+    // possibility that the statement triggers a match immediately
+    // while its destructor set is still empty. Then that whole
+    // descendant subgraph might operate on the data (from the
+    // statement) unsafely without destructor refcounting/protection,
+    // leading to use-after-free risk.
+    Statement* provisional = statementAcquire(db, ref);
+    if (destructor != NULL) {
+        statementAddDestructor(provisional, destructor);
+    }
+    if (parentMatch != NULL) {
+        pthread_mutex_lock(&parentMatch->destructorSetMutex);
+        destructorSetInherit(&provisional->destructorSet,
+                             &parentMatch->destructorSet);
+        pthread_mutex_unlock(&parentMatch->destructorSetMutex);
+    }
+    if (inheritDestructorsFromMatch != NULL && inheritDestructorsFromMatch != parentMatch) {
+        // Holds outlive their producing match, so the producing match
+        // isn't a proper `parentMatch` and gets this separate
+        // `inheritDestructorsFromMatch` parameter, because captured
+        // pointers must retain the same resource ownership as
+        // ordinary child statements, so we still want destructor
+        // inheritance here.
+        pthread_mutex_lock(&inheritDestructorsFromMatch->destructorSetMutex);
+        destructorSetInherit(&provisional->destructorSet,
+                             &inheritDestructorsFromMatch->destructorSet);
+        pthread_mutex_unlock(&inheritDestructorsFromMatch->destructorSetMutex);
+    }
+    statementRelease(db, provisional);
 
     // Now try to add to the trie: the trieAdd operation will
     // atomically detect if the clause is already present.
@@ -1435,13 +1466,6 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
     // the db and we committed the new db.
     if (parentMatch != NULL) {
         matchAddChildStatement(db, parentMatch, ref);
-
-        pthread_mutex_lock(&parentMatch->destructorSetMutex);
-        pthread_mutex_lock(&newStmt->destructorSetMutex);
-        destructorSetInherit(&newStmt->destructorSet,
-                             &parentMatch->destructorSet);
-        pthread_mutex_unlock(&newStmt->destructorSetMutex);
-        pthread_mutex_unlock(&parentMatch->destructorSetMutex);
 
         pthread_mutex_unlock(&parentMatch->childStatementsMutex);
         matchRelease(db, parentMatch);
@@ -1574,11 +1598,12 @@ void dbRetractStatements(Db* db, Clause* pattern) {
     }
 }
 
-// Takes ownership of `clause` and `destructorSet`.
+// Takes ownership of `clause`.
 Statement* dbHoldStatement(Db* db,
                            const char* key, double version,
                            Clause* clause, long keepMs,
                            const char* sourceFileName, int sourceLineNumber,
+                           Destructor* destructor, Match* inheritDestructorsFromMatch,
                            StatementRef* outOldStatement) {
     if (outOldStatement) { *outOldStatement = STATEMENT_REF_NULL; }
 
@@ -1613,7 +1638,7 @@ Statement* dbHoldStatement(Db* db,
             StatementRef reusedStatementRef;
             newStmt = dbInsertOrReuseStatement(db, clause, keepMs, NULL, 0,
                                                sourceFileName, sourceLineNumber,
-                                               MATCH_REF_NULL,
+                                               MATCH_REF_NULL, destructor, inheritDestructorsFromMatch,
                                                &reusedStatementRef);
             if (newStmt != NULL) {
                 hold->statement = statementRef(db, newStmt);

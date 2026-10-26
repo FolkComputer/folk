@@ -84,6 +84,7 @@ void appropriateWorkQueuePush(WorkQueueItem item) {
 // These are used by dynamically-loaded Tcl-C modules, especially for
 // error handling.
 __thread Jim_Interp* interp = NULL;
+
 __thread jmp_buf __onError;
 // __onError can only be set once for one call into C; if it's already
 // set and you try to set it again (maybe because you called a _Cmd
@@ -228,8 +229,9 @@ static void reactToNewStatement(StatementRef ref);
 int64_t _Atomic latestVersion = 0; // TODO: split by key?
 // Note: returns an acquired statement that the caller should release.
 Statement* HoldStatementGloballyAcquiring(const char *key, double version,
-                                          Clause *clause, long keepMs, const char *destructorCode,
-                                          const char *sourceFileName, int sourceLineNumber) {
+                                          Clause *clause, long keepMs, Destructor* destructor,
+                                          const char *sourceFileName, int sourceLineNumber,
+                                          Match* inheritDestructorsFromMatch) {
 /* #ifdef TRACY_ENABLE */
 /*     char *s = clauseToString(clause); */
 /*     TracyCMessageFmt("hold: %.200s", s); free(s); */
@@ -240,25 +242,12 @@ Statement* HoldStatementGloballyAcquiring(const char *key, double version,
     newStmt = dbHoldStatement(db, key, version,
                               clause, keepMs,
                               sourceFileName, sourceLineNumber,
+                              destructor, inheritDestructorsFromMatch,
                               &oldRef);
 
-    Destructor* destructor = NULL;
-    if (destructorCode != NULL) {
-        destructor = destructorNew(destructorHelper, strdup(destructorCode));
-    }
-
     if (newStmt != NULL) {
-        if (destructor != NULL) {
-            statementAddDestructor(newStmt, destructor);
-        }
-
         StatementRef newRef = statementRef(db, newStmt);
         reactToNewStatement(newRef);
-    } else {
-        if (destructor != NULL) {
-            destructorRun(destructor);
-            free(destructor);
-        }
     }
 
     if (!statementRefIsNull(oldRef)) {
@@ -272,18 +261,18 @@ Statement* HoldStatementGloballyAcquiring(const char *key, double version,
     return newStmt;
 }
 void HoldStatementGlobally(const char *key, double version,
-                           Clause *clause, long keepMs, const char *destructorCode,
+                           Clause *clause, long keepMs, Destructor* destructor,
                            const char *sourceFileName, int sourceLineNumber) {
     Statement* stmt = HoldStatementGloballyAcquiring(key, version,
-                                                     clause, keepMs, destructorCode,
-                                                     sourceFileName, sourceLineNumber);
+                                                     clause, keepMs, destructor,
+                                                     sourceFileName, sourceLineNumber, NULL);
     if (stmt != NULL) {
         dbInflightDecr(db, stmt);
         statementRelease(db, stmt);
     }
 }
 static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    assert(argc == 8);
+    assert(argc == 8 || argc == 9);
 
     const char* sourceFileName;
     long sourceLineNumber;
@@ -303,9 +292,24 @@ static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *cons
         destructorCode = NULL;
     }
 
-    HoldStatementGlobally(key, version,
-                          clause, keepMs, destructorCode,
-                          sourceFileName, sourceLineNumber);
+    int retainResources = 0;
+    if (argc == 9 && Jim_GetBoolean(interp, argv[8], &retainResources) != JIM_OK) {
+        clauseFree(clause);
+        return JIM_ERR;
+    }
+    Destructor* destructor = NULL;
+    if (destructorCode != NULL) {
+        destructor = destructorNew(destructorHelper, strdup(destructorCode));
+        destructorRetain(destructor);
+    }
+    Statement* stmt = HoldStatementGloballyAcquiring(key, version,
+        clause, keepMs, destructor, sourceFileName, sourceLineNumber,
+        retainResources && self != NULL ? self->currentMatch : NULL);
+    if (destructor != NULL) { destructorRelease(destructor); }
+    if (stmt != NULL) {
+        dbInflightDecr(db, stmt);
+        statementRelease(db, stmt);
+    }
 
     return (JIM_OK);
 }
@@ -328,22 +332,20 @@ static StatementRef Say(Clause* clause, long keepMs,
         free(s);
     }
 
-    Statement* stmt;
-    stmt = dbInsertOrReuseStatement(db, clause,
-                                    keepMs, atomicallyVersions, atomicallyVersionsCount,
-                                    sourceFileName, sourceLineNumber,
-                                    parent, NULL);
-
     Destructor* destructor = NULL;
     if (destructorCode != NULL) {
         destructor = destructorNew(destructorHelper, strdup(destructorCode));
+        destructorRetain(destructor);
     }
 
-    if (stmt != NULL) {
-        if (destructor != NULL) {
-            statementAddDestructor(stmt, destructor);
-        }
+    Statement* stmt = dbInsertOrReuseStatement(db, clause,
+                                    keepMs, atomicallyVersions, atomicallyVersionsCount,
+                                    sourceFileName, sourceLineNumber,
+                                    parent, destructor, NULL,
+                                    NULL);
+    if (destructor != NULL) { destructorRelease(destructor); }
 
+    if (stmt != NULL) {
         StatementRef ref = statementRef(db, stmt);
 
         reactToNewStatement(ref);
@@ -353,10 +355,6 @@ static StatementRef Say(Clause* clause, long keepMs,
         return ref;
 
     } else {
-        if (destructor != NULL) {
-            destructorRun(destructor);
-            free(destructor);
-        }
         return STATEMENT_REF_NULL;
     }
 }
@@ -1360,7 +1358,8 @@ void workerRun(WorkQueueItem item) {
                                         0, NULL, 0,
                                         item.assert.sourceFileName,
                                         item.assert.sourceLineNumber,
-                                        MATCH_REF_NULL, NULL);
+                                        MATCH_REF_NULL, NULL, NULL,
+                                        NULL);
         if (stmt != NULL) {
             StatementRef ref = statementRef(db, stmt);
 
