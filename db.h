@@ -17,10 +17,18 @@ Destructor* destructorNew(void (*fn)(void*), void* arg);
 void destructorRetain(Destructor* d);
 void destructorRelease(Destructor* d);
 void destructorRun(Destructor* d);
-// Sources must be acquired by the caller. The returned snapshot starts with
-// rc=0 and retains only resource destructors, never source statement slots.
-// Attaching it as a statement destructor flattens and deduplicates resources.
-Destructor* statementResourcesSnapshot(Statement** statements, int count);
+// Keep the resources owned by these statements alive without keeping the
+// statements themselves alive. The caller must hold an acquired reference to
+// each statement during this call, but may release them afterward.
+// Like destructorNew(), the returned destructor starts with rc=0; retain it
+// before use and release it when done.
+//
+// The returned destructor is a bundle of statements' destructors.
+// When you attach that bundle destructor to a statement, the
+// statement unwraps it and retains each destructor inside it
+// directly, once per distinct destructor, instead of retaining the
+// bundle destructor itself.
+Destructor* destructorNewFromStatementDestructors(Statement** statements, int count);
 
 // Refs are _weak_ references, meaning that the thing they are
 // pointing at may be invalid. A ref {0, 0} is always a null reference

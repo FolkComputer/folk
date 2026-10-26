@@ -182,23 +182,22 @@ $cc proc Recollect! {Jim_Obj* patternObj bool isAtomically} bool {
         collectedClause->terms[8] = jimObjToTerm(resultsObj);
         Jim_DecrRefCount(interp, resultsObj);
 
-        Statement* stmt =
-            HoldStatementGloballyAcquiring(collectKey, version++,
-                                           collectedClause, 0, NULL,
-                                           NULL, 0, NULL);
-
-        // Now inherit the destructors of all the statements in rs
-        // into the new collection statement, and release all the
-        // statements in rs.
+        // Bundle collected statements' destructors now, so we can
+        // install the bundled destructor when we Hold the collection
+        // statement. Reactions can run immediately, so inheriting
+        // destructors after Hold returns is too late: consumers may
+        // already have inherited an empty destructor set.
+        Destructor* resources = destructorNewFromStatementDestructors(resultStmts, resultStmtsCount);
+        destructorRetain(resources);
         for (int i = 0; i < resultStmtsCount; i++) {
-            if (stmt != NULL) {
-                statementInheritDestructors(stmt, resultStmts[i]);
-            }
-            // FIXME: what to do if stmt is NULL?
-
             statementRelease(db, resultStmts[i]);
         }
         free(resultStmts);
+        Statement* stmt =
+            HoldStatementGloballyAcquiring(collectKey, version++,
+                                           collectedClause, 0, resources,
+                                           NULL, 0, NULL);
+        destructorRelease(resources);
 
         if (stmt != NULL) {
             dbInflightDecr(db, stmt);

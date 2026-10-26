@@ -143,8 +143,20 @@ void destructorSetInit(DestructorSet* set) {
     set->destructorsCount = 0;
 }
 
+static void releaseBundledDestructors(void* arg);
+
 static void destructorSetAddImpl(DestructorSet* set, Destructor* d) {
     assert(set->destructors != NULL);
+
+    // Snapshots carry resource ownership across publication, but are flattened
+    // into the destination so derived metadata cannot retain a history chain.
+    if (d->fn == releaseBundledDestructors) {
+        DestructorSet* snapshot = d->arg;
+        for (int i = 0; i < snapshot->destructorsCount; i++) {
+            destructorSetAddImpl(set, snapshot->destructors[i]);
+        }
+        return;
+    }
 
     // (This is O(n) every time you add a destructor, but the total
     // number of destructors in play should be small most of the time
@@ -649,6 +661,24 @@ void statementAddDestructor(Statement* stmt, Destructor* d) {
     destructorSetAdd(&stmt->destructorSet, d);
     pthread_mutex_unlock(&stmt->destructorSetMutex);
 }
+static void releaseBundledDestructors(void* arg) {
+    DestructorSet* snapshot = arg;
+    destructorSetReleaseAll(snapshot);
+    free(snapshot);
+}
+
+Destructor* destructorNewFromStatementDestructors(Statement** statements, int count) {
+    DestructorSet* snapshot = malloc(sizeof(*snapshot));
+    destructorSetInit(snapshot);
+    for (int i = 0; i < count; i++) {
+        Statement* source = statements[i];
+        pthread_mutex_lock(&source->destructorSetMutex);
+        destructorSetInherit(snapshot, &source->destructorSet);
+        pthread_mutex_unlock(&source->destructorSetMutex);
+    }
+    return destructorNew(releaseBundledDestructors, snapshot);
+}
+
 void statementInheritDestructors(Statement* stmt, Statement* fromStmt) {
     pthread_mutex_lock(&fromStmt->destructorSetMutex);
     pthread_mutex_lock(&stmt->destructorSetMutex);
