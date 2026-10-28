@@ -288,7 +288,19 @@ $camc proc jpegFree {CameraBuffer jpeg} void {
     free(jpeg.start);
 }
 
-$camc proc setExposure {Camera* camera int value} void {
+$camc proc getExposure {Camera* camera} Jim_Obj* {
+    Jim_Obj* result = Jim_NewListObj(interp, NULL, 0);
+    int controls[] = {V4L2_CID_EXPOSURE_AUTO, V4L2_CID_EXPOSURE_ABSOLUTE, V4L2_CID_GAIN};
+    for (int i = 0; i < 3; i++) {
+        struct v4l2_control c = {.id = controls[i]};
+        int ok = xioctl(camera->fd, VIDIOC_G_CTRL, &c);
+        if (i < 2) FOLK_ENSURE(ok == 0);
+        Jim_ListAppendElement(interp, result, Jim_NewIntObj(interp, ok == 0 ? c.value : -1));
+    }
+    return result;
+}
+
+$camc proc setExposure {Camera* camera int value int gain} void {
     struct v4l2_control c;
 
     fprintf(stderr, "setExposure %d\n", value);
@@ -304,6 +316,11 @@ $camc proc setExposure {Camera* camera int value} void {
 
         c.id = V4L2_CID_EXPOSURE_ABSOLUTE;
         c.value = value;
+        FOLK_ENSURE(xioctl(camera->fd, VIDIOC_S_CTRL, &c) == 0);
+    }
+    if (gain != -1) {
+        c.id = V4L2_CID_GAIN;
+        c.value = gain;
         FOLK_ENSURE(xioctl(camera->fd, VIDIOC_S_CTRL, &c) == 0);
     }
 }
@@ -367,7 +384,21 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
         }
 
         When /someone/ wishes camera $camera uses exposure time /exposureTimeUs/ us {
-            $camLib setExposure $camObj [expr {int($exposureTimeUs / 100)}]
+            if {![llength [Query! /owner/ wishes camera $camera temporarily uses exposure time /us/ us]]} {
+                $camLib setExposure $camObj [expr {int($exposureTimeUs / 100)}] -1
+            }
+        }
+        When /someone/ wishes camera $camera temporarily uses exposure time /exposureTimeUs/ us {
+            set savedExposure [$camLib getExposure $camObj]
+            Destructor [list apply {{camLib camObj camera savedExposure} {
+                lassign $savedExposure mode exposure gain
+                if {$mode != 1} {set exposure 0}
+                foreach row [Query! /owner/ wishes camera $camera uses exposure time /us/ us] {
+                    set exposure [expr {int($row(us)/100)}]
+                }
+                $camLib setExposure $camObj $exposure [expr {$exposure == 0 ? -1 : $gain}]
+            }} $camLib $camObj $camera $savedExposure]
+            $camLib setExposure $camObj [expr {int($exposureTimeUs/100)}] -1
         }
 
         # Inner, frame loop.
