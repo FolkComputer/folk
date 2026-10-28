@@ -77,6 +77,10 @@ $cc proc init {} void {
     pthread_mutex_init(&collectsMutex, NULL);
 }
 $cc proc Recollect! {Jim_Obj* patternObj bool isAtomically} bool {
+    // Order snapshots by when their queries start, so a slow older query
+    // cannot overwrite a newer result when it finally publishes.
+    int snapshotVersion = version++;
+
     // First, query for collect patterns.
     Clause* collectorPattern = clauseNew(10);
     collectorPattern->terms[0] = termNew("/someone/", -1);
@@ -95,7 +99,7 @@ $cc proc Recollect! {Jim_Obj* patternObj bool isAtomically} bool {
     ResultSet* collectorsSet = dbQuery(db, collectorPattern);
     if (collectorsSet->nResults == 0) {
         Clause* emptyClause = clauseNew(0);
-        HoldStatementGlobally(collectKey, version++,
+        HoldStatementGlobally(collectKey, snapshotVersion,
                               emptyClause, 0, NULL, NULL, 0);
     } else {
         Clause* pattern = jimObjToClause(interp, patternObj);
@@ -194,7 +198,7 @@ $cc proc Recollect! {Jim_Obj* patternObj bool isAtomically} bool {
         }
         free(resultStmts);
         Statement* stmt =
-            HoldStatementGloballyAcquiring(collectKey, version++,
+            HoldStatementGloballyAcquiring(collectKey, snapshotVersion,
                                            collectedClause, 0, resources,
                                            NULL, 0, NULL);
         destructorRelease(resources);

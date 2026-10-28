@@ -1647,6 +1647,9 @@ Statement* dbHoldStatement(Db* db,
         // is what gets removed?
         Statement* oldStmtPtr = statementAcquire(db, oldStmt);
         if (oldStmtPtr && clauseIsEqual(clause, statementClause(oldStmtPtr))) {
+            // A newer snapshot confirming the same value still supersedes
+            // older snapshots that may be waiting to publish a different value.
+            hold->version = version;
             statementRelease(db, oldStmtPtr);
             mutexUnlock(&db->holdsMutex);
             clauseFree(clause);
