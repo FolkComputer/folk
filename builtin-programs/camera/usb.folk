@@ -211,10 +211,19 @@ $camc code {
         }
         CameraBuffer source = camera->buffers[buf.index];
         bool valid = !(buf.flags & V4L2_BUF_FLAG_ERROR) &&
-            buf.bytesused >= 4 && buf.bytesused <= source.length &&
-            source.start[0] == 0xff && source.start[1] == 0xd8 &&
-            source.start[buf.bytesused-2] == 0xff &&
-            source.start[buf.bytesused-1] == 0xd9;
+            buf.bytesused >= 4 && buf.bytesused <= source.length;
+        if (valid) {
+            // Some webcams pad MJPEG frames to an 8-byte boundary.
+            // Allow at most seven zero bytes after the JPEG end marker.
+            size_t jpegLength = buf.bytesused;
+            for (int padding = 0; padding < 7 && jpegLength > 4 &&
+                    source.start[jpegLength-1] == 0; padding++) {
+                jpegLength--;
+            }
+            valid = source.start[0] == 0xff && source.start[1] == 0xd8 &&
+                source.start[jpegLength-2] == 0xff &&
+                source.start[jpegLength-1] == 0xd9;
+        }
         if (valid) {
             memcpy(camera->head.start, source.start, buf.bytesused);
             camera->head.length = buf.bytesused;
