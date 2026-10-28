@@ -324,7 +324,31 @@ When /someone/ wishes CNC matched contours /encoded/ for mapping /mapping/ &\
     }
 }
 
-When the SAM2 Python worker is /py/ {
+if {$::thisNode eq "folk-cnc"} {
+    set py [Uvx --with numpy --with pillow]
+    $py exec {
+        import base64, io, urllib.request
+        import numpy as np
+
+        def automaticSegments(image, pointsPerSide):
+            jpeg = io.BytesIO()
+            image.save(jpeg, format='JPEG', quality=95)
+            encoded = base64.b64encode(jpeg.getvalue()).decode('ascii')
+            command = ('Require! the SAM2 remote segmenter is /segmenter/\n'
+                       '{*}$segmenter {' + encoded + '} ' + str(int(pointsPerSide)))
+            request = urllib.request.Request('http://folk-hex.local:4273/', data=command.encode())
+            with urllib.request.urlopen(request, timeout=240) as response:
+                result = response.read().decode()
+            if result.startswith('Error:'):
+                raise RuntimeError('folk-hex segmentation: ' + result)
+            return result
+    }
+    Claim the CNC Python worker is $py
+} else {
+    When the SAM2 Python worker is /py/ { Claim the CNC Python worker is $py }
+}
+
+When the CNC Python worker is /py/ {
     $py def cncSegmentPair {str frames str mapping} {
         import base64, io, json, time
         from PIL import Image as PILImage
@@ -724,7 +748,7 @@ When /client/ wishes CNC probe /request/ segment /encoded/ for mapping /mapping/
 
 # Start from saved bed corners and calibration, independently of web viewers.
 When CNC bed mapping is /mapping/ in display /display/ {
-    Wish to load SAM2
+    if {$::thisNode ne "folk-cnc"} { Wish to load SAM2 }
     When the CNC bed segmenter is /segmenter/ &\
          the jpeg library is /jpegLib/ {
         fn segmenter
