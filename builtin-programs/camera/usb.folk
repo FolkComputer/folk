@@ -385,7 +385,7 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
 
         When /someone/ wishes camera $camera uses exposure time /exposureTimeUs/ us {
             if {![llength [Query! /owner/ wishes camera $camera temporarily uses exposure time /us/ us]]} {
-                $camLib setExposure $camObj [expr {int($exposureTimeUs / 100)}] -1
+                $camLib setExposure $camObj [expr {int($exposureTimeUs / 100)}] [expr {$exposureTimeUs == 0 ? -1 : 0}]
             }
         }
         When /someone/ wishes camera $camera temporarily uses exposure time /exposureTimeUs/ us {
@@ -396,9 +396,9 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
                 foreach row [Query! /owner/ wishes camera $camera uses exposure time /us/ us] {
                     set exposure [expr {int($row(us)/100)}]
                 }
-                $camLib setExposure $camObj $exposure [expr {$exposure == 0 ? -1 : $gain}]
+                $camLib setExposure $camObj $exposure [expr {$exposure == 0 ? -1 : 0}]
             }} $camLib $camObj $camera $savedExposure]
-            $camLib setExposure $camObj [expr {int($exposureTimeUs/100)}] -1
+            $camLib setExposure $camObj [expr {int($exposureTimeUs/100)}] [expr {$exposureTimeUs == 0 ? -1 : 0}]
         }
 
         # Inner, frame loop.
