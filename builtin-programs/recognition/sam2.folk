@@ -1,3 +1,21 @@
+# Remote callers use Folk's existing HTTP evaluation endpoint. Keep the model
+# warm between requests, then let it unload when the caller goes away.
+fn SAM2RemoteSegments {jpeg pointsPerSide} {
+    set request [clock microseconds]
+    Hold! -noncapturing -on sam2-remote -key $request { Wish -keep 60000ms to load SAM2 }
+    try {
+        set deadline $([clock milliseconds] + 180000)
+        while {![llength [set results [Query! the SAM2 JPEG segmenter is /segmenter/]]]} {
+            if {[clock milliseconds] >= $deadline} { error "Timed out loading SAM2" }
+            sleep 0.05
+        }
+        {*}[dict get [lindex $results 0] segmenter] $jpeg $pointsPerSide
+    } finally {
+        Hold! -on sam2-remote -key $request {}
+    }
+}
+Claim the SAM2 remote segmenter is [fn SAM2RemoteSegments]
+
 When when the SAM2 segmenter is /any/ /any/ with environment /any/ {
     Wish -keep 500ms to load SAM2
 }
@@ -236,6 +254,13 @@ When /someone/ wishes to really load SAM2 &\
                                overlay=base64.b64encode(png.getvalue()).decode('ascii')))
     }
 
+    $py def automaticSegmentsJpeg {str encoded num pointsPerSide} {
+        import base64, io
+        from PIL import Image as PILImage
+        with PILImage.open(io.BytesIO(base64.b64decode(encoded))) as image:
+            return automaticSegments(image, pointsPerSide)
+    }
+
     $py def trackObjects {Image image} {
         global predictor_initialized
         image_np = np.array(image.convert("RGB"))
@@ -365,6 +390,8 @@ When /someone/ wishes to really load SAM2 &\
     Claim the SAM2 prompt adder is [fn SAM2AddPrompt]
     fn SAM2AutomaticSegments {image {pointsPerSide 32}} { $py automaticSegments $image $pointsPerSide }
     Claim the SAM2 automatic segmenter is [fn SAM2AutomaticSegments]
+    fn SAM2JpegSegments {encoded pointsPerSide} { $py automaticSegmentsJpeg $encoded $pointsPerSide }
+    Claim the SAM2 JPEG segmenter is [fn SAM2JpegSegments]
     Claim the SAM2 Python worker is $py
     Claim the SAM2 segmenter is [fn SAM2Segment]
     Claim the SAM2 object saver is [fn SAM2SaveObject]
