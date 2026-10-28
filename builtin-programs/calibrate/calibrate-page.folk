@@ -5,11 +5,9 @@ fn codeToPostScript
 Wish the web server handles route "/calibrate" with hidden true handler {
     package require base64
 
-    set camera $QUERY(camera)
-    set display $QUERY(display)
-
-    # Query the camera resolution for proper aspect ratio in preview (defaults to 1920x1080)
-    Require! camera $camera has width /cameraWidth/ height /cameraHeight/
+    set cameras [dict getdef $QUERY cameras [list $QUERY(camera)]]
+    set camera [lindex $cameras 0]
+    set displays [dict getdef $QUERY displays [list $QUERY(display)]]
 
     upvar ^html ^html
     html [csubst {
@@ -27,9 +25,10 @@ Wish the web server handles route "/calibrate" with hidden true handler {
                box-sizing: border-box;
                text-align: right;
            }
+           .camera-image { container-type: inline-size; }
            aside iframe {
                width: 100%;
-               height: calc(100cqw * $cameraHeight / $cameraWidth + 72px);
+               height: calc(100cqw * var(--camera-ratio) + 72px);
            }
            @media (max-width: 800px) {
                aside {
@@ -38,10 +37,7 @@ Wish the web server handles route "/calibrate" with hidden true handler {
                    height: 50vh;
                    text-align: left;
                }
-               aside iframe {
-                   width: 65%;
-                   height: calc(65cqw * $cameraHeight / $cameraWidth + 72px)
-               }
+               .camera-image { width: 65%; }
                article {
                    position: fixed;
                    top: 50vh;
@@ -65,41 +61,129 @@ Wish the web server handles route "/calibrate" with hidden true handler {
          const self = uuidv4();
 
          const folk = new FolkWS(document.getElementById('status'));
-         folk.send(`
+         const cameras = [...new Set(new URLSearchParams(location.search).getAll('camera'))];
+         const displays = [...new Set(new URLSearchParams(location.search).getAll('display'))];
+         const pairs = cameras.flatMap(camera => displays.map(display => [camera, display]));
+         let activeDisplay = displays[0];
+         let currentPair = null;
+         let completedPairs = [];
+         let activeCamera = cameras[0];
+         let activeSession = null;
+         folk.send(tcl`
     On unmatch {
-        Hold! -on builtin-programs/calibrate/calibrate.folk -key {start calibration} {}
+        foreach request [Query! /someone/ wishes to collect calibration pairs /pairs/ using measurements /measurements/ in session /session/] {
+            if {[string match \${self + ':*'} [dict get \$request session]]} {
+                Hold! -on builtin-programs/calibrate/calibrate.folk -key {start calibration} {}
+            }
+        }
     }
          `);
+         folk.watchCollected(tcl`/someone/ claims the calibration session /session/ is collecting camera /camera/ to display /display/ at index /index/ of /total/`, sessions => {
+           const session = sessions.find(session => session.session === activeSession);
+           currentPair = session ? [session.camera, session.display] : null;
+           if (session) {
+             activeCamera = session.camera;
+             activeDisplay = session.display;
+             document.getElementById('session-progress').textContent =
+               `Collecting pair \${Number(session.index) + 1} of \${session.total}: \${activeCamera} → \${activeDisplay}`;
+             synchronizeCameraPreviews();
+           }
+           drawCalibrationGraph();
+         });
+         folk.watchCollected(tcl`/someone/ claims calibration collected /count/ poses from camera /camera/ to display /display/ at /timestamp/`, results => {
+           completedPairs = results.filter(result => cameras.includes(result.camera) && displays.includes(result.display));
+           drawCalibrationGraph();
+         });
+         for (const state of ['optimizing', 'complete']) {
+           folk.watchCollected(tcl`/someone/ claims the calibration session /session/ is \${state}`, sessions => {
+             if (sessions.some(session => session.session === activeSession)) {
+               document.getElementById('session-progress').textContent = state === 'complete' ? 'Joint calibration complete.' : 'All poses collected. Jointly optimizing…';
+             }
+           });
+         }
         </script>
 
         <aside style="container-type: inline-size">
+          <svg id="calibration-graph" role="img" aria-label="Camera and projector calibration progress" style="width: 100%; display: block;"></svg>
           <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position):</p>
-          <div style="position: relative">
-            <iframe src="/camera?camera=$[string map {/ %2F} $camera]"
-                    style="border: 1px solid #999"></iframe>
-            $[HtmlWhen /someone/ detects calibration tags /detectedTags/ on camera $camera {
-                concat \
-                  [subst {<svg class="apriltag-overlay"
-                               viewBox="0 0 $cameraWidth $cameraHeight"
-                               style="position: absolute; top: 1px; left: 1px;
-                                      width: 100%; height: calc(100cqw * $cameraHeight / $cameraWidth)%;
-                                      pointer-events: none;">}] \
-                  [join [lmap tag $detectedTags {
-                    set points [dict get $tag p]
-                    set coords [lmap point $points {
-                        format "%g,%g" [lindex $point 0] [lindex $point 1]
-                    }]
-                    lappend coords [lindex $coords 0]
-                    set id [dict get $tag id]
-                    subst {
-                        <polyline points="$coords" fill="none" stroke="green" stroke-width="3" />
-                        <text x="[lindex $points 0 0]" y="[lindex $points 0 1]" fill="green" font-size="12">${id}</text>
-                    }
-                  }] "\n"] \
-                  "</svg>"
-            }]
-          </div>
+          <p id="session-progress">Ready to calibrate the selected cameras in order.</p>
+          $[join [lmap previewCamera $cameras {
+              HtmlWhen camera $previewCamera has width /cameraWidth/ height /cameraHeight/ {
+                  subst {
+                    <div class="calibration-camera-preview" data-camera="$previewCamera"
+                         style="--camera-ratio: [expr {double($cameraHeight) / $cameraWidth}];"
+                         $($previewCamera eq $camera ? "" : "hidden")>
+                      <strong>$previewCamera</strong>
+                      <div class="camera-image" style="position: relative;">
+                        <iframe src="/camera?camera=[string map {/ %2F { } %20} $previewCamera]"
+                                style="border: 1px solid #999; display: block;"></iframe>
+                        [HtmlWhen /someone/ detects calibration tags /detectedTags/ on camera $previewCamera {
+                            subst {
+                              <svg class="apriltag-overlay" viewBox="0 0 $cameraWidth $cameraHeight"
+                                   style="position: absolute; top: 0; left: 0; width: 100%; height: calc(100cqw * var(--camera-ratio)); pointer-events: none;">
+                                [join [lmap tag $detectedTags {
+                                    set points [dict get $tag p]
+                                    set coords [lmap point $points { format "%g,%g" {*}$point }]
+                                    lappend coords [lindex $coords 0]
+                                    set id [dict get $tag id]
+                                    subst {
+                                      <polyline points="$coords" fill="none" stroke="green" stroke-width="3" />
+                                      <text x="[lindex $points 0 0]" y="[lindex $points 0 1]" fill="green" font-size="12">$id</text>
+                                    }
+                                }] \n]
+                              </svg>
+                            }
+                        }]
+                      </div>
+                    </div>
+                  }
+              }
+          }] \n]
         </aside>
+        <script>
+          function drawCalibrationGraph() {
+            const svg = document.getElementById('calibration-graph');
+            const height = 65 + Math.max(cameras.length * 85, displays.length * 85, pairs.length * 50);
+            svg.setAttribute('viewBox', `0 0 540 \${height}`);
+            svg.replaceChildren();
+            function add(tag, attrs, text = '') {
+              const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+              for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, value);
+              el.textContent = text;
+              svg.append(el);
+              return el;
+            }
+            add('text', { x: 80, y: 20, 'text-anchor': 'middle' }, 'Cameras');
+            add('text', { x: 460, y: 20, 'text-anchor': 'middle' }, 'Projectors');
+            const nodeY = (devices, index) => devices.length === 1 ? height / 2 : 60 + index * (height - 100) / (devices.length - 1);
+            for (const [pairIndex, [camera, display]] of pairs.entries()) {
+              const completed = completedPairs.find(pair => pair.camera === camera && pair.display === display);
+              const active = currentPair?.[0] === camera && currentPair?.[1] === display;
+              if (!completed && !active) continue;
+              const y1 = nodeY(cameras, cameras.indexOf(camera)), y2 = nodeY(displays, displays.indexOf(display)), y = 60 + pairIndex * 50;
+              add('path', { d: `M150,\${y1} L175,\${y} H365 L390,\${y2}`, fill: 'none', stroke: completed ? '#16803c' : '#d97706', 'stroke-width': 3, ...(completed ? {} : { 'stroke-dasharray': '6 4' }) });
+              if (completed) {
+                const label = `\${completed.count} poses collected (\${new Date(Number(completed.timestamp) * 1000).toLocaleString()})`;
+                const text = add('text', { x: 270, y: y - 7, 'text-anchor': 'middle', 'font-size': 10, fill: '#166534', stroke: 'white', 'stroke-width': 4, 'paint-order': 'stroke' }, label);
+                text.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'title')).textContent = label;
+              }
+            }
+            [cameras, displays].forEach((devices, column) => devices.forEach((device, index) => {
+              const active = currentPair?.[column] === device, x = column ? 390 : 10, y = nodeY(devices, index) - 20;
+              add('rect', { x, y, width: 140, height: 40, rx: 5, fill: active ? '#fef3c7' : '#f3f4f6', stroke: active ? '#d97706' : '#9ca3af', 'stroke-width': active ? 3 : 1 });
+              const text = add('text', { x: x + 70, y: y + 25, 'text-anchor': 'middle', 'font-size': 12 }, device.length > 19 ? device.slice(0, 18) + '…' : device);
+              text.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'title')).textContent = device;
+            }));
+          }
+          drawCalibrationGraph();
+          function synchronizeCameraPreviews() {
+            document.querySelectorAll('.calibration-camera-preview').forEach(preview => {
+              preview.hidden = preview.dataset.camera !== activeCamera;
+            });
+          }
+          new MutationObserver(synchronizeCameraPreviews).observe(document.querySelector('aside'), { childList: true, subtree: true });
+          synchronizeCameraPreviews();
+        </script>
 
         <article>
         <ol>
@@ -143,9 +227,26 @@ Wish the web server handles route "/calibrate" with hidden true handler {
           <li>
             <h3>Run the calibration process.</h3>
 
-            <p>Start calibration: <button id="startCalibration">Start Calibration</button></p>
+            <p>Collect poses for each selected camera/projector pair in order. Move the board into the active camera's view when the preview changes. After all pairs are collected, jointly optimize their shared intrinsics and pair transforms. Select all cameras that use these projectors when recalibrating.</p>
+            <fieldset>
+              <legend>Pairs to calibrate</legend>
+              <p>Uncheck pairs whose camera and projector don't overlap.</p>
+              <div id="calibration-pairs"></div>
+            </fieldset>
+            <p>Start calibration: <button id="startCalibration">Start Calibration</button> <button id="stopCalibration">Stop Calibration</button></p>
             <script>
+              pairs.forEach(([camera, display], index) => {
+                const label = document.createElement('label'), checkbox = document.createElement('input');
+                label.style.display = 'block';
+                checkbox.type = 'checkbox';
+                checkbox.id = 'calibration-pair-' + index;
+                checkbox.checked = true;
+                label.append(checkbox, document.createTextNode(camera + ' → ' + display));
+                document.getElementById('calibration-pairs').append(label);
+              });
               startCalibration.addEventListener('click', (e) => {
+                const selectedPairs = pairs.filter((pair, index) => document.getElementById('calibration-pair-' + index).checked);
+                if (!selectedPairs.length) { alert('Select at least one camera/projector pair.'); return; }
                 if (!([boardTagSideLengthMm.value, boardLeftMm.value,
                       boardTopMm.value, boardBottomMm.value].every(x => x != "" && !isNaN(x)))) {
                    alert("Error: You need to type in valid measurements before clicking Start Calibration.");
@@ -158,9 +259,16 @@ Wish the web server handles route "/calibrate" with hidden true handler {
                   bottom: boardBottomMm.value + 'mm'
                 };
 
+                activeSession = self + ':' + uuidv4();
+                currentPair = null;
+                drawCalibrationGraph();
                 folk.hold('start calibration', tcl`
-                  Wish to calibrate camera "$camera" to display "$display" using measurements \${measurements}
+                  Wish to collect calibration pairs \${selectedPairs} using measurements \${measurements} in session \${activeSession}
                 `, 'builtin-programs/calibrate/calibrate.folk');
+              });
+              stopCalibration.addEventListener('click', () => {
+                folk.hold('start calibration', '', 'builtin-programs/calibrate/calibrate.folk');
+                document.getElementById('session-progress').textContent = 'Calibration stopped.';
               });
             </script>
 
@@ -206,7 +314,8 @@ Claim the calibration poses max is \${calibrationPosesMax}
           capturing a new pose. You'll need to record 10 different
           poses; try to slant the board and move it up and around to
           cover the projector/camera area as much as possible. Once 10
-          poses are recorded, you'll see the results below.</p>
+          poses are recorded, the next pair starts automatically. After the final
+          pair, all observations are jointly optimized and the results appear below.</p>
         <p>(If calibration gets into a bad/stuck state, feel free to click Start Calibration again.)</p>
 
             <details>
@@ -249,12 +358,20 @@ Camera Controls
             <h3>Calibration results:</h3> <div id="calibration-report"></div>
             <script>
               const calibrationReportEl = document.getElementById('calibration-report');
-              folk.watchCollected(`/someone/ claims the calibration report is /calibrationReport/`, reports => {
+              folk.watchCollected(tcl`/someone/ claims the calibration report from camera /camera/ to display /display/ is /calibrationReport/`, reports => {
+                reports = reports.filter(report => cameras.includes(report.camera) && displays.includes(report.display));
                 if (reports.length === 0) {
                   calibrationReportEl.innerHTML = "<pre>Not calibrating yet.</pre>";
                   return;
                 }
-                calibrationReportEl.innerHTML = reports[0].calibrationReport;
+                calibrationReportEl.replaceChildren();
+                for (const report of reports) {
+                  const heading = document.createElement('h4');
+                  heading.textContent = report.camera + ' → ' + report.display;
+                  const body = document.createElement('div');
+                  body.innerHTML = report.calibrationReport;
+                  calibrationReportEl.append(heading, body);
+                }
               });
             </script>
 
@@ -321,10 +438,10 @@ When the calibration poses from camera /camera/ to display /display/ are /calibr
       </ol>
     }]
 
-    When /nobody/ claims a calibration from camera /camera/ to display /display/ is /anything/ {
-        Claim the calibration report is $posesReport
+    When /nobody/ claims a calibration from camera $camera to display $display is /anything/ {
+        Claim the calibration report from camera $camera to display $display is $posesReport
     }
-    When a calibration from camera /camera/ to display /display/ is /calibration/ {
+    When a calibration from camera $camera to display $display is /calibration/ {
         set calibrationReport "$posesReport
         <p>Calibration:</p><pre>
 Camera intrinsics --------
@@ -340,7 +457,7 @@ Projector RMSE [dict getdef $calibration projector rmse (unavailable)]
 ----
 Stereo RMSE [dict getdef $calibration rmse (unavailable)]
 </pre>"
-        Claim the calibration report is $calibrationReport
+        Claim the calibration report from camera $camera to display $display is $calibrationReport
     }
 }
 
