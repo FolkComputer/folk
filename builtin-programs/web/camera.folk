@@ -29,6 +29,18 @@ Wish the web server handles route {/camera} with handler {
     } else {
         set exposureAtPageLoad 1500
     }
+    set gainAtPageLoad 140
+    set gainsAtPageLoad [Query! /someone/ wishes camera $baseCameraToControl uses gain /gain/]
+    if {[llength $gainsAtPageLoad] == 1} {
+        set gainAtPageLoad [dict get [lindex $gainsAtPageLoad 0] gain]
+    }
+    set gainMin 0
+    set gainMax 190
+    set gainRanges [Query! camera $baseCameraToControl has gain range /min/ to /max/]
+    if {[llength $gainRanges] == 1} {
+        set gainMin [dict get [lindex $gainRanges 0] min]
+        set gainMax [dict get [lindex $gainRanges 0] max]
+    }
 
     html [subst {
 <html>
@@ -44,6 +56,11 @@ Wish the web server handles route {/camera} with handler {
         <input style="max-width: 100px" type="range" min="10" max="48" value="15" class="slider" id="cameraExposureSlider">
         <input type="number" min="1000" max="320000" step="100" value="1500" id="cameraExposureNumber">μs
       </div>
+      <label>
+        Gain:
+        <input style="max-width: 100px" type="range" min="$gainMin" max="$gainMax" step="1" value="$gainAtPageLoad" id="cameraGainSlider">
+        <input type="number" min="$gainMin" max="$gainMax" step="1" value="$gainAtPageLoad" id="cameraGainNumber">
+      </label>
     </div>
     <script src="/lib/folk.js"></script>
     <script>
@@ -70,6 +87,18 @@ Wish the web server handles route {/camera} with handler {
       advanceCamera();
 
       const ws = new FolkWS(statusSpan);
+      function updateGain(value) {
+        value = Number(value);
+        if (!Number.isInteger(value)) return;
+        value = Math.max($gainMin, Math.min($gainMax, value));
+        cameraGainSlider.value = value;
+        cameraGainNumber.value = value;
+        ws.hold('gain $baseCameraToControl', tcl`
+          Wish camera $baseCameraToControl uses gain \${value}
+        `, 'builtin-programs/web/setup.folk', true);
+      }
+      cameraGainSlider.addEventListener('input', (e) => updateGain(e.target.value));
+      cameraGainNumber.addEventListener('change', (e) => updateGain(e.target.value));
       function sendExposure(valueInMicroseconds) {
         ws.hold('exposure $baseCameraToControl', tcl`
           Wish camera $baseCameraToControl uses exposure time \${valueInMicroseconds} us
