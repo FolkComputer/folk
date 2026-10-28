@@ -105,8 +105,8 @@ fn makeAprilTagDetector {TAG_FAMILY QUAD_DECIMATE NTHREADS} {
         return result;
     }
     $cc proc detectCleanup {} void {
-        ${TAG_FAMILY}_destroy(tf);
         apriltag_detector_destroy(td);
+        ${TAG_FAMILY}_destroy(tf);
     }
 
     set detector [$cc compile]
