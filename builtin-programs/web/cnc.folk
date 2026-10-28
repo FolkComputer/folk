@@ -1,0 +1,354 @@
+# CNC controls and previews; processing runs in builtin-programs/cnc.folk.
+Wish the web server handles route {/cnc} with handler {
+    set panels {}
+    foreach item [lrange [lsort -command {apply {{a b} {string compare $a(camera) $b(camera)}}} [Query! camera /camera/ has width /w/ height /h/]] 0 1] {
+        set camera $item(camera);set saved null
+        foreach s [Query! cnc claims camera $camera has CNC bed corners /points/ with width /width/ height /height/] {set saved [json::encode [dict remove $s __ref] {obj points {list list num} width num height num}]}
+        lappend panels [subst {
+            <section data-camera="[htmlEscape $camera]" data-saved="[htmlEscape $saved]">
+                <h3>[htmlEscape $camera]</h3>
+                <div class="image">
+                    <canvas></canvas>
+                    <canvas class="segments" style="display: none"></canvas>
+                    <svg></svg>
+                </div>
+                <p class="status">Loading…</p>
+                <button class="undo">Undo corner</button>
+                <button class="clear">Clear / redraw</button>
+                <button class="resume">Resume live</button>
+            </section>
+        }]
+    }
+    set script {
+        const ws = new FolkWS(document.getElementById('connectionStatus'));
+        const views = new Map();
+        let mapping, mappingText, latestSnapshot, probeRequest, stopped = false;
+
+        function transform(h, x, y) {
+            const d = h[6]*x + h[7]*y + h[8];
+            return [(h[0]*x + h[1]*y + h[2])/d, (h[3]*x + h[4]*y + h[5])/d];
+        }
+
+        ws.watchCollected('/any/ claims CNC bed mapping is /json/ in display /display/', matches => {
+            const text = matches[0]?.json;
+            if (text === mappingText) return;
+            mappingText = text;
+            mapping = text ? JSON.parse(text) : null;
+            document.getElementById('bed-size').textContent = mapping?.widthMeters ?
+                `Bed: ${mapping.widthMeters.toFixed(2)} × ${mapping.heightMeters.toFixed(2)} m (${mapping.areaSquareMeters.toFixed(2)} m²). Sampling ${mapping.pointsPerSide} × ${mapping.pointsPerSide} prompts.` : '';
+            latestSnapshot = null;
+            for (const view of views.values()) view.clear();
+        });
+
+        ws.watch('/any/ claims CNC bed snapshot for mapping /mapping/ is /json/', {add: match => {
+            if (stopped || match.mapping !== mappingText) return;
+            const snapshot = JSON.parse(match.json);
+            if (snapshot.error) {
+                for (const view of views.values()) view.error(snapshot.error);
+                return;
+            }
+            latestSnapshot = snapshot;
+            const matched = JSON.parse(snapshot.matches);
+            for (const camera of snapshot.cameras) views.get(camera.camera)?.render(camera, matched);
+            document.getElementById('matches').textContent = `${matched.length} matched segments (>9 cm² each, >40% overlap in each view). Outlines assume the bed plane. Pair processed in ${snapshot.seconds.toFixed(2)} s.`;
+        }});
+
+        ws.watchCollected('/any/ claims CNC workpiece probe /request/ has status /json/', matches => {
+            const match = matches.find(m => Number(m.request) === probeRequest);
+            if (match) document.getElementById('probe').textContent = JSON.parse(match.json).message;
+        });
+        document.getElementById('stopProbe').onclick = () => {
+            ws.run('Hold! -on cnc-probe -key request {}');
+            probeRequest = null;
+            document.getElementById('probe').textContent = 'Probe stopped.';
+        };
+
+        ws.watchCollected('/any/ claims CNC bed reconstruction is /result/', matches => {
+            const results = matches.map(match => loadDict(match.result));
+            const s = results.find(result => !result.waiting) || results[0];
+            document.getElementById('bed').textContent = s?.error || s?.waiting || (s ?
+                `Bed projected. Reprojection RMS: ${Number(s.reprojectionRms).toFixed(2)} px.` :
+                'Select four corners in each camera.');
+        });
+
+        window.addEventListener('pagehide', () => stopped = true);
+
+        document.querySelectorAll('section').forEach(panel => {
+            const camera = panel.dataset.camera;
+            const canvas = panel.querySelector('canvas');
+            const ctx = canvas.getContext('2d');
+            const segments = panel.querySelector('.segments');
+            const svg = panel.querySelector('svg');
+            const label = panel.querySelector('.status');
+            const saved = JSON.parse(panel.dataset.saved);
+            let points = saved?.points || [];
+            let width = saved?.width || 0, height = saved?.height || 0;
+            let live = true, busy = false, ready = false, version = 0, timer, request;
+
+            let previewVersion = 0;
+            const view = {contours: [], clear: clearSegments, error: text => label.textContent = text, render};
+            views.set(camera, view);
+
+            function clearSegments() {
+                previewVersion++;
+                segments.style.display = 'none';
+                view.contours = [];
+                draw();
+            }
+
+            async function render(data, matched) {
+                if (!live || stopped || points.length !== 4) return;
+                const generation = version, preview = ++previewVersion;
+                const bitmap = (base64, type) => createImageBitmap(new Blob([
+                    Uint8Array.from(atob(base64), c => c.charCodeAt(0)),
+                ], {type}));
+                let image, overlay;
+                try {
+                    image = await bitmap(data.preview, 'image/jpeg');
+                    overlay = await bitmap(data.overlay, 'image/png');
+                    if (!live || stopped || generation !== version || preview !== previewVersion) return;
+                    if (canvas.width !== image.width) canvas.width = image.width;
+                    if (canvas.height !== image.height) canvas.height = image.height;
+                    ctx.drawImage(image, 0, 0);
+                    if (segments.width !== overlay.width) segments.width = overlay.width;
+                    if (segments.height !== overlay.height) segments.height = overlay.height;
+                    const context = segments.getContext('2d');
+                    context.clearRect(0, 0, segments.width, segments.height);
+                    context.drawImage(overlay, 0, 0);
+                    const crop = data.crop;
+                    Object.assign(segments.style, {display: 'block',
+                        left: `${100*crop.x/data.width}%`, top: `${100*crop.y/data.height}%`,
+                        width: `${100*crop.w/data.width}%`, height: `${100*crop.h/data.height}%`});
+                    ready = true;
+                    view.contours = matched;
+                    draw();
+                    label.textContent = `${data.count} segments in the bed bounding box.`;
+                } catch (e) {
+                    if (generation === version && preview === previewVersion) label.textContent = e.message;
+                } finally {
+                    image?.close();
+                    overlay?.close();
+                }
+            }
+
+            function draw() {
+                svg.setAttribute('viewBox', `0 0 ${width || canvas.width} ${height || canvas.height}`);
+                const scale = (width || canvas.width) / canvas.getBoundingClientRect().width;
+                svg.innerHTML = `
+                    <${points.length === 4 ? 'polygon' : 'polyline'}
+                        points="${points.map(p => p.join(',')).join(' ')}"
+                        fill="none" stroke="#00ff66" stroke-width="2"
+                        vector-effect="non-scaling-stroke"/>
+                ` + points.map(([x, y], i) => `
+                    <circle cx="${x}" cy="${y}" r="${4 * scale}" fill="#ffcc00"/>
+                    <text x="${x + 8 * scale}" y="${y - 8 * scale}"
+                        font-size="${14 * scale}" fill="white" stroke="black"
+                        stroke-width="${2 * scale}" paint-order="stroke">${i + 1}</text>
+                `).join('');
+                label.textContent = points.length === 4 ? 'Four corners saved.' :
+                    `Click corner ${points.length + 1} of 4.`;
+            }
+
+            async function frame() {
+                if (stopped || !live || points.length === 4) return;
+                if (document.hidden) {
+                    timer = setTimeout(frame, 500);
+                    return;
+                }
+                const generation = version;
+                request = new AbortController();
+                try {
+                    const r = await fetch('/camera-frame?' + new URLSearchParams({camera}), {
+                        cache: 'no-store', signal: request.signal,
+                    });
+                    if (!r.ok) throw Error(`Camera: ${r.status}`);
+                    const image = await createImageBitmap(await r.blob());
+                    try {
+                        if (!live || stopped || generation !== version) return;
+                        if (canvas.width !== image.width) canvas.width = image.width;
+                        if (canvas.height !== image.height) canvas.height = image.height;
+                        ctx.drawImage(image, 0, 0);
+                        ready = true;
+                        draw();
+                    } finally {
+                        image.close();
+                    }
+                } catch (e) {
+                    if (live) label.textContent = e.message;
+                }
+                if (live && !stopped && generation === version) timer = setTimeout(frame, 100);
+            }
+
+            function resume() {
+                version++;
+                clearSegments();
+                request?.abort();
+                clearTimeout(timer);
+                live = true;
+                if (points.length === 4 && latestSnapshot) {
+                    const data = latestSnapshot.cameras.find(c => c.camera === camera);
+                    if (data) render(data, JSON.parse(latestSnapshot.matches));
+                } else frame();
+            }
+
+            canvas.onclick = async e => {
+                if (!ready || busy) return;
+                if (points.length === 4) {
+                    const r = canvas.getBoundingClientRect();
+                    const x = (e.clientX-r.left)/r.width, y = (e.clientY-r.top)/r.height;
+                    const h = mapping?.cameras.find(c => c.name === camera)?.h;
+                    if (!h) return;
+                    const inside = contour => {
+                        const polygon = contour.map(p => transform(h,...p));
+                        let hit = false;
+                        for (let i = 0, j = polygon.length-1; i < polygon.length; j = i++) {
+                            const a = polygon[i], b = polygon[j];
+                            if ((a[1]>y)!==(b[1]>y) && x<(b[0]-a[0])*(y-a[1])/(b[1]-a[1])+a[0]) hit = !hit;
+                        }
+                        return hit;
+                    };
+                    const selected = view.contours.filter(m => m.contours.reduce((hit,c) => hit !== inside(c), false))
+                        .sort((a,b) => a.areaA+a.areaB-b.areaA-b.areaB)[0];
+                    if (!selected) return;
+                    probeRequest = (crypto.getRandomValues(new Uint32Array(1))[0] & 0x7fffffff) || 1;
+                    document.getElementById('probe').textContent = 'Starting projected-tag probe…';
+                    const wish = tcl`Wish CNC probe ${probeRequest} segment ${JSON.stringify(selected)} for mapping ${mappingText}`;
+                    await ws.run(tcl`Hold! -noncapturing -on cnc-probe -key request [list When websocket $chan is connected ${wish}]`);
+                    return;
+                }
+                live = false;
+                version++;
+                request?.abort();
+                clearTimeout(timer);
+                if (!points.length) {
+                    width = canvas.width;
+                    height = canvas.height;
+                }
+                const r = canvas.getBoundingClientRect();
+                points.push([
+                    Math.max(0, Math.min(width - 1, (e.clientX - r.left) * width / r.width)),
+                    Math.max(0, Math.min(height - 1, (e.clientY - r.top) * height / r.height)),
+                ]);
+                draw();
+                if (points.length === 4) {
+                    busy = true;
+                    label.textContent = 'Saving…';
+                    try {
+                        await ws.run(tcl`Hold! -save -on cnc -key ${camera} -- cnc claims camera ${camera} has CNC bed corners ${points} with width ${width} height ${height}`);
+                        draw();
+                        resume();
+                    } catch (e) {
+                        points.pop();
+                        draw();
+                        label.textContent = e.message;
+                    } finally {
+                        busy = false;
+                    }
+                }
+            };
+
+            panel.querySelector('.undo').onclick = async () => {
+                if (busy || !points.length) return;
+                live = false; version++; request?.abort(); clearTimeout(timer); clearSegments();
+                busy = true;
+                try {
+                    await ws.hold(camera, '', 'cnc', true);
+                    points.pop();
+                    draw();
+                } catch (e) {
+                    label.textContent = e.message;
+                } finally {
+                    busy = false;
+                }
+            };
+
+            panel.querySelector('.clear').onclick = async () => {
+                if (busy) return;
+                live = false; version++; request?.abort(); clearTimeout(timer); clearSegments();
+                busy = true;
+                try {
+                    await ws.hold(camera, '', 'cnc', true);
+                    points = [];
+                    width = height = 0;
+                    draw();
+                    resume();
+                } catch (e) {
+                    label.textContent = e.message;
+                } finally {
+                    busy = false;
+                }
+            };
+
+            panel.querySelector('.resume').onclick = resume;
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) request?.abort();
+            });
+            window.addEventListener('pagehide', () => {
+                version++;
+                clearSegments();
+                request?.abort();
+                clearTimeout(timer);
+            });
+            frame();
+        });
+    }
+    html [subst {
+<!doctype html>
+<html>
+<head>
+    <title>CNC bed</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 12px;
+        }
+        .cameras {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 16px;
+        }
+        section { min-width: 0; }
+        h3 {
+            font-size: 13px;
+            overflow-wrap: anywhere;
+        }
+        .image { position: relative; }
+        canvas {
+            display: block;
+            width: 100%;
+            cursor: crosshair;
+        }
+        .segments { position: absolute; pointer-events: none; }
+        svg {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        @media (max-width: 700px) {
+            .cameras { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <h1>CNC bed</h1>
+    <p>
+        Click the same four bed corners in perimeter order in both views: same starting corner, same direction.
+        First click freezes the image; fourth click saves. Selections and projection persist after closing this page.
+        Saved bed bounding boxes are automatically segmented and colored; each overlay stays aligned with its source frame.
+    </p>
+    <span id="connectionStatus">Connecting…</span>
+    <p id="bed">Select four corners in each camera.</p>
+    <p id="bed-size"></p>
+    <p id="matches">Waiting for segments from both cameras.</p>
+    <p id="probe">Click inside a matched segment to probe its surface with AprilTags 48690–48699.</p>
+    <button id="stopProbe">Stop probing</button>
+    <div class="cameras">[join $panels \n]</div>
+    <script src="/lib/folk.js"></script>
+    <script>$script</script>
+</body>
+</html>
+    }]
+}
