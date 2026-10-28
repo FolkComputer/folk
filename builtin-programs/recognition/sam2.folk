@@ -11,6 +11,8 @@ When /someone/ wishes to really load SAM2 &\
     fn defineImageArgtype
 
     set py [Uvx --with pillow --with torch --with numpy \
+                {*}$([llength [glob -nocomplain /etc/OpenCL/vendors/intel*.icd]] ?
+                  [list --python 3.12 --with openvino] : [list]) \
                 --with huggingface_hub \
                 --with "git+https://github.com/osnr/segment-anything-2-real-time.git"]
 
@@ -180,6 +182,60 @@ When /someone/ wishes to really load SAM2 &\
         return ret
     }
 
+    $py def automaticSegments {Image image num pointsPerSide} {
+        import base64, colorsys, io, json
+        from PIL import Image as PILImage
+        from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
+        from sam2.utils.amg import build_point_grid
+        if pointsPerSide not in (16, 32):
+            raise ValueError("Use a 16x16 or 32x32 prompt grid")
+        global automatic_generator
+        image = image.convert('RGB')
+        width, height = image.size
+        # Automatic generation decodes many masks together; bound its memory.
+        image.thumbnail((1536, 1536), PILImage.Resampling.LANCZOS)
+        with predictor_lock, torch.inference_mode(), torch.autocast('cuda', dtype=torch.bfloat16, enabled=device == 'cuda'):
+            if 'automatic_generator' not in globals():
+                generator = SAM2AutomaticMaskGenerator(predictor, points_per_side=32,
+                    points_per_batch=16, crop_n_layers=0, min_mask_region_area=0)
+                if device == "cpu" and importlib.util.find_spec("openvino"):
+                    import openvino as ov
+                    if "GPU" in ov.Core().available_devices:
+                        sys.path.insert(0, os.path.abspath("vendor"))
+                        from sam2_openvino import enable_openvino
+                        backend = enable_openvino(generator)
+                        print(f"sam2: Automatic segmentation uses {backend}", file=sys.stderr, flush=True)
+                automatic_generator = generator
+            try:
+                automatic_generator.point_grids = [build_point_grid(pointsPerSide)]
+                records = automatic_generator.generate(np.array(image))
+            finally:
+                automatic_generator.predictor.reset_predictor()
+        overlay = np.zeros((image.height, image.width, 4), dtype=np.uint8)
+        count = 0
+        masks = []
+        # Smaller nested regions remain visible above larger masks.
+        for record in sorted(records, key=lambda record: record['area'], reverse=True):
+            mask = record['segmentation']
+            if not mask.any():
+                continue
+            color = tuple(round(c * 255) for c in colorsys.hsv_to_rgb((count * .61803398875) % 1, .72, 1))
+            count += 1
+            edges = np.flatnonzero(np.diff(np.pad(mask.reshape(-1).astype(np.int8), (1, 1))))
+            runs = edges.reshape(-1, 2)
+            masks.append(dict(runs=np.column_stack((runs[:, 0], runs[:, 1] - runs[:, 0])).reshape(-1).tolist(), color=color))
+            overlay[mask] = (*color, 140)
+            interior = np.zeros_like(mask)
+            interior[1:-1, 1:-1] = (mask[1:-1, 1:-1] & mask[:-2, 1:-1] & mask[2:, 1:-1]
+                                   & mask[1:-1, :-2] & mask[1:-1, 2:])
+            overlay[mask & ~interior] = (*color, 240)
+        png = io.BytesIO()
+        PILImage.fromarray(overlay).save(png, format='PNG')
+        return json.dumps(dict(width=width, height=height, count=count,
+                               maskWidth=image.width, maskHeight=image.height, masks=masks,
+                               overlay=base64.b64encode(png.getvalue()).decode('ascii')))
+    }
+
     $py def trackObjects {Image image} {
         global predictor_initialized
         image_np = np.array(image.convert("RGB"))
@@ -307,6 +363,9 @@ When /someone/ wishes to really load SAM2 &\
     }
     Claim the SAM2 object tracker is [fn SAM2Track]
     Claim the SAM2 prompt adder is [fn SAM2AddPrompt]
+    fn SAM2AutomaticSegments {image {pointsPerSide 32}} { $py automaticSegments $image $pointsPerSide }
+    Claim the SAM2 automatic segmenter is [fn SAM2AutomaticSegments]
+    Claim the SAM2 Python worker is $py
     Claim the SAM2 segmenter is [fn SAM2Segment]
     Claim the SAM2 object saver is [fn SAM2SaveObject]
     Claim the SAM2 object loader is [fn SAM2LoadObject]
