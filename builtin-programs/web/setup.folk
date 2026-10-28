@@ -537,7 +537,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
 
 <div>
   <h2>Projector-camera calibration</h2>
-  <p>Select <strong>one display</strong> and <strong>one or more cameras</strong> to calibrate:</p>
+  <p>Select <strong>one or more projectors and cameras</strong> to calibrate:</p>
 
   <fieldset style="margin: 10px 0; border: 1px solid #ccc; padding: 10px;">
     <legend><strong>Display (projector)</strong></legend>
@@ -545,7 +545,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
       subst {
         <div style="margin: 5px 0;">
           <label>
-            <input type="radio" name="calibration-display"
+            <input type="checkbox" name="calibration-display"
                    value="$display"
                    onchange="calibrationSelectionChange()">
             $display
@@ -586,21 +586,23 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
 
   <script>
     function calibrationSelectionChange() {
-      const display = document.querySelector('input\[name="calibration-display"]:checked');
+      const displays = Array.from(document.querySelectorAll('input\[name="calibration-display"]:checked'));
       const cameras = document.querySelectorAll('input\[name="calibration-camera"]:checked');
       const button = document.getElementById('calibrate-button');
-      button.disabled = !display || cameras.length === 0;
+      button.disabled = !displays.length || cameras.length === 0;
     }
 
     function startCalibration() {
-      const display = document.querySelector('input\[name="calibration-display"]:checked');
+      const displays = Array.from(document.querySelectorAll('input\[name="calibration-display"]:checked'));
       const cameras = Array.from(document.querySelectorAll('input\[name="calibration-camera"]:checked'));
 
-      if (!display || cameras.length === 0) return;
+      if (!displays.length || cameras.length === 0) return;
 
       const params = new URLSearchParams();
-      params.append('display', display.value);
+      displays.forEach(display => params.append('display', display.value));
+      params.set('displays', dumpRaw(displays.map(display => display.value)));
       cameras.forEach(camera => params.append('camera', camera.value));
+      params.set('cameras', dumpRaw(cameras.map(camera => camera.value)));
 
       window.location.href = `/calibrate?\${params.toString()}`;
     }

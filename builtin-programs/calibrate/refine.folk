@@ -500,6 +500,66 @@ $cc proc stereoRefineCalibrationOptimize {double[paramsCount] params} Jim_Obj* {
     return Jim_NewListObj(interp, paramObjs, 1 + paramsCount);
 }
 
+# The same camera/projector intrinsics are used by every pair that sees them.
+# Pair transforms and board poses are optimized alongside those intrinsics.
+$cc code {
+    typedef struct JointData {
+        int devices, pairs;
+        int *camera, *projector, *pair;
+    } JointData;
+}
+$cc proc jointFunc {int m int n double* x double* fvec double** dvec void* data} int {
+    JointData *d = data;
+    int f = 0;
+    for (int pose = 0; pose < StereoPoseCount; pose++) {
+        Intrinsics camera, projector;
+        loadIntrinsics(&camera, x + 8*d->camera[pose]);
+        loadIntrinsics(&projector, x + 8*d->projector[pose]);
+        double *cp = x + 8*d->devices + 6*d->pair[pose];
+        double *board = x + 8*d->devices + 6*d->pairs + 6*pose;
+        double Rcp[3][3], Rb[3][3];
+        rotationVectorToRotationMatrix(cp, Rcp);
+        rotationVectorToRotationMatrix(board, Rb);
+        for (int point = 0; point < StereoPosePointsCount[pose]; point++) {
+            double c[3], p[3], ideal[2], pixel[2];
+            transformVec3(Rb, board + 3, StereoPoseModelPoints[pose][point], c);
+            project(camera.mat, c, ideal);
+            distort(camera, ideal, pixel);
+            for (int j = 0; j < 2; j++) fvec[f++] = pixel[j] - StereoPoseCameraPoints[pose][point][j];
+            transformVec3(Rcp, cp + 3, c, p);
+            project(projector.mat, p, ideal);
+            distort(projector, ideal, pixel);
+            for (int j = 0; j < 2; j++) fvec[f++] = pixel[j] - StereoPoseProjectorPoints[pose][point][j];
+        }
+    }
+    assert(f == m);
+    return 0;
+}
+$cc proc jointOptimize {double[paramsCount] params int devices int pairs
+                        int[] cameras int[] projectors int[] posePairs} Jim_Obj* {
+    JointData data = {devices, pairs, cameras, projectors, posePairs};
+    FOLK_ENSURE(paramsCount == devices*8 + pairs*6 + StereoPoseCount*6);
+    int count = StereoPointsCount * 4;
+    double *residuals = malloc(count * sizeof(double));
+    mp_result result = {0};
+    mp_config config = {0};
+    config.maxiter = 400;
+    int status = mpfit(jointFunc, count, paramsCount, params, NULL, &config, &data, &result);
+    if (status <= 0) { free(residuals); }
+    FOLK_ENSURE(status > 0);
+    jointFunc(count, paramsCount, params, residuals, NULL, &data);
+    double error = 0;
+    for (int i = 0; i < count; i++) error += residuals[i]*residuals[i];
+    free(residuals);
+    Jim_Obj *out = Jim_NewListObj(interp, NULL, 0);
+    Jim_ListAppendElement(interp, out, Jim_NewDoubleObj(interp, sqrt(error / (StereoPointsCount*2))));
+    for (int i = 0; i < paramsCount; i++) {
+        FOLK_ENSURE(isfinite(params[i]));
+        Jim_ListAppendElement(interp, out, Jim_NewDoubleObj(interp, params[i]));
+    }
+    return out;
+}
+
 # Folk level
 # ----------
 
@@ -730,5 +790,73 @@ fn refineCalibration {modelLib matLib setCameraToProjectorExtrinsics
     return $calibration
 }
 Claim the calibration refiner is [fn refineCalibration]
+
+# Initialize each pair with the existing solver, then optimize all observations
+# together. Intrinsics occur once per physical device in the parameter vector.
+fn refineJointCalibration {modelLib matLib unrefinedCalibrateCameraAndProjector setCameraToProjectorExtrinsics poseSets} {
+    fn unrefinedCalibrateCameraAndProjector
+    fn setCameraToProjectorExtrinsics
+    set calibrations {}; set devices {}; set intrNames {fx cx fy cy k1 k2 p1 p2}
+    set counts {}; set models {}; set cameraPoints {}; set projectorPoints {}
+    set cameras {}; set projectors {}; set posePairs {}; set transforms {}; set boards {}
+    set pairIndex 0
+    foreach poses $poseSets {
+        set calibration [unrefinedCalibrateCameraAndProjector $modelLib $matLib $poses]
+        set calibration [refineCalibration $modelLib $matLib $setCameraToProjectorExtrinsics $poses $calibration]
+        lappend calibrations $calibration
+        set pose0 [lindex $poses 0]
+        foreach type {camera projector} field {camera display} {
+            set key [list $type [dict get $pose0 $field]]
+            if {![dict exists $devices $key]} { dict set devices $key [dict get $calibration $type intrinsics] }
+            set $type [lsearch -exact [dict keys $devices] $key]
+        }
+        lappend transforms {*}[rotationMatrixToRotationVector [dict get $calibration R_cameraToProjector]] {*}[dict get $calibration t_cameraToProjector]
+        foreach pose $poses extrinsics [dict get $calibration camera extrinsics] {
+            set count 0
+            dict for {id tag} [dict get $pose tags] {
+                if {![$modelLib isProjectedTag $id]} continue
+                foreach corner [dict get $pose model $id p] point [dict get $tag p] {
+                    lappend models {*}$corner 0.0
+                    lappend cameraPoints {*}$point
+                    lappend projectorPoints {*}[$matLib applyHomography [dict get $pose H_modelToDisplay] $corner]
+                    incr count
+                }
+            }
+            lappend counts $count
+            lappend cameras $camera; lappend projectors $projector; lappend posePairs $pairIndex
+            lappend boards {*}[rotationMatrixToRotationVector [dict get $extrinsics R]] {*}[dict get $extrinsics t]
+        }
+        incr pairIndex
+    }
+    set params {}
+    foreach intrinsics [dict values $devices] {
+        foreach name $intrNames { lappend params [dict get $intrinsics $name] }
+    }
+    $refineLib stereoSetPoints [llength $counts] $counts $models $cameraPoints $projectorPoints
+    set refined [$refineLib jointOptimize [concat $params $transforms $boards] [dict size $devices] $pairIndex $cameras $projectors $posePairs]
+    set refined [lassign $refined rmse]
+    foreach key [dict keys $devices] {
+        set intrinsics [dict get $devices $key]
+        foreach name $intrNames value [lrange $refined 0 7] { dict set intrinsics $name $value }
+        dict set intrinsics s 0.0
+        dict set devices $key $intrinsics
+        set refined [lrange $refined 8 end]
+    }
+    set results {}
+    foreach calibration $calibrations poses $poseSets {
+        set pose0 [lindex $poses 0]
+        dict set calibration camera intrinsics [dict get $devices [list camera [dict get $pose0 camera]]]
+        dict set calibration projector intrinsics [dict get $devices [list projector [dict get $pose0 display]]]
+        dict set calibration R_cameraToProjector [rotationVectorToRotationMatrix [lrange $refined 0 2]]
+        dict set calibration t_cameraToProjector [lrange $refined 3 5]
+        dict set calibration rmse $rmse
+        set refined [lrange $refined 6 end]
+        lappend results $calibration
+    }
+    return $results
+}
+Claim the joint calibration refiner is [fn refineJointCalibration]
+
+
 
 }

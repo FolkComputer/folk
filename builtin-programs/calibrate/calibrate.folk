@@ -61,7 +61,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         set calibrationTagDetector [makeAprilTagDetector "tagStandard52h13" 2.0 3]
     }
 
-    set calibrationId [clock milliseconds]
+    set calibrationId [clock microseconds]
+    Hold! -key collection-complete {}
 
     # VERY IMPORTANT: disable autofocus forever.
     catch { exec v4l2-ctl --device=$camera --set-ctrl=focus_automatic_continuous=0 }
@@ -130,7 +131,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         set message "[llength $poses]/$posesMax poses ([expr {round($cycleTime*1000)}] ms)"
         Wish to draw calibration model [dict get $modelToDisplayOpts model] \
             using model-to-display homography $H_modelToDisplay \
-            with message $message
+            with message $message on display $display
     }
 
     # This is made a function so it can also be called by the Web page
@@ -176,6 +177,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
     When the calibration poses max is /calibrationPosesMax/ &\
          -serially camera $camera has gray frame /frame/ at timestamp /frameTimestamp/ {
+        if {[llength [Query! the calibration collection completed run $calibrationId with /poses/ at /timestamp/]]} { return }
         # HACK: so we just lookup whatever is latest _right now_,
         # instead of subscribing.
         set calibrationStates \
@@ -447,7 +449,13 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             # Destroy the old calibration and trigger a new one.
             Hold! -save -on calibration -key [list calibration $camera $display] {}
 
-            Hold! -key {start calibration} {}
+            Hold! -save -on calibration -key [list collection $camera $display] \
+                Claim calibration collected [llength $calibrationPoses] poses from camera $camera to display $display at [clock seconds]
+            Hold! -key collection-complete \
+                Claim the calibration collection completed run $calibrationId with $calibrationPoses at [clock seconds]
+            if {![llength [Query! /someone/ wishes to collect calibration pairs /pairs/ using measurements /m/ in session /session/]]} {
+                Hold! -key {start calibration} {}
+            }
         }
     }
 }
@@ -745,6 +753,8 @@ fn unrefinedCalibrateCameraAndProjector {modelLib matLib calibrationPoses} {
     return $calibration
 }
 
+Claim the calibration initializer is [fn unrefinedCalibrateCameraAndProjector] with extrinsics setter [fn setCameraToProjectorExtrinsics]
+
 When the calibration model library is /modelLib/ &\
      the calibration matrix library is /matLib/ &\
      the calibration poses max is /calibrationPosesMax/ &\
@@ -756,6 +766,8 @@ When the calibration model library is /modelLib/ &\
         return
     }
 
+    # Sessions solve all pairs together after collection, not after each pair.
+    if {[llength [Query! /someone/ wishes to collect calibration pairs /pairs/ using measurements /m/ in session /session/]]} { return }
     set calibration [unrefinedCalibrateCameraAndProjector $modelLib $matLib \
                          $calibrationPoses]
     puts "======== Unrefined calibration ========="
