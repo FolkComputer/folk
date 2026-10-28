@@ -49,16 +49,23 @@ Wish the web server handles route {/camera} with handler {
     <script>
       const canvas = cameraCanvas;
       const ctx = canvas.getContext('2d');
-      function advanceCamera() {
-        const img = new Image();
-        img.onload = () => {
-          canvas.width = img.naturalWidth;
-          canvas.height = img.naturalHeight;
-          ctx.drawImage(img, 0, 0);
-          setTimeout(advanceCamera, 0);
-        };
-        img.onerror = () => setTimeout(advanceCamera, 500);
-        img.src = '/camera-frame?camera=[string map [list / %2F " " %20] $camera]&uniq=' + Math.random();
+      async function advanceCamera() {
+        let bitmap;
+        let delay = 0;
+        try {
+          const response = await fetch('/camera-frame?camera=[string map [list / %2F " " %20] $camera]',
+                                       {cache: 'no-store'});
+          if (!response.ok) throw new Error('Camera frame unavailable');
+          bitmap = await createImageBitmap(await response.blob());
+          if (canvas.width !== bitmap.width) canvas.width = bitmap.width;
+          if (canvas.height !== bitmap.height) canvas.height = bitmap.height;
+          ctx.drawImage(bitmap, 0, 0);
+        } catch (error) {
+          delay = 500;
+        } finally {
+          if (bitmap) bitmap.close();
+          setTimeout(advanceCamera, delay);
+        }
       }
       advanceCamera();
 

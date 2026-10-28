@@ -64,9 +64,13 @@ When the hold save directory is /holdDirectory/ &\
     set calibrationPoses [tryReadFile "$::env(HOME)/folk-live/folk-calibration-poses.txt"]
     set calibration [tryReadFile "$::env(HOME)/folk-live/folk-calibration-output.txt"]
     if {$calibrationPoses != "" && $calibration != ""} {
-        Hold! -save -on calibration -key calibration \
+        Hold! -save -on calibration -key [list calibration \
+                                              [dict get $calibration camera name] \
+                                              [dict get $calibration projector name]] \
             Claim the calibration is $calibration
-        Hold! -save -on calibration -key poses \
+        Hold! -save -on calibration -key [list poses \
+                                              [dict get $calibration camera name] \
+                                              [dict get $calibration projector name]] \
             Claim the calibration poses are $calibrationPoses
     }
 
@@ -76,4 +80,48 @@ Feel free to delete them once you've confirmed that everything works!"
     puts "\n############################\n\n\n"
 
     Claim the migration is complete
+}
+
+# Old installations detected tags automatically. Preserve that behavior for
+# their calibrated camera without changing the old, still-compatible keys.
+When /someone/ wishes to deserialize namespace hold with directory /directory/ &\
+     the saved holds are loaded &\
+     saving is ready {
+    set setup builtin-programs/web/setup.folk
+    set migrationKey {apriltag detection migrated}
+    set setupHolds {}
+    if {[file exists "$directory/web__setup.folk"]} {
+        set fd [open "$directory/web__setup.folk" r]
+        try {
+            set setupHolds [lrange [read $fd] 1 end]
+        } finally {
+            close $fd
+        }
+    }
+    if {[dict exists $setupHolds $migrationKey]} { return }
+
+    if {![file exists "$directory/calibration"]} { return }
+    set fd [open "$directory/calibration" r]
+    try {
+        set calibrationHolds [lrange [read $fd] 1 end]
+    } finally {
+        close $fd
+    }
+    if {![dict exists $calibrationHolds calibration]} { return }
+    set clause [dict get $calibrationHolds calibration]
+    if {[llength $clause] != 12 ||
+        [lrange $clause 1 5] ne {claims a calibration from camera} ||
+        [lrange $clause 7 8] ne {to display} ||
+        [lindex $clause 10] ne "is"} { return }
+
+    set camera [lindex $clause 6]
+    set detectTagsKey "camera $camera detects tags"
+    if {![dict exists $setupHolds $detectTagsKey]} {
+        Hold! -save -on $setup -key $detectTagsKey \
+            Wish camera $camera detects tags
+    }
+    # An unchecked setup checkbox removes its hold. Remember the migration
+    # separately so subsequent boots respect that choice.
+    Hold! -save -on $setup -key $migrationKey \
+        Claim the AprilTag detection migration is complete
 }

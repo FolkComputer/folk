@@ -23,6 +23,7 @@
 
 #include "common.h"
 #include "epoch.h"
+#include "db.h"
 
 extern void installLocalStdoutAndStderr(int stdoutfd, int stderrfd);
 
@@ -31,7 +32,7 @@ extern ThreadControlBlock threads[];
 extern Db* db;
 extern void trace(const char* format, ...);
 extern void HoldStatementGlobally(const char *key, double version,
-                                  Clause *clause, long keepMs, const char *destructorCode,
+                                  Clause *clause, long keepMs, Destructor* destructor,
                                   const char *sourceFileName, int sourceLineNumber);
 extern void workerReactivateOrSpawn(int64_t msSinceBoot, int targetNotBlockedWorkersCount);
 extern void dbGarbageCollectAtomicallys(Db* db, int64_t now);

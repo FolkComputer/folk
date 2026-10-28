@@ -316,12 +316,34 @@ $gpuc proc endSingleTimeCommands {VkCommandBuffer commandBuffer VkFence fence} v
 
 $gpuc code {
     static __thread VkFence _fence = VK_NULL_HANDLE;
+    static pthread_key_t fenceCleanupKey;
+    static pthread_once_t fenceCleanupOnce = PTHREAD_ONCE_INIT;
+
+    static void destroyWorkerFence(void* value) {
+        VkFence* fence = value;
+        pthread_mutex_lock(graphicsQueueMutex_ptr());
+        vkQueueWaitIdle(*graphicsQueue_ptr());
+        vkDestroyFence(device, *fence, NULL);
+        pthread_mutex_unlock(graphicsQueueMutex_ptr());
+        free(fence);
+    }
+    static void initializeFenceCleanup() {
+        if (pthread_key_create(&fenceCleanupKey, destroyWorkerFence) != 0) {
+            fprintf(stderr, "gpu/textures: cannot create fence cleanup key\n");
+            exit(1);
+        }
+    }
 }
 $gpuc proc getFence {} VkFence {
     if (_fence == VK_NULL_HANDLE) {
         VkFenceCreateInfo fenceInfo = {0};
         fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
         $[vktry {vkCreateFence(device, &fenceInfo, NULL, &_fence)}]
+        pthread_once(&fenceCleanupOnce, initializeFenceCleanup);
+        VkFence* owned = malloc(sizeof(*owned));
+        if (owned == NULL) { exit(1); }
+        *owned = _fence;
+        if (pthread_setspecific(fenceCleanupKey, owned) != 0) { exit(1); }
     } else {
         vkResetFences(device, 1, &_fence);
     }
@@ -580,8 +602,8 @@ $gpuc proc createGpuTexture {int width int height int format} GpuTextureBlock* {
     return block;
 }
 
-# Per-worker reusable texture upload slots. Staging buffers stay alive
-# until their slot is reused and the previous upload fence has signaled.
+# Process-wide reusable texture upload slots. Workers are routinely replaced
+# after match cancellation, so thread-local slots would orphan GPU resources.
 $gpuc code {
     #define INFLIGHT_UPLOADS 8
     struct InflightUpload {
@@ -591,13 +613,32 @@ $gpuc code {
         VmaAllocation stagingBufferAllocation;
         bool inUse;
     };
-    static __thread struct InflightUpload _inflightUploads[INFLIGHT_UPLOADS];
-    static __thread int _inflightUploadsNext = 0;
+    static struct InflightUpload _inflightUploads[INFLIGHT_UPLOADS];
+    static int _inflightUploadsNext = 0;
+    static VkCommandPool uploadCommandPool = VK_NULL_HANDLE;
+    static pthread_mutex_t uploadMutex = PTHREAD_MUTEX_INITIALIZER;
+
+    static void uploadCheck(VkResult result, const char* operation) {
+        if (result != VK_SUCCESS) {
+            fprintf(stderr, "gpu/textures: %s failed: %s (%d)\n",
+                    operation, VkResultToString(result), result);
+            exit(1);
+        }
+    }
 
     // Reclaim a slot: if it holds an outstanding upload, wait for its
     // fence, destroy its staging buffer, reset fence. Returns the slot
     // with fence + cmdBuffer allocated and ready to use.
+    // The caller holds uploadMutex, including while recording/submitting.
     static struct InflightUpload* acquireInflightUpload() {
+        if (uploadCommandPool == VK_NULL_HANDLE) {
+            VkCommandPoolCreateInfo poolInfo = {0};
+            poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+            poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+            poolInfo.queueFamilyIndex = *graphicsQueueFamilyIndex_ptr();
+            uploadCheck(vkCreateCommandPool(device, &poolInfo, NULL, &uploadCommandPool),
+                        "vkCreateCommandPool");
+        }
         struct InflightUpload* slot = &_inflightUploads[_inflightUploadsNext];
         _inflightUploadsNext = (_inflightUploadsNext + 1) % INFLIGHT_UPLOADS;
 
@@ -605,7 +646,8 @@ $gpuc code {
 #ifdef TRACY_ENABLE
             TracyCZoneN(ctx, "vkWaitForFences (ring full)", 1);
 #endif
-            vkWaitForFences(device, 1, &slot->fence, VK_TRUE, UINT64_MAX);
+            uploadCheck(vkWaitForFences(device, 1, &slot->fence, VK_TRUE, UINT64_MAX),
+                        "vkWaitForFences");
 #ifdef TRACY_ENABLE
             TracyCZoneEnd(ctx);
             TracyCFree(slot->stagingBufferAllocation);
@@ -619,29 +661,32 @@ $gpuc code {
         if (slot->fence == VK_NULL_HANDLE) {
             VkFenceCreateInfo fenceInfo = {0};
             fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-            vkCreateFence(device, &fenceInfo, NULL, &slot->fence);
+            uploadCheck(vkCreateFence(device, &fenceInfo, NULL, &slot->fence),
+                        "vkCreateFence");
         } else {
-            vkResetFences(device, 1, &slot->fence);
+            uploadCheck(vkResetFences(device, 1, &slot->fence), "vkResetFences");
         }
         if (slot->cmdBuffer == VK_NULL_HANDLE) {
             VkCommandBufferAllocateInfo allocInfo = {0};
             allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-            allocInfo.commandPool = getCommandPool();
+            allocInfo.commandPool = uploadCommandPool;
             allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
             allocInfo.commandBufferCount = 1;
-            vkAllocateCommandBuffers(device, &allocInfo, &slot->cmdBuffer);
+            uploadCheck(vkAllocateCommandBuffers(device, &allocInfo, &slot->cmdBuffer),
+                        "vkAllocateCommandBuffers");
         } else {
-            vkResetCommandBuffer(slot->cmdBuffer, 0);
+            uploadCheck(vkResetCommandBuffer(slot->cmdBuffer, 0), "vkResetCommandBuffer");
         }
         return slot;
     }
 }
 
 $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
-    struct InflightUpload* upload = acquireInflightUpload();
-
-    size_t size = im.width * im.height * 4;
+    size_t size = (size_t)im.width * im.height * 4;
     FOLK_ENSURE(size > 0);
+    FOLK_ENSURE(im.components == 1 || im.components == 3 || im.components == 4);
+    pthread_mutex_lock(&uploadMutex);
+    struct InflightUpload* upload = acquireInflightUpload();
 
     createBuffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -649,7 +694,9 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
 
     // Copy im to stagingBuffer:
     {
-        void* data; vmaMapMemory(vmaGetAllocator(), upload->stagingBufferAllocation, &data);
+        void* data;
+        uploadCheck(vmaMapMemory(vmaGetAllocator(), upload->stagingBufferAllocation, &data),
+                    "vmaMapMemory");
         Image stagingIm = (Image) {
             .width = im.width, .height = im.height,
             .components = 4,
@@ -672,7 +719,7 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
         VkCommandBufferBeginInfo beginInfo = {0};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer(commandBuffer, &beginInfo);
+        uploadCheck(vkBeginCommandBuffer(commandBuffer, &beginInfo), "vkBeginCommandBuffer");
 
         // Transition to transfer destination
         VkImageMemoryBarrier barrier = {0};
@@ -724,7 +771,7 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
                              VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                              0, 0, NULL, 0, NULL, 1, &barrier);
 
-        vkEndCommandBuffer(commandBuffer);
+        uploadCheck(vkEndCommandBuffer(commandBuffer), "vkEndCommandBuffer");
 
         VkSubmitInfo submitInfo = {0};
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -732,11 +779,13 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
         submitInfo.pCommandBuffers = &commandBuffer;
 
         pthread_mutex_lock(graphicsQueueMutex_ptr());
-        vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo, upload->fence);
+        uploadCheck(vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo, upload->fence),
+                    "vkQueueSubmit");
         pthread_mutex_unlock(graphicsQueueMutex_ptr());
     }
 
     upload->inUse = true;
+    pthread_mutex_unlock(&uploadMutex);
     addToTextureDescriptorSet(block->handle);
 
     return block->handle;

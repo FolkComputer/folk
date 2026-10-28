@@ -23,6 +23,26 @@ foreach p {add norm sub scale matmul
 Hold! -key {calibration poses max} \
     Claim the calibration poses max is 10
 
+# Save and clear setup's detection hold until the calibration request ends.
+When the db library is /dbLib/ &\
+     /someone/ wishes to calibrate camera /camera/ to display /display/ \
+         using measurements /measurements/ {
+    set setup builtin-programs/web/setup.folk
+    set detectTagsKey "camera $camera detects tags"
+    set savedDetectTagsClause {}
+    foreach hold [$dbLib holds [__db]] {
+        lassign $hold key version ref clause
+        if {$key eq [list $setup {*}$detectTagsKey]} {
+            set savedDetectTagsClause [$dbLib clause [__db] $ref]
+            break
+        }
+    }
+    Hold! -on $setup -key $detectTagsKey {}
+    On unmatch {
+        Hold! -on $setup -key $detectTagsKey -- {*}$savedDetectTagsClause
+    }
+}
+
 When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      display /display/ has width /displayWidth/ height /displayHeight/ &\
      the AprilTag detector maker is /makeAprilTagDetector/ &\
@@ -35,7 +55,11 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     set printedSideLengthMm [string trimright $measurements(tagSideLength) mm]
 
     fn makeAprilTagDetector
-    set calibrationTagDetector [makeAprilTagDetector "tagStandard52h13" 2.0 3]
+    if {$cameraWidth >= 3840 && $cameraHeight >= 2160} {
+        set calibrationTagDetector [makeAprilTagDetector "tagStandard52h13" 4.0 2]
+    } else {
+        set calibrationTagDetector [makeAprilTagDetector "tagStandard52h13" 2.0 3]
+    }
 
     set calibrationId [clock milliseconds]
 
@@ -84,9 +108,12 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     On unmatch { Hold! -key last-seen-poses {} }
     set SEEN_POSES_MAX 3
 
+    # Backward compatibility: clear legacy poses so old and scoped counts
+    # cannot coexist and double the projected labels.
+    Hold! -save -on calibration -key poses {}
     # The poses to use for actual calibration at the end. We'll want
     # at least 10 poses to do ultimate calibration+refinement.
-    Hold! -on calibration -key poses \
+    Hold! -on calibration -key [list poses $camera $display] \
         Claim the calibration poses from camera $camera to display $display are [list]
 
     Hold! -key cycle-time \
@@ -395,7 +422,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # OK, let's save this calibration pose.
         lappend calibrationPoses $pose
         puts "calibrate: APPENDED CALIBRATION TO POSES ([llength $calibrationPoses] poses collected)"
-        Hold! -on calibration -key poses \
+        Hold! -on calibration -key [list poses $camera $display] \
             -version $nextModelFrameTimestamp \
             Claim the calibration poses from camera $camera to display $display are $calibrationPoses
 
@@ -410,10 +437,15 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             Hold! -save -on calibration -key calibration-measurements \
                 Claim the calibration measurements are $measurements
 
-            Hold! -save -on calibration -key poses \
+            # Backward compatibility: prevent legacy poses from doubling labels,
+            # and retire the old unscoped calibration result.
+            Hold! -save -on calibration -key poses {}
+            Hold! -save -on calibration -key calibration {}
+
+            Hold! -save -on calibration -key [list poses $camera $display] \
                 Claim the calibration poses from camera $camera to display $display are $calibrationPoses
             # Destroy the old calibration and trigger a new one.
-            Hold! -save -on calibration -key calibration {}
+            Hold! -save -on calibration -key [list calibration $camera $display] {}
 
             Hold! -key {start calibration} {}
         }
@@ -468,11 +500,24 @@ fn zhangUnrefinedCalibrate {name width height Hs} {
         ::math::linearalgebra::mkIdentity \
         ::math::linearalgebra::solvePGauss \
         ::math::linearalgebra::getcol \
+        ::math::linearalgebra::getelem \
         ::math::linearalgebra::norm \
         ::math::linearalgebra::scale \
         ::math::linearalgebra::crossproduct \
         ::math::linearalgebra::add \
         ::math::linearalgebra::sub
+
+    # Homographies are only defined up to a scalar. Normalize before
+    # building V: its entries are quadratic in H, so arbitrary scale
+    # differences otherwise give some poses enormous weight in the fit.
+    # Keep the normalized Hs for extrinsics too, including a consistent sign.
+    set Hs [lmap H $Hs {
+        set h33 [getelem $H 2 2]
+        if {$h33 == 0} {
+            error "Cannot initialize calibration: homography maps model origin to infinity"
+        }
+        scale [expr {1.0 / $h33}] $H
+    }]
 
     # Try to solve for the camera intrinsics:
 
@@ -728,6 +773,6 @@ When the calibration model library is /modelLib/ &\
     puts $calibration
     puts "."
 
-    Hold! -save -on calibration -key calibration \
+    Hold! -save -on calibration -key [list calibration $camera $display] \
         Claim a calibration from camera $camera to display $display is $calibration
 }

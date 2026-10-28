@@ -231,11 +231,6 @@ $cc code {
         out[1] = (y * (1.0 + radial) + dy)*intr.fy + intr.cy;
     }
 
-    double dist(double a[2], double b[2]) {
-        double dx = a[0] - b[0];
-        double dy = a[1] - b[1];
-        return dx*dx + dy*dy;
-    }
 }
 $cc proc monoFunc {int m int n double* x
                    double* fvec double** dvec
@@ -278,19 +273,22 @@ $cc proc monoFunc {int m int n double* x
             double planePoint[2];
             distort(intr, idealPlanePoint, planePoint);
 
-            // Add an error term to fvec.
-            fvec[f++] = dist(planePoint, MonoPosePoints[poseIdx][pointIdx]);
+            // MPFIT squares residuals; supply signed pixel errors, not
+            // squared distances (which would produce a fourth-power loss).
+            fvec[f++] = planePoint[0] - MonoPosePoints[poseIdx][pointIdx][0];
+            fvec[f++] = planePoint[1] - MonoPosePoints[poseIdx][pointIdx][1];
         }
     }
+    assert(f == m);
     return 0;
 }
 $cc proc monoComputeError {double[paramsCount] params} double {
-    double fvec[MonoPointsCount];
-    monoFunc(MonoPointsCount, paramsCount, params, fvec, NULL, NULL);
+    double fvec[MonoPointsCount * 2];
+    monoFunc(MonoPointsCount * 2, paramsCount, params, fvec, NULL, NULL);
     double totalError = 0;
-    for (int i = 0; i < MonoPointsCount; i++) {
+    for (int i = 0; i < MonoPointsCount * 2; i++) {
         /* printf("  Error %d: %f\n", i, fvec[i]); */
-        totalError += fvec[i];
+        totalError += fvec[i] * fvec[i];
     }
     printf("Total Error: %f\n", totalError);
     double rmse = sqrt(totalError / MonoPointsCount);
@@ -301,6 +299,8 @@ $cc proc monoRefineCalibrationOptimize {double[paramsCount] params} Jim_Obj* {
     setvbuf(stdout, NULL, _IONBF, BUFSIZ);
 
     mp_result result = {0};
+    mp_config config = {0};
+    config.maxiter = 400;
 
     for (int i = 0; i < paramsCount; i++) {
         FOLK_ENSURE(!isnan(params[i]));
@@ -311,12 +311,12 @@ $cc proc monoRefineCalibrationOptimize {double[paramsCount] params} Jim_Obj* {
     monoComputeError(paramsCount, params);
 
     mpfit(monoFunc,
-          // Number of example point pairs:
-          MonoPointsCount,
+          // Two pixel-coordinate residuals per observed point:
+          MonoPointsCount * 2,
           // Number of parameters to optimize:
           paramsCount,
           params, NULL,
-          NULL, NULL, &result);
+          &config, NULL, &result);
     printf("Refined -------------------\n");
     double rmse = monoComputeError(paramsCount, params);
 
@@ -433,8 +433,8 @@ $cc proc stereoFunc {int m int n double* x
             double cameraPixelPoint[2];
             distort(camIntr, idealCameraPixelPoint, cameraPixelPoint);
 
-            fvec[f++] = dist(cameraPixelPoint,
-                             StereoPoseCameraPoints[poseIdx][pointIdx]);
+            fvec[f++] = cameraPixelPoint[0] - StereoPoseCameraPoints[poseIdx][pointIdx][0];
+            fvec[f++] = cameraPixelPoint[1] - StereoPoseCameraPoints[poseIdx][pointIdx][1];
 
             // Transform the point from ideal camera-space to
             // ideal projector-space using the extrinsics.
@@ -448,27 +448,31 @@ $cc proc stereoFunc {int m int n double* x
             double projectorPixelPoint[2];
             distort(projIntr, idealProjectorPixelPoint, projectorPixelPoint);
 
-            fvec[f++] = dist(projectorPixelPoint,
-                             StereoPoseProjectorPoints[poseIdx][pointIdx]);
+            fvec[f++] = projectorPixelPoint[0] - StereoPoseProjectorPoints[poseIdx][pointIdx][0];
+            fvec[f++] = projectorPixelPoint[1] - StereoPoseProjectorPoints[poseIdx][pointIdx][1];
         }
     }
+    assert(f == m);
     return 0;
 }
 $cc proc stereoComputeError {double[paramsCount] params} double {
-    double fvec[StereoPointsCount * 2];
-    stereoFunc(StereoPointsCount * 2, paramsCount, params, fvec, NULL, NULL);
+    double fvec[StereoPointsCount * 4];
+    stereoFunc(StereoPointsCount * 4, paramsCount, params, fvec, NULL, NULL);
     double totalError = 0;
-    for (int i = 0; i < StereoPointsCount; i++) {
+    for (int i = 0; i < StereoPointsCount * 4; i++) {
         /* printf("  Error %d: %f\n", i, fvec[i]); */
-        totalError += fvec[i];
+        totalError += fvec[i] * fvec[i];
     }
     printf("Total Error: %f\n", totalError);
-    double rmse = sqrt(totalError / StereoPointsCount);
+    // RMS Euclidean pixel error per observation (camera and projector).
+    double rmse = sqrt(totalError / (StereoPointsCount * 2));
     printf("RMSE: %f\n", rmse);
     return rmse;
 }
 $cc proc stereoRefineCalibrationOptimize {double[paramsCount] params} Jim_Obj* {
     mp_result result = {0};
+    mp_config config = {0};
+    config.maxiter = 400;
 
     FOLK_ENSURE(paramsCount == 6 + StereoPoseCount*6);
     for (int i = 0; i < paramsCount; i++) {
@@ -479,12 +483,12 @@ $cc proc stereoRefineCalibrationOptimize {double[paramsCount] params} Jim_Obj* {
     stereoComputeError(paramsCount, params);
 
     mpfit(stereoFunc,
-          // Number of example point pairs:
-          StereoPointsCount * 2,
+          // Camera dx/dy and projector dx/dy per model point:
+          StereoPointsCount * 4,
           // Number of parameters to optimize:
           paramsCount,
           params, NULL,
-          NULL, NULL, &result);
+          &config, NULL, &result);
     printf("Refined -------------------\n");
     double rmse = stereoComputeError(paramsCount, params);
 
