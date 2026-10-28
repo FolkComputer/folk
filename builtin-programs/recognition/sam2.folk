@@ -215,7 +215,7 @@ When /someone/ wishes to really load SAM2 &\
         with predictor_lock, torch.inference_mode(), torch.autocast('cuda', dtype=torch.bfloat16, enabled=device == 'cuda'):
             if 'automatic_generator' not in globals():
                 generator = SAM2AutomaticMaskGenerator(predictor, points_per_side=32,
-                    points_per_batch=16, crop_n_layers=0, min_mask_region_area=0)
+                    points_per_batch=16, crop_n_layers=0, min_mask_region_area=0, stability_score_thresh=0.90)
                 if device == "cpu" and importlib.util.find_spec("openvino"):
                     import openvino as ov
                     if "GPU" in ov.Core().available_devices:
