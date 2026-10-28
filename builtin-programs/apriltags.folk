@@ -127,6 +127,11 @@ When camera /camera/ has width /width/ height /height/ &\
         set incrementalDetector [makeAprilTagDetector $tagFamily 1.5 1]
     }
 
+    On unmatch {
+        Hold! -key [list $this entire-frame $camera] {}
+        Hold! -key [list $this incremental $camera] {}
+    }
+
     # Entire-frame tag detector:
     When -serially camera $camera has gray frame /frame/ at timestamp /frameTs/ {
         tracy zoneBegin
@@ -136,7 +141,7 @@ When camera /camera/ has width /width/ height /height/ &\
             set aprilTime [time {
                 set tags [$entireFrameDetector detect $frame]
             }]
-            Hold! -key [list $this entire-frame] \
+            Hold! -key [list $this entire-frame $camera] \
                 Claim [list $this entire-frame] detects tags $tags on camera $camera \
                 at timestamp $frameTs in time $aprilTime
         } finally {
@@ -205,7 +210,7 @@ When camera /camera/ has width /width/ height /height/ &\
             }]]
         }
 
-        Hold! -key [list $this incremental] \
+        Hold! -key [list $this incremental $camera] \
             Claim [list $this incremental] detects tags $tags on camera $camera \
             at timestamp $frameTs in time $aprilTime
 
