@@ -146,7 +146,7 @@ When /wisher/ wishes /p/ draws toy shader /shaderCode/ {
     Claim the GPU compiles pipeline $sha1 to $pipeline
 
     set startTime [/ [clock microseconds] 1000000.0]
-    When $p has canvas /id/ with /...wiOptions/ &\
+    When -atomically $p has canvas /id/ with /...wiOptions/ &\
          the clock time is /t/ {
         set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
         Wish the GPU draws pipeline $sha1 onto canvas $id \
