@@ -357,7 +357,7 @@ When camera /cameraPath/ has width /decompWidth/ height /decompHeight/ {
             Claim camera $cameraPath has gray frame $grayImage at timestamp $ts \
             -destructor [list $imageLib imageFree $grayImage]
     }
-    When camera $cameraPath has jpeg frame /jpeg/ at timestamp /ts/ {
+    When -atomically camera $cameraPath has jpeg frame /jpeg/ at timestamp /ts/ {
         set frameImage [$jpegLib jpegDecompressRGB $jpeg \
                             $decompWidth $decompHeight \
                             [expr {int($ts * 1000)}]]
