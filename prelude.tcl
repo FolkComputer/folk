@@ -559,6 +559,9 @@ proc When {args} {
             set ampersand [lsearch -exact $pattern &]
             set firstPattern [lrange $pattern 0 [expr {$ampersand < 0 ? [llength $pattern]-1 : $ampersand-1}]]
             if {([lrange $firstPattern 1 end-1] eq {has camera slice} ||
+                 ([llength $firstPattern] == 8 &&
+                  [lrange $firstPattern 1 3] eq {has camera slice} &&
+                  [lrange $firstPattern 5 6] eq {with width}) ||
                  [lrange $firstPattern 0 end-1] eq {the clock time is})} {
 
                 set key [list [uplevel set this] $sourceInfo $pattern]
