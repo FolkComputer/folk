@@ -1,8 +1,20 @@
 Wish the web server handles route "/" with handler {
     fn readOutputFile {path} {
         if {[catch {set fp [open $path r]}]} { return "" }
-        set content [read $fp]
-        close $fp
+        try {
+            # Program output can grow to hundreds of MB. Bound both the
+            # file read and the work required to escape/render the preview.
+            set limit 16384
+            seek $fp 0 end
+            set size [tell $fp]
+            seek $fp [expr {$size > $limit ? $size - $limit : 0}] start
+            set content [read $fp $limit]
+            if {$size > $limit} {
+                set content "\[Showing last $limit bytes of $size bytes\]\n$content"
+            }
+        } finally {
+            close $fp
+        }
         return $content
     }
 
