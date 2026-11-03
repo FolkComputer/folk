@@ -1,0 +1,333 @@
+# Plays a video in a window next to a program. Requires ffmpeg and
+# ffprobe in PATH (e.g. `sudo apt install ffmpeg`).
+#
+# Examples:
+#
+# Play a video file in user-programs/$hostname/videos/ or assets/videos/:
+#
+#    Wish $this plays video "demo.mp4"
+#
+# Play a video file by absolute path, below the program, 30cm wide:
+#
+#    Wish $this plays video "/home/folk/videos/demo.mp4" with side below width 30cm
+#
+# Options: side right|left|above|below (default right),
+#          width <length> in mm|cm|m (default 20cm).
+# Playback is muted and loops forever. Removing the program stops it;
+# putting it back restarts from the beginning.
+#
+# Decoding: an external ffmpeg process writes raw rgb24 frames into a
+# pipe. A small C reader owns process, pipe and buffer and is polled on
+# every clock tick. There is deliberately no endless loop in the wish
+# body: Folk does not reliably clean up matches whose body never returns.
+
+# Short form -> long form with default options.
+When /someone/ wishes /p/ plays video /path/ {
+    Wish $p plays video $path with side right
+}
+
+When the image library is /imageLib/ {
+    set vc [C]
+    $vc cflags -D_GNU_SOURCE   ;# pipe2, F_SETPIPE_SZ
+    $vc extend $imageLib
+    $vc include <string.h>
+    $vc include <stdlib.h>
+    $vc include <unistd.h>
+    $vc include <fcntl.h>
+    $vc include <signal.h>
+    $vc include <errno.h>
+    $vc include <time.h>
+    $vc include <pthread.h>
+    $vc include <spawn.h>
+    $vc include <sys/wait.h>
+    $vc code {
+        extern char **environ;
+        typedef struct VideoReader {
+            pthread_mutex_t mu;
+            int fd;
+            pid_t pid;
+            int closed;
+            int reaped;       // process already reaped
+            int eof;          // 0 running, 1 EOF seen, 2 EOF reported
+            size_t frameSize;
+            uint8_t* buf;     // room for 2 frames
+            size_t have;
+            int width, height;
+            uint64_t frameNo;
+        } VideoReader;
+    }
+
+    # Spawns argv (Tcl list) with stdout into a pipe and stderr into errPath.
+    $vc proc videoOpen {Jim_Obj* argv char* errPath int width int height} VideoReader* {
+        int argc = Jim_ListLength(interp, argv);
+        FOLK_ENSURE(argc > 0);
+        char** args = calloc(argc + 1, sizeof(char*));
+        for (int i = 0; i < argc; i++) {
+            args[i] = (char*) Jim_String(Jim_ListGetIndex(interp, argv, i));
+        }
+
+        int fds[2];
+        FOLK_ENSURE(pipe2(fds, O_CLOEXEC) == 0);
+        // Bigger pipe so ffmpeg can hand over a whole frame per tick.
+        fcntl(fds[0], F_SETPIPE_SZ, 1 << 20);
+
+        posix_spawn_file_actions_t fa;
+        posix_spawn_file_actions_init(&fa);
+        posix_spawn_file_actions_addopen(&fa, 0, "/dev/null", O_RDONLY, 0);
+        posix_spawn_file_actions_adddup2(&fa, fds[1], 1);
+        posix_spawn_file_actions_addopen(&fa, 2, errPath, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+
+        // Do not pass the Folk workers' signal mask/handlers on to ffmpeg.
+        posix_spawnattr_t attr;
+        posix_spawnattr_init(&attr);
+        sigset_t none, all;
+        sigemptyset(&none);
+        sigfillset(&all);
+        posix_spawnattr_setsigmask(&attr, &none);
+        posix_spawnattr_setsigdefault(&attr, &all);
+        posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF);
+
+        pid_t pid;
+        int err = posix_spawnp(&pid, args[0], &fa, &attr, args, environ);
+        posix_spawn_file_actions_destroy(&fa);
+        posix_spawnattr_destroy(&attr);
+        free(args);
+        close(fds[1]);
+        if (err != 0) {
+            close(fds[0]);
+            FOLK_ERROR("video: could not start ffmpeg");
+        }
+        fcntl(fds[0], F_SETFL, fcntl(fds[0], F_GETFL) | O_NONBLOCK);
+
+        VideoReader* r = calloc(1, sizeof(VideoReader));
+        pthread_mutex_init(&r->mu, NULL);
+        r->fd = fds[0];
+        r->pid = pid;
+        r->width = width;
+        r->height = height;
+        r->frameSize = (size_t)width * height * 3;
+        r->buf = malloc(2 * r->frameSize);
+        return r;
+    }
+
+    # Reads everything available; returns the newest complete frame
+    # (older ones are dropped) or an Image with width 0.
+    $vc proc videoPoll {VideoReader* r} Image {
+        Image none = {0};
+        pthread_mutex_lock(&r->mu);
+        if (r->closed || r->eof) { pthread_mutex_unlock(&r->mu); return none; }
+
+        size_t cap = 2 * r->frameSize;
+        for (;;) {
+            if (r->have == cap) {
+                // Buffer full (2 frames): drop the older one.
+                memmove(r->buf, r->buf + r->frameSize, r->frameSize);
+                r->have = r->frameSize;
+            }
+            ssize_t n = read(r->fd, r->buf + r->have, cap - r->have);
+            if (n > 0) { r->have += n; continue; }
+            if (n < 0 && errno == EINTR) { continue; }
+            if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) { break; }
+            r->eof = 1;  // n == 0 or read error
+            break;
+        }
+
+        size_t complete = r->have / r->frameSize;
+        if (complete == 0) { pthread_mutex_unlock(&r->mu); return none; }
+        size_t off = (complete - 1) * r->frameSize;
+        Image im = imageNew(r->width, r->height, 3, ++r->frameNo);
+        memcpy(im.data, r->buf + off, r->frameSize);
+        size_t rest = r->have - complete * r->frameSize;
+        memmove(r->buf, r->buf + complete * r->frameSize, rest);
+        r->have = rest;
+        pthread_mutex_unlock(&r->mu);
+        return im;
+    }
+
+    # 1 exactly once after ffmpeg has exited (EOF), otherwise 0.
+    $vc proc videoTakeEof {VideoReader* r} int {
+        pthread_mutex_lock(&r->mu);
+        int ret = (r->eof == 1 && !r->closed);
+        if (ret) { r->eof = 2; }
+        if (r->eof && !r->reaped && !r->closed) {
+            int status;
+            if (waitpid(r->pid, &status, WNOHANG) == r->pid) { r->reaped = 1; }
+        }
+        pthread_mutex_unlock(&r->mu);
+        return ret;
+    }
+
+    # Terminates and reaps the process. The (small) struct itself stays
+    # allocated so that ticks still in flight do not touch freed memory.
+    $vc proc videoClose {VideoReader* r} void {
+        pthread_mutex_lock(&r->mu);
+        if (!r->closed) {
+            r->closed = 1;
+            if (!r->reaped) {
+                kill(r->pid, SIGTERM);
+                int status, i;
+                for (i = 0; i < 100; i++) {
+                    if (waitpid(r->pid, &status, WNOHANG) != 0) { break; }
+                    struct timespec ts = {0, 10 * 1000 * 1000};
+                    nanosleep(&ts, NULL);
+                }
+                if (i == 100) { kill(r->pid, SIGKILL); waitpid(r->pid, &status, 0); }
+                r->reaped = 1;
+            }
+            close(r->fd);
+            free(r->buf);
+            r->buf = NULL;
+        }
+        pthread_mutex_unlock(&r->mu);
+    }
+
+    set videoLib [$vc compile]
+    Claim the video library is $videoLib
+}
+
+When the image library is /imageLib/ &\
+     the video library is /videoLib/ &\
+     /someone/ wishes /p/ plays video /path/ with /...options/ {
+
+    # HACK: this pattern also matches the short form (without options).
+    if {![info exists options]} { return }
+
+    set frameKey [list video $p $path frame]
+    set errorKey [list video $p $path error]
+
+    try {
+        # Options
+        set side [dict getdef $options side right]
+        if {$side ni {right left above below}} {
+            error "video: Invalid side '$side' (allowed: right left above below)"
+        }
+        set widthSpec [dict getdef $options width 20cm]
+        if {![regexp {^([0-9]*\.?[0-9]+)(mm|cm|m)?$} $widthSpec -> num unit]} {
+            error "video: Invalid width '$widthSpec' (e.g. 30cm, 200mm, 0.3m)"
+        }
+        set winWidth [expr {$num * [dict get {mm 0.001 cm 0.01 m 1.0 {} 1.0} $unit]}]
+
+        # Resolve path: absolute paths are kept, relative names are looked
+        # up in user-programs/$hostname/videos/, then in assets/videos/.
+        if {[string index $path 0] eq "/"} {
+            set file $path
+        } else {
+            set file "[pwd]/user-programs/[info hostname]/videos/$path"
+            if {![file exists $file]} {
+                set file "[pwd]/assets/videos/$path"
+            }
+        }
+        if {![file exists $file]} {
+            error "video: File not found: $file"
+        }
+
+        # Determine size (honor rotation metadata from phones: ffmpeg
+        # rotates automatically, ffprobe reports the encoded size).
+        try {
+            set probe [exec ffprobe -v error -select_streams v:0 \
+                           -show_entries stream=width,height:stream_side_data=rotation \
+                           -of default=nw=1 $file]
+        } on error e {
+            error "video: Not playable: $file\n$e"
+        }
+        if {![regexp {width=(\d+)} $probe -> srcW] ||
+            ![regexp {height=(\d+)} $probe -> srcH] ||
+            $srcW == 0 || $srcH == 0} {
+            error "video: Not playable (no video stream): $file"
+        }
+        if {[regexp {rotation=(-?\d+)} $probe -> rot] && abs($rot) % 180 == 90} {
+            lassign [list $srcH $srcW] srcW srcH
+        }
+        # At most 640 px wide, even dimensions, keep aspect ratio.
+        set W [expr {($srcW > 640 ? 640 : $srcW) / 2 * 2}]
+        set H [expr {int(round($W * double($srcH) / $srcW / 2.0)) * 2}]
+        if {$W < 2 || $H < 2} { error "video: Video too small: $file (${srcW}x${srcH})" }
+
+        # Start ffmpeg; stderr goes to its own file for error messages.
+        set errFile [file tempfile /tmp/folk-video-XXXXXX]
+        set reader [$videoLib videoOpen \
+                        [list ffmpeg -nostdin -loglevel error -re -stream_loop -1 \
+                             -i $file -an -sn -dn -vf scale=$W:$H,fps=25 \
+                             -f rawvideo -pix_fmt rgb24 -] \
+                        $errFile $W $H]
+    } on error {e opts} {
+        Say $p has error $e with info $opts
+        return
+    }
+
+    # Tie the lifetime to the wish.
+    On unmatch {
+        $videoLib videoClose $reader
+        catch {file delete $errFile}
+        Hold! -key $frameKey {}
+        Hold! -key $errorKey {}
+    }
+
+    # Fetch the newest frame on every tick.
+    When the clock time is /t/ {
+        set im [$videoLib videoPoll $reader]
+        if {[$imageLib Image_width $im] > 0} {
+            Hold! -key $frameKey \
+                Claim $p has video frame $im \
+                -destructor [list $imageLib imageFree $im]
+        } elseif {[$videoLib videoTakeEof $reader]} {
+            # With -stream_loop -1 ffmpeg never ends normally: EOF = failure.
+            set msg ""
+            catch {set f [open $errFile]; set msg [string trim [read $f]]; close $f}
+            Hold! -key $frameKey {}
+            Hold! -key $errorKey \
+                $p has error "video: Playback aborted: $file\n$msg" with info {}
+        }
+    }
+
+    # Draw the window next to the program.
+    When the quad library is /quadLib/ &\
+         the pose library is /poseLib/ &\
+         the quad changer is /quadChange/ &\
+         display /disp/ has width /dispW/ height /dispH/ &\
+         display /disp/ has intrinsics /dispIntr/ &\
+         /disp/ has canvas /dispCanvas/ with /...canvOpts/ &\
+         /disp/ has canvas projection /surfaceToClip/ &\
+         $p has video frame /im/ &\
+         $p has quad /q/ {
+
+        package require linalg
+        namespace import \
+            ::math::linearalgebra::add \
+            ::math::linearalgebra::sub \
+            ::math::linearalgebra::scale \
+            ::math::linearalgebra::unitLengthVector
+        fn quadChange
+
+        lassign [$quadLib vertices [quadChange $q "display $disp"]] \
+            topLeft topRight bottomRight bottomLeft
+        set u [unitLengthVector [sub $topRight $topLeft]]
+        set v [unitLengthVector [sub $bottomLeft $topLeft]]
+
+        set gap 0.01
+        set winHeight [expr {$winWidth * double($H) / $W}]
+        switch $side {
+            right { set anchor [add $topRight [scale $gap $u]] }
+            left  { set anchor [sub $topLeft [scale [+ $gap $winWidth] $u]] }
+            below { set anchor [add $bottomLeft [scale $gap $v]] }
+            above { set anchor [sub $topLeft [scale [+ $gap $winHeight] $v]] }
+        }
+        set wu [scale $winWidth $u]
+        set hv [scale $winHeight $v]
+        set corners [list $anchor [add $anchor $wu] [add [add $anchor $wu] $hv] [add $anchor $hv]]
+        lassign [lmap pt $corners {
+            $poseLib project $dispIntr $dispW $dispH $pt
+        }] a b c d
+
+        set res [list [dict get $canvOpts width] [dict get $canvOpts height]]
+        # Atomic: the old frame stays drawn until the new one's texture
+        # has loaded (otherwise the window flickers on every frame change).
+        When -atomicallyWithKey [list video $p $path draw] {
+            Wish the GPU loads image $im as texture
+            When the GPU has loaded image $im as texture /gim/ {
+                Wish the GPU draws pipeline "image" onto canvas $dispCanvas with arguments \
+                    [list $res $surfaceToClip $gim $a $b $c $d]
+            }
+        }
+    }
+}
