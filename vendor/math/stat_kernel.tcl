@@ -96,7 +96,7 @@ proc ::math::statistics::kernel-density {data args} {
         return -code error -errorcode ARG -errorinfo "The interval has length zero: $opt(-interval)"
     }
 
-    if { [llength [info proc $opt(-kernel)]] == 0 } {
+    if { [llength [vm proc $opt(-kernel)]] == 0 } {
         return -code error -errorcode ARG -errorinfo "Unknown kernel function: $opt(-kernel)"
     }
 

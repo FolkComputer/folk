@@ -53,7 +53,7 @@ proc ::math::statistics::tstat {n {alpha 0.05}} {
     variable epsilon
     variable tvals
 
-    if [info exists tvals($n:$alpha)] {
+    if [vm exists tvals($n:$alpha)] {
         return $tvals($n:$alpha)
     }
 

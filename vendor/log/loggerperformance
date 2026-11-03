@@ -3,7 +3,7 @@
 #
 # This code is for benchmarking the performance of the log tools.
 
-set auto_path "[file dirname [info script]] $auto_path"
+set auto_path "[file dirname [vm script]] $auto_path"
 package require logger
 package require log
 

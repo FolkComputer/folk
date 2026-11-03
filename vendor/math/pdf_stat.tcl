@@ -2644,7 +2644,7 @@ proc ::math::statistics::bootstrap {data sampleSize {numberSamples 1}} {
 #
 # Simple numerical tests
 #
-if { [info exists ::argv0] && ([file tail [info script]] == [file tail $::argv0]) } {
+if { [vm exists ::argv0] && ([file tail [vm script]] == [file tail $::argv0]) } {
 
     #
     # Apparent accuracy: at least one digit more than the ones in the

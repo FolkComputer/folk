@@ -1,3 +1,6 @@
+Expect! the html library is /htmlLib/
+dict assign $htmlLib html htmlEscape
+
 When the db library is /dbLib/ {
   set db [__db]
   Wish the web server handles route "/holds" with handler [fn {args} {

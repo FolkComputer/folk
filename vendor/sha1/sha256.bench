@@ -16,12 +16,12 @@ if {![package vsatisfies [package provide Tcl] 8.2]} {
 # ### ### ### ######### ######### ######### ###########################
 ## Setting up the environment ...
 
-set moddir [file dirname [file dirname [info script]]]
+set moddir [file dirname [file dirname [vm script]]]
 lappend auto_path $moddir
 
 package forget sha256
 catch {namespace delete ::sha2}
-source [file join [file dirname [info script]] sha256.tcl]
+source [file join [file dirname [vm script]] sha256.tcl]
 
 set key "01234567abcdefgh01234567abcdefgh01234567abcdefgh01234567abcdefgh=="
 

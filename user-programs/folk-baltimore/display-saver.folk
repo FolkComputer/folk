@@ -101,7 +101,7 @@ When tag /nobody/ has a program & display /disp/ has width /displayWidth/ height
 
     set cx [/ $displayWidth 2.0]
     set cy [* $displayHeight 0.3]
-    set host [info hostname]
+    set host [vm hostname]
     set msg "Welcome to Folk\n$host"
 
     Wish to draw text onto $disp with \

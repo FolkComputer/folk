@@ -178,7 +178,7 @@ proc ::math::ln_Gamma { x } {
     }
 
     if { $x <= 0.0 } {
-	set proc [lindex [info level 0] 0]
+	set proc [lindex [vm level 0] 0]
 	return -code error \
 	    -errorcode [list ARITH DOMAIN \
 			"argument to $proc must be positive"] \
@@ -244,7 +244,7 @@ proc ::math::factorial { x } {
     # Error case: gamma in the left half plane
 
     if { $x <= -1.0 } {
-	set proc [lindex [info level 0] 0]
+	set proc [lindex [vm level 0] 0]
 	set message "argument to $proc must be greater than -1.0"
 	return -code error -errorcode [list ARITH DOMAIN $message] $message
     }
@@ -316,7 +316,7 @@ proc ::math::choose { n k } {
     # Forbid negative n
 
     if { $n < 0. } {
-	set proc [lindex [info level 0] 0]
+	set proc [lindex [vm level 0] 0]
 	set msg "first argument to $proc must be non-negative"
 	return -code error -errorcode [list ARITH DOMAIN $msg] $msg
     }
@@ -329,7 +329,7 @@ proc ::math::choose { n k } {
     }
 
     if { $k < 0. } {
-	set proc [lindex [info level 0] 0]
+	set proc [lindex [vm level 0] 0]
 	set msg "second argument to $proc must be non-negative,\
                  or both must be integers"
 	return -code error -errorcode [list ARITH DOMAIN $msg] $msg
@@ -405,12 +405,12 @@ proc ::math::Beta { z w } {
     # Check sign of both args
 
     if { $z <= 0.0 } {
-	set proc [lindex [info level 0] 0]
+	set proc [lindex [vm level 0] 0]
 	set msg "first argument to $proc must be positive"
 	return -code error -errorcode [list ARITH DOMAIN $msg] $msg
     }
     if { $w <= 0.0 } {
-	set proc [lindex [info level 0] 0]
+	set proc [lindex [vm level 0] 0]
 	set msg "second argument to $proc must be positive"
 	return -code error -errorcode [list ARITH DOMAIN $msg] $msg
     }

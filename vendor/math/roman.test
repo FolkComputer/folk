@@ -16,7 +16,7 @@
 # -------------------------------------------------------------------------
 
 source [file join \
-	[file dirname [file dirname [file join [pwd] [info script]]]] \
+	[file dirname [file dirname [file join [pwd] [vm script]]]] \
 	devtools testutilities.tcl]
 
 testsNeedTcl     8.5
@@ -48,7 +48,7 @@ proc cleanup {} {
 # I n i t i a l i s a t i o n
 #=====================================================================
 
-::tcltest::testConstraint tk [info exists tk_version]
+::tcltest::testConstraint tk [vm exists tk_version]
 
 #=====================================================================
 # T e s t   C a s e s

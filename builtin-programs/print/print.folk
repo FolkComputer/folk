@@ -347,7 +347,7 @@ Subscribe: print program /id/ with /...options/ {
 }
 
 Subscribe: print pdf /pdfPath/ with /...options/ {
-    if {![info exists options]} { set options {} }
+    if {![vm exists options]} { set options {} }
 
     set args [list]
 

@@ -60,7 +60,7 @@ When /keyboard/ is a keyboard device {
             return
         }
 
-        if {![info exists keymap]} {
+        if {![vm exists keymap]} {
             source "lib/keymap.tcl"
         }
         set map [keymap::load $locale]

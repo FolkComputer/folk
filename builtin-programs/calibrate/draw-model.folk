@@ -97,7 +97,7 @@ When display /display/ has width /displayWidth/ height /displayHeight/ &\
             set v [sub $displayEnd $displayStart]
             set displayRadians [expr {atan2(-1*[lindex $v 1], [lindex $v 0])}]
             set displayCenter [scale 0.5 [add $displayStart $displayEnd]]
-            if {![info exists textScale]} {
+            if {![vm exists textScale]} {
                 set textScale [/ [norm $v] 20]
             }
 

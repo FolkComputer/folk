@@ -184,7 +184,7 @@ proc ::math::combinatorics::firstStirling {n m} {
         return 0
     }
 
-    if { [info exists stirling($n,$m)] } {
+    if { [vm exists stirling($n,$m)] } {
         return $stirling($n,$m)
     }
 
@@ -221,7 +221,7 @@ proc ::math::combinatorics::secondStirling {n m} {
         return 0
     }
 
-    if { [info exists stirlingSecond($n,$m)] } {
+    if { [vm exists stirlingSecond($n,$m)] } {
         return $stirlingSecond($n,$m)
     }
 
@@ -288,7 +288,7 @@ proc ::math::combinatorics::PartitionP {n} {
         return 0
     }
 
-    if { [info exists partition($n)] } {
+    if { [vm exists partition($n)] } {
         return $partition($n)
     }
 
@@ -627,7 +627,7 @@ proc ::math::combinatorics::list-powerset {n} {
             }
             set ajp1 $aj
         }
-        if { ![info exists foundj] } return
+        if { ![vm exists foundj] } return
 
         # Find the smallest element greater than the j'th among the elements
         # following aj. Let its index be l, and interchange aj and al.

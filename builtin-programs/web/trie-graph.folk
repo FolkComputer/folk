@@ -106,7 +106,7 @@ void tfree(void *ptr) {
             cap->head.vtable = Trie_VTable;
             cap->trie = trie;
             Zicl_Val out;
-            folkZiclAssert(Zicl_CapNew(&cap->head, &out));
+            folkZiclAssert(Zicl_CapNewOwning(&cap->head, &out));
             return out;
         }
     }
@@ -198,55 +198,63 @@ void tfree(void *ptr) {
     return [cc::compile]
 }]]
 
-set trieDotify {{trieLib tclifiedTrie} {
-    fn idify {word} {
-        # generate id-able word by eliminating all non-alphanumeric
-        regsub -all {\W+} $word "_"
-    }
-    fn labelify {word} {
-        # shorten the longest lines
-        set word [join [lmap line [split $word "\n"] {
-            expr { [string length $line] > 80 ? "[string range $line 0 80]..." : $line }
-        }] "\n"]
-        string map {"\"" "\\\""} [string map {"\\" "\\\\"} $word]
-    }
-    fn subdot {subtrie} {
-        set branches [lassign $subtrie ptr key id]
+fn trieLabelify {word} {
+    # shorten the longest lines
+    set word [join [lmap line [split $word "\n"] {
+        expr { [string length $line] > 80 ? "[string range $line 0 80]..." : $line }
+    }] "\n"]
+    string map {"\"" "\\\""} [string map {"\\" "\\\\"} $word]
+}
+fn trieDotify {trieLib tclifiedTrie} {
+    set dot [list]
+    set stack [list $tclifiedTrie]
+    while {[llength $stack] > 0} {
+        set item [lindex $stack end]
+        set stack [lrange $stack 0 end-1]
 
-        set dot [list]
-        lappend dot "$ptr \[label=\"[labelify $key]\"\];"
+        set branches [lassign $item ptr key id]
+        lappend dot "$ptr \[label=\"[trieLabelify $key]\"\];"
         foreach branch $branches {
             if {$branch eq {}} continue
             set branchptr [lindex $branch 0]
             lappend dot "$ptr -> $branchptr;"
-            lappend dot [subdot $branch]
+            lappend stack $branch
         }
-        return [join $dot "\n"]
     }
-    return "digraph { rankdir=LR; [subdot $tclifiedTrie] }"
-}}
+    return "digraph { rankdir=LR; [join $dot "\n"] }"
+}
 
-set getDotAsPdf {{dot} {
-    set fd [file open |[list dot -Tpdf <<$dot] rb]
-    set response [stream read $fd]
+fn getDotAsPdf {dot} {
+    set inPath "/tmp/folk-trie-[pid].dot"
+    set outPath "/tmp/folk-trie-[pid].pdf"
+    set fd [file open $inPath w]
+    stream write $fd $dot
+    close $fd
     try {
+        exec dot -Tpdf -o $outPath $inPath
+        set fd [file open $outPath r]
+        set response [stream read $fd]
         close $fd
         return $response
     } on error e {
         if {[catch {exec which dot}] != 0} {
             error "graphviz not installed!"
         }
+        error $e
+    } finally {
+        file delete -force $inPath
+        file delete -force $outPath
     }
-}}
+}
 
 Wish the web server handles route {/trie-graph\.pdf} with handler [fn {args} {
     set trie []
-    set dot [apply $trieDotify $trieLib [trieLib::dbTrieTclify]]
+    set dot [trieDotify $trieLib [trieLib::dbTrieTclify]]
 
     dict create statusAndHeaders "HTTP/1.1 200 OK
 Connection: close
 Content-Type: application/pdf
 
 " \
-        body [apply $getDotAsPdf $dot]
+        body [getDotAsPdf $dot]
 }]

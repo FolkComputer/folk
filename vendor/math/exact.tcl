@@ -213,7 +213,7 @@ proc ::math::exact::exactexpr {expr} {
     variable parser
     set result [$parser parse {*}[Lexer $expr] \
 		    [dict create \
-			 caller "#[expr {[info level] - 1}]" \
+			 caller "#[expr {[vm level] - 1}]" \
 			 namespace [namespace current]]]
 }
 
@@ -1100,8 +1100,8 @@ oo::class create math::exact::counted {
 	if 0 {
 	    puts {}
 	    puts "construct: [self object] refcount now 0"
-	    for {set i [info frame]} {$i > 0} {incr i -1} {
-		set frame [info frame $i]
+	    for {set i [vm frame]} {$i > 0} {incr i -1} {
+		set frame [vm frame $i]
 		if {[dict get $frame type] eq {source}} {
 		    set line [dict get $frame line]
 		    puts "\t[file tail [dict get $frame file]]:$line"
@@ -1128,8 +1128,8 @@ oo::class create math::exact::counted {
 	    if {$refcount_ == 0} {
 		puts "\t[my dump]"
 	    }
-	    for {set i [info frame]} {$i > 0} {incr i -1} {
-		set frame [info frame $i]
+	    for {set i [vm frame]} {$i > 0} {incr i -1} {
+		set frame [vm frame $i]
 		if {[dict get $frame type] eq {source}} {
 		    set line [dict get $frame line]
 		    puts "\t[file tail [dict get $frame file]]:$line"
@@ -1154,8 +1154,8 @@ oo::class create math::exact::counted {
 	if 0 {
 	    puts {}
 	    puts "unref: [self object] refcount now [expr {$refcount_ - 1}]"
-	    for {set i [info frame]} {$i > 0} {incr i -1} {
-		set frame [info frame $i]
+	    for {set i [vm frame]} {$i > 0} {incr i -1} {
+		set frame [vm frame $i]
 		if {[dict get $frame type] eq {source}} {
 		    set line [dict get $frame line]
 		    puts "\t[file tail [dict get $frame file]]:$line"
@@ -1179,7 +1179,7 @@ oo::class create math::exact::counted {
 	    variable ::math::exact::deleteStack
 
 	    # Is this the outermost level?
-	    set queueActive [expr {[info exists deleteStack]}]
+	    set queueActive [expr {[vm exists deleteStack]}]
 
 	    # Schedule this object's destruction
 	    lappend deleteStack [self object]
@@ -1230,13 +1230,13 @@ oo::class create math::exact::Expression {
 
     # Destructor releases memoized objects
     destructor {
-	if {[info exists signAndMagnitude_]} {
+	if {[vm exists signAndMagnitude_]} {
 	    [lindex $signAndMagnitude_ 1] unref
 	}
-	if {[info exists absorbed_]} {
+	if {[vm exists absorbed_]} {
 	    $absorbed_ unref
 	}
-	if {[info exists leadingDigitAndRest_]} {
+	if {[vm exists leadingDigitAndRest_]} {
 	    [lindex $leadingDigitAndRest_ 1] unref
 	}
 	next
@@ -1246,7 +1246,7 @@ oo::class create math::exact::Expression {
     # the sign matrix, which is one of ispos, isneg, isinf, and iszer,
     # the magnitude, which is another exact real.
     method getSignAndMagnitude {} {
-	if {![info exists signAndMagnitude_]} {
+	if {![vm exists signAndMagnitude_]} {
 	    if {[my refinesM $::math::exact::ispos]} {
 		set signAndMagnitude_ \
 		    [list $::math::exact::spos \
@@ -1278,7 +1278,7 @@ oo::class create math::exact::Expression {
     # is one of $dpos, $dneg or $dzer, and an exact real representing
     # the number by which the given digit matrix must be postmultiplied.
     method getLeadingDigitAndRest {needDigit} {
-	if {![info exists leadingDigitAndRest_]} {
+	if {![vm exists leadingDigitAndRest_]} {
 	    if {[my refinesM $::math::exact::idpos]} {
 		set leadingDigitAndRest_ \
 		    [list $::math::exact::dpos \
@@ -1358,7 +1358,7 @@ oo::class create math::exact::Expression {
     #	# Returns the formatted string
     # }
     method dump {} {
-	error "[info object class [self object]] does not implement the 'dump' method."
+	error "[vm object class [self object]] does not implement the 'dump' method."
     }
 
     # method refinesM {m} {
@@ -1366,14 +1366,14 @@ oo::class create math::exact::Expression {
     #   # Returns 0 otherwise
     # }
     method refinesM {m} {
-	error "[info object class [self object]] does not implement the 'refinesM' method."
+	error "[vm object class [self object]] does not implement the 'refinesM' method."
     }
 
     # method applyM {m} {
     #	# Premultiplies this object by the matrix m
     # }
     method applyM {m} {
-	error "[info object class [self object]] does not implement the 'applyM' method."
+	error "[vm object class [self object]] does not implement the 'applyM' method."
     }
 
     # method applyTLeft {t r} {
@@ -1382,7 +1382,7 @@ oo::class create math::exact::Expression {
     #	# Returns a new exact real representing the product
     # }
     method applyTLeft {t r} {
-	error "[info object class [self object]] does not implement the 'applyTLeft' method."
+	error "[vm object class [self object]] does not implement the 'applyTLeft' method."
     }
 
     # method applyTRight {t l} {
@@ -1391,7 +1391,7 @@ oo::class create math::exact::Expression {
     #	# Returns a new exact real representing the product
     # }
     method applyTRight {t l} {
-	error "[info object class [self object]] does not implement the 'applyTRight' method."
+	error "[vm object class [self object]] does not implement the 'applyTRight' method."
     }
 
     # method absorb {} {
@@ -1400,7 +1400,7 @@ oo::class create math::exact::Expression {
     #	# smaller interval than this expression
     # }
     method absorb {} {
-	error "[info object class [self object]] does not implement the 'absorb' method."
+	error "[vm object class [self object]] does not implement the 'absorb' method."
     }
 
     # U- --
@@ -2355,7 +2355,7 @@ oo::class create math::exact::M {
     # destructor deletes the memoized expression if one has been stored.
     # The base class destructor handles cleaning up the result of 'absorb'
     destructor {
-	if {[info exists e_]} {
+	if {[vm exists e_]} {
 	    $e_ unref
 	}
 	next
@@ -2399,7 +2399,7 @@ oo::class create math::exact::M {
 
     # Absorb a digit into this matrix.
     method absorb {} {
-	if {![info exists absorbed_]} {
+	if {![vm exists absorbed_]} {
 	    set absorbed_ [[[my e] applyM $m_] ref]
 	}
 	return $absorbed_
@@ -2411,7 +2411,7 @@ oo::class create math::exact::M {
     #	# Optionally memoizes the result in $e_.
     # }
     method e {} {
-	error "[info object class [self object]] does not implement the 'e' method."
+	error "[vm object class [self object]] does not implement the 'e' method."
     }
 }
 
@@ -2479,10 +2479,10 @@ oo::class create math::exact::T {
 
     # destructor removes cached items.
     destructor {
-	if {[info exists l_]} {
+	if {[vm exists l_]} {
 	    $l_ unref
 	}
-	if {[info exists r_]} {
+	if {[vm exists r_]} {
 	    $r_ unref
 	}
 	next;			# The base class will clean up absorbed_
@@ -2540,7 +2540,7 @@ oo::class create math::exact::T {
     #	immediately available.
 
     method absorb {} {
-	if {![info exists absorbed_]} {
+	if {![vm exists absorbed_]} {
 	    if {[math::exact::trefines $t_]} {
 		lassign [math::exact::trans $t_] m n
 		set side [math::exact::mdisjointm $m $n]
@@ -2612,14 +2612,14 @@ oo::class create math::exact::T {
     #
     #	Returns the left operand
     method l {} {
-	error "[info object class [self object]] does not implement the 'l' method"
+	error "[vm object class [self object]] does not implement the 'l' method"
     }
 
     # r --
     #
     #	Returns the right operand
     method r {} {
-	error "[info object class [self object]] does not implement the 'r' method"
+	error "[vm object class [self object]] does not implement the 'r' method"
     }
 
 }
@@ -2766,7 +2766,7 @@ oo::class create math::exact::SqrtWorker {
 	return $l_
     }
     method r {} {
-	if {![info exists r_]} {
+	if {![vm exists r_]} {
 	    set r_ [[math::exact::SqrtWorker new $l_] ref]
 	}
 	return $r_
@@ -2836,7 +2836,7 @@ oo::class create math::exact::ExpWorker {
     #	Returns the right subexpresison - the next convergent, creating it
     #	if necessary
     method r {} {
-	if {![info exists r_]} {
+	if {![vm exists r_]} {
 	    set r_ [[math::exact::ExpWorker new $l_ $n_] ref]
 	}
 	return $r_
@@ -2932,7 +2932,7 @@ oo::class create math::exact::LogWorker {
     # r -
     #	Returns the next convergent, constructing it if necessary.
     method r {} {
-	if {![info exists r_]} {
+	if {![vm exists r_]} {
 	    set r_ [[math::exact::LogWorker new $l_ $n_] ref]
 	}
 	return $r_
@@ -3036,7 +3036,7 @@ oo::class create math::exact::TanWorker {
     # r -
     #	Returns the next convergent, constructing it if necessary
     method r {} {
-	if {![info exists r_]} {
+	if {![vm exists r_]} {
 	    set r_ [[math::exact::TanWorker new $l_ $n_] ref]
 	}
 	return $r_
@@ -3164,7 +3164,7 @@ oo::class create math::exact::AtanWorker {
     # r -
     #	Returns the next convergent, constructing it if necessary
     method r {} {
-	if {![info exists r_]} {
+	if {![vm exists r_]} {
 	    set r_ [[math::exact::AtanWorker new $l_ $n_] ref]
 	}
 	return $r_
@@ -3438,7 +3438,7 @@ oo::class create math::exact::EWorker {
     # e -- Returns the next continuant after this one.
 
     method e {} {
-	if {![info exists e_]} {
+	if {![vm exists e_]} {
 	    set e_ [[math::exact::EWorker new $n_] ref]
 	}
 	return $e_
@@ -3486,7 +3486,7 @@ oo::class create math::exact::PiWorker {
     #	Returns the next continuant after this one
 
     method e {} {
-	if {![info exists e_]} {
+	if {![vm exists e_]} {
 	    set e_ [[math::exact::PiWorker new $n_] ref]
 	}
 	return $e_
@@ -3528,7 +3528,7 @@ oo::class create math::exact::Log2Worker {
     #
     #	Returns the next continuant after this one.
     method e {} {
-	if {![info exists e_]} {
+	if {![vm exists e_]} {
 	    set e_ [[math::exact::Log2Worker new $n_] ref]
 	}
 	return $e_
@@ -3577,7 +3577,7 @@ oo::class create math::exact::Sqrtrat {
     #
     #	Returns the next continuant after this one.
     method e {} {
-	if {![info exists e_]} {
+	if {![vm exists e_]} {
 	    set e_ [[math::exact::Sqrtrat new $a_ $b_ $c_] ref]
 	}
 	return $e_
@@ -3741,7 +3741,7 @@ oo::class create math::exact::PowWorker {
     #	Returns the right subexpression: that is, the next continuant,
     #	creating it if necessary
     method r {} {
-	if {![info exists r_]} {
+	if {![vm exists r_]} {
 	    set r_ [[math::exact::PowWorker new $t_ $delta_ $l_] ref]
 	}
 	return $r_
@@ -3749,7 +3749,7 @@ oo::class create math::exact::PowWorker {
 
     method dump {} {
 	set res "PowWorker($t_,$delta_,[$l_ dump],"
-	if {[info exists r_]} {
+	if {[vm exists r_]} {
 	    append res [$r_ dump]
 	} else {
 	    append res ...

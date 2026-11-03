@@ -35,7 +35,7 @@ namespace eval ::sha1 {
     namespace export sha1 hmac SHA1Init SHA1Update SHA1Final
 
     variable uid
-    if {![info exists uid]} {
+    if {![vm exists uid]} {
         set uid 0
     }
 }
@@ -62,7 +62,7 @@ proc ::sha1::LoadAccelerator {name} {
         critcl {
             if {![catch {package require tcllibc}]
                 || ![catch {package require sha1c}]} {
-                set r [expr {[info commands ::sha1::sha1c] != {}}]
+                set r [expr {[vm commands ::sha1::sha1c] != {}}]
             }
         }
         cryptkit {
@@ -151,9 +151,9 @@ proc ::sha1::SwitchTo {key} {
     } elseif {![string equal $key ""]} {
 	# Validate the target implementation of the switch.
 
-	if {![info exists accel($key)]} {
+	if {![vm exists accel($key)]} {
 	    return -code error "Unable to activate unknown implementation \"$key\""
-	} elseif {![info exists accel($key)] || !$accel($key)} {
+	} elseif {![vm exists accel($key)] || !$accel($key)} {
 	    return -code error "Unable to activate missing implementation \"$key\""
 	}
     }
@@ -231,18 +231,18 @@ proc ::sha1::SHA1Update {token data} {
     upvar #0 $token state
 
     if {$active(critcl)} {
-        if {[info exists state(sha1c)]} {
+        if {[vm exists state(sha1c)]} {
             set state(sha1c) [sha1c $data $state(sha1c)]
         } else {
             set state(sha1c) [sha1c $data]
         }
         return
-    } elseif {[info exists state(ckctx)]} {
+    } elseif {[vm exists state(ckctx)]} {
         if {[string length $data] > 0} {
             cryptkit::cryptEncrypt $state(ckctx) $data
         }
         return
-    } elseif {[info exists state(trf)]} {
+    } elseif {[vm exists state(trf)]} {
         puts -nonewline $state(trf) $data
         return
     }
@@ -274,21 +274,21 @@ proc ::sha1::SHA1Final {token} {
     upvar #0 $token state
 
     # Check for either of the C-compiled versions.
-    if {[info exists state(sha1c)]} {
+    if {[vm exists state(sha1c)]} {
         set r $state(sha1c)
         unset state
         return $r
-    } elseif {[info exists state(ckctx)]} {
+    } elseif {[vm exists state(ckctx)]} {
         cryptkit::cryptEncrypt $state(ckctx) ""
         cryptkit::cryptGetAttributeString $state(ckctx) \
             CRYPT_CTXINFO_HASHVALUE r 20
         cryptkit::cryptDestroyContext $state(ckctx)
         # If nothing was hashed, we get no r variable set!
-        if {[info exists r]} {
+        if {[vm exists r]} {
             unset state
             return $r
         }
-    } elseif {[info exists state(trf)]} {
+    } elseif {[vm exists state(trf)]} {
         close $state(trf)
         set r $state(trfwrite)
         unset state
@@ -747,7 +747,7 @@ proc ::sha1::hmac {args} {
         set opts(-key) [Pop args]
     }
 
-    if {![info exists opts(-key)]} {
+    if {![vm exists opts(-key)]} {
         return -code error "wrong # args:\
             should be \"hmac ?-hex? -key key -filename file | string\""
     }

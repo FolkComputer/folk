@@ -211,7 +211,7 @@ the result of an expression rather than a variable, as in
 
 Two of these are about shape rather than spelling. `dict assign -all`
 binds only the keys the dict actually holds, which is what makes it a
-stand-in for [dict with]: an `if {![info exists layer]}` guard downstream
+stand-in for [dict with]: an `if {![vm exists layer]}` guard downstream
 keeps working. And [trap] matches on an error code, so a `return -code 99`
 signal becomes `error "..." [list MY DOMAIN $detail]` paired with
 `trap {MY DOMAIN} {_ opts}`, reading the detail back out of

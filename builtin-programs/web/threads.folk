@@ -133,6 +133,9 @@ set threadMonitorLib [apply [fn {} {
     return [cc::compile]
 }]]
 
+Expect! the html library is /htmlLib/
+dict assign $htmlLib html htmlEscape
+
 Wish the web server handles route "/threads" with handler [fn {args} {
     set pid [pid]
     try {
@@ -195,7 +198,7 @@ Wish the web server handles route "/threads" with handler [fn {args} {
             set frees [dict getdef $workerInfo _frees -1]
             subst {<li style="[expr {$workerInfo eq "" ? "color: gray" : ""}]">
                 $taskdir: [regexp -inline {State:[^\n]*\n} $status]
-                [expr {$workerInfo::isDeactivated ? "(deactivated)" : "(active)"}]<br>
+                [expr {$workerInfo ne "" && [dict getdef $workerInfo isDeactivated 0] != 0 ? "(deactivated)" : "(active)"}]<br>
                   [if {$workerInfo eq ""} {subst {
                       (Not a Folk worker thread)<br>
                   }} else {

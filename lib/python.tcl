@@ -484,7 +484,7 @@ while True:
     }
 
     fn pyExec {code} {
-        lassign [info source $code] file line
+        lassign [vm source $code] file line
         if {$file eq ""} { set file "<unknown>"; set line 1 }
         return [pyCall "__exec__" [textutil::adjust::undent $code] $file $line]
     }
@@ -502,7 +502,7 @@ while True:
     # A method, so that the closure it defines lands in the caller's own copy
     # of the library dict: `$py::def foo` writes `foo` back into `$py`.
     method pyDef {self fnName argSpec body} {
-        lassign [info source $body] file line
+        lassign [vm source $body] file line
         if {$file eq ""} { set file "<unknown>"; set line 1 }
 
         # Parse argument specification: {Type1 name1 Type2 name2 ...}

@@ -1,9 +1,12 @@
+Expect! the html library is /htmlLib/
+dict assign $htmlLib html htmlEscape
+
 Wish the web server handles route "/block-stats" with handler [fn {args} {
     set stats [lsort -command [fn {a b} {
         lassign $a _ ewma_a count_a
         lassign $b _ ewma_b count_b
         expr {$ewma_b * $count_b - $ewma_a * $count_a < 0 ? -1 :
-              ewma_b::* $count_b - $ewma_a * $count_a > 0 ?  1 : 0}
+              $ewma_b * $count_b - $ewma_a * $count_a > 0 ?  1 : 0}
     }] [__blockRuntimeStats]]
     html [subst {
         <html>

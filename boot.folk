@@ -36,7 +36,7 @@ Assert! when /this/ has program code /programCode/ [fn {this programCode} {
     # every error inside it would report an empty file name. Stamp the
     # program's own name and line 1 on it here, at the one place all of
     # those producers funnel through.
-    set programCode [info source $programCode $this 1]
+    set programCode [vm source $programCode $this 1]
 
     if {$this eq "builtin-programs/collect.folk"} {
         # We don't have Collect available in boot.folk yet, since it's
@@ -54,7 +54,7 @@ Assert! when /this/ has program code /programCode/ [fn {this programCode} {
         }
         When /someone/ wishes program $this is replaced with /...replacedOpts/ {
             SayWithSource [dict create sourceFileName $this sourceLineNumber 1] \
-                when [fn {} [info source [dict get $replacedOpts code] $this 1]]
+                when [fn {} [vm source [dict get $replacedOpts code] $this 1]]
         }
     }
 }]
@@ -77,7 +77,7 @@ fn LoadProgram! {programFilename} {
 }
 foreach programFilename [list {*}[glob -nocomplain builtin-programs/*.folk] \
                              {*}[glob -nocomplain builtin-programs/*/*.folk] \
-                             {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"] \
+                             {*}[glob -nocomplain "user-programs/[vm hostname]/*.folk"] \
                              {*}[glob -nocomplain "$env::HOME/folk-data/local-program/*.folk"] \
                              {*}[glob -nocomplain "$env::HOME/folk-data/local-program/*/*.folk"]] {
     if {[string match "*/_archive/*" $programFilename]} {

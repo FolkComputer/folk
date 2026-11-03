@@ -1482,7 +1482,7 @@ proc ::math::bigfloat::__logbis {precision} {
 ################################################################################
 proc ::math::bigfloat::_log2 {precision} {
     variable Log2
-    if {![info exists Log2]} {
+    if {![vm exists Log2]} {
         __logbis $precision
     } else {
         # the constant is cached and computed again when more precision is needed
@@ -1638,7 +1638,7 @@ proc ::math::bigfloat::_pi {precision} {
     # so we need 2 digits to store the digit '3'
     # and then we will have precision+2 bits in the mantissa
     variable _pi0
-    if {![info exists _pi0]} {
+    if {![vm exists _pi0]} {
         set _pi0 [__pi $precision]
     }
     set lenPiGlobal [::math::bignum::bits $_pi0]

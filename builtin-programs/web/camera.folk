@@ -1,4 +1,8 @@
+Expect! the html library is /htmlLib/
+dict assign $htmlLib html
+
 Wish the web server handles route {/camera} with handler [fn {args} {
+    lassign $args 0 1 2 3 4 5 6 7 8 9 QUERY
     if {[dict exists $QUERY camera]} {
         set camera [dict get $QUERY camera]
     } else {

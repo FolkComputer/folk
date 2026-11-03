@@ -10,7 +10,7 @@
 #-----------------------------------------------------------------------------
 
 source [file join \
-	    [file dirname [file dirname [file join [pwd] [info script]]]] \
+	    [file dirname [file dirname [file join [pwd] [vm script]]]] \
 	    devtools testutilities.tcl]
 
 testsNeedTcl     8.6
@@ -39,7 +39,7 @@ namespace eval math::exact::test {
 
     proc leakBaseline {} {
 	variable leakBaseline
-	foreach o [info commands ::oo::Obj*] {
+	foreach o [vm commands ::oo::Obj*] {
 	    dict set leakBaseline $o {}
 	}
 	return
@@ -49,9 +49,9 @@ namespace eval math::exact::test {
 	variable leakBaseline
 	set trouble {}
 	set sep {}
-	foreach o [lsort -dictionary [info commands ::oo::Obj*]] {
+	foreach o [lsort -dictionary [vm commands ::oo::Obj*]] {
 	    if {![dict exists $leakBaseline $o]} {
-		if {[info object isa typeof $o math::exact::counted]} {
+		if {[vm object isa typeof $o math::exact::counted]} {
 		    append trouble $sep "Leaked counted object " \
 			$o ": " [$o dump] \n
 		} else {
@@ -916,7 +916,7 @@ namespace eval math::exact::test {
 	    set result
 	}
 	-cleanup {
-	    if {[info exists v]} {$v unref}
+	    if {[vm exists v]} {$v unref}
 	}
 	-match glob
 	-returnCodes error
@@ -936,7 +936,7 @@ namespace eval math::exact::test {
 	    set result
 	}
 	-cleanup {
-	    if {[info exists v]} {$v unref}
+	    if {[vm exists v]} {$v unref}
 	}
 	-match glob
 	-returnCodes error
@@ -1110,7 +1110,7 @@ namespace eval math::exact::test {
 	    set result
 	}
 	-cleanup {
-	    if {[info exists v]} {$v unref}
+	    if {[vm exists v]} {$v unref}
 	}
 	-match glob
 	-returnCodes error
@@ -2245,7 +2245,7 @@ namespace eval math::exact::test {
 testsuiteCleanup
 
 # Exit if running this test standalone, to allow for Nagelfar coverage
-if {$::argv0 eq [info script]} {
+if {$::argv0 eq [vm script]} {
     exit
 }
 

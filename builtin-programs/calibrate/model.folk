@@ -135,7 +135,7 @@ fn modelLib::detectVersionFromDetectedTags {detectedTags} {
             break
         }
     }
-    if {![info exists versionTagId]} { return {} }
+    if {![vm exists versionTagId]} { return {} }
 
     # Compare angle to angle of any other projected tag.
     if {[llength $detectedTags] < 2} { return {} }
@@ -146,7 +146,7 @@ fn modelLib::detectVersionFromDetectedTags {detectedTags} {
             break
         }
     }
-    if {![info exists otherTagAngle]} { return {} }
+    if {![vm exists otherTagAngle]} { return {} }
 
     set versionAngle [expr {$versionTagAngle - $otherTagAngle}]
     # Rotations corresponding to versions 0, 1, 2, 3:

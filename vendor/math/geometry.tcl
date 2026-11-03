@@ -1566,7 +1566,7 @@ namespace eval ::math::geometry {
 
 }
 
-source [file join [file dirname [info script]] geometry_circle.tcl]
-source [file join [file dirname [info script]] geometry_ext.tcl]
+source [file join [file dirname [vm script]] geometry_circle.tcl]
+source [file join [file dirname [vm script]] geometry_ext.tcl]
 
 package provide math::geometry 1.4.1

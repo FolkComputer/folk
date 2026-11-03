@@ -48,7 +48,7 @@ package require msgcat
 
 namespace eval ::logger::utils {
 
-    variable packageDir [file dirname [info script]]
+    variable packageDir [file dirname [vm script]]
     variable log        [logger::init logger::utils]
 
     logger::import -force -namespace log logger::utils
@@ -123,7 +123,7 @@ proc ::logger::utils::createFormatCmd {text args} {
     regsub -all -- \
 	{%H} \
 	$text \
-	[info hostname] \
+	[vm hostname] \
 	text
 
 
@@ -134,7 +134,7 @@ proc ::logger::utils::createFormatCmd {text args} {
 	{[clock format [clock seconds] -format {%Y/%m/%d %H:%M:%S}]} \
 	text
 
-    if {[info exists opt(-category)]} {
+    if {[vm exists opt(-category)]} {
 	regsub -all -- \
 	    {%c} \
 	    $text \
@@ -148,7 +148,7 @@ proc ::logger::utils::createFormatCmd {text args} {
 	    text
     }
 
-    if {[info exists opt(-priority)]} {
+    if {[vm exists opt(-priority)]} {
 	regsub -all -- \
 	    {%p} \
 	    $text \
@@ -225,7 +225,7 @@ proc ::logger::utils::createLogProc {args} {
 
     set formatText ""
     set methodText ""
-    if {[info exists opt(-conversionPattern)]} {
+    if {[vm exists opt(-conversionPattern)]} {
 	set text $opt(-conversionPattern)
 
 	regsub -all -- \
@@ -237,10 +237,10 @@ proc ::logger::utils::createLogProc {args} {
 	regsub -all -- \
 	    {%H} \
 	    $text \
-	    [info hostname] \
+	    [vm hostname] \
 	    text
 
-	if {[info exists opt(-category)]} {
+	if {[vm exists opt(-category)]} {
 	    regsub -all -- \
 		{%c} \
 		$text \
@@ -254,7 +254,7 @@ proc ::logger::utils::createLogProc {args} {
 		text
 	}
 
-	if {[info exists opt(-priority)]} {
+	if {[vm exists opt(-priority)]} {
 	    regsub -all -- \
 		{%p} \
 		$text \
@@ -265,13 +265,13 @@ proc ::logger::utils::createLogProc {args} {
 
 	if {[regexp {%M} $text]} {
 	    set methodText {
-		if {[info level] < 2} {
+		if {[vm level] < 2} {
 		    set method "global"
 		} elseif {[uplevel 1 {namespace which self}] == "::oo::Helpers::self"} {
 		    set    method    [uplevel 1 {self class}]
 		    append method :: [uplevel 1 {self method}]
 		} else {
-		    set method [lindex [info level -1] 0]
+		    set method [lindex [vm level -1] 0]
 		}
 	    }
 
@@ -296,7 +296,7 @@ proc ::logger::utils::createLogProc {args} {
 
     }
 
-    if {[info exists opt(-outputChannel)]} {
+    if {[vm exists opt(-outputChannel)]} {
 	set outputChannel $opt(-outputChannel)
     } else {
 	set outputChannel stdout
@@ -416,13 +416,13 @@ proc ::logger::utils::applyAppender {args} {
     }
 
     set appender ::logger::appender::${appender}
-    if {[info commands $appender] == {}} {
+    if {[vm commands $appender] == {}} {
 	return -code error [msgcat::mc "could not find appender '%s'" $appender]
     }
 
     #if service is not specified make all future services with this appender
     # spec
-    if {![info exists serviceCmd]} {
+    if {![vm exists serviceCmd]} {
 	set ::logger::utils::autoApplyAppenderArgs $bargs
 	#add trace
 	#check to see if trace is already set
@@ -522,7 +522,7 @@ proc ::logger::utils::autoApplyAppender {command command-string log op args} {
             }
         }
     }
-    if {![info exists appender]} {
+    if {![vm exists appender]} {
 	return -code error [msgcat::mc "need to specify -appender"]
     }
     logger::utils::applyAppender -appender $appender -serviceCmd $log \

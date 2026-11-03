@@ -905,7 +905,7 @@ proc ::logger::import {args} {
     set imports ""
     foreach cmd $cmds {
         set cmdname ${importns}::${prefix}$cmd
-        set collision [llength [info commands $cmdname]]
+        set collision [llength [vm commands $cmdname]]
         if {$collision && !$force} {
             return -code error \
                    -errorcode [list LOGGER IMPORT_NAME_EXISTS] \

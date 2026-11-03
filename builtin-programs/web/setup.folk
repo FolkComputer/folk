@@ -91,7 +91,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
     foreach mode [dict getdef $info modes [list]] {
       dict lappend modesByRegion $mode::visibleRegion $mode
     }
-    set regions [lsort -decreasing -integer -index 0 \
+    set regions [lsort -command [fn {a b} {expr {[lindex $b 0] - [lindex $a 0]}}] \
                      [dict keys $modesByRegion]]
 
     set displayId [string map {/ _} $display]
@@ -126,7 +126,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
                 [join [lmap refreshRate $refreshRates { subst {
                   <label>
                     <input type="radio" name="display-refreshRate-$displayId"
-                           $([info exists usingOpts] && 
+                           $([vm exists usingOpts] && 
                              $width == $usingOpts::width &&
                              $height == $usingOpts::height &&
                              $refreshRate == $usingOpts::refreshRate ?
@@ -281,7 +281,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
               [join [lmap framerate $resolution::framerates { subst {
                 <label>
                   <input type="radio" name="camera-framerate-$cameraId"
-                         $([info exists usingOpts] && 
+                         $([vm exists usingOpts] && 
                            $resolution::width == $usingOpts::width &&
                            $resolution::height == $usingOpts::height &&
                            $framerate == $usingOpts::framerate ?

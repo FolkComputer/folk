@@ -180,10 +180,10 @@ proc ::math::optimize::min_bound_1d { f x1 x2 args } {
     if { ( [llength $args] % 2 ) != 0 } {
         return -code error -errorcode [list min_bound_1d wrongNumArgs] \
             "wrong \# args, should be\
-                 \"[lreplace [info level 0] 1 end f x1 x2 ?-option value?...]\""
+                 \"[lreplace [vm level 0] 1 end f x1 x2 ?-option value?...]\""
     }
     foreach { key value } $args {
-        if { ![info exists params($key)] } {
+        if { ![vm exists params($key)] } {
             return -code error -errorcode [list min_bound_1d badoption $key] \
                 "unknown option \"$key\",\
                      should be -abserror,\
@@ -344,7 +344,7 @@ proc ::math::optimize::min_bound_1d { f x1 x2 args } {
     }
 
     return -code error -errorcode [list min_bound_1d noconverge $iter] \
-        "[lindex [info level 0] 0] failed to converge after $iter steps."
+        "[lindex [vm level 0] 0] failed to converge after $iter steps."
 
 }
 
@@ -576,11 +576,11 @@ proc ::math::optimize::min_unbound_1d { f x1 x2 args } {
     if { ( [llength $args] % 2 ) != 0 } {
         return -code error -errorcode [list min_unbound_1d wrongNumArgs] \
             "wrong \# args, should be\
-                 \"[lreplace [info level 0] 1 end \
+                 \"[lreplace [vm level 0] 1 end \
                          f x1 x2 ?-option value?...]\""
     }
     foreach { key value } $args {
-        if { ![info exists params($key)] } {
+        if { ![vm exists params($key)] } {
             return -code error -errorcode [list min_unbound_1d badoption $key] \
                 "unknown option \"$key\",\
                      should be -trace"
@@ -648,11 +648,11 @@ proc ::math::optimize::nelderMead { f startx args } {
     if { ( [llength $args] % 2 ) != 0 } {
         return -code error -errorcode [list nelderMead wrongNumArgs] \
             "wrong \# args, should be\
-                 \"[lreplace [info level 0] 1 end \
+                 \"[lreplace [vm level 0] 1 end \
                          f x1 x2 ?-option value?...]\""
     }
     foreach { key value } $args {
-        if { ![info exists params($key)] } {
+        if { ![vm exists params($key)] } {
             return -code error -errorcode [list nelderMead badoption $key] \
                 "unknown option \"$key\",\
                      should be -ftol, -maxiter, -scale or -trace"
@@ -1279,7 +1279,7 @@ proc ::math::optimize::SimplexNewTableau {tableau nextcol nextrow vector} {
 # Now we can announce our presence
 package provide math::optimize 1.0.1
 
-if { ![info exists ::argv0] || [string compare $::argv0 [info script]] } {
+if { ![vm exists ::argv0] || [string compare $::argv0 [vm script]] } {
     return
 }
 

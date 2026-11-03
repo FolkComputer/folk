@@ -147,7 +147,10 @@ fn lsort-indices {itemL} {
         lappend pairL [list $item [llength $pairL]]
     }
     set indexL [list]
-    foreach pair [lsort -index 0 -real $pairL] {
+    foreach pair [lsort -command [fn {a b} {
+        set diff [expr {[lindex $a 0] - [lindex $b 0]}]
+        expr {$diff < 0 ? -1 : ($diff > 0 ? 1 : 0)}
+    }] $pairL] {
         lappend indexL [lindex $pair 1]
     }
     set indexL

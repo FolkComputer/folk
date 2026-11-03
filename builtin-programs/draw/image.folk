@@ -155,7 +155,7 @@ When the image library is /imageLib/ &\
      /p/ has resolved geometry /geom/ {
 
     # HACK: because we match partially
-    if {![info exists options]} { return }
+    if {![vm exists options]} { return }
 
     try {
         set im [loadImage $impath 0]

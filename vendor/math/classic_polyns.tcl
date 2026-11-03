@@ -4,7 +4,7 @@
 package require math::polynomials
 
 namespace eval ::math::special {
-    if {[info commands addPolyn] == {} } {
+    if {[vm commands addPolyn] == {} } {
         namespace import ::math::polynomials::*
     }
 }

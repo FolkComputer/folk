@@ -9,7 +9,7 @@
 # -------------------------------------------------------------------------
 
 source [file join \
-	[file dirname [file dirname [file join [pwd] [info script]]]] \
+	[file dirname [file dirname [file join [pwd] [vm script]]]] \
 	devtools testutilities.tcl]
 
 testsNeedTcl     8.4
@@ -54,7 +54,7 @@ proc msg {name {suffix {}}} {
 } -body {
     set a [logger::utils::createFormatCmd %H]
     set b [subst $a]
-} -result [info hostname]
+} -result [vm hostname]
 
 ::tcltest::test createFormatCmd-4 {check for %c} -cleanup {
     unset a b
@@ -98,7 +98,7 @@ proc msg {name {suffix {}}} {
 	variable log
 	constructor {} {
 	    set this_inst [namespace current]
-	    set this_klaz [info object class $this_inst]
+	    set this_klaz [vm object class $this_inst]
 	    set log [::logger::init $this_klaz]
 	    ::logger::utils::applyAppender \
 		-appender "console" \
@@ -116,7 +116,7 @@ proc msg {name {suffix {}}} {
     Main destroy
 } -body {
     $main invoke
-} -match regexp -output {[\d:\/ ]+ \[info\] \[::Main::invoke\] hello}
+} -match regexp -output {[\d:\/ ]+ \[vm\] \[::Main::invoke\] hello}
 
 ::tcltest::test applyAppender-1 {apply an appender} -cleanup {
     ${log}::delete

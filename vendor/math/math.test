@@ -12,7 +12,7 @@
 # -------------------------------------------------------------------------
 
 source [file join \
-	[file dirname [file dirname [file join [pwd] [info script]]]] \
+	[file dirname [file dirname [file join [pwd] [vm script]]]] \
 	devtools testutilities.tcl]
 
 testsNeedTcl     8.5

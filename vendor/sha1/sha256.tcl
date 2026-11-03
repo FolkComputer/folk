@@ -34,12 +34,12 @@ namespace eval ::sha2 {
 
 
     variable uid
-    if {![info exists uid]} {
+    if {![vm exists uid]} {
         set uid 0
     }
 
     variable K
-    if {![info exists K]} {
+    if {![vm exists K]} {
         # FIPS 180-2: 4.2.2 SHA-256 constants
         set K [list \
                    0x428a2f98 0x71374491 0xb5c0fbcf 0xe9b5dba5 \
@@ -85,7 +85,7 @@ proc ::sha2::LoadAccelerator {name} {
         critcl {
             if {![catch {package require tcllibc}]
                 || ![catch {package require sha256c}]} {
-                set r [expr {[info commands ::sha2::sha256c_update] != {}}]
+                set r [expr {[vm commands ::sha2::sha256c_update] != {}}]
             }
         }
         default {
@@ -161,9 +161,9 @@ proc ::sha2::SwitchTo {key} {
     } elseif {![string equal $key ""]} {
 	# Validate the target implementation of the switch.
 
-	if {![info exists accel($key)]} {
+	if {![vm exists accel($key)]} {
 	    return -code error "Unable to activate unknown implementation \"$key\""
-	} elseif {![info exists accel($key)] || !$accel($key)} {
+	} elseif {![vm exists accel($key)] || !$accel($key)} {
 	    return -code error "Unable to activate missing implementation \"$key\""
 	}
     }
@@ -766,7 +766,7 @@ proc ::sha2::hmac {args} {
         set opts(-key) [Pop args]
     }
 
-    if {![info exists opts(-key)]} {
+    if {![vm exists opts(-key)]} {
         return -code error "wrong # args:\
             should be \"hmac ?-hex? -key key -filename file | string\""
     }

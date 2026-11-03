@@ -3,9 +3,7 @@
 #     Implements the C 'FFI' that lets you embed arbitrary C/C++ code
 #     into a Tcl program. Especially useful for calling existing C
 #     APIs and libraries (i.e., almost anything involving hardware or
-#     the OS -- graphics, webcams, multithreading). Shells out to the
-#     C compiler to build a shared library and then uses Tcl "load" to
-#     load it immediately.
+#     the OS -- graphics, webcams, multithreading).
 #
 # Copyright (c) 2022-2024 Folk Computer, Inc.
 
@@ -19,28 +17,28 @@ fn csubst {s} {
         switch -- $c {
             "\\" {
                 incr i; set next [string index $s $i]
-                # TODO: This is a hack to deal with \n and \0.
-                if {$next eq "n" || $next eq "0"} { lappend result "\\" }
                 lappend result $next
             }
             {$} {
-                set tail [string range $s [+ $i 1] end]
-                if {[regexp {^((?:[A-Za-z0-9_]|::)+)} $tail match-> varname] ||
-                    [regexp {^\{([^\}]*)\}} $tail match-> varname]} {
+                set remaining [string range $s $i end]
+                try {
+                    # Try parsing as a variable substitution.
+                    lassign [vm parse variable $remaining] varname advance
+                    incr i [- $advance 1]
 
                     lappend result [uplevel [list set $varname]]
-                    incr i [string length ${match->}]
-                } elseif {[string index $tail 0] eq "\["} {
-                    set bracketcount 0
-                    for {set j 0} {$j < [string length $tail]} {incr j} {
-                        set ch [string index $tail $j]
-                        if {$ch eq "\["} { incr bracketcount } \
-                        elseif {$ch eq "]"} { incr bracketcount -1 }
-                        if {$bracketcount == 0} { break }
+                } on error {} {
+                    # Even if it's variable substitution, it might be
+                    # command substitution.
+                    try {
+                        lassign [vm parse command $remaining] cmd advance
+                        incr i [- $advance 1]
+
+                        lappend result [uplevel $cmd]
+                    } on error {} {
+                        # Wasn't any of those, so we'll just throw the character on.
+                        lappend result $c
                     }
-                    set script [string range $tail 1 [- $j 1]]
-                    lappend result [uplevel $script]
-                    incr i [expr {$j+1}]
                 }
             }
             default {lappend result $c}
@@ -48,13 +46,10 @@ fn csubst {s} {
     }
     join $result ""
 }
-# Whether a (typestyle-canonicalized, e.g. "float[4]") field type is a fixed-size
-# array type. Deliberately kept out of any csubst-scanned code block: its
-# regex's raw '[]' characters would desync csubst's own (escaping-unaware)
-# bracket counting if inlined there.
-fn isArrayFieldType {fieldtype} {
-    regexp {\[[^\]]*\]$} $fieldtype
-}
+# Opposite of [typestyle]. Moves an array suffix from the type to the name,
+# going from "int[10] x" to "int x[10]". We use the array suffix in the type
+# name for canonicity, but move it to the end when generating C arguments,
+# using this function.
 fn cstyle {type name} {
     if {[regexp {([^\[]+)(\[[^\]]*\](\[[^\]]*\])?)$} $type -> basetype arraysuffix]} {
         # Normalize any named dimension (identifier) to [] for the C declaration.
@@ -65,7 +60,7 @@ fn cstyle {type name} {
     }
     list $basetype $name$arraysuffix
 }
-# Converts something like {int x[10]} to {int[10] x}. That way the array type
+# Converts something like "int x[10]" to "int[10] x". That way the array type
 # is moved out of the name and into the type.
 fn typestyle {type name} {
     if {[regexp {([^\[]+)(\[\d*\](\[\d*\])?)$} $name -> basename arraysuffix]} {
@@ -328,7 +323,7 @@ method C::include {self h} {
 }
 
 method C::addcode {self newcode {extendArg {:noextend}}} {
-    lassign [info source $newcode] filename line
+    lassign [vm source $newcode] filename line
     if {$filename ne ""} {
         set newcode [subst {
 #line $line "$filename"
@@ -509,7 +504,7 @@ method C::struct {self type fields} {
                     Zicl_Shim shim_$fieldname = Zicl_NewShim(Zicl_Unwrap(obj_$fieldname));
                     defer { Zicl_ShimDiscardChanges(&shim_$fieldname); }
                     $[self::arg $fieldtype robj_$fieldname "&shim_$fieldname"]
-                    $[if {[isArrayFieldType $fieldtype]} {
+                    $[if {[regexp {\[[^\]]*\]$} $fieldtype]} {
                         subst {memcpy(robj.$fieldname, robj_$fieldname, sizeof(robj.$fieldname));}
                     } else {
                         subst {robj.$fieldname = robj_$fieldname;}
@@ -566,7 +561,7 @@ method C::struct {self type fields} {
 
 method C::proc {self name arguments rtype body} {
     set cname [string map {":" "_" "!" "_"} $name]
-    lassign [info source $body] filename line
+    lassign [vm source $body] filename line
     set body [uplevel 1 [list csubst $body]]
 
     set arglist [list]
@@ -743,7 +738,7 @@ extern "C" \{
         lappend self::cflags -DTRACY_ENABLE=1 -I./vendor/tracy/public
     }
     set asan_flags {}
-    if {[info exists env::ASAN_ENABLE] && $env::ASAN_ENABLE ne ""} {
+    if {[vm exists env::ASAN_ENABLE] && $env::ASAN_ENABLE ne ""} {
         set asan_flags "-fsanitize=address -fsanitize-recover=address"
     }
     set out [exec $self::compiler {*}$asan_flags -Wall \
@@ -914,7 +909,7 @@ C::objtype Buffer {
 
     static inline Zicl_Val Buffer_wrap(Buffer* buf) {
         Zicl_Val out;
-        folkZiclAssert(Zicl_BoxCap(&buf->head, &out));
+        folkZiclAssert(Zicl_CapNewReferencing(&buf->head, &out));
         Zicl_CapDropRef(&buf->head);
         return out;
     }

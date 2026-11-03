@@ -18,7 +18,7 @@ set regular 1
 
 if {$regular==1} then {
     source [file join \
-                [file dirname [file dirname [file join [pwd] [info script]]]] \
+                [file dirname [file dirname [file join [pwd] [vm script]]]] \
                 devtools testutilities.tcl]
 
     testsNeedTcl     8.5
@@ -37,7 +37,7 @@ if {$regular==1} then {
     #tcltest::configure -match largesteigen-*
     namespace import tcltest::test
     namespace import tcltest::customMatch
-    set basedir [file normalize [file dirname [info script]]]
+    set basedir [file normalize [file dirname [vm script]]]
     set ::auto_path [linsert $::auto_path 0 $basedir]
     package require -exact math::linearalgebra 1.1.3
 }

@@ -1,7 +1,9 @@
 When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
      the GPU draw library is /drawLib/ &\
      the GPU VMA DLL is /vmaDll/ &\
-     the GPU texture library is /gpuTextureLib/ {
+     the GPU texture library is /gpuTextureLib/ &\
+     the html library is /htmlLib/ {
+    dict assign $htmlLib html
     set cc [dict link $C {}]
     cc::addendcflags -lpng
     cc::addcflags -I./vendor

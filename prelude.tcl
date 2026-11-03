@@ -29,7 +29,7 @@ fn Notify: {args} {
 }
 
 fn Hold! {args} {
-    set this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
+    set this [uplevel {expr {[vm exists this] ? $this : "<unknown>"}}]
 
     set on $this
     set key [list]
@@ -74,9 +74,9 @@ fn Hold! {args} {
     } elseif {[llength $clause] == 1} {
         # Hold! { ... body ... }
         set body [lindex $clause 0]
-        lassign [info source $body] filename lineno
+        lassign [vm source $body] filename lineno
 
-        set closure [info source [uplevel 1 [list fn {} $body]] $filename $lineno]
+        set closure [vm source [uplevel 1 [list fn {} $body]] $filename $lineno]
         set clause [list when $closure]
     } elseif {[llength $clause] > 1} {
         if {[lindex $clause 0] eq "Claim"} {
@@ -86,8 +86,8 @@ fn Hold! {args} {
         }
     }
 
-    if {![info exists filename] || ![info exists lineno]} {
-        set frame [info frame -1]
+    if {![vm exists filename] || ![vm exists lineno]} {
+        set frame [vm frame -1]
         set filename [dict get $frame file]
         set lineno [dict get $frame line]
     }
@@ -104,7 +104,7 @@ fn Hold! {args} {
 }
 
 fn Say {args} {
-    set callerInfo [info frame -1]
+    set callerInfo [vm frame -1]
     set sourceFileName [dict get $callerInfo file]
     set sourceLineNumber [dict get $callerInfo line]
 
@@ -141,8 +141,8 @@ fn Say {args} {
         destructorCode $destructorCode] \
         {*}$pattern
 }
-fn Claim {args} { upvar this this; tailcall Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
-fn Wish {args} { upvar this this; tailcall Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }
+fn Claim {args} { upvar this this; tailcall Say [expr {[vm exists this] ? $this : "<unknown>"}] claims {*}$args }
+fn Wish {args} { upvar this this; tailcall Say [expr {[vm exists this] ? $this : "<unknown>"}] wishes {*}$args }
 # returns the statement to Say/Assert (minus the envStack), as well as all bound variable names
 fn desugarWhen {pattern body {whenOptions {}}} {
     set varNamesWillBeBound [list]
@@ -198,7 +198,7 @@ fn When {args} {
     upvar this this
 
     set body [lindex $args end]
-    set sourceInfo [info source $body]
+    set sourceInfo [vm source $body]
 
     set args [lreplace $args end end]
 
@@ -281,8 +281,8 @@ fn When {args} {
     if {[llength $atomicallyVersion] == 2 &&
         [lindex $atomicallyVersion 0] eq "fresh"} {
         set whenOptions [list -atomicallyWithKey [lindex $atomicallyVersion 1]]
-        if {[info exists keep]} { lappend whenOptions -keep $keep }
-        set atomicTimeout [expr {([info exists keep] ? $keepMs : 100) * 1000000}]
+        if {[vm exists keep]} { lappend whenOptions -keep $keep }
+        set atomicTimeout [expr {([vm exists keep] ? $keepMs : 100) * 1000000}]
         # For a fresh atomic version, keep controls its timeout, not the
         # lifetime of the rule statement. Zero disables atomic expiry.
         set keepMs 0
@@ -297,13 +297,13 @@ fn When {args} {
         atomicallyVersion $atomicallyVersion]
     if {$whenOptions ne {}} {
         dict set attrs atomicallyKey [lindex $whenOptions 1]
-        if {[info exists keep]} {
+        if {[vm exists keep]} {
             dict set attrs atomicTimeout $atomicTimeout
         }
     }
 
     # Note that by using `uplevel` on fn, we capture the parent's lexical scope.
-    set closure [uplevel 1 [info source [list fn $boundVars $bodyToWrap] {*}$sourceInfo]]
+    set closure [uplevel 1 [vm source [list fn $boundVars $bodyToWrap] {*}$sourceInfo]]
 
     tailcall SayWithSource $attrs \
         {*}$clauseFront $closure
@@ -312,13 +312,13 @@ fn Subscribe: {args} {
     set pattern [lrange $args 0 end-1]
     set body [lindex $args end]
 
-    set sourceInfo [info source $body]
+    set sourceInfo [vm source $body]
 
     lassign [desugarWhen $pattern $body] clauseFront bodyToWrap boundVars
     set clauseFront [lreplace $clauseFront 0 0 subscribe]
 
     # Note that by using `uplevel` on fn, we capture the parent's lexical scope.
-    set closure [uplevel 1 [info source [list fn $boundVars $bodyToWrap] {*}$sourceInfo]]
+    set closure [uplevel 1 [vm source [list fn $boundVars $bodyToWrap] {*}$sourceInfo]]
 
     tailcall SayWithSource [dict create \
         sourceFileName [lindex $sourceInfo 0] \
@@ -327,8 +327,8 @@ fn Subscribe: {args} {
 }
 fn On {event body} {
     if {$event eq "unmatch"} {
-        set sourceInfo [info source $body]
-        set closure [uplevel 1 [info source [list fn {} $body] {*}$sourceInfo]]
+        set sourceInfo [vm source $body]
+        set closure [uplevel 1 [vm source [list fn {} $body] {*}$sourceInfo]]
         Destructor [list apply $closure]
     } else {
         error "On: Unknown '$event' (called with: [string range $body 0 50]...)"
@@ -426,7 +426,7 @@ fn queryScope::Query! {args} {
         }
     }
 
-    if {![info exists remainingPattern]} {
+    if {![vm exists remainingPattern]} {
         return $results0
     }
 
@@ -472,7 +472,7 @@ fn QueryOne! {args} {
     }
 
     set results [Query! {*}$pattern]
-    if {[llength $results] == 0 && [info exists default]} {
+    if {[llength $results] == 0 && [vm exists default]} {
         return $default
     }
     if {[llength $results] != 1} {
@@ -559,6 +559,7 @@ fn ForEach! {args} {
         if {[dict size $result] > 0} {
             uplevel [list dict assign $result {*}[dict keys $result]]
         }
+        uplevel [list set __result $result]
         set code [catch {uplevel $body} ret opts]
 
         if {[dict exists $result __ref]} {
@@ -586,7 +587,7 @@ fn ForEach! {args} {
     }
 }
 
-set thisNode [info hostname]
+set thisNode [vm hostname]
 # TODO: Save ::thisNode and check if it's changed.
 
 if {[__isTracyEnabled]} {
@@ -700,5 +701,5 @@ if {[__isTracyEnabled]} {
 source "lib/python.tcl"
 
 set isLaptop [expr {$tcl_platform::os eq "darwin" ||
-                      ([info exists env::XDG_SESSION_TYPE] &&
+                      ([vm exists env::XDG_SESSION_TYPE] &&
                        $env::XDG_SESSION_TYPE ne "tty")}]

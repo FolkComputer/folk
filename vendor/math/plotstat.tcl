@@ -162,7 +162,7 @@ proc ::math::statistics::plot-tline { canvas tdata {tag xyplot} } {
 proc ::math::statistics::PlotXY { canvas type tag xdata ydata } {
     variable plot
 
-    if { ![info exists plot($canvas,xmin)] } {
+    if { ![vm exists plot($canvas,xmin)] } {
 	return -code error -errorcode "No scaling given for canvas $canvas"
     }
 
@@ -239,7 +239,7 @@ proc ::math::statistics::PlotXY { canvas type tag xdata ydata } {
 proc ::math::statistics::plot-histogram { canvas counts limits {tag xyplot} } {
     variable plot
 
-    if { ![info exists plot($canvas,xmin)] } {
+    if { ![vm exists plot($canvas,xmin)] } {
 	return -code error -errorcode DATA "No scaling given for canvas $canvas"
     }
 
@@ -293,7 +293,7 @@ proc ::math::statistics::plot-histogram { canvas counts limits {tag xyplot} } {
 #
 # Simple test code
 #
-if { [info exists ::argv0] && ([file tail [info script]] == [file tail $::argv0]) } {
+if { [vm exists ::argv0] && ([file tail [vm script]] == [file tail $::argv0]) } {
 
     set xdata {1 2 3 4 5 10 20 6 7 8 1 3 4 5 6 7}
     set ydata {2 3 4 5 6 10 20 7 8 1 3 4 5 6 7 1}

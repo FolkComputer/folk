@@ -4,7 +4,7 @@
 #     numerical parameters (so you can draw images, shapes, etc.)
 #     Single render thread handles all displays.
 
-if {[info exists this] && $tcl_platform::os eq "darwin"} {
+if {[vm exists this] && $tcl_platform::os eq "darwin"} {
     # We hard-code draw.folk into thread 0, so we should abort if not
     # running that way.
     return
@@ -111,7 +111,7 @@ cc::objtype DisplayState {
         memset(&ds->head, 0, sizeof(ds->head));
         ds->head.vtable = DisplayState_VTable;
         Zicl_Val out;
-        folkZiclAssert(Zicl_CapNew(&ds->head, &out));
+        folkZiclAssert(Zicl_CapNewOwning(&ds->head, &out));
         return out;
     }
 }

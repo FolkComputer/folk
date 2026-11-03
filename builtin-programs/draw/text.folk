@@ -45,7 +45,7 @@ cc::objtype Font {
         memset(&font->head, 0, sizeof(font->head));
         font->head.vtable = Font_VTable;
         Zicl_Val out;
-        folkZiclAssert(Zicl_CapNew(&font->head, &out));
+        folkZiclAssert(Zicl_CapNewOwning(&font->head, &out));
         return out;
     }
 }

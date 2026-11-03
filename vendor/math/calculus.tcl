@@ -777,11 +777,11 @@ proc ::math::calculus::romberg { f a b args } {
     if { ( [llength $args] % 2 ) != 0 } {
         return -code error -errorcode [list romberg wrongNumArgs] \
             "wrong \# args, should be\
-                 \"[lreplace [info level 0] 1 end \
+                 \"[lreplace [vm level 0] 1 end \
                          f x1 x2 ?-option value?...]\""
     }
     foreach { key value } $args {
-        if { ![info exists params($key)] } {
+        if { ![vm exists params($key)] } {
             return -code error -errorcode [list romberg badoption $key] \
                 "unknown option \"$key\",\
                      should be -abserror, -degree, -relerror, or -maxiter"
@@ -1647,4 +1647,4 @@ proc ::math::calculus::qk15_detailed {xstart xend func {n 1}} {
 #
 # Add the root finding procedures based on bracketing a root
 #
-source [file join [file dirname [info script]] rootfind.tcl]
+source [file join [file dirname [vm script]] rootfind.tcl]

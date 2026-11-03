@@ -369,7 +369,7 @@ side effects.
 [example {
      # Print caller and current vars in the calling proc
      proc log_local_var {txt} {
-          set caller [info level -1]
+          set caller [vm level -1]
           set vars [uplevel 1 info vars]
           foreach var [lsort $vars] {
              if {[uplevel 1 [list array exists $var]] == 1} {

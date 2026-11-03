@@ -51,7 +51,7 @@ cc::objtype Image {
     int Image_updateStringProc(Zicl_Obj* objPtr) {
         Image* im = *(Image**) Zicl_ObjBody(objPtr);
         Zicl_Val capVal;
-        int rc = Zicl_BoxCap(im->cap, &capVal);
+        int rc = Zicl_CapNewReferencing(im->cap, &capVal);
         if (rc != ZICL_OK) return rc;
         defer { Zicl_DropRef(capVal); }
         const char* capStr = ziclString(capVal);

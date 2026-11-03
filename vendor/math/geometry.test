@@ -9,7 +9,7 @@
 # -------------------------------------------------------------------------
 
 source [file join \
-	[file dirname [file dirname [file join [pwd] [info script]]]] \
+	[file dirname [file dirname [file join [pwd] [vm script]]]] \
 	devtools testutilities.tcl]
 
 testsNeedTcl     8.5
@@ -30,7 +30,7 @@ proc withFourDecimals {args} {
     return $res
 }
 
-if { [info commands lmap] eq {} } {
+if { [vm commands lmap] eq {} } {
     proc lmap {var list body} {
         upvar 1 $var _$var
         set __$var {}

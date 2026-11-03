@@ -1,5 +1,6 @@
 When the jpeg library is /jpegLib/ {
     Wish the web server handles route {/camera-slice/([^/]+)$} with handler [fn {args} {
+        lassign $args 0 1 2 3 4 5 6 7 8 9 QUERY
         set id [string map [list %20 " "] $1]
         Hold! -key [list camera-slice $id] Wish $id has camera slice
 

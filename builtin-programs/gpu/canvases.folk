@@ -128,7 +128,7 @@ When the GPU library is /gpuLib/ &\
             memset(&wi->head, 0, sizeof(wi->head));
             wi->head.vtable = GpuCanvas_VTable;
             Zicl_Val out;
-            folkZiclAssert(Zicl_CapNew(&wi->head, &out));
+            folkZiclAssert(Zicl_CapNewOwning(&wi->head, &out));
             return out;
         }
     }
@@ -356,10 +356,10 @@ When the GPU library is /gpuLib/ &\
     Wish the GPU runs frame prelude handler [fn {} {
         upvar missingPipelines missingPipelines
         upvar mostRecentDrawCache mostRecentDrawCache
-        if {![info exists missingPipelines]} {
+        if {![vm exists missingPipelines]} {
             set missingPipelines [dict create]
         }
-        if {![info exists mostRecentDrawCache]} {
+        if {![vm exists mostRecentDrawCache]} {
             set mostRecentDrawCache [dict create]
         }
         set thisDrawCache [dict create]
@@ -510,7 +510,7 @@ When the GPU library is /gpuLib/ &\
         Wish $p has a canvas with width 1024 height 1024 settle 3ms
     }
     When /someone/ wishes /p/ has a canvas with /...options/ {
-        if {![info exists options]} {
+        if {![vm exists options]} {
             # HACK: this matches even if the options aren't
             # there. just return early
             return

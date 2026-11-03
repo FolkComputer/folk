@@ -430,7 +430,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                 set prevTagPose [dict get $latestResult tagPose]
             }
         }
-        if {![info exists prevTagPose]} {
+        if {![vm exists prevTagPose]} {
             set prevTagPose [poseLib::baseEstimateTagPose $cameraIntrinsics \
                                  $cameraWidth $cameraHeight \
                                  tagSize::[dict get $det p]]

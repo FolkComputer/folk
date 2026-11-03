@@ -85,7 +85,7 @@ namespace eval ::math::numtheory {
 %</test_primes>
 %<*test_common>
 source [file join\
-  [file dirname [file dirname [file join [pwd] [info script]]]]\
+  [file dirname [file dirname [file join [pwd] [vm script]]]]\
   devtools testutilities.tcl]
 
 testsNeedTcl     8.5
@@ -1030,7 +1030,7 @@ proc ::math::numtheory::isprime {n args} {
 
 # Add the additional procedures
 #
-source [file join [file dirname [info script]] primes.tcl]
+source [file join [file dirname [vm script]] primes.tcl]
 %</pkg>
 %   \end{tcl}
 %

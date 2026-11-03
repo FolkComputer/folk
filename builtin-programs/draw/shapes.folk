@@ -171,7 +171,7 @@ fn drawShapePathPoints {points geom options} {
 
 When /someone/ wishes /p/ draws a /shape/ with /...options/ &\
      /p/ has resolved geometry /geom/ {
-    if {![info exists options]} { return }
+    if {![vm exists options]} { return }
     set shape [drawShapeCanonical $shape $options]
     set center [drawShapePosition $options $geom]
     set color [dict getdef $options color white]
@@ -229,7 +229,7 @@ When /someone/ wishes /p/ draws a /shape/ {
 
 When /someone/ wishes /p/ draws text /text/ with /...options/ &\
      /p/ has resolved geometry /geom/ {
-    if {![info exists options]} { return }
+    if {![vm exists options]} { return }
     set position [drawShapePosition $options $geom]
     set color [dict getdef $options color white]
     set scale [drawShapeLengthOption $options scale 0.01 \
@@ -250,7 +250,7 @@ When /someone/ wishes /p/ draws text /text/ {
 
 When /someone/ wishes /p/ draws a polyline /points/ with /...options/ &\
      /p/ has resolved geometry /geom/ {
-    if {![info exists options]} { return }
+    if {![vm exists options]} { return }
     set points [drawShapePathPoints $points $geom $options]
     set color [dict getdef $options color white]
     set geomWidth [dict get $geom width]
@@ -282,7 +282,7 @@ When /someone/ wishes /p/ draws a polyline /points/ {
 
 When /someone/ wishes /p/ draws a polygon /points/ with /...options/ &\
      /p/ has resolved geometry /geom/ {
-    if {![info exists options]} { return }
+    if {![vm exists options]} { return }
     set parsedPoints [drawShapePathPoints $points $geom $options]
     set color [dict getdef $options color white]
     set layer [dict getdef $options layer 1]
@@ -295,7 +295,7 @@ When /someone/ wishes /p/ draws a polygon /points/ {
 
 When /someone/ wishes /p/ draws points /points/ with /...options/ &\
      /p/ has resolved geometry /geom/ {
-    if {![info exists options]} { return }
+    if {![vm exists options]} { return }
     set points [drawShapePathPoints $points $geom $options]
     set geomWidth [dict get $geom width]
     set geomHeight [dict get $geom height]
@@ -318,7 +318,7 @@ When /someone/ wishes /p/ draws points /points/ {
 }
 
 When /someone/ wishes /p/ draws a set of points /points/ with /...options/ {
-    if {![info exists options]} { return }
+    if {![vm exists options]} { return }
     Wish $p draws points $points with {*}$options
 }
 

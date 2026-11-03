@@ -257,7 +257,7 @@ proc ::math::random {args} {
 	set range [expr {$upper - $lower}]
 	return [expr {int($num * $range) + $lower}]
     } else {
-	set fn [lindex [info level 0] 0]
+	set fn [lindex [vm level 0] 0]
 	error "wrong # args: should be \"$fn ?value1? ?value2?\""
     }
 }

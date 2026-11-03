@@ -12,7 +12,7 @@
 # -------------------------------------------------------------------------
 
 source [file join \
-	[file dirname [file dirname [file join [pwd] [info script]]]] \
+	[file dirname [file dirname [file join [pwd] [vm script]]]] \
 	devtools testutilities.tcl]
 
 testsNeedTcl     8.5
@@ -27,7 +27,7 @@ testing {
 # Fake [lset] for Tcl releases that don't have it.  We need only
 # lset into a flat list.
 
-if { [string compare lset [info commands lset]] } {
+if { [string compare lset [vm commands lset]] } {
     proc K { x y } { set x }
     proc lset { listVar index var } {
 	upvar 1 $listVar list

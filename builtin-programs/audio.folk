@@ -361,9 +361,9 @@ When the audio library is /audioLib/ &\
     # or in the working directory's assets/sounds subdirectory. Otherwise, assume
     # it's an absolute path.
     fn resolveSoundPath {filename} {
-        set scriptDir [file dirname [info script]]
+        set scriptDir [file dirname [vm script]]
         set projectRoot [pwd]
-        set hostname [info hostname]
+        set hostname [vm hostname]
         set path "$projectRoot/user-programs/$hostname/audio/$filename"
 
         if {[file exists $path]} { return $path }

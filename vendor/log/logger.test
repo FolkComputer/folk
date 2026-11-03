@@ -10,7 +10,7 @@
 # -------------------------------------------------------------------------
 
 source [file join \
-	[file dirname [file dirname [file join [pwd] [info script]]]] \
+	[file dirname [file dirname [file join [pwd] [vm script]]]] \
 	devtools testutilities.tcl]
 
 testsNeedTcl     8.2
@@ -430,7 +430,7 @@ test logger-8.2 {logproc with existing proc} {
     proc errorlogproc {txt} {
         lappend ::INFO "Error Message: $txt"
     }
-    set msg [info commands errorlogproc]
+    set msg [vm commands errorlogproc]
     ${log}::logproc error errorlogproc 
     ${log}::error "error"
     ${log}::error "second error"
@@ -472,7 +472,7 @@ test logger-8.5 {logproc with existing proc, introspection} {
     proc errorlogproc {txt} {
         lappend ::INFO "Error Message: $txt"
     }
-    set msg [info commands errorlogproc]
+    set msg [vm commands errorlogproc]
     ${log}::logproc error errorlogproc 
     set cmd [${log}::logproc error]
     ${log}::delete 
@@ -981,7 +981,7 @@ test logger-13.8 {test for logproc interations with childs} {
 
 test logger-14.1 {test for a clean call stack for logprocs} {
     namespace eval ::logtest {
-       proc mylog {txt} { set ::logtest::stack [info level]}
+       proc mylog {txt} { set ::logtest::stack [vm level]}
        proc dolog {logger} {
             ${logger}::info foo
        }
@@ -997,7 +997,7 @@ test logger-14.1 {test for a clean call stack for logprocs} {
 
 test logger-14.2 {test for a clean call stack for logprocs} {
     namespace eval ::logtest {
-       proc mylog {txt} { set ::logtest::stack [list [info level 1] [info level 2]]}
+       proc mylog {txt} { set ::logtest::stack [list [vm level 1] [vm level 2]]}
        proc dolog {logger} {
             ${logger}::info foo
        }
@@ -1013,7 +1013,7 @@ test logger-14.2 {test for a clean call stack for logprocs} {
 
 test logger-14.3 {test for a clean call stack for logprocs} {
     namespace eval ::logtest {
-       proc mylog {txt} { set ::logtest::stack [list [info level 1] [info level 2]]}
+       proc mylog {txt} { set ::logtest::stack [list [vm level 1] [vm level 2]]}
     }
     set l1 [logger::init global]
     ${l1}::logproc info ::logtest::mylog
@@ -1033,7 +1033,7 @@ test logger-14.3 {test for a clean call stack for logprocs} {
 
 test logger-14.4 {test for a clean call stack for logprocs} {
     namespace eval ::logtest {
-       proc mylog {txt} { set ::logtest::stack [list [info level 1] [info level 2]]
+       proc mylog {txt} { set ::logtest::stack [list [vm level 1] [vm level 2]]
                           set ::logtest::info [uplevel 1 set someinfo]                 
        }
        proc dolog {logger} {
@@ -1156,15 +1156,15 @@ test logger-15.5 {test for strange callback names, glob pattern ::*} {
 
 test logger-15.6 {test for other [] glob pattern} {
     set ::gotcalled 0
-    proc ::\[info\] {args} {set ::gotcalled 1}
+    proc ::\[vm\] {args} {set ::gotcalled 1}
     set l [logger::init global]
     ${l}::setlevel [lindex [logger::levels] 0]
-    set code [catch {${l}::lvlchangeproc {::[info]}} msg]
+    set code [catch {${l}::lvlchangeproc {::[vm]}} msg]
     ${l}::setlevel warn
     ${l}::delete
-    rename {::[info]} ""
+    rename {::[vm]} ""
     list $::gotcalled $code $msg
-} {1 0 {::[info]}}
+} {1 0 {::[vm]}}
 
 test logger-15.7 {test for spaces in commands support} {
     set ::gotcalled 0
@@ -1180,25 +1180,25 @@ test logger-15.7 {test for spaces in commands support} {
 
 test logger-15.8 {test for other []* glob pattern} {
     set ::gotcalled 0
-    proc ::\[info\]* {args} {set ::gotcalled 1}
+    proc ::\[vm\]* {args} {set ::gotcalled 1}
     set l [logger::init global]
     ${l}::setlevel [lindex [logger::levels] 0]
-    set code [catch {${l}::lvlchangeproc {::[info]*}} msg]
+    set code [catch {${l}::lvlchangeproc {::[vm]*}} msg]
     ${l}::setlevel warn
     ${l}::delete
-    rename {::[info]*} ""
+    rename {::[vm]*} ""
     list $::gotcalled $code $msg
-} {1 0 {::[info]*}}
+} {1 0 {::[vm]*}}
 
 test logger-15.9 {test for other []* glob pattern} {
     set ::gotcalled 0
     set l [logger::init global]
     ${l}::setlevel [lindex [logger::levels] 0]
-    set code [catch {${l}::lvlchangeproc {::[info]*}} msg]
+    set code [catch {${l}::lvlchangeproc {::[vm]*}} msg]
     ${l}::setlevel warn
     ${l}::delete
     list $::gotcalled $code $msg
-} {0 1 {Invalid cmd '::[info]*' - does not exist}}
+} {0 1 {Invalid cmd '::[vm]*' - does not exist}}
 
 test logger-15.10 {test for non normalized namespace names} {
     set ::gotcalled 0

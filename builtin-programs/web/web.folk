@@ -38,9 +38,9 @@ fn htmlLib::HtmlWhen {args} {
     set body [lindex $pattern end]
     set pattern [lreplace $pattern end end]
 
-    set sourceInfo [info source $body]
+    set sourceInfo [vm source $body]
     set prologue {dict assign -all [lindex $args 0]}
-    set render [uplevel 1 [info source [list fn args "$prologue;$body"] {*}$sourceInfo]]
+    set render [uplevel 1 [vm source [list fn args "$prologue;$body"] {*}$sourceInfo]]
 
     # Retract when the page is closed.
     if {[lrange $pattern 0 3] eq "the collected results for"} {
@@ -101,7 +101,7 @@ dict assign $htmlLib htmlEscape html json
 
 fn readFile {filename contentTypeVar} {
     upvar $contentTypeVar contentType
-    set fd [file open $filename rb]
+    set fd [file open $filename r]
     set response [stream read $fd]; close $fd; return $response
 }
 
@@ -196,7 +196,14 @@ fn handleConnection {chan} {
                         set vars [lrange $vars 0 end-1]
                         while {[llength $vars] < 10} { lappend vars "" }
 
-                        set response [handler {*}$vars $QUERY]
+                        for {set i 0} {$i < 10} {incr i} {
+                            set $i [lindex $vars $i]
+                        }
+                        if {[string match "fn impl *" $handler]} {
+                            set response [handler {*}$vars $QUERY]
+                        } else {
+                            set response [eval $handler]
+                        }
                         break
                     }
                 }
@@ -252,7 +259,7 @@ fn handleConnection {chan} {
             }
             close $chan
 
-        } elseif {[info exists path] && $path eq "/ws"} {
+        } elseif {[vm exists path] && $path eq "/ws"} {
             set clientKey [headerGet $headers Sec-WebSocket-Key ""]
             if {$clientKey eq ""} {
                 stream write $chan "HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nMissing Sec-WebSocket-Key\r\n"

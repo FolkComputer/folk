@@ -27,7 +27,7 @@ namespace eval ::math::special {
     #
     # Functions defined in other math submodules
     #
-    if { [info commands Beta] == {} } {
+    if { [vm commands Beta] == {} } {
        namespace import ::math::Beta
        namespace import ::math::ln_Gamma
     }
@@ -455,9 +455,9 @@ proc ::math::special::bernoulliNumber {index} {
 
 # Bessel functions and elliptic integrals --
 #
-source [file join [file dirname [info script]] "bessel.tcl"]
-source [file join [file dirname [info script]] "classic_polyns.tcl"]
-source [file join [file dirname [info script]] "elliptic.tcl"]
-source [file join [file dirname [info script]] "exponential.tcl"]
+source [file join [file dirname [vm script]] "bessel.tcl"]
+source [file join [file dirname [vm script]] "classic_polyns.tcl"]
+source [file join [file dirname [vm script]] "elliptic.tcl"]
+source [file join [file dirname [vm script]] "exponential.tcl"]
 
 package provide math::special 0.5.2

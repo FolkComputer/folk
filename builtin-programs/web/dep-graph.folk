@@ -35,18 +35,28 @@ fn dbNotify {db} {
     return "digraph { rankdir=LR; [join $dot "\n"] }"
 }
 
-set getDotAsPdf {{dot} {
-    set fd [file open |[list dot -Tpdf <<$dot] r]
-    set response [stream read $fd]
+fn getDotAsPdf {dot} {
+    set inPath "/tmp/folk-dep-[pid].dot"
+    set outPath "/tmp/folk-dep-[pid].pdf"
+    set fd [file open $inPath w]
+    stream write $fd $dot
+    close $fd
     try {
+        exec dot -Tpdf -o $outPath $inPath
+        set fd [file open $outPath r]
+        set response [stream read $fd]
         close $fd
         return $response
     } on error e {
         if {[catch {exec which dot}] != 0} {
             error "graphviz not installed!"
         }
+        error $e
+    } finally {
+        file delete -force $inPath
+        file delete -force $outPath
     }
-}}
+}
 
 Wish the web server handles route {/dep-graph\.pdf} with handler [fn {args} {
     set dot [dbNotify [__db]]
@@ -56,5 +66,5 @@ Connection: close
 Content-Type: application/pdf
 
 " \
-        body [apply $getDotAsPdf $dot]
+        body [getDotAsPdf $dot]
 }]

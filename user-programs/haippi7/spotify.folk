@@ -166,7 +166,7 @@ proc ::handleReadSpotify {chan addr port} {
             lappend headers $k $v
         } else { break }
     }
-    set tclHostname [info hostname]
+    set tclHostname [vm hostname]
     set hostnameWithoutDotLocal [string map {".local" ""} $tclHostname]
     set redirectUrl "http://$hostnameWithoutDotLocal.local:8888/callback"
     set redirectUrlEncoded "http%3A%2F%2F$hostnameWithoutDotLocal.local%3A8888%2Fcallback"

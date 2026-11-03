@@ -76,7 +76,7 @@ proc ::math::numtheory::isprime {n args} {
 
 # Add the additional procedures
 #
-source [file join [file dirname [info script]] primes.tcl]
+source [file join [file dirname [vm script]] primes.tcl]
 ##
 ##
 ## End of file `numtheory.tcl'.

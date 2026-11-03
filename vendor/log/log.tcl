@@ -224,7 +224,7 @@ proc ::log::levels {} {
 proc ::log::lv2longform {level} {
     variable levelMap
 
-    if {[info exists levelMap($level)]} {
+    if {[vm exists levelMap($level)]} {
 	return $levelMap($level)
     }
 

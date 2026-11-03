@@ -1,5 +1,5 @@
 When stuff is cool with /...opts/ {
-    if {![info exists opts]} { Exit! 1 }
+    if {![vm exists opts]} { Exit! 1 }
 
     assert {[dict get $opts number] == 2}
     Exit! 0

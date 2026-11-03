@@ -31,13 +31,13 @@ namespace eval ::math {
     # Set up for auto-loading
 
     if { ![interp issafe {}]} {
-	variable home [file join [pwd] [file dirname [info script]]]
+	variable home [file join [pwd] [file dirname [vm script]]]
 	if {[lsearch -exact $::auto_path $home] == -1} {
 	    lappend ::auto_path $home
 	}
     } else {
-	source [file join [file dirname [info script]] misc.tcl]
-	source [file join [file dirname [info script]] combinatorics.tcl]
+	source [file join [file dirname [vm script]] misc.tcl]
+	source [file join [file dirname [vm script]] combinatorics.tcl]
     }
 
     package provide [namespace tail [namespace current]] 1.2.5

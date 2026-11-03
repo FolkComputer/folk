@@ -1,4 +1,4 @@
-if {[info hostname] != "folk0"} {return}
+if {[vm hostname] != "folk0"} {return}
 
 # Move tag 1 to each of the 4 calibrators in turn; write down the 4 point correspondences
 

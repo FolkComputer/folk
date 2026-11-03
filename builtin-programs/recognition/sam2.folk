@@ -441,7 +441,9 @@ When the SAM2 mask-to-image library is /mtiLib/ &\
     }
 
     When the SAM2 mask-to-image library is /mtiLib/ &\
-         the png library is /pngLib/ {
+         the png library is /pngLib/ &\
+         the html library is /htmlLib/ {
+        dict assign $htmlLib html htmlEscape
         Wish the web server handles route [format {/sam2/%s$} $page] \
             with hidden true handler [fn {page pngLib} {
                 set trackingWishes \

@@ -2,7 +2,7 @@
 #
 #     Sets up the GPU device.
 
-if {[info exists this] && $tcl_platform::os eq "darwin"} {
+if {[vm exists this] && $tcl_platform::os eq "darwin"} {
     # We hard-code gpu.folk into thread 0, so we should abort if not
     # running that way.
     return
@@ -56,7 +56,7 @@ method Vulkan::defineHandleType {self type} {
             backing->head.vtable = ${type}_VTable;
             backing->handle = handle;
             Zicl_Val out;
-            folkZiclAssert(Zicl_CapNew(&backing->head, &out));
+            folkZiclAssert(Zicl_CapNewOwning(&backing->head, &out));
             return out;
         }
     }]

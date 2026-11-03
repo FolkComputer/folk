@@ -27,7 +27,7 @@ package require Tcl 8.5 ; # 8.5+ feature in test-anova-F and others: **-operator
 package provide math::statistics 1.5.0
 package require math
 
-if {![llength [info commands ::lrepeat]]} {
+if {![llength [vm commands ::lrepeat]]} {
     # Forward portability, emulate lrepeat
     proc ::lrepeat {n args} {
 	if {$n < 1} {
@@ -1789,15 +1789,15 @@ proc ::math::statistics::Tcrit-Dunnett {alpha numberData numberGroups} {
 #
 # Load the auxiliary scripts
 #
-source [file join [file dirname [info script]] pdf_stat.tcl]
-source [file join [file dirname [info script]] plotstat.tcl]
-source [file join [file dirname [info script]] liststat.tcl]
-source [file join [file dirname [info script]] mvlinreg.tcl]
-source [file join [file dirname [info script]] kruskal.tcl]
-source [file join [file dirname [info script]] wilcoxon.tcl]
-source [file join [file dirname [info script]] stat_kernel.tcl]
-source [file join [file dirname [info script]] stat_wasserstein.tcl]
-source [file join [file dirname [info script]] stat_logit.tcl]
+source [file join [file dirname [vm script]] pdf_stat.tcl]
+source [file join [file dirname [vm script]] plotstat.tcl]
+source [file join [file dirname [vm script]] liststat.tcl]
+source [file join [file dirname [vm script]] mvlinreg.tcl]
+source [file join [file dirname [vm script]] kruskal.tcl]
+source [file join [file dirname [vm script]] wilcoxon.tcl]
+source [file join [file dirname [vm script]] stat_kernel.tcl]
+source [file join [file dirname [vm script]] stat_wasserstein.tcl]
+source [file join [file dirname [vm script]] stat_logit.tcl]
 
 #
 # Define the tables
@@ -1924,7 +1924,7 @@ namespace eval ::math::statistics {
 #
 # Simple test code
 #
-if { [info exists ::argv0] && ([file tail [info script]] == [file tail $::argv0]) } {
+if { [vm exists ::argv0] && ([file tail [vm script]] == [file tail $::argv0]) } {
 
     console show
     puts [interp aliases]

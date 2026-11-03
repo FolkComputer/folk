@@ -1,6 +1,9 @@
 When the jpeg library is /jpegLib/ {
     Wish the web server handles route {/apriltag-frame} with handler [fn {args} {
         set frames [Query! camera /cam/ has frame /im/ at timestamp /ts/]
+        if {[llength $frames] == 0} {
+            return [html {<html><body><p>No camera frames available.</p></body></html>}]
+        }
         set frame [lindex $frames end]
         dict assign -all $frame
         StatementAcquire! $__ref

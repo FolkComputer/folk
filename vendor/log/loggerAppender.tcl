@@ -155,10 +155,10 @@ proc ::logger::appender::console {args} {
             }
         }
     }
-    if {![info exists procName]} {
+    if {![vm exists procName]} {
 	set procName [genProcName $bargs]
     }
-    if {[info exists procNameVar]} {
+    if {[vm exists procNameVar]} {
 	upvar $procNameVar myProcNameVar
     }
     set procText \
@@ -259,11 +259,11 @@ proc ::logger::appender::colorConsole {args} {
             }
         }
     }
-    if {![info exists procName]} {
+    if {![vm exists procName]} {
 	set procName [genProcName $bargs]
     }
     upvar $procNameVar myProcNameVar
-    if {[info exists level]} {
+    if {[vm exists level]} {
 	#apply color
 	set colorCode $colorMap($level)
 	append newCPattern {\033\[} $fgcolor($colorCode) $conversionPattern {\033\[0m}
@@ -370,10 +370,10 @@ proc ::logger::appender::fileAppend {args} {
 	    }
 	}
     }
-    if {![info exists procName]} {
+    if {![vm exists procName]} {
 	set procName [genProcName $bargs]
     }
-    if {[info exists procNameVar]} {
+    if {[vm exists procNameVar]} {
 	upvar $procNameVar myProcNameVar
     }
     set procText \

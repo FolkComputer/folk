@@ -18,7 +18,7 @@ Subscribe: keyboard /k/ claims key Meta_Escape is down with /...options/ {
 Subscribe: keyboard /k/ claims key Console_1 is down with /...options/ {
 	puts "==== Stopping Folk. ===="
 	puts "===="
-	puts "     Run `make sync-restart` on your laptop or SSH into [info hostname] to restart Folk ===="
+	puts "     Run `make sync-restart` on your laptop or SSH into [vm hostname] to restart Folk ===="
 	puts "===="
 	exec sudo systemctl stop folk
         Exit! 0

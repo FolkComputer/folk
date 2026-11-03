@@ -55,7 +55,7 @@ When /someone/ claims /editor/ is an editor {
 
 When /editor/ is an editor with /...options/ {
     # HACK: because we partial match
-    if {![info exists options]} { return }
+    if {![vm exists options]} { return }
 
     set options [dict merge $defaults $options]
     # CSS order: top, right, bottom, left. If the program's geometry

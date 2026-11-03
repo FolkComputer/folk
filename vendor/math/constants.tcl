@@ -179,8 +179,8 @@ namespace eval ::math::constants {
 
 # some tests --
 #
-if { [info exists ::argv0]
-     && [string equal $::argv0 [info script]] } {
+if { [vm exists ::argv0]
+     && [string equal $::argv0 [vm script]] } {
     ::math::constants::constants pi e ln10 onethird eps
     set prec $::tcl_precision
     if {![package vsatisfies [package provide Tcl] 8.5]} {

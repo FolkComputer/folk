@@ -139,7 +139,7 @@ fn dump {km} { tailcall keymap::dump $km }
 fn destroy {km} {}
 set modWeights $keymap::modWeights
 
-if {[info exists argv0] && $argv0 eq [info script]} {
+if {[vm exists argv0] && $argv0 eq [vm script]} {
     set tkm [keymap::load "us"]
 
     keymap::dump $tkm

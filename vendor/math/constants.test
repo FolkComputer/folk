@@ -13,7 +13,7 @@
 # -------------------------------------------------------------------------
 
 source [file join \
-	[file dirname [file dirname [file join [pwd] [info script]]]] \
+	[file dirname [file dirname [file join [pwd] [vm script]]]] \
 	devtools testutilities.tcl]
 
 testsNeedTcl     8.5
@@ -33,7 +33,7 @@ testing {
 #
 test "Constants-1.0" "Get constants into our namespace" -body {
     ::math::constants::constants pi e
-    expr {[info exists pi] && [info exists e]}
+    expr {[vm exists pi] && [vm exists e]}
 } -result 1
 
 test "Constants-1.1" "Get constants with the right values" -body {
