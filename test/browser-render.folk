@@ -1,7 +1,8 @@
 # End-to-end test of the browser driver: real headless Chromium renders
 # test/browser-fixtures/*.html, and we check the actual pixels of the
-# frames after they go through Folk's PNG loader (the same path that
-# browser.folk uses to put frames on the table).
+# frames after they go through Folk's in-memory PNG loader (the same
+# path that browser.folk uses to put frames on the table). Nothing is
+# written to disk.
 #
 # Needs uvx + network on first run (to fetch Playwright) and a Chromium
 # Playwright can launch (PLAYWRIGHT_BROWSERS_PATH, or
@@ -14,8 +15,6 @@ source builtin-programs/image/png-lib.folk
 source builtin-programs/browser/browser-lib.folk
 source builtin-programs/browser/browser-driver.folk
 
-set frameDir "/tmp/folk-browser-test-[pid]"
-
 expectSteps {render links scroll text-fragment hover-feedback dwell-navigates tilt-scrolls} 150
 
 When the browser driver is /driver/ &\
@@ -23,11 +22,12 @@ When the browser driver is /driver/ &\
      the image library is /imageLib/ &\
      the browser library is /lib/ {
 
-    # Grabs a fresh frame (forcing a screenshot) and loads it.
+    # Grabs a fresh frame (forcing a screenshot) and decodes it from
+    # memory, the same way browser.folk does.
     fn grab {sid} {
-        set meta [$driver frame $sid $frameDir 0]
+        set meta [$driver frame $sid 0]
         if {[dict size $meta] == 0} { error "no frame for $sid" }
-        list [$pngLib loadPng [dict get $meta path]] $meta
+        list [$pngLib loadPngFromMemory [$driver framePng $sid [dict get $meta n]]] $meta
     }
 
     set index "$browserFixtureUrl/index.html"

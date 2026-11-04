@@ -38,7 +38,7 @@
 #     $p has browser $surface with session $sid
 #     $surface has browser frame $image with metadata $meta
 #         (meta: url title width height scrollX scrollY scrollHeight
-#          links fragment hover n path)
+#          links fragment hover n)
 #
 # where $surface is the page itself, or {$p browser $placement} for
 # adjacent placements.
@@ -51,7 +51,6 @@ set BrowserDwellSeconds 1.0
 set BrowserRefreshSeconds 0.5
 # Viewport width in CSS pixels; height follows the surface's aspect.
 set BrowserViewportWidth 1024
-set BrowserFrameDir "/tmp/folk-browser-[pid]"
 
 # ---- Wish normalization ----
 
@@ -203,7 +202,6 @@ When the browser library is /lib/ &\
     $driver openSession $sid $url $vw $vh $directives
 
     set frameKey [list browser frame $surface]
-    set frameDir $BrowserFrameDir
     set refresh $BrowserRefreshSeconds
     On unmatch {
         # The URL or size may just be changing; only tear the session
@@ -216,9 +214,9 @@ When the browser library is /lib/ &\
     }
 
     When the clock time is /t/ {
-        set meta [$driver frame $sid $frameDir $refresh]
+        set meta [$driver frame $sid $refresh]
         if {[dict size $meta] == 0} { return }
-        set im [$frameLib adoptFrame $sid [$pngLib loadPng [dict get $meta path]]]
+        set im [$frameLib adoptFrame $sid [$pngLib loadPngFromMemory [$driver framePng $sid [dict get $meta n]]]]
         Hold! -key $frameKey \
             Claim $surface has browser frame $im with metadata $meta
     }

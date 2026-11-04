@@ -181,7 +181,7 @@ When /someone/ wishes to load the browser driver {
                     viewport={"width": width, "height": height})
                 s = SESSIONS[sid] = {
                     "context": ctx, "page": ctx.new_page(), "size": (width, height),
-                    "requested": None, "url": None, "n": 0, "frames": [],
+                    "requested": None, "url": None, "n": 0, "png": {},
                     "last_frame": 0.0, "dirty": True, "hover": None,
                     "last_tilt": None, "tilt_rest": None, "fragment": [],
                 }
@@ -195,10 +195,13 @@ When /someone/ wishes to load the browser driver {
             if s is None:
                 return False
             s["context"].close()
-            for path in s["frames"]:
-                try: os.unlink(path)
-                except OSError: pass
             return True
+
+        def _frame_png(state, sid, n):
+            s = SESSIONS.get(sid)
+            if s is None or int(n) not in s["png"]:
+                raise RuntimeError(f"browser: no frame {n} for session {sid}")
+            return s["png"][int(n)]
 
         def _scroll(state, sid, dx, dy):
             s = SESSIONS[sid]
@@ -251,9 +254,10 @@ When /someone/ wishes to load the browser driver {
                 return [href, 1.0, True]
             return [href, progress, False]
 
-        def _frame(state, sid, outdir, refresh):
-            # Screenshot if something changed (or every `refresh`
-            # seconds, for animated pages and videos).
+        def _frame(state, sid, refresh):
+            # Screenshot (in memory) if something changed, or every
+            # `refresh` seconds for animated pages and videos. The
+            # PNG bytes are fetched with _frame_png.
             s = SESSIONS.get(sid)
             if s is None:
                 return {}
@@ -265,19 +269,18 @@ When /someone/ wishes to load the browser driver {
                 s["page"].evaluate(HOVER_JS, ["", 0])
                 s["hover"] = None
             page = s["page"]
-            os.makedirs(outdir, exist_ok=True)
             s["n"] += 1
-            path = os.path.join(outdir, f"{sid}-{s['n']}.png")
-            page.screenshot(path=path)
-            s["frames"].append(path)
-            while len(s["frames"]) > 4:
-                try: os.unlink(s["frames"].pop(0))
-                except OSError: pass
+            # Keep the last few PNGs keyed by frame number, so a
+            # caller that read this frame's metadata can still get
+            # its pixels even if a newer frame was taken meanwhile.
+            s["png"][s["n"]] = page.screenshot()
+            for old in [k for k in s["png"] if k <= s["n"] - 3]:
+                del s["png"][old]
             s["dirty"] = False
             s["last_frame"] = now
             scroll = page.evaluate("() => [window.scrollX, window.scrollY, document.documentElement.scrollHeight]")
             return {
-                "path": path, "n": s["n"],
+                "n": s["n"],
                 "url": page.url, "title": page.title(),
                 "width": s["size"][0], "height": s["size"][1],
                 "scrollX": scroll[0], "scrollY": scroll[1], "scrollHeight": scroll[2],
@@ -308,8 +311,11 @@ When /someone/ wishes to load the browser driver {
     $py def hover {str sid str href num dwell} {
         return _call(_hover, sid, href, dwell)
     }
-    $py def frame {str sid str outdir num refresh} {
-        return _call(_frame, sid, outdir, refresh)
+    $py def frame {str sid num refresh} {
+        return _call(_frame, sid, refresh)
+    }
+    $py def framePng {str sid num n} {
+        return _call(_frame_png, sid, n)
     }
 
     Claim the browser driver is $py

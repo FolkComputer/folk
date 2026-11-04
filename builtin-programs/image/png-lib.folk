@@ -45,11 +45,29 @@ $cc proc saveAsPng {Image im char* filename} void {
     fclose(out);
 }
 
+$cc code {
+    static Image loadPngFromFile(Jim_Interp* interp, FILE* file, const char* filename);
+}
 $cc proc loadPng {char* filename} Image {
     FILE* file = fopen(filename, "rb");
     if (!file) {
         FOLK_ERROR("Error opening file: %s\n", filename);
     }
+    return loadPngFromFile(interp, file, filename);
+}
+# Decodes a PNG held in memory (e.g. bytes that came back from a
+# Python worker) without touching the disk.
+$cc proc loadPngFromMemory {Jim_Obj* data} Image {
+    int len;
+    const char* bytes = Jim_GetString(data, &len);
+    FILE* file = fmemopen((void*)bytes, len, "rb");
+    if (!file) {
+        FOLK_ERROR("loadPngFromMemory: fmemopen failed\n");
+    }
+    return loadPngFromFile(interp, file, "<memory>");
+}
+$cc code {
+static Image loadPngFromFile(Jim_Interp* interp, FILE* file, const char* filename) {
 
     png_structp png = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
     if (!png) {
@@ -100,7 +118,9 @@ $cc proc loadPng {char* filename} Image {
         ret.bytesPerRow = ret.width * ret.components;
     }
 
+    fclose(file);
     return ret;
+}
 }
 
 set pngLib [$cc compile]
