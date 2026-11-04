@@ -1,0 +1,86 @@
+# browser-setup.folk: finds (or, in a later stage, installs) the
+# Chromium that browser-driver.folk runs.
+#
+# Claims:
+#
+#     the browser setup library is $lib
+#     the browser setup is ready with executablePath $path
+#         ($path is "auto" when Playwright's own bundled Chromium is used)
+#
+# Chromium is looked for in this order:
+#
+#   1. $FOLK_BROWSER_CHROMIUM, if set;
+#   2. the Chromium Playwright itself installed (under
+#      $PLAYWRIGHT_BROWSERS_PATH or ~/.cache/ms-playwright);
+#   3. a system chromium / chromium-browser / google-chrome.
+
+# The one place the Playwright version is pinned.
+set BrowserPlaywrightVersion 1.56.0
+
+set browserSetupLib [library create browserSetup {BrowserPlaywrightVersion} {
+    variable BrowserPlaywrightVersion
+    proc playwrightVersion {} {
+        variable BrowserPlaywrightVersion
+        return $BrowserPlaywrightVersion
+    }
+
+    proc playwrightBrowsersPath {} {
+        if {[info exists ::env(PLAYWRIGHT_BROWSERS_PATH)]} {
+            return $::env(PLAYWRIGHT_BROWSERS_PATH)
+        }
+        return "$::env(HOME)/.cache/ms-playwright"
+    }
+
+    # Playwright's own Chromium, if it has been installed.
+    proc bundledChromium {} {
+        set root [playwrightBrowsersPath]
+        foreach dir [lsort -decreasing [glob -nocomplain "$root/chromium-*"]] {
+            foreach exe [list "$dir/chrome-linux/chrome" "$dir/chrome-linux64/chrome" \
+                             "$dir/chrome-mac/Chromium.app/Contents/MacOS/Chromium" \
+                             "$dir/chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium"] {
+                if {[file executable $exe]} { return $exe }
+            }
+        }
+        return ""
+    }
+
+    proc systemChromium {} {
+        foreach name {chromium chromium-browser google-chrome google-chrome-stable chrome} {
+            foreach dir [split $::env(PATH) :] {
+                set exe [file join $dir $name]
+                if {[file executable $exe]} { return $exe }
+            }
+        }
+        foreach exe {/usr/lib/chromium/chromium /usr/lib/chromium-browser/chromium-browser
+                     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+                     "/Applications/Chromium.app/Contents/MacOS/Chromium"} {
+            if {[file executable $exe]} { return $exe }
+        }
+        return ""
+    }
+
+    # Returns a dict: executablePath ("auto" means Playwright's
+    # bundled one, which it finds itself) and source (env / bundled /
+    # system / none).
+    proc findChromium {} {
+        if {[info exists ::env(FOLK_BROWSER_CHROMIUM)] && $::env(FOLK_BROWSER_CHROMIUM) ne ""} {
+            return [dict create executablePath $::env(FOLK_BROWSER_CHROMIUM) source env]
+        }
+        if {[bundledChromium] ne ""} {
+            return [dict create executablePath auto source bundled]
+        }
+        set sys [systemChromium]
+        if {$sys ne ""} {
+            return [dict create executablePath $sys source system]
+        }
+        return [dict create executablePath auto source none]
+    }
+}]
+Claim the browser setup library is $browserSetupLib
+
+set found [$browserSetupLib findChromium]
+if {[dict get $found source] ne "none"} {
+    Claim the browser setup is ready with executablePath [dict get $found executablePath]
+} else {
+    Claim the browser setup is missing Chromium
+}

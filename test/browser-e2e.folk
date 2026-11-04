@@ -21,6 +21,7 @@ source builtin-programs/quad-lib.folk
 source builtin-programs/geometric/points-at.folk
 When { source builtin-programs/collect.folk }
 source builtin-programs/browser/browser-lib.folk
+source builtin-programs/browser/browser-setup.folk
 source builtin-programs/browser/browser-driver.folk
 source builtin-programs/browser/browser.folk
 

@@ -8,6 +8,7 @@ source builtin-programs/image/image-lib.folk
 source builtin-programs/image/png-lib.folk
 source builtin-programs/quad-lib.folk
 source builtin-programs/browser/browser-lib.folk
+source builtin-programs/browser/browser-setup.folk
 source builtin-programs/browser/browser-driver.folk
 source builtin-programs/browser/browser.folk
 

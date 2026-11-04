@@ -5,63 +5,176 @@
 # `the browser driver is /driver/`, and is shut down again when nobody
 # is (same lazy-loading trick as recognition/craft.folk).
 #
-# Setup on a Folk machine (once):
+# Design:
 #
-#     uvx --with playwright==1.56.0 playwright install --with-deps chromium
+# - Every call Folk makes (openSession, navigate, scrollBy, hover,
+#   tilt, frame, framePng) only reads or writes a session's state
+#   under a lock and returns at once, in well under a millisecond.
+#   Folk cancels rule bodies that run past ~100ms, so nothing here may
+#   wait on the browser.
+# - One background thread runs an asyncio loop that owns Playwright.
+#   Each session is its own task, so a page that takes 20 s to load
+#   never delays another session's frames.
+# - Frames come from Chromium's screencast (CDP Page.startScreencast),
+#   which pushes a PNG whenever the page repaints, rather than from
+#   polling screenshots. The newest frame is kept per session;
+#   `frame sid afterN` returns its metadata if it's newer than afterN
+#   and `framePng sid n` its bytes.
+# - A crashed page is recreated and renavigated; a lost browser is
+#   relaunched and every session reopened. Status goes into the frame
+#   metadata (`status`: loading / loaded / error, `error`: message).
 #
-# or point FOLK_BROWSER_CHROMIUM at an existing Chromium/Chrome binary.
-#
-# Every Playwright call happens on one Python thread (the sync API is
-# not thread-safe), while Folk may call the driver from any thread.
+# Setup: see builtin-programs/browser/browser-setup.folk (Chromium is
+# found or installed automatically).
 
 When when the browser driver is /any/ /any/ with environment /any/ {
     Wish -keep 2000ms to load the browser driver
 }
 
-When /someone/ wishes to load the browser driver {
-    set py [Uvx --with playwright==1.56.0]
+When /someone/ wishes to load the browser driver &\
+     the browser setup library is /setup/ &\
+     the browser setup is ready with /...launch/ {
+    set py [Uvx --with "playwright==[$setup playwrightVersion]"]
 
     $py exec {
-        import os, sys, time, threading, queue, tempfile
-        from playwright.sync_api import sync_playwright
+        import os, sys, time, threading, asyncio, base64, json, traceback
+        from playwright.async_api import async_playwright
 
-        _jobs = queue.Queue()
+        LAUNCH = {}
 
-        def _worker():
-            pw = sync_playwright().start()
-            kwargs = {}
-            exe = os.environ.get("FOLK_BROWSER_CHROMIUM")
-            if exe:
-                kwargs["executable_path"] = exe
-            browser = pw.chromium.launch(
-                args=["--autoplay-policy=no-user-gesture-required",
-                      "--hide-scrollbars"],
-                **kwargs)
-            state = {"browser": browser}
-            while True:
-                fn, args, box, done = _jobs.get()
-                try:
-                    box["ok"] = fn(state, *args)
-                except Exception as e:
-                    box["err"] = e
-                done.set()
-
-        threading.Thread(target=_worker, daemon=True).start()
-
-        def _call(fn, *args):
-            box = {}
-            done = threading.Event()
-            _jobs.put((fn, args, box, done))
-            done.wait()
-            if "err" in box:
-                raise box["err"]
-            return box["ok"]
+        # Max frames/s published per session. Chromium only paints
+        # (and so only screencasts) when something changed, so this
+        # mostly matters for video and animation.
+        MAX_FPS = 15.0
+        HOVER_GRACE = 0.3
+        TICK = 1.0 / 30.0
 
         SESSIONS = {}
+        SESSIONS_LOCK = threading.Lock()
+        LOOP = None
+        BROWSER = {"browser": None, "pw": None, "generation": 0, "error": ""}
 
-        # Finds each scroll-to-text directive in the page, paints it
-        # with a CSS custom highlight, and scrolls the first one into
-        # view. Returns the matches' viewport rects.
+        def _new_session(sid, url, width, height, directives):
+            return {
+                "sid": sid,
+                # What Folk wants:
+                "want": {"url": url, "directives": list(directives),
+                         "size": (int(width), int(height)),
+                         "scroll": [0.0, 0.0], "tilt": [0.0, 0.0],
+                         "hover": None, "hover_dwell": 1.0, "hover_left": None,
+                         "closing": False, "tilt_rest": None},
+                # What the browser has:
+                "have": {"n": 0, "png": {}, "meta": {}, "url": "",
+                         "status": "loading", "error": "",
+                         "links": None, "fragment": [], "state": {}},
+                "task": None,
+            }
+
+        # ---- Folk-facing calls: lock, touch state, return. ----
+
+        def impl_open_session(sid, url, width, height, directives):
+            with SESSIONS_LOCK:
+                s = SESSIONS.get(sid)
+                if s is None:
+                    s = SESSIONS[sid] = _new_session(sid, url, width, height, directives)
+                    s["have"]["url"] = url
+                    _publish_meta_locked(s, None)
+                    LOOP.call_soon_threadsafe(_ensure_task, sid)
+                else:
+                    w = s["want"]
+                    w["closing"] = False
+                    w["size"] = (int(width), int(height))
+                    if w["url"] != url:
+                        w["url"] = url
+                        w["directives"] = list(directives)
+                    if s["task"] is None:
+                        LOOP.call_soon_threadsafe(_ensure_task, sid)
+                return s["have"]["status"]
+
+        def impl_close_session(sid):
+            with SESSIONS_LOCK:
+                s = SESSIONS.get(sid)
+                if s is None:
+                    return False
+                s["want"]["closing"] = True
+            return True
+
+        def impl_navigate(sid, url, directives):
+            with SESSIONS_LOCK:
+                s = SESSIONS[sid]
+                s["want"]["url"] = url
+                s["want"]["directives"] = list(directives)
+            return True
+
+        def impl_scroll_by(sid, dx, dy):
+            with SESSIONS_LOCK:
+                sc = SESSIONS[sid]["want"]["scroll"]
+                sc[0] += float(dx); sc[1] += float(dy)
+            return True
+
+        def impl_tilt(sid, vx, vy):
+            # Velocity in CSS px/s; integrated by the session task.
+            with SESSIONS_LOCK:
+                SESSIONS[sid]["want"]["tilt"] = [float(vx), float(vy)]
+            return True
+
+        def impl_tilt_rest(sid, normal):
+            with SESSIONS_LOCK:
+                w = SESSIONS[sid]["want"]
+                if w["tilt_rest"] is None:
+                    w["tilt_rest"] = list(normal)
+                return w["tilt_rest"]
+
+        def impl_hover(sid, href, dwell):
+            with SESSIONS_LOCK:
+                w = SESSIONS[sid]["want"]
+                if not href:
+                    if w["hover"] is not None and w["hover_left"] is None:
+                        w["hover_left"] = time.monotonic()
+                    return ["", 0]
+                h = w["hover"]
+                now = time.monotonic()
+                if h is None or h["href"] != href or \
+                   (w["hover_left"] is not None and now - w["hover_left"] > HOVER_GRACE):
+                    h = w["hover"] = {"href": href, "since": now, "painted": -1.0}
+                w["hover_left"] = None
+                w["hover_dwell"] = float(dwell)
+                return [href, _hover_progress(w)]
+
+        def _hover_progress(w):
+            h = w["hover"]
+            if h is None:
+                return 0.0
+            if w["hover_dwell"] <= 0:
+                return 1.0
+            return min(1.0, (time.monotonic() - h["since"]) / w["hover_dwell"])
+
+        def impl_frame(sid, after_n):
+            # Metadata of the newest frame if it is newer than after_n.
+            with SESSIONS_LOCK:
+                s = SESSIONS.get(sid)
+                if s is None:
+                    return {}
+                have = s["have"]
+                if have["n"] <= int(after_n):
+                    return {}
+                return dict(have["meta"])
+
+        def impl_frame_png(sid, n):
+            with SESSIONS_LOCK:
+                s = SESSIONS.get(sid)
+                if s is None or int(n) not in s["have"]["png"]:
+                    raise RuntimeError(f"browser: no frame {n} for session {sid}")
+                return s["have"]["png"][int(n)]
+
+        def impl_driver_status():
+            with SESSIONS_LOCK:
+                return {"browser": "up" if BROWSER["browser"] else "down",
+                        "error": BROWSER["error"],
+                        "sessions": sorted(SESSIONS.keys())}
+
+        # ---- The browser side. ----
+
         FRAGMENT_JS = r"""
         (flat) => {
           const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
@@ -112,8 +225,8 @@ When /someone/ wishes to load the browser driver {
         }
         """
 
-        # Visible links, in viewport CSS pixels.
-        LINKS_JS = r"""
+        # Visible links in viewport CSS pixels, plus scroll state.
+        STATE_JS = r"""
         () => {
           const out = [];
           const vw = window.innerWidth, vh = window.innerHeight;
@@ -124,13 +237,12 @@ When /someone/ wishes to load the browser driver {
               out.push([a.href, b.left, b.top, b.width, b.height]);
             }
           });
-          return out;
+          return {links: out, scrollX: window.scrollX, scrollY: window.scrollY,
+                  scrollHeight: document.documentElement.scrollHeight,
+                  title: document.title};
         }
         """
 
-        # Outlines the hovered link and fills it left-to-right as the
-        # dwell progresses, so pointing feedback shows up in the
-        # rendered texture itself.
         HOVER_JS = r"""
         ([href, progress]) => {
           document.querySelectorAll('[data-folk-hover]').forEach((a) => {
@@ -152,207 +264,329 @@ When /someone/ wishes to load the browser driver {
         }
         """
 
-        def _navigate(state, sid, url, directives):
-            s = SESSIONS[sid]
-            page = s["page"]
+        def _log(msg):
+            print(f"browser: {msg}", file=sys.stderr, flush=True)
+
+        LAUNCH_LOCK = None
+
+        async def _launch():
+            # Sessions that start while a launch is in flight must
+            # wait for it rather than launch a second Chromium.
+            global LAUNCH_LOCK
+            if LAUNCH_LOCK is None:
+                LAUNCH_LOCK = asyncio.Lock()
+            async with LAUNCH_LOCK:
+                if BROWSER["browser"] is not None:
+                    return BROWSER["browser"]
+                return await _launch_locked()
+
+        async def _launch_locked():
+            if BROWSER["pw"] is None:
+                BROWSER["pw"] = await async_playwright().start()
+            kwargs = {"args": ["--autoplay-policy=no-user-gesture-required",
+                               "--hide-scrollbars"]}
+            if LAUNCH.get("executablePath") not in (None, "", "auto"):
+                kwargs["executable_path"] = LAUNCH["executablePath"]
             try:
-                page.goto(url, wait_until="load", timeout=20000)
+                BROWSER["browser"] = await BROWSER["pw"].chromium.launch(**kwargs)
+                BROWSER["error"] = ""
             except Exception as e:
-                print(f"browser: navigate {url}: {e}", file=sys.stderr, flush=True)
-            s["url"] = url
-            s["fragment"] = []
-            if directives:
-                try:
-                    s["fragment"] = page.evaluate(FRAGMENT_JS, directives)
-                except Exception as e:
-                    print(f"browser: text fragment: {e}", file=sys.stderr, flush=True)
-            s["hover"] = None
-            s["dirty"] = True
+                BROWSER["browser"] = None
+                BROWSER["error"] = str(e).splitlines()[0] if str(e) else repr(e)
+                _log(f"launch failed: {BROWSER['error']}")
+                return None
+            BROWSER["generation"] += 1
 
-        def _open(state, sid, url, width, height, directives):
-            width, height = int(width), int(height)
+            def on_disconnected(_):
+                _log("browser disconnected; relaunching")
+                BROWSER["browser"] = None
+            BROWSER["browser"].on("disconnected", on_disconnected)
+            return BROWSER["browser"]
+
+        def _ensure_task(sid):
             s = SESSIONS.get(sid)
-            if s is not None and s["size"] != (width, height):
-                s["page"].set_viewport_size({"width": width, "height": height})
-                s["size"] = (width, height)
-                s["dirty"] = True
-            if s is None:
-                ctx = state["browser"].new_context(
-                    viewport={"width": width, "height": height})
-                s = SESSIONS[sid] = {
-                    "context": ctx, "page": ctx.new_page(), "size": (width, height),
-                    "requested": None, "url": None, "n": 0, "png": {},
-                    "last_frame": 0.0, "dirty": True, "hover": None,
-                    "last_tilt": None, "tilt_rest": None, "fragment": [],
-                    "last_links": None,
-                }
-            if s["requested"] != url:
-                s["requested"] = url
-                _navigate(state, sid, url, directives)
-            return s["url"]
+            if s is not None and s["task"] is None:
+                s["task"] = LOOP.create_task(_session_main(sid))
 
-        def _close(state, sid):
-            s = SESSIONS.pop(sid, None)
-            if s is None:
-                return False
-            s["context"].close()
-            return True
+        def _set_status(s, status, error=""):
+            with SESSIONS_LOCK:
+                s["have"]["status"] = status
+                s["have"]["error"] = error
+                # Publish a frame record (without pixels) so Folk sees
+                # the status even before any pixels arrive.
+                _publish_meta_locked(s, None)
 
-        def _frame_png(state, sid, n):
-            s = SESSIONS.get(sid)
-            if s is None or int(n) not in s["png"]:
-                raise RuntimeError(f"browser: no frame {n} for session {sid}")
-            return s["png"][int(n)]
-
-        def _scroll(state, sid, dx, dy):
-            s = SESSIONS[sid]
-            s["page"].evaluate("([dx, dy]) => window.scrollBy(dx, dy)", [dx, dy])
-            s["dirty"] = True
-            return s["page"].evaluate("() => [window.scrollX, window.scrollY]")
-
-        def _tilt(state, sid, vx, vy):
-            # Integrates a scroll velocity (CSS px/s) over the time
-            # since the last tilt call, so the scroll speed doesn't
-            # depend on how often Folk calls us.
-            s = SESSIONS[sid]
-            now = time.monotonic()
-            last = s["last_tilt"]
-            s["last_tilt"] = now
-            if last is None or (vx == 0 and vy == 0):
-                return [0, 0]
-            dt = min(now - last, 0.25)
-            dx, dy = vx * dt, vy * dt
-            if abs(dx) >= 0.5 or abs(dy) >= 0.5:
-                _scroll(state, sid, dx, dy)
-            return [dx, dy]
-
-        def _tilt_rest(state, sid, normal):
-            s = SESSIONS[sid]
-            if s["tilt_rest"] is None:
-                s["tilt_rest"] = list(normal)
-            return s["tilt_rest"]
-
-        HOVER_GRACE = 0.3
-
-        def _hover(state, sid, href, dwell):
-            # Sets (or, with an empty href, releases) the link the
-            # pointer is on. The dwell timer itself runs in _frame, so
-            # Folk only needs to call this when the target changes.
-            # Returns [href, progress 0..1].
-            s = SESSIONS[sid]
-            now = time.monotonic()
-            h = s["hover"]
-            if not href:
-                if h is not None and h["left"] is None:
-                    h["left"] = now
-                return ["", 0]
-            if h is None or h["href"] != href or \
-               (h["left"] is not None and now - h["left"] > HOVER_GRACE):
-                h = s["hover"] = {"href": href, "since": now, "left": None,
-                                  "dwell": float(dwell), "painted": -1.0}
-            h["left"] = None
-            h["dwell"] = float(dwell)
-            _advance_hover(state, sid)
-            return [h["href"], _hover_progress(h)]
-
-        def _hover_progress(h):
-            if h["dwell"] <= 0:
-                return 1.0
-            return min(1.0, (time.monotonic() - h["since"]) / h["dwell"])
-
-        def _advance_hover(state, sid):
-            # Paints the dwell progress into the page and follows the
-            # link once the dwell is up. Returns True if it navigated.
-            s = SESSIONS[sid]
-            h = s["hover"]
-            if h is None:
-                return False
-            now = time.monotonic()
-            if h["left"] is not None and now - h["left"] > HOVER_GRACE:
-                s["page"].evaluate(HOVER_JS, ["", 0])
-                s["hover"] = None
-                s["dirty"] = True
-                return False
-            progress = _hover_progress(h)
-            if progress >= 1.0:
-                s["hover"] = None
-                _navigate(state, sid, h["href"], [])
-                return True
-            # Repaint in 5% steps so the fill visibly grows without
-            # forcing a screenshot on every call.
-            if progress - h["painted"] >= 0.05:
-                h["painted"] = progress
-                s["page"].evaluate(HOVER_JS, [h["href"], progress])
-                s["dirty"] = True
-            return False
-
-        def _frame(state, sid, refresh):
-            # Screenshot (in memory) if something changed, or every
-            # `refresh` seconds for animated pages and videos. The
-            # PNG bytes are fetched with _frame_png.
-            s = SESSIONS.get(sid)
-            if s is None:
-                return {}
-            _advance_hover(state, sid)
-            now = time.monotonic()
-            if not s["dirty"] and now - s["last_frame"] < refresh:
-                return {}
-            h = s["hover"]
-            page = s["page"]
-            s["n"] += 1
-            # Keep the last few PNGs keyed by frame number, so a
-            # caller that read this frame's metadata can still get
-            # its pixels even if a newer frame was taken meanwhile.
-            s["png"][s["n"]] = page.screenshot()
-            for old in [k for k in s["png"] if k <= s["n"] - 3]:
-                del s["png"][old]
-            s["dirty"] = False
-            s["last_frame"] = now
-            scroll = page.evaluate("() => [window.scrollX, window.scrollY, document.documentElement.scrollHeight]")
-            links = page.evaluate(LINKS_JS)
-            # Folk only republishes the links statement when they
-            # actually moved or changed, so pointing rules don't
-            # re-run on every frame.
-            links_changed = links != s["last_links"]
-            s["last_links"] = links
-            return {
-                "n": s["n"],
-                "url": page.url, "title": page.title(),
-                "width": s["size"][0], "height": s["size"][1],
-                "scrollX": scroll[0], "scrollY": scroll[1], "scrollHeight": scroll[2],
+        def _publish_meta_locked(s, png):
+            have = s["have"]
+            if png is not None:
+                have["n"] += 1
+                have["png"][have["n"]] = png
+                for old in [k for k in have["png"] if k <= have["n"] - 3]:
+                    del have["png"][old]
+            else:
+                have["n"] += 1
+            st = have.get("state") or {}
+            links = st.get("links", [])
+            links_changed = links != have["links"]
+            have["links"] = links
+            w = s["want"]
+            have["meta"] = {
+                "n": have["n"], "hasPixels": png is not None,
+                "url": have["url"], "title": st.get("title", ""),
+                "status": have["status"], "error": have["error"],
+                "width": w["size"][0], "height": w["size"][1],
+                "scrollX": st.get("scrollX", 0), "scrollY": st.get("scrollY", 0),
+                "scrollHeight": st.get("scrollHeight", 0),
                 "links": links, "linksChanged": links_changed,
-                "fragment": s["fragment"],
-                "hover": h["href"] if h else "",
-                "hoverProgress": _hover_progress(h) if h else 0,
+                "fragment": have["fragment"],
+                "hover": w["hover"]["href"] if w["hover"] else "",
+                "hoverProgress": _hover_progress(w),
             }
+
+        async def _session_main(sid):
+            s = SESSIONS[sid]
+            page = None
+            cdp = None
+            latest = {"png": None}
+            last_published = 0.0
+            last_tick = time.monotonic()
+            current = {"url": None, "gen": -1, "crashed": False}
+
+            async def on_screencast(params):
+                try:
+                    latest["png"] = base64.b64decode(params["data"])
+                    await cdp.send("Page.screencastFrameAck", {"sessionId": params["sessionId"]})
+                except Exception:
+                    pass
+
+            async def ensure_page():
+                nonlocal page, cdp
+                if BROWSER["browser"] is None:
+                    if await _launch() is None:
+                        _set_status(s, "error", "could not start Chromium: " + BROWSER["error"])
+                        await asyncio.sleep(2.0)
+                        return False
+                if page is not None and current["gen"] == BROWSER["generation"] and not current["crashed"]:
+                    return True
+                # (Re)create the page.
+                if current["crashed"]:
+                    current["crashes"] = current.get("crashes", 0) + 1
+                    _log(f"session {sid}: page crashed ({current['crashes']}x); recreating")
+                    # A crashed page's context can hang on close.
+                    try:
+                        await asyncio.wait_for(page.context.close(), timeout=3.0)
+                    except Exception as e:
+                        _log(f"session {sid}: closing crashed context: {e!r}")
+                    # Back off if it keeps crashing on the same URL.
+                    await asyncio.sleep(min(0.5 * current["crashes"], 5.0))
+                elif page is not None:
+                    _log(f"session {sid}: browser restarted; recreating page")
+                current["crashed"] = False
+                current["gen"] = BROWSER["generation"]
+                current["url"] = None
+                w, h = s["want"]["size"]
+                try:
+                    ctx = await BROWSER["browser"].new_context(viewport={"width": w, "height": h})
+                    page = await ctx.new_page()
+                    page.on("crash", lambda p: current.__setitem__("crashed", True))
+                    cdp = await ctx.new_cdp_session(page)
+                    cdp.on("Page.screencastFrame",
+                           lambda params: asyncio.ensure_future(on_screencast(params)))
+                    await cdp.send("Page.startScreencast",
+                                   {"format": "png", "maxWidth": w, "maxHeight": h, "everyNthFrame": 1})
+                except Exception as e:
+                    _log(f"session {sid}: could not open a page: {e!r}")
+                    _set_status(s, "error", f"could not open a page: {e}")
+                    page = None
+                    await asyncio.sleep(1.0)
+                    return False
+                _log(f"session {sid}: page ready")
+                return True
+
+            async def do_navigate(url, directives):
+                _set_status(s, "loading")
+                with SESSIONS_LOCK:
+                    s["have"]["url"] = url
+                    s["have"]["fragment"] = []
+                    s["want"]["hover"] = None
+                current["url"] = url
+                try:
+                    await page.goto(url, wait_until="load", timeout=20000)
+                    frag = []
+                    if directives:
+                        try:
+                            frag = await page.evaluate(FRAGMENT_JS, directives)
+                        except Exception as e:
+                            _log(f"text fragment: {e}")
+                    with SESSIONS_LOCK:
+                        s["have"]["fragment"] = frag
+                    # Screencast frames painted before `load` would be
+                    # stale (often blank); publish one explicit
+                    # screenshot of the loaded page instead and drop
+                    # anything older.
+                    try:
+                        png = await page.screenshot()
+                        st = await page.evaluate(STATE_JS)
+                    except Exception:
+                        png, st = None, {}
+                    latest["png"] = None
+                    with SESSIONS_LOCK:
+                        s["have"]["status"] = "loaded"
+                        s["have"]["error"] = ""
+                        s["have"]["state"] = st
+                        _publish_meta_locked(s, png)
+                except Exception as e:
+                    msg = str(e).splitlines()[0] if str(e) else repr(e)
+                    _log(f"navigate {url}: {msg}")
+                    _set_status(s, "error", msg)
+
+            try:
+                while True:
+                    with SESSIONS_LOCK:
+                        want = dict(s["want"])
+                        want["scroll"] = list(s["want"]["scroll"])
+                        s["want"]["scroll"] = [0.0, 0.0]
+                    if want["closing"]:
+                        break
+                    if not await ensure_page():
+                        continue
+
+                    # Viewport change.
+                    vs = page.viewport_size
+                    if (vs["width"], vs["height"]) != want["size"]:
+                        w, h = want["size"]
+                        await page.set_viewport_size({"width": w, "height": h})
+                        await cdp.send("Page.stopScreencast")
+                        await cdp.send("Page.startScreencast",
+                                       {"format": "png", "maxWidth": w, "maxHeight": h, "everyNthFrame": 1})
+
+                    # Navigation (also re-navigates after a crash/relaunch).
+                    if want["url"] != current["url"]:
+                        await do_navigate(want["url"], want["directives"])
+                        # Let a crash event from this navigation land
+                        # before we touch the page again.
+                        await asyncio.sleep(TICK)
+                        continue
+
+                    now = time.monotonic()
+                    dt = min(now - last_tick, 0.25)
+                    last_tick = now
+
+                    # Scrolling: explicit deltas plus tilt velocity.
+                    dx = want["scroll"][0] + want["tilt"][0] * dt
+                    dy = want["scroll"][1] + want["tilt"][1] * dt
+                    if abs(dx) >= 0.5 or abs(dy) >= 0.5:
+                        try:
+                            await page.evaluate("([dx, dy]) => window.scrollBy(dx, dy)", [dx, dy])
+                        except Exception:
+                            pass
+
+                    # Hover: paint progress, follow the link on dwell.
+                    hv = want["hover"]
+                    if hv is not None:
+                        left = want["hover_left"]
+                        if left is not None and now - left > HOVER_GRACE:
+                            with SESSIONS_LOCK:
+                                s["want"]["hover"] = None
+                                s["want"]["hover_left"] = None
+                            try: await page.evaluate(HOVER_JS, ["", 0])
+                            except Exception: pass
+                        else:
+                            with SESSIONS_LOCK:
+                                progress = _hover_progress(s["want"])
+                            if progress >= 1.0:
+                                with SESSIONS_LOCK:
+                                    s["want"]["hover"] = None
+                                    s["want"]["url"] = hv["href"]
+                                    s["want"]["directives"] = []
+                                continue
+                            if progress - hv["painted"] >= 0.05:
+                                with SESSIONS_LOCK:
+                                    if s["want"]["hover"] is hv:
+                                        hv["painted"] = progress
+                                try: await page.evaluate(HOVER_JS, [hv["href"], progress])
+                                except Exception: pass
+
+                    # Publish the newest screencast frame, rate-limited.
+                    if latest["png"] is not None and now - last_published >= 1.0 / MAX_FPS:
+                        png = latest["png"]; latest["png"] = None
+                        last_published = now
+                        try:
+                            st = await page.evaluate(STATE_JS)
+                        except Exception:
+                            st = {}
+                        with SESSIONS_LOCK:
+                            s["have"]["state"] = st
+                            _publish_meta_locked(s, png)
+
+                    await asyncio.sleep(TICK)
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                _log(f"session {sid} died: {e}\n{traceback.format_exc()}")
+                _set_status(s, "error", f"session died: {e}")
+            finally:
+                try:
+                    if page is not None:
+                        await page.context.close()
+                except Exception:
+                    pass
+                with SESSIONS_LOCK:
+                    if s["want"]["closing"]:
+                        SESSIONS.pop(sid, None)
+                    else:
+                        s["task"] = None
+
+        def _loop_thread():
+            global LOOP
+            LOOP = asyncio.new_event_loop()
+            asyncio.set_event_loop(LOOP)
+            LOOP.run_until_complete(_launch())
+            LOOP.run_forever()
+
+        def impl_start(launch):
+            global LAUNCH
+            LAUNCH = launch
+            threading.Thread(target=_loop_thread, daemon=True).start()
+            while LOOP is None:
+                time.sleep(0.01)
+            return True
     }
+
+    $py def start {obj launch} {
+        return impl_start(launch)
+    }
+    $py start $launch
 
     $py def openSession {str sid str url num width num height {list str} directives} {
-        return _call(_open, sid, url, width, height, directives)
+        return impl_open_session(sid, url, width, height, directives)
     }
     $py def closeSession {str sid} {
-        return _call(_close, sid)
+        return impl_close_session(sid)
     }
     $py def navigate {str sid str url {list str} directives} {
-        return _call(_navigate, sid, url, directives)
+        return impl_navigate(sid, url, directives)
     }
     $py def scrollBy {str sid num dx num dy} {
-        return _call(_scroll, sid, dx, dy)
+        return impl_scroll_by(sid, dx, dy)
     }
     $py def tilt {str sid num vx num vy} {
-        return _call(_tilt, sid, vx, vy)
+        return impl_tilt(sid, vx, vy)
     }
     $py def tiltRest {str sid {list num} normal} {
-        return _call(_tilt_rest, sid, normal)
+        return impl_tilt_rest(sid, normal)
     }
     $py def hover {str sid str href num dwell} {
-        return _call(_hover, sid, href, dwell)
+        return impl_hover(sid, href, dwell)
     }
-    $py def frame {str sid num refresh} {
-        return _call(_frame, sid, refresh)
+    $py def frame {str sid num afterN} {
+        return impl_frame(sid, afterN)
     }
     $py def framePng {str sid num n} {
-        return _call(_frame_png, sid, n)
+        return impl_frame_png(sid, n)
+    }
+    $py def status {} {
+        return impl_driver_status()
     }
 
     Claim the browser driver is $py

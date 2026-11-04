@@ -43,8 +43,10 @@
 #     $surface is a browser with session $sid url $url
 #     $p has browser $surface with session $sid
 #     $surface has browser frame $image with metadata $meta
-#         (meta: url title width height scrollX scrollY scrollHeight
-#          links fragment hover n)
+#         (meta: url title status error width height scrollX scrollY
+#          scrollHeight links linksChanged fragment hover n)
+#     $surface has browser status $status with message $msg
+#         (status: loading, loaded or error)
 #
 # where $surface is the page itself, or {$p browser $placement} for
 # adjacent placements.
@@ -52,9 +54,6 @@
 # Seconds to hold a pointer on a link before following it. Override
 # with `Wish the browser link dwell is 2 seconds`.
 set BrowserDwellSeconds 1.0
-# Re-screenshot at least this often even if nothing changed (videos,
-# animations, pages still loading).
-set BrowserRefreshSeconds 0.5
 # Viewport width in CSS pixels; height follows the surface's aspect.
 set BrowserViewportWidth 1024
 
@@ -208,21 +207,34 @@ When the browser library is /lib/ &\
     $driver openSession $sid $url $vw $vh $directives
 
     set frameKey [list browser frame $surface]
-    set refresh $BrowserRefreshSeconds
     On unmatch {
         # The URL or size may just be changing; only tear the session
         # down if nobody re-opened it meanwhile.
         if {[llength [Query! /surface/ is a browser with session $sid url /any/]] == 0} {
             catch {$driver closeSession $sid}
             Hold! -key $frameKey {}
+            Hold! -key $linksKey {}
+            Hold! -key $statusKey {}
             $frameLib releaseFrames $sid
         }
     }
 
     set linksKey [list browser links $surface]
+    set statusKey [list browser status $surface]
     When the clock time is /t/ {
-        set meta [$driver frame $sid $refresh]
+        # The driver only hands back a frame newer than the one we
+        # already hold; everything here is memory reads, so this
+        # stays far under Folk's 100ms rule-body limit.
+        set lastN -1
+        foreach r [Query! $surface has browser frame /im/ with metadata /m/] {
+            set lastN [dict get $r m n]
+        }
+        set meta [$driver frame $sid $lastN]
         if {[dict size $meta] == 0} { return }
+        Hold! -key $statusKey \
+            Claim $surface has browser status [dict get $meta status] \
+                with message [dict get $meta error]
+        if {![dict get $meta hasPixels]} { return }
         set im [$frameLib adoptFrame $sid [$pngLib loadPngFromMemory [$driver framePng $sid [dict get $meta n]]]]
         Hold! -key $frameKey \
             Claim $surface has browser frame $im with metadata $meta
@@ -235,6 +247,19 @@ When the browser library is /lib/ &\
                     with viewport [list [dict get $meta width] [dict get $meta height]]
         }
     }
+}
+
+# A page that can't load (or a browser that can't start) says so on
+# the page instead of staying blank.
+When /surface/ has browser status error with message /msg/ &\
+     /p/ has browser /surface/ with session /any/ {
+    Claim $p has error "browser: $msg" with info $msg
+}
+When /surface/ has browser status loading with message /any/ &\
+     /surface/ has resolved geometry /geom/ &\
+     /nobody/ claims /surface/ has browser frame /any/ with metadata /any/ {
+    Wish to draw text onto $surface with position {0.01 0.01} anchor topleft \
+        scale 24 text "Loading..."
 }
 
 When /surface/ has browser frame /im/ with metadata /meta/ &\

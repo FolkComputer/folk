@@ -1,0 +1,116 @@
+# Stage 3 tests for the browser driver: sessions don't block each
+# other, Folk-facing calls are fast, and a crashed page comes back.
+#
+# A small local HTTP server (test/browser-fixtures/slow-server.py)
+# serves the fixtures and a /slow?ms=N route.
+
+source test/browser-test-helpers.tcl
+requireBrowserDriver
+source builtin-programs/image/image-lib.folk
+source builtin-programs/image/png-lib.folk
+source builtin-programs/browser/browser-lib.folk
+source builtin-programs/browser/browser-setup.folk
+source builtin-programs/browser/browser-driver.folk
+
+expectSteps {server isolation slow-eventually-loads latency crash-recovery} 150
+
+set port [expr {20000 + int(rand() * 20000)}]
+set base "http://127.0.0.1:$port"
+exec python3 test/browser-fixtures/slow-server.py $port [pid] 2>@stderr &
+
+When the browser driver is /driver/ &\
+     the png library is /pngLib/ &\
+     the image library is /imageLib/ {
+
+    fn waitFrame {sid cond {timeout 15}} {
+        set deadline [expr {[clock milliseconds] + $timeout * 1000}]
+        set lastN -1
+        while {[clock milliseconds] < $deadline} {
+            set meta [$driver frame $sid $lastN]
+            if {[dict size $meta] == 0} { sleep 0.02; continue }
+            set lastN [dict get $meta n]
+            if {![dict get $meta hasPixels]} { continue }
+            set im [$pngLib loadPngFromMemory [$driver framePng $sid $lastN]]
+            uplevel 1 [list set im $im]
+            uplevel 1 [list set meta $meta]
+            if {[uplevel 1 $cond]} {
+                return [list $im $meta]
+            }
+        }
+        error "waitFrame $sid: no frame satisfied {$cond} within ${timeout}s (last: [dict getdef $meta status ?] [dict getdef $meta url ?])"
+    }
+
+    check server {
+        set deadline [expr {[clock milliseconds] + 10000}]
+        while {[catch {close [socket stream 127.0.0.1:$port]}]} {
+            if {[clock milliseconds] > $deadline} { error "slow-server didn't start" }
+            sleep 0.1
+        }
+        pass server
+    }
+
+    check isolation {
+        # A is stuck loading for 10 s; B must keep rendering meanwhile.
+        $driver openSession slowA "$base/slow?ms=10000" 1024 640 {}
+        $driver openSession fastB "$base/index.html" 1024 640 {}
+        lassign [waitFrame fastB {expr {[dict get $meta status] eq "loaded"}}] im meta
+        assertPixel $imageLib $im 10 10 {255 0 0}
+        assertEq [dict get [$driver frame slowA -1] status] loading
+
+        set t0 [clock milliseconds]
+        $driver scrollBy fastB 0 1000
+        lassign [waitFrame fastB {expr {abs([dict get $meta scrollY] - 1000) < 1}} 5] im meta
+        set took [expr {[clock milliseconds] - $t0}]
+        testLog "scroll of B while A loads took ${took}ms"
+        if {$took > 1500} { error "B's scroll took ${took}ms while A was loading" }
+        assertPixel $imageLib $im 10 10 {0 255 0}
+        assertEq [dict get [$driver frame slowA -1] status] loading
+        pass isolation
+    }
+
+    check slow-eventually-loads {
+        lassign [waitFrame slowA {expr {[dict get $meta status] eq "loaded"}} 25] im meta
+        assertPixel $imageLib $im 10 10 {255 0 0}
+        pass slow-eventually-loads
+    }
+
+    check latency {
+        # Every Folk-facing call must be a quick state read/write.
+        set times {}
+        for {set i 0} {$i < 100} {incr i} {
+            set t [clock microseconds]
+            $driver frame fastB -1
+            lappend times [expr {[clock microseconds] - $t}]
+            set t [clock microseconds]
+            $driver scrollBy fastB 0 0
+            lappend times [expr {[clock microseconds] - $t}]
+            set t [clock microseconds]
+            $driver hover fastB "" 1
+            lappend times [expr {[clock microseconds] - $t}]
+            set t [clock microseconds]
+            $driver tilt fastB 0 0
+            lappend times [expr {[clock microseconds] - $t}]
+        }
+        set sorted [lsort -integer $times]
+        set p99 [lindex $sorted [expr {int([llength $sorted] * 0.99)}]]
+        set max [lindex $sorted end]
+        testLog "driver call latency: p99 ${p99}us max ${max}us over [llength $times] calls"
+        if {$p99 > 20000} { error "p99 driver call latency ${p99}us > 20ms" }
+        pass latency
+    }
+
+    check crash-recovery {
+        $driver openSession crashC "$base/index.html" 1024 640 {}
+        waitFrame crashC {expr {[dict get $meta status] eq "loaded"}}
+        $driver navigate crashC "chrome://crash" {}
+        sleep 1.5
+        # Back to a real page: the driver must have replaced the
+        # crashed page and render again.
+        $driver navigate crashC "$base/two.html" {}
+        lassign [waitFrame crashC {expr {[dict get $meta status] eq "loaded" && [string match "*two.html" [dict get $meta url]]}} 20] im meta
+        assertPixel $imageLib $im 10 10 {255 0 255}
+        pass crash-recovery
+    }
+
+    foreach s {slowA fastB crashC} { $driver closeSession $s }
+}

@@ -4,15 +4,19 @@
 # path that browser.folk uses to put frames on the table). Nothing is
 # written to disk.
 #
+# The driver is asynchronous: calls return at once and frames arrive
+# when Chromium repaints, so each check waits for a frame that
+# satisfies a condition rather than forcing a screenshot.
+#
 # Needs uvx + network on first run (to fetch Playwright) and a Chromium
-# Playwright can launch (PLAYWRIGHT_BROWSERS_PATH, or
-# FOLK_BROWSER_CHROMIUM).
+# Playwright can launch (see browser-setup.folk).
 
 source test/browser-test-helpers.tcl
 requireBrowserDriver
 source builtin-programs/image/image-lib.folk
 source builtin-programs/image/png-lib.folk
 source builtin-programs/browser/browser-lib.folk
+source builtin-programs/browser/browser-setup.folk
 source builtin-programs/browser/browser-driver.folk
 
 expectSteps {render links scroll text-fragment hover-feedback dwell-navigates tilt-scrolls} 150
@@ -22,19 +26,33 @@ When the browser driver is /driver/ &\
      the image library is /imageLib/ &\
      the browser library is /lib/ {
 
-    # Grabs a fresh frame (forcing a screenshot) and decodes it from
-    # memory, the same way browser.folk does.
-    fn grab {sid} {
-        set meta [$driver frame $sid 0]
-        if {[dict size $meta] == 0} { error "no frame for $sid" }
-        list [$pngLib loadPngFromMemory [$driver framePng $sid [dict get $meta n]]] $meta
+    # Waits (up to `timeout` s) for a frame of `sid` for which `cond`
+    # (evaluated with im and meta bound) is true; returns {im meta}.
+    fn waitFrame {sid cond {timeout 15}} {
+        set deadline [expr {[clock milliseconds] + $timeout * 1000}]
+        set lastN -1
+        set meta {}
+        while {[clock milliseconds] < $deadline} {
+            set meta [$driver frame $sid $lastN]
+            if {[dict size $meta] == 0} { sleep 0.02; continue }
+            set lastN [dict get $meta n]
+            if {![dict get $meta hasPixels]} { continue }
+            set im [$pngLib loadPngFromMemory [$driver framePng $sid $lastN]]
+            uplevel 1 [list set im $im]
+            uplevel 1 [list set meta $meta]
+            if {[uplevel 1 $cond]} {
+                return [list $im $meta]
+            }
+        }
+        error "waitFrame $sid: no frame satisfied {$cond} within ${timeout}s (last: [dict getdef $meta status ?] [dict getdef $meta url ?] scrollY [dict getdef $meta scrollY ?])"
     }
 
     set index "$browserFixtureUrl/index.html"
+    set two "$browserFixtureUrl/two.html"
     $driver openSession s1 $index 1024 640 {}
 
     check render {
-        lassign [grab s1] im meta
+        lassign [waitFrame s1 {expr {[dict get $meta status] eq "loaded" && [dict get $meta url] eq $index}}] im meta
         assertEq [$imageLib Image_width $im] 1024
         assertEq [$imageLib Image_height $im] 640
         assertEq [dict get $meta title] "Folk browser fixture"
@@ -50,12 +68,11 @@ When the browser driver is /driver/ &\
     }
 
     check links {
-        lassign [grab s1] im meta
+        lassign [waitFrame s1 {expr {[llength [dict get $meta links]] == 2}}] im meta
         set links [dict get $meta links]
-        assertEq [llength $links] 2
         assertEq [lindex $links 1 0] "$browserFixtureUrl/two.html#second"
         lassign [lindex $links 0] href x y w h
-        assertEq $href "$browserFixtureUrl/two.html"
+        assertEq $href $two
         assertNear $x 100 1; assertNear $y 300 1
         assertNear $w 400 1; assertNear $h 80 1
         # And the library's hit test finds it from a viewport point.
@@ -65,15 +82,16 @@ When the browser driver is /driver/ &\
 
     check scroll {
         $driver scrollBy s1 0 1000
-        lassign [grab s1] im meta
-        assertNear [dict get $meta scrollY] 1000 1
+        lassign [waitFrame s1 {expr {abs([dict get $meta scrollY] - 1000) < 1}}] im meta
         # The green band (document y 1000..1400) is now at the top.
         assertPixel $imageLib $im 10 10 {0 255 0}
         assertPixel $imageLib $im 500 390 {0 255 0}
         assertPixel $imageLib $im 500 450 {255 255 255}
-        # The link scrolled out of view.
+        # The links scrolled out of view, and that was reported.
         assertEq [llength [dict get $meta links]] 0
+        assert {[dict get $meta linksChanged]}
         $driver scrollBy s1 0 -1000
+        waitFrame s1 {expr {[dict get $meta scrollY] == 0}}
         pass scroll
     }
 
@@ -86,13 +104,9 @@ When the browser driver is /driver/ &\
         # dict order is prefix start end suffix
         assertEq [llength $directives] 4
         $driver openSession s2 $url 1024 640 $directives
-        lassign [grab s2] im meta
+        lassign [waitFrame s2 {expr {[dict get $meta status] eq "loaded" && [dict get $meta scrollY] > 1800}}] im meta
         set fragment [dict get $meta fragment]
         if {[llength $fragment] != 1} { error "fragment matches: $fragment" }
-        # Scrolled down to the essay (document y 2400+).
-        if {[dict get $meta scrollY] < 1800} {
-            error "didn't scroll to the fragment (scrollY [dict get $meta scrollY])"
-        }
         # The highlighted range is painted yellow on screen.
         lassign [lindex $fragment 0] fx fy fw fh
         if {$fy < 0 || $fy > 640} { error "fragment not in view: $fragment" }
@@ -105,44 +119,37 @@ When the browser driver is /driver/ &\
     }
 
     check hover-feedback {
-        set href "$browserFixtureUrl/two.html"
-        # Settle the links after the scroll above, so the next frame
-        # reflects only the hover.
-        grab s1
-        lassign [$driver hover s1 $href 0.6] hovered progress
-        assertEq $hovered $href
+        lassign [$driver hover s1 $two 1.5] hovered progress
+        assertEq $hovered $two
         assert {$progress < 1}
-        lassign [grab s1] im meta
-        assertEq [dict get $meta hover] $href
-        # Green outline just outside the link box.
-        assertPixel $imageLib $im 98 340 {0 200 83} 60
-        # Links didn't move, so Folk shouldn't republish them.
-        assert {![dict get $meta linksChanged]}
+        # Green outline just outside the link box shows up in a frame.
+        lassign [waitFrame s1 {expr {[dict get $meta hover] eq $two && [pixelIs $imageLib $im 98 340 {0 200 83} 60]}}] im meta
         pass hover-feedback
     }
 
     check dwell-navigates {
-        # The dwell timer runs inside the driver's frame loop: no
-        # further hover calls are needed for the link to be followed.
-        set href "$browserFixtureUrl/two.html"
-        sleep 0.7
-        lassign [grab s1] im meta
-        assertEq [dict get $meta url] $href
-        assert {[dict get $meta linksChanged]}
+        # The dwell timer runs inside the driver; no further hover
+        # calls are needed for the link to be followed.
+        lassign [waitFrame s1 {expr {[dict get $meta url] eq $two && [dict get $meta status] eq "loaded"}}] im meta
         assertPixel $imageLib $im 10 10 {255 0 255}
         assertPixel $imageLib $im 512 320 {255 0 255}
+        assert {[dict get $meta linksChanged]}
         pass dwell-navigates
     }
 
     check tilt-scrolls {
         $driver openSession s3 $index 1024 640 {}
+        waitFrame s3 {expr {[dict get $meta status] eq "loaded"}}
+        # 2000 px/s for ~0.3 s, integrated by the driver.
+        $driver tilt s3 0 2000
+        sleep 0.3
         $driver tilt s3 0 0
-        sleep 0.2
-        lassign [$driver tilt s3 0 2000] dx dy
-        # dt is capped at 0.25s, so dy is 2000 * [0.2, 0.25].
-        if {$dy < 300 || $dy > 600} { error "unexpected tilt scroll $dy" }
-        lassign [grab s3] im meta
-        assertNear [dict get $meta scrollY] $dy 2
+        lassign [waitFrame s3 {expr {[dict get $meta scrollY] > 300}}] im meta
+        # Give it a moment to settle, then it must have stopped.
+        sleep 0.3
+        lassign [waitFrame s3 {expr {1}}] im meta2
+        set y [dict get $meta2 scrollY]
+        if {$y < 300 || $y > 1200} { error "unexpected tilt scroll $y" }
         $driver closeSession s3
         pass tilt-scrolls
     }

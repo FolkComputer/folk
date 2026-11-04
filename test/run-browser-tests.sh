@@ -49,6 +49,14 @@ for round in $(seq 1 "$rounds"); do
             for p in $left; do kill -9 "${p%%(*}" 2>/dev/null; done
             rc=98
         fi
+        # Folk logs "KILL (...)" when it has to cancel a rule body that
+        # ran past ~100ms; the browser rules must never trip that.
+        logdir=$(ls -td /var/tmp/folk-* 2>/dev/null | head -1)
+        if [ -n "$logdir" ] && grep -l "KILL (" "$logdir"/*.stderr >/dev/null 2>&1; then
+            echo "RULE KILLED during $t:"
+            grep -h -A2 "KILL (" "$logdir"/*.stderr | head -6
+            rc=97
+        fi
         if ls -d /tmp/folk-browser* >/dev/null 2>&1; then
             echo "LEFTOVER FILES after $t: $(ls -d /tmp/folk-browser*)"
             rm -rf /tmp/folk-browser*
