@@ -1584,9 +1584,6 @@ void workerLoop() {
         // has already been abandoned, and this worker is meant to go away.
         if (Zicl_StopRequested(interp)) { workerExit(); }
 
-        Zicl_ArenaSnapshot snapshot = Zicl_LocalArenaTakeSnapshot();
-        defer { Zicl_LocalArenaRestore(snapshot); }
-
         schedtick++;
 
         WorkQueueItem item = { .op = NONE };
@@ -1605,6 +1602,9 @@ void workerLoop() {
         if (item.op == NONE) {
             continue;
         }
+
+        Zicl_ArenaSnapshot snapshot = Zicl_LocalArenaTakeSnapshot();
+        defer { Zicl_LocalArenaRestore(snapshot); }
 
         workerRun(item);
     }

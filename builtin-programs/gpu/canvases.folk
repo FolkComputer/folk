@@ -245,7 +245,7 @@ When the GPU library is /gpuLib/ &\
         return ziclNewString((const char*)&draw, sizeof(draw));
     }
     gpuc::proc drawEncoded {Zicl_Val drawVal} void {
-        size_t len;
+        int len;
         const char* bytes = ziclGetString(drawVal, &len);
         FOLK_ENSURE(len == sizeof(EncodedDraw));
         // Zicl's byte storage need not have the alignment of an EncodedDraw.

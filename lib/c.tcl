@@ -17,28 +17,21 @@ fn csubst {s} {
         switch -- $c {
             "\\" {
                 incr i; set next [string index $s $i]
+                # TODO: This is a hack to deal with \n.
+                if {$next eq "n"} { lappend result "\\" }
                 lappend result $next
             }
             {$} {
                 set remaining [string range $s $i end]
-                try {
-                    # Try parsing as a variable substitution.
+                if {[string index $remaining 1] eq "\["} {
+                    lassign [vm parse command [string range $remaining 1 end]] cmd advance
+                    # No [- 1] because we had to advance past the $.
+                    incr i $advance
+                    lappend result [uplevel $cmd]
+                } else {
                     lassign [vm parse variable $remaining] varname advance
                     incr i [- $advance 1]
-
                     lappend result [uplevel [list set $varname]]
-                } on error {} {
-                    # Even if it's variable substitution, it might be
-                    # command substitution.
-                    try {
-                        lassign [vm parse command $remaining] cmd advance
-                        incr i [- $advance 1]
-
-                        lappend result [uplevel $cmd]
-                    } on error {} {
-                        # Wasn't any of those, so we'll just throw the character on.
-                        lappend result $c
-                    }
                 }
             }
             default {lappend result $c}
@@ -920,7 +913,7 @@ C::objtype Buffer {
         buf->head = (Zicl_CapHead){ .vtable = Buffer_VTable };
         buf->size = size;
         buf->data = data;
-        folkZiclAssert(Zicl_CapRegister(&buf->head));
+        folkZiclAssert(Zicl_CapHeadRegister(&buf->head));
         return buf;
     }
 
