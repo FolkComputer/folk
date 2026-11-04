@@ -14,7 +14,8 @@ When the GPU library is /gpuLib/ &\
      the GPU Vulkan handle type definer is /defineVulkanHandleType/ &\
      the GPU texture library is /gpuTextureLib/ &\
      the GPU pipeline library is /pipelineLib/ &\
-     the GPU pipeline compiler library is /pipelineCompilerLib/ {
+     the GPU pipeline compiler library is /pipelineCompilerLib/ &\
+     the image library is /imageLib/ {
 
 # HACK: This isn't reactive because 1. we can't really rerun this
 # block because all the weird GPU initialization stuff, and 2. on
@@ -50,6 +51,7 @@ if {$useGlfw} {
 
 $cc extend $gpuLib
 $cc extend $pipelineLib
+$cc extend $imageLib
 
 local proc vktry {call} { string map {\n " "} [csubst {{
     VkResult res = $call;
@@ -74,6 +76,22 @@ $cc code [subst {
         VkSemaphore* renderFinishedSemaphores;
         VkFence inFlightFence;
         [expr { $useGlfw ? "GLFWwindow* window;" : "" }]
+
+        // The "offscreen" display renders into this image instead of
+        // a swapchain, and readDisplay copies it out through
+        // readBuffer. Used for tests and simulation.
+        bool offscreen;
+        VkImage offscreenImage;
+        VkDeviceMemory offscreenMemory;
+        VkImageView offscreenView;
+        VkBuffer readBuffer;
+        VkDeviceMemory readMemory;
+        void* readMapped;
+        // Readback goes round a small ring so that an Image handed
+        // out for one frame stays valid while the next few are read.
+        Image readImages\[3\];
+        int readNext;
+        uint64_t frameCount;
     } DisplayState;
 
     VkDevice device;
@@ -94,6 +112,112 @@ $cc rtype DisplayState* {
     $robj = Jim_NewStringObj(interp, buf, -1);
 }
 
+$cc code [csubst {
+    static uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
+        VkPhysicalDeviceMemoryProperties memProperties;
+        vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
+        for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+            if ((typeFilter & (1 << i)) &&
+                (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+                return i;
+            }
+        }
+        return UINT32_MAX;
+    }
+
+    // Sets up an in-memory render target of the given size, with the
+    // same render pass and format as a real display, plus a
+    // host-visible buffer to read it back into.
+    static void initOffscreenDisplay(Jim_Interp* interp, DisplayState* ds,
+                                     uint32_t width, uint32_t height) {
+        ds->offscreen = true;
+        ds->swapchainImageFormat = VK_FORMAT_B8G8R8A8_UNORM;
+        ds->swapchainExtent = (VkExtent2D) {width, height};
+        ds->swapchainImageCount = 1;
+
+        {
+            VkImageCreateInfo imageInfo = {0};
+            imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+            imageInfo.imageType = VK_IMAGE_TYPE_2D;
+            imageInfo.extent = (VkExtent3D) {width, height, 1};
+            imageInfo.mipLevels = 1;
+            imageInfo.arrayLayers = 1;
+            imageInfo.format = ds->swapchainImageFormat;
+            imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+            imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            imageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+            imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+            imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            $[vktry {vkCreateImage(device, &imageInfo, NULL, &ds->offscreenImage)}]
+
+            VkMemoryRequirements memReq;
+            vkGetImageMemoryRequirements(device, ds->offscreenImage, &memReq);
+            VkMemoryAllocateInfo allocInfo = {0};
+            allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+            allocInfo.allocationSize = memReq.size;
+            allocInfo.memoryTypeIndex = findMemoryType(memReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+            $[vktry {vkAllocateMemory(device, &allocInfo, NULL, &ds->offscreenMemory)}]
+            $[vktry {vkBindImageMemory(device, ds->offscreenImage, ds->offscreenMemory, 0)}]
+
+            VkImageViewCreateInfo viewInfo = {0};
+            viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            viewInfo.image = ds->offscreenImage;
+            viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            viewInfo.format = ds->swapchainImageFormat;
+            viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            viewInfo.subresourceRange.levelCount = 1;
+            viewInfo.subresourceRange.layerCount = 1;
+            $[vktry {vkCreateImageView(device, &viewInfo, NULL, &ds->offscreenView)}]
+        }
+        {
+            ds->swapchainFramebuffers = malloc(sizeof(VkFramebuffer));
+            VkImageView attachments[] = { ds->offscreenView };
+            VkFramebufferCreateInfo framebufferInfo = {0};
+            framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+            framebufferInfo.renderPass = *renderPass_ptr();
+            framebufferInfo.attachmentCount = 1;
+            framebufferInfo.pAttachments = attachments;
+            framebufferInfo.width = width;
+            framebufferInfo.height = height;
+            framebufferInfo.layers = 1;
+            $[vktry {vkCreateFramebuffer(device, &framebufferInfo, NULL, &ds->swapchainFramebuffers[0])}]
+        }
+        {
+            VkDeviceSize size = (VkDeviceSize) width * height * 4;
+            VkBufferCreateInfo bufferInfo = {0};
+            bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+            bufferInfo.size = size;
+            bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+            bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            $[vktry {vkCreateBuffer(device, &bufferInfo, NULL, &ds->readBuffer)}]
+
+            VkMemoryRequirements memReq;
+            vkGetBufferMemoryRequirements(device, ds->readBuffer, &memReq);
+            VkMemoryAllocateInfo allocInfo = {0};
+            allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+            allocInfo.allocationSize = memReq.size;
+            allocInfo.memoryTypeIndex = findMemoryType(memReq.memoryTypeBits,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+            $[vktry {vkAllocateMemory(device, &allocInfo, NULL, &ds->readMemory)}]
+            $[vktry {vkBindBufferMemory(device, ds->readBuffer, ds->readMemory, 0)}]
+            $[vktry {vkMapMemory(device, ds->readMemory, 0, size, 0, &ds->readMapped)}]
+        }
+        {
+            VkFenceCreateInfo fenceInfo = {0};
+            fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+            fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+            $[vktry {vkCreateFence(device, &fenceInfo, NULL, &ds->inFlightFence)}]
+        }
+        for (int i = 0; i < 3; i++) {
+            ds->readImages[i] = (Image) {
+                .width = width, .height = height, .components = 3,
+                .bytesPerRow = width * 3, .data = malloc((size_t) width * height * 3),
+                .uniq = 0
+            };
+        }
+    }
+}]
+
 $cc proc initDisplay {char* display uint32_t width uint32_t height uint32_t refreshRate} DisplayState* {
     volkInitialize();
     volkLoadInstanceOnly(*instance_ptr());
@@ -104,6 +228,11 @@ $cc proc initDisplay {char* display uint32_t width uint32_t height uint32_t refr
     physicalDevice = *physicalDevice_ptr();
 
     DisplayState* ds = calloc(1, sizeof(DisplayState));
+
+    if (strcmp(display, "offscreen") == 0) {
+        initOffscreenDisplay(interp, ds, width, height);
+        return ds;
+    }
 
     // Get drawing surface.
     $[expr { $useGlfw ? {
@@ -373,12 +502,16 @@ $cc proc drawStart {DisplayState* ds} void {
 
     vkResetFences(device, 1, &ds->inFlightFence);
 
-    VkResult acquireResult = vkAcquireNextImageKHR(device, ds->swapchain, UINT64_MAX,
-                                                   ds->imageAvailableSemaphore, VK_NULL_HANDLE,
-                                                   &ds->imageIndex);
-    if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR) {
-        FOLK_ERROR("Failed vkAcquireNextImageKHR: %s (%d)\n",
-                   VkResultToString(acquireResult), acquireResult);
+    if (ds->offscreen) {
+        ds->imageIndex = 0;
+    } else {
+        VkResult acquireResult = vkAcquireNextImageKHR(device, ds->swapchain, UINT64_MAX,
+                                                       ds->imageAvailableSemaphore, VK_NULL_HANDLE,
+                                                       &ds->imageIndex);
+        if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR) {
+            FOLK_ERROR("Failed vkAcquireNextImageKHR: %s (%d)\n",
+                       VkResultToString(acquireResult), acquireResult);
+        }
     }
 
     vkResetCommandBuffer(commandBuffer, 0);
@@ -466,6 +599,20 @@ $cc proc drawEnd {} void {
     vkCmdEndRenderPass(commandBuffer);
     $[vktry {vkEndCommandBuffer(commandBuffer)}]
 
+    if (ds->offscreen) {
+        VkSubmitInfo submitInfo = {0};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &commandBuffer;
+        pthread_mutex_lock(graphicsQueueMutex_ptr());
+        $[vktry {vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo, ds->inFlightFence)}]
+        pthread_mutex_unlock(graphicsQueueMutex_ptr());
+        vkWaitForFences(device, 1, &ds->inFlightFence, VK_TRUE, UINT64_MAX);
+        ds->frameCount++;
+        currentDisplay = NULL;
+        return;
+    }
+
     VkSemaphore signalSemaphores[] = {ds->renderFinishedSemaphores[ds->imageIndex]};
     {
         VkSubmitInfo submitInfo = {0};
@@ -518,6 +665,80 @@ $cc proc drawEnd {} void {
 
 $cc proc poll {} void {
     $[expr { $useGlfw ? { glfwPollEvents(); } : {} }]
+}
+
+$cc proc isOffscreen {DisplayState* ds} bool { return ds->offscreen; }
+$cc proc getFrameCount {DisplayState* ds} uint64_t { return ds->frameCount; }
+
+# Copies the offscreen display's last frame into an RGB Image. Only
+# valid between frames (after drawEnd).
+$cc proc readDisplay {DisplayState* ds} Image {
+    FOLK_ENSURE(ds->offscreen);
+    VkCommandBuffer commandBuffer = getCommandBuffer();
+    vkResetFences(device, 1, &ds->inFlightFence);
+    vkResetCommandBuffer(commandBuffer, 0);
+
+    VkCommandBufferBeginInfo beginInfo = {0};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    $[vktry {vkBeginCommandBuffer(commandBuffer, &beginInfo)}]
+
+    // The render pass leaves the image in PRESENT_SRC_KHR.
+    VkImageMemoryBarrier barrier = {0};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = ds->offscreenImage;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.layerCount = 1;
+    barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    vkCmdPipelineBarrier(commandBuffer,
+                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         0, 0, NULL, 0, NULL, 1, &barrier);
+
+    VkBufferImageCopy region = {0};
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.layerCount = 1;
+    region.imageExtent = (VkExtent3D) {ds->swapchainExtent.width, ds->swapchainExtent.height, 1};
+    vkCmdCopyImageToBuffer(commandBuffer, ds->offscreenImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                           ds->readBuffer, 1, &region);
+
+    // Put it back so the next frame's render pass finds what it expects.
+    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    vkCmdPipelineBarrier(commandBuffer,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                         0, 0, NULL, 0, NULL, 1, &barrier);
+
+    $[vktry {vkEndCommandBuffer(commandBuffer)}]
+    VkSubmitInfo submitInfo = {0};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+    pthread_mutex_lock(graphicsQueueMutex_ptr());
+    $[vktry {vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo, ds->inFlightFence)}]
+    pthread_mutex_unlock(graphicsQueueMutex_ptr());
+    vkWaitForFences(device, 1, &ds->inFlightFence, VK_TRUE, UINT64_MAX);
+
+    // BGRA -> RGB.
+    Image* out = &ds->readImages[ds->readNext];
+    ds->readNext = (ds->readNext + 1) % 3;
+    uint8_t* src = ds->readMapped;
+    uint8_t* dst = out->data;
+    size_t n = (size_t) ds->swapchainExtent.width * ds->swapchainExtent.height;
+    for (size_t i = 0; i < n; i++) {
+        dst[i*3 + 0] = src[i*4 + 2];
+        dst[i*3 + 1] = src[i*4 + 1];
+        dst[i*3 + 2] = src[i*4 + 0];
+    }
+    out->uniq = ds->frameCount;
+    return *out;
 }
 
 proc makeGpu {gpuLib pipelineLib drawLib} { return [library create gpu {gpuLib pipelineLib drawLib} {
@@ -653,7 +874,6 @@ while true {
             # TODO: does this ever get disposed?
         }
     }
-
     # Query active displays; init new ones on first sight.
     foreach result $useDisplays {
         set display [dict get $result display]
@@ -698,6 +918,41 @@ while true {
         }
 
         $gpu drawEnd
+
+        # The offscreen display can be read back: anyone who wishes
+        # the GPU snapshots it gets its frame as an Image (and,
+        # optionally, as a PNG file).
+        if {[$drawLib isOffscreen $ds]} { try {
+            set wishes [list {*}[Query! /someone/ wishes the GPU snapshots display $displayName] \
+                            {*}[Query! /someone/ wishes the GPU snapshots display $displayName /...opts/]]
+            if {[llength $wishes] > 0} {
+                set im [$drawLib readDisplay $ds]
+                set frameN [$drawLib getFrameCount $ds]
+                Hold! -key [list display frame $displayName] \
+                    Claim display $displayName has frame $im at frame $frameN
+                foreach w $wishes {
+                    set opts [dict getdef $w opts {}]
+                    if {[dict exists $opts to]} {
+                        set path [dict get $opts to]
+                        set pngs [Query! the png library is /pngLib/]
+                        if {[llength $pngs] == 0} { continue }
+                        try {
+                            # Written every frame; rename so readers
+                            # never see a half-written file.
+                            set tmp "[file dirname $path]/.[file tail $path].tmp"
+                            [dict get [lindex $pngs 0] pngLib] saveAsPng $im $tmp
+                            file rename -force $tmp $path
+                            Hold! -key [list display snapshot $displayName $path] \
+                                Claim the GPU snapshotted display $displayName to $path at frame $frameN
+                        } on error e {
+                            puts stderr "gpu/draw: snapshot to $path: $e"
+                        }
+                    }
+                }
+            }
+        } on error e {
+            puts stderr "gpu/draw: offscreen readback: [errorInfo $e]"
+        } }
     }
 
     tracy frameMarkNamed $kGpu

@@ -38,6 +38,7 @@ fn gpuInit {useGlfw} {
     set gpuc [C]
     $gpuc cflags -I./vendor
     $gpuc include <pthread.h>
+    $gpuc include <string.h>
     $gpuc code {
         #define VOLK_IMPLEMENTATION
         #include "volk/volk.h"
@@ -168,13 +169,31 @@ fn gpuInit {useGlfw} {
                 const char** enabledExtensions = glfwGetRequiredInstanceExtensions(&createInfo.enabledExtensionCount);
 
             }} else {subst -nocommands {
-                const char* enabledExtensions[] = {
-                    // 2 extensions for non-X11/Wayland display
+                // 2 extensions for non-X11/Wayland display. VK_KHR_display
+                // is only requested if the driver has it: a software
+                // driver (lavapipe) doesn't, and then we can still
+                // render offscreen (see draw.folk's "offscreen" display).
+                const char* enabledExtensions[3] = {
                     VK_KHR_SURFACE_EXTENSION_NAME,
-                    VK_KHR_DISPLAY_EXTENSION_NAME,
                     VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
                 };
-                createInfo.enabledExtensionCount = sizeof(enabledExtensions)/sizeof(enabledExtensions[0]);
+                createInfo.enabledExtensionCount = 2;
+                {
+                    uint32_t n = 0;
+                    vkEnumerateInstanceExtensionProperties(NULL, &n, NULL);
+                    VkExtensionProperties props[n];
+                    vkEnumerateInstanceExtensionProperties(NULL, &n, props);
+                    for (uint32_t i = 0; i < n; i++) {
+                        if (strcmp(props[i].extensionName, VK_KHR_DISPLAY_EXTENSION_NAME) == 0) {
+                            enabledExtensions[createInfo.enabledExtensionCount++] = VK_KHR_DISPLAY_EXTENSION_NAME;
+                        }
+                    }
+                    if (createInfo.enabledExtensionCount == 2) {
+                        // (This is inside a Tcl subst, so no backslash escapes.)
+                        fputs("gpu: VK_KHR_display is not available; only the offscreen display will work", stderr);
+                        fputc(10, stderr);
+                    }
+                }
             }}]
             createInfo.ppEnabledExtensionNames = enabledExtensions;
 

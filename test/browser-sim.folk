@@ -1,0 +1,132 @@
+# browser.folk in simulation: the real GPU stack renders to the
+# "offscreen" display (software Vulkan, no screen), real Chromium
+# renders the fixture page, browser.folk puts the frames on a page
+# canvas, and the canvas is composited onto the display from the
+# page's quad, exactly as on a table. The display is read back and
+# checked pixel by pixel, and snapshots are saved as PNGs.
+#
+# Table: 1 m = 1000 px, display 1280x720.
+#
+#   browserpage  0.2m x 0.125m at (0.10, 0.10)   -> px (100..300, 100..225)
+#   belowsrc     same size      at (0.60, 0.10)   -> its "below" browser at
+#                                                   (600..800, 225..350)
+#   pointer      below browserpage, pointing up at the first link
+#   viewer       0.2m x 0.125m at (0.95, 0.40)   -> shows the hovered link
+
+source test/browser-test-helpers.tcl
+requireBrowserDriver
+source test/gpu-sim-helpers.tcl
+
+expectSteps {display-up page-on-table link-hover-on-table below-on-table viewer-on-table snapshots} 150
+
+Wish $::thisNode uses display "offscreen" with width 1280 height 720 refreshRate 60
+sourceGpuStack
+fakeDisplay offscreen
+When { source builtin-programs/geometric/points-at.folk }
+When { source builtin-programs/browser/browser-lib.folk }
+When { source builtin-programs/browser/browser-setup.folk }
+When { source builtin-programs/browser/browser-driver.folk }
+When { source builtin-programs/browser/browser.folk }
+
+set index "$browserFixtureUrl/index.html"
+set two "$browserFixtureUrl/two.html"
+
+fn page {name x y w h} {
+    Claim $name has quad [list table [list \
+        [list $x $y 1] [list [expr {$x + $w}] $y 1] \
+        [list [expr {$x + $w}] [expr {$y + $h}] 1] [list $x [expr {$y + $h}] 1]]]
+    Claim $name has resolved geometry [dict create width $w height $h]
+    Wish $name has a canvas
+}
+page browserpage 0.10 0.10 0.2 0.125
+page belowsrc 0.60 0.10 0.2 0.125
+page viewer 0.95 0.40 0.2 0.125
+# Pointer: 2x3cm just under browserpage, whisker x2 -> tip at the
+# first link (viewport 300,340).
+page pointer 0.1486 0.2264 0.02 0.03
+Wish pointer points up with length 2
+Wish the browser link dwell is 60 seconds
+
+Wish browserpage renders $index in a browser
+Wish belowsrc renders $index in a browser below
+When /target/ is a link {
+    Wish viewer renders $target in a browser
+}
+
+set snapDir [snapshotDir]
+Wish the GPU snapshots display offscreen to "$snapDir/browser-sim.png"
+
+# Fake-display pixel positions of page-space points: page (x0,y0) in
+# metres, viewport-fraction (u,v) of a 1024x640 browser.
+fn tablePx {x0 y0 u v} {
+    list [expr {int(($x0 + $u * 0.2) * 1000)}] [expr {int(($y0 + $v * 0.125) * 1000)}]
+}
+# Folk's image pipeline samples images as sRGB textures (decoding them
+# to linear) and the display stores that, so a browser colour c ends
+# up on the table as srgbToLinear(c). Pure 0/255 channels are
+# unchanged; in-between values come out darker.
+fn onTable {rgb} {
+    lmap c $rgb {
+        set x [expr {$c / 255.0}]
+        set l [expr {$x <= 0.04045 ? $x / 12.92 : pow(($x + 0.055) / 1.055, 2.4)}]
+        expr {int(round($l * 255))}
+    }
+}
+
+When display offscreen has width /w/ height /h/ {
+    check display-up { assertEq $w 1280; assertEq $h 720; pass display-up }
+}
+
+When the image library is /imageLib/ &\
+     display offscreen has frame /im/ at frame /n/ {
+    # The fixture's red header is the top 200/640 of the page, the
+    # blue "Go to page two" link at viewport (100..500, 300..380).
+    check page-on-table {
+        lassign [tablePx 0.10 0.10 0.5 0.15] hx hy
+        if {![pixelIs $imageLib $im $hx $hy {255 0 0} 60]} { return }
+        lassign [tablePx 0.10 0.10 0.1 0.53] lx ly
+        lassign [tablePx 0.10 0.10 0.7 0.8] wx wy
+        # The link is blue, or the hovered blue once the pointer's
+        # hover has been painted into the page.
+        if {![pixelIs $imageLib $im $lx $ly {0 0 255} 60] &&
+            ![pixelIs $imageLib $im $lx $ly [onTable {0 90 177}] 40]} {
+            error "link pixel ($lx, $ly) is [pixel $imageLib $im $lx $ly]"
+        }
+        assertPixel $imageLib $im $wx $wy {255 255 255} 60
+        # Table around the page is black.
+        assertPixel $imageLib $im 50 50 {0 0 0}
+        assertPixel $imageLib $im 150 260 {0 0 0}
+        pass page-on-table
+    }
+    check link-hover-on-table {
+        # The green outline the hover paints into the page texture,
+        # just outside the link (viewport (98, 340)).
+        lassign [tablePx 0.10 0.10 0.0957 0.531] ox oy
+        if {![pixelIs $imageLib $im $ox $oy [onTable {0 200 83}] 50]} { return }
+        pass link-hover-on-table
+    }
+    check below-on-table {
+        # belowsrc's browser sits one page-height below belowsrc.
+        lassign [tablePx 0.60 0.225 0.5 0.15] hx hy
+        if {![pixelIs $imageLib $im $hx $hy {255 0 0} 60]} { return }
+        lassign [tablePx 0.60 0.10 0.5 0.15] sx sy
+        assertPixel $imageLib $im $sx $sy {0 0 0}
+        pass below-on-table
+    }
+    check viewer-on-table {
+        # The viewer shows two.html (magenta) once the link is hovered.
+        lassign [tablePx 0.95 0.40 0.5 0.5] vx vy
+        if {![pixelIs $imageLib $im $vx $vy {255 0 255} 60]} { return }
+        pass viewer-on-table
+    }
+}
+
+When the GPU snapshotted display offscreen to /path/ at frame /n/ &\
+     test step viewer-on-table passed &\
+     test step link-hover-on-table passed {
+    check snapshots {
+        assert {[file exists $path]}
+        testLog "snapshot: $path"
+        pass snapshots
+    }
+}

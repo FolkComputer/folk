@@ -1,0 +1,67 @@
+# The real GPU stack (gpu.folk, textures, pipelines, canvases,
+# draw.folk) rendering to the "offscreen" display, read back and
+# checked pixel by pixel. Runs on a software Vulkan driver (lavapipe)
+# with no screen attached, so it can run in CI.
+#
+# A page canvas gets a filled quad drawn on it, and the canvas is
+# composited onto the display the way tags-to-quads.folk does it.
+
+source test/browser-test-helpers.tcl
+source test/gpu-sim-helpers.tcl
+
+expectSteps {display-up canvas-composited snapshot-file} 60
+
+Wish $::thisNode uses display "offscreen" with width 640 height 360 refreshRate 60
+sourceGpuStack
+
+# A 0.2m x 0.1m page at (0.1, 0.1)m on a 1 m = 1000 px table.
+fakeDisplay offscreen
+Claim page has quad {table {{0.1 0.1 1} {0.3 0.1 1} {0.3 0.2 1} {0.1 0.2 1}}}
+Claim page has resolved geometry {width 0.2 height 0.1}
+Wish page has a canvas
+
+# Fill the left half of the page lime, the right half blue.
+When page has canvas /c/ with /...opts/ {
+    Wish to draw a quad onto page with p0 {0 0} p1 {0.1 0} p2 {0.1 0.1} p3 {0 0.1} color lime
+    Wish to draw a quad onto page with p0 {0.1 0} p1 {0.2 0} p2 {0.2 0.1} p3 {0.1 0.1} color blue
+}
+
+set snapshotPath "[snapshotDir]/gpu-offscreen.png"
+Wish the GPU snapshots display offscreen to $snapshotPath
+
+When display offscreen has width /w/ height /h/ {
+    check display-up {
+        assertEq $w 640; assertEq $h 360
+        pass display-up
+    }
+}
+
+When the image library is /imageLib/ &\
+     display offscreen has frame /im/ at frame /n/ {
+    check canvas-composited {
+        # Table background is black; the page is at px (100..300, 100..200).
+        if {![pixelIs $imageLib $im 150 150 {0 255 0}]} { return }
+        assertPixel $imageLib $im 50 50 {0 0 0}
+        assertPixel $imageLib $im 150 150 {0 255 0}
+        assertPixel $imageLib $im 250 150 {0 0 255}
+        assertPixel $imageLib $im 150 250 {0 0 0}
+        assertPixel $imageLib $im 350 150 {0 0 0}
+        pass canvas-composited
+    }
+}
+
+When the png library is /pngLib/ & the image library is /imageLib/ &\
+     the GPU snapshotted display offscreen to /path/ at frame /n/ &\
+     test step canvas-composited passed {
+    check snapshot-file {
+        assert {[file exists $path]}
+        # The PNG decodes to the display's size and (once the first
+        # drawn frames have been written) shows the page.
+        set im [$pngLib loadPng $path]
+        assertEq [$imageLib Image_width $im] 640
+        assertEq [$imageLib Image_height $im] 360
+        if {![pixelIs $imageLib $im 150 150 {0 255 0}]} { return }
+        assertPixel $imageLib $im 250 150 {0 0 255}
+        pass snapshot-file
+    }
+}

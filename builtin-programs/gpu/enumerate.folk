@@ -5,6 +5,21 @@ $cc code {
     #include "volk/volk.h"
 }
 
+$cc include <string.h>
+$cc proc hasDisplayExtension {} bool {
+    FOLK_ENSURE(volkInitialize() == VK_SUCCESS);
+    uint32_t n = 0;
+    vkEnumerateInstanceExtensionProperties(NULL, &n, NULL);
+    VkExtensionProperties props[n];
+    vkEnumerateInstanceExtensionProperties(NULL, &n, props);
+    for (uint32_t i = 0; i < n; i++) {
+        if (strcmp(props[i].extensionName, VK_KHR_DISPLAY_EXTENSION_NAME) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 $cc proc enumerateDisplays {} Jim_Obj* {
     FOLK_ENSURE(volkInitialize() == VK_SUCCESS);
 
@@ -104,10 +119,18 @@ set displayLib [$cc compile]
 if {![catch {exec pkg-config --exists glfw3}]} {
     Claim $::thisNode has display glfw with info {name "GLFW (windowed)"}
 }
+# A display that renders into memory instead of a screen, for tests
+# and simulation (see draw.folk). It works with any Vulkan driver,
+# including software ones like lavapipe.
+Claim $::thisNode has display offscreen with info {name "Offscreen (in memory)"}
 
 try {
-    foreach display [$displayLib enumerateDisplays] {
-        Claim $::thisNode has display $display(name) with info $display
+    if {[$displayLib hasDisplayExtension]} {
+        foreach display [$displayLib enumerateDisplays] {
+            Claim $::thisNode has display $display(name) with info $display
+        }
+    } else {
+        puts stderr "enumerate: VK_KHR_display is not available; no physical displays"
     }
 } finally {
     Claim $::thisNode has had displays enumerated
