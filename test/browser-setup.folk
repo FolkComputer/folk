@@ -1,0 +1,58 @@
+# Tests for browser-setup.folk that need no network:
+#
+# - a broken FOLK_BROWSER_CHROMIUM produces an actionable error on the
+#   page within a few seconds instead of a blank page;
+# - launch-error messages are turned into instructions;
+# - Chromium detection order.
+
+source test/browser-test-helpers.tcl
+requireBrowserDriver
+
+# Point at a Chromium that doesn't exist, before setup looks.
+set ::env(FOLK_BROWSER_CHROMIUM) "/nonexistent/chromium"
+
+source builtin-programs/image/image-lib.folk
+source builtin-programs/image/png-lib.folk
+source builtin-programs/quad-lib.folk
+source builtin-programs/browser/browser-lib.folk
+source builtin-programs/browser/browser-setup.folk
+source builtin-programs/browser/browser-driver.folk
+source builtin-programs/browser/browser.folk
+
+expectSteps {detection explain page-error} 60
+
+When the browser setup library is /setup/ {
+    check detection {
+        set found [$setup findChromium]
+        assertEq [dict get $found source] env
+        assertEq [dict get $found executablePath] "/nonexistent/chromium"
+        assertEq [$setup playwrightVersion] 1.56.0
+        assert {[string match "*playwright install chromium" [$setup installCommand]]}
+        pass detection
+    }
+    check explain {
+        set e [$setup explainLaunchError "chrome: error while loading shared libraries: libnss3.so: cannot open shared object file"]
+        assert {[string match "*install-deps chromium*" $e]}
+        set e [$setup explainLaunchError "Executable doesn't exist at /nonexistent/chromium"]
+        assert {[string match "*FOLK_BROWSER_CHROMIUM*" $e]}
+        assertEq [$setup explainLaunchError "net::ERR_NAME_NOT_RESOLVED"] "net::ERR_NAME_NOT_RESOLVED"
+        pass explain
+    }
+}
+
+# A page asks for a browser; the launch fails; the page gets an error
+# that says what to do.
+Claim errpage has quad {table {{0 0 1} {0.2 0 1} {0.2 0.125 1} {0 0.125 1}}}
+Claim errpage has resolved geometry {width 0.2 height 0.125}
+Wish errpage renders "https://example.com/" in a browser
+set startedAt [clock milliseconds]
+When errpage has error /e/ with info /info/ {
+    check page-error {
+        testLog "page error after [expr {[clock milliseconds] - $startedAt}]ms: $e"
+        assert {[string match "browser: *" $e]}
+        assert {[string match "*Chromium*" $e]}
+        assert {[string match "*FOLK_BROWSER_CHROMIUM*" $e] || [string match "*install*" $e]}
+        if {[clock milliseconds] - $startedAt > 10000} { error "took too long" }
+        pass page-error
+    }
+}

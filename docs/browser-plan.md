@@ -1,18 +1,18 @@
 # browser.folk: plan to close the open issues
 
-Status: the first version is on branch `claude/browser-folk`. Its tests
-pass in a container (`test/browser-{lib,render,e2e,tilt}.folk`), but
-these issues are still open and none of them is acceptable to ship:
+Status (branch `claude/browser-folk`): stages 1–4 are done and tested
+in a container; stage 5 needs a real Folk machine. See
+`docs/browser-testing.md` for the hardware checklist.
 
-| # | Issue | Stage |
-|---|-------|-------|
-| A | A `/tmp/folk-browser-<pid>` folder is left behind on each run | 1 |
-| B | Hovered-link statements are recalculated on every new frame | 2 |
-| C | All browsers share one Chromium thread, so one slow page load pauses the others | 3 |
-| D | Each Folk machine needs a manual Playwright/Chromium install | 4 |
-| E | Never tried on a real projector and camera | 5a |
-| F | Tilt direction never checked against real camera data | 5b |
-| G | YouTube playback never actually tried | 5c |
+| # | Issue | Stage | Status |
+|---|-------|-------|--------|
+| A | A `/tmp/folk-browser-<pid>` folder is left behind on each run | 1 | done: frames stay in memory; `test/run-browser-tests.sh` fails on leftovers |
+| B | Hovered-link statements are recalculated on every new frame | 2 | done: links statement + `-keep` claims; e2e test jitters the pointer |
+| C | All browsers share one Chromium thread, so one slow page load pauses the others | 3 | done: async driver, per-session tasks, screencast frames; `test/browser-isolation.folk` |
+| D | Each Folk machine needs a manual Playwright/Chromium install | 4 | done: auto-detect / auto-install with on-page status; `test/browser-setup.folk`, `browser-install-local.folk`, `browser-install.folk` |
+| E | Never tried on a real projector and camera | 5a | **simulated** (lavapipe + offscreen display, `test/browser-sim.folk`); real table still to do |
+| F | Tilt direction never checked against real camera data | 5b | open |
+| G | YouTube playback never actually tried | 5c | open |
 
 The stages are ordered so that each one makes the next one easier. Each
 stage is one commit, or a small PR if it's large. Each must leave all

@@ -1,18 +1,33 @@
-# browser-setup.folk: finds (or, in a later stage, installs) the
-# Chromium that browser-driver.folk runs.
+# browser-setup.folk: finds, or installs, the Chromium that
+# browser-driver.folk runs. No manual setup step is needed on a Folk
+# machine: the first time a page wants a browser, Chromium is
+# downloaded if it can't be found.
 #
 # Claims:
 #
 #     the browser setup library is $lib
 #     the browser setup is ready with executablePath $path
 #         ($path is "auto" when Playwright's own bundled Chromium is used)
+#     the browser setup is installing Chromium
+#         (while `playwright install chromium` runs; browser.folk shows
+#          "Installing browser..." on pages that asked for one)
+#     the browser setup has failed with message $msg
 #
 # Chromium is looked for in this order:
 #
 #   1. $FOLK_BROWSER_CHROMIUM, if set;
 #   2. the Chromium Playwright itself installed (under
 #      $PLAYWRIGHT_BROWSERS_PATH or ~/.cache/ms-playwright);
-#   3. a system chromium / chromium-browser / google-chrome.
+#   3. a system chromium / chromium-browser / google-chrome;
+#   4. otherwise `playwright install chromium` is run (no root needed;
+#      ~150 MB download) and 2. applies once it finishes.
+#
+# System libraries that Chromium needs (the `--with-deps` part of
+# Playwright's install) do need root, so they are not installed from
+# here; if they're missing, Chromium's "error while loading shared
+# libraries" message is shown on the page with the command to run:
+#
+#     uvx --with playwright==<version> playwright install-deps chromium
 
 # The one place the Playwright version is pinned.
 set BrowserPlaywrightVersion 1.56.0
@@ -24,8 +39,14 @@ set browserSetupLib [library create browserSetup {BrowserPlaywrightVersion} {
         return $BrowserPlaywrightVersion
     }
 
+    proc uvx {} {
+        set uvx "$::env(HOME)/.local/bin/uvx"
+        if {![file exists $uvx]} { set uvx uvx }
+        return $uvx
+    }
+
     proc playwrightBrowsersPath {} {
-        if {[info exists ::env(PLAYWRIGHT_BROWSERS_PATH)]} {
+        if {[info exists ::env(PLAYWRIGHT_BROWSERS_PATH)] && $::env(PLAYWRIGHT_BROWSERS_PATH) ne ""} {
             return $::env(PLAYWRIGHT_BROWSERS_PATH)
         }
         return "$::env(HOME)/.cache/ms-playwright"
@@ -38,13 +59,19 @@ set browserSetupLib [library create browserSetup {BrowserPlaywrightVersion} {
             foreach exe [list "$dir/chrome-linux/chrome" "$dir/chrome-linux64/chrome" \
                              "$dir/chrome-mac/Chromium.app/Contents/MacOS/Chromium" \
                              "$dir/chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium"] {
-                if {[file executable $exe]} { return $exe }
+                if {[file executable $exe] && [file exists "$dir/INSTALLATION_COMPLETE"]} {
+                    return $exe
+                }
             }
         }
         return ""
     }
 
     proc systemChromium {} {
+        # (FOLK_BROWSER_IGNORE_SYSTEM=1 is a test hook.)
+        if {[info exists ::env(FOLK_BROWSER_IGNORE_SYSTEM)] && $::env(FOLK_BROWSER_IGNORE_SYSTEM) eq "1"} {
+            return ""
+        }
         foreach name {chromium chromium-browser google-chrome google-chrome-stable chrome} {
             foreach dir [split $::env(PATH) :] {
                 set exe [file join $dir $name]
@@ -75,6 +102,36 @@ set browserSetupLib [library create browserSetup {BrowserPlaywrightVersion} {
         }
         return [dict create executablePath auto source none]
     }
+
+    # The command that installs Playwright's Chromium.
+    # (FOLK_BROWSER_INSTALL_COMMAND is a test hook: a command that
+    # populates $PLAYWRIGHT_BROWSERS_PATH some other way.)
+    proc installCommand {} {
+        if {[info exists ::env(FOLK_BROWSER_INSTALL_COMMAND)] && $::env(FOLK_BROWSER_INSTALL_COMMAND) ne ""} {
+            return $::env(FOLK_BROWSER_INSTALL_COMMAND)
+        }
+        list [uvx] --with "playwright==[playwrightVersion]" playwright install chromium
+    }
+
+
+    proc installDepsCommand {} {
+        list sudo [uvx] --with "playwright==[playwrightVersion]" playwright install-deps chromium
+    }
+
+    # Turns a Chromium launch failure into something a person can act
+    # on from the page.
+    proc explainLaunchError {msg} {
+        if {[string match -nocase "*error while loading shared librar*" $msg] ||
+            [string match -nocase "*missing dependencies*" $msg]} {
+            return "Chromium is missing system libraries. On the Folk machine run:  [installDepsCommand]"
+        }
+        if {[string match -nocase "*executable doesn't exist*" $msg] ||
+            [string match -nocase "*no such file*" $msg] ||
+            [string match "*ENOENT*" $msg]} {
+            return "Chromium not found ($msg). Unset FOLK_BROWSER_CHROMIUM to let Folk install one, or run:  [installCommand]"
+        }
+        return $msg
+    }
 }]
 Claim the browser setup library is $browserSetupLib
 
@@ -82,5 +139,63 @@ set found [$browserSetupLib findChromium]
 if {[dict get $found source] ne "none"} {
     Claim the browser setup is ready with executablePath [dict get $found executablePath]
 } else {
-    Claim the browser setup is missing Chromium
+    # Install in the background and watch for it to finish. Only one
+    # install runs at a time (the log file doubles as the lock).
+    set browsersPath [$browserSetupLib playwrightBrowsersPath]
+    file mkdir $browsersPath
+    set log "$browsersPath/folk-install.log"
+    set startedAt [clock seconds]
+    puts stderr "browser-setup: no Chromium found; running: [$browserSetupLib installCommand]"
+    # The installer runs under a watchdog that kills it if this Folk
+    # exits first, so it can't be left behind. It leaves its exit
+    # status in $done when it finishes (a background child is never
+    # reaped, so its pid can't be used to tell).
+    set done "$log.done"
+    file delete -force $done
+    set watchdog {
+        "$@" & cpid=$!
+        while kill -0 $FOLK_PID 2>/dev/null && kill -0 $cpid 2>/dev/null; do sleep 1; done
+        kill $cpid 2>/dev/null; wait $cpid; echo $? > "$DONE_FILE"
+    }
+    set installPid [exec env PLAYWRIGHT_BROWSERS_PATH=$browsersPath FOLK_PID=[pid] DONE_FILE=$done \
+                        sh -c $watchdog install \
+                        {*}[$browserSetupLib installCommand] >$log 2>@1 &]
+    Claim the browser setup is installing Chromium
+
+    When the clock time is /t/ {
+        # Poll once a second.
+        set now [clock seconds]
+        if {$now - $startedAt < 1} { return }
+        foreach r [Query! /x/ claims the browser setup was polled at /s/] {
+            if {[dict get $r s] == $now} { return }
+        }
+        Hold! -key setup-poll Claim the browser setup was polled at $now
+        if {[llength [Query! /x/ claims the browser setup is ready with /...any/]] ||
+            [llength [Query! /x/ claims the browser setup has failed with message /any/]]} {
+            return
+        }
+        # Still running? (Chromium can be complete while the installer
+        # is still fetching other bits; wait for it to finish.)
+        if {![file exists $done]} {
+            if {$now - $startedAt > 1800} {
+                catch {kill $installPid}
+                Hold! -key setup-result Claim the browser setup has failed \
+                    with message "Chromium install timed out after 30 minutes; see $log"
+            }
+            return
+        }
+        if {[$browserSetupLib bundledChromium] ne ""} {
+            Hold! -key setup-result Claim the browser setup is ready with executablePath auto
+            return
+        }
+        set tail ""
+        catch {
+            set fp [open $log r]; set tail [string range [read $fp] end-300 end]; close $fp
+        }
+        set status "?"
+        catch { set fp [open $done r]; set status [string trim [read $fp]]; close $fp }
+        set contents [lmap d [glob -nocomplain -tails -directory $browsersPath *] { set d }]
+        Hold! -key setup-result Claim the browser setup has failed \
+            with message "Chromium install failed (exit $status; [$browserSetupLib installCommand]; $browsersPath holds: $contents): [string trim $tail]"
+    }
 }

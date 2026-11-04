@@ -1,0 +1,69 @@
+# Zero-step setup, end to end, without the network: with no Chromium
+# in the install location, the first page that wants a browser starts
+# the install (here: a copy of an existing Playwright Chromium, via
+# the FOLK_BROWSER_INSTALL_COMMAND hook), shows "Installing
+# browser..." meanwhile, and renders once it's done.
+#
+# test/browser-install.folk is the same flow with the real download.
+
+source test/browser-test-helpers.tcl
+requireBrowserDriver
+
+# Needs an existing Playwright Chromium to copy from.
+set source ""
+foreach root [list [expr {[info exists ::env(PLAYWRIGHT_BROWSERS_PATH)] ? $::env(PLAYWRIGHT_BROWSERS_PATH) : ""}] \
+                  "$::env(HOME)/.cache/ms-playwright"] {
+    if {$root ne "" && [llength [glob -nocomplain "$root/chromium-*"]] > 0} { set source $root; break }
+}
+if {$source eq ""} {
+    testLog "SKIPPED: no Playwright Chromium to copy from"
+    Exit! 0
+}
+
+set ::env(PLAYWRIGHT_BROWSERS_PATH) "/tmp/folk-chromium-install-local-[pid]"
+set ::env(FOLK_BROWSER_CHROMIUM) ""
+set ::env(FOLK_BROWSER_IGNORE_SYSTEM) 1
+# The "installer": a slow copy, so the installing state is visible.
+set ::env(FOLK_BROWSER_INSTALL_COMMAND) \
+    [list sh -c "sleep 2; cp -r '$source/.' '$::env(PLAYWRIGHT_BROWSERS_PATH)/'"]
+file delete -force $::env(PLAYWRIGHT_BROWSERS_PATH)
+
+When { source builtin-programs/collect.folk }
+source builtin-programs/image/image-lib.folk
+source builtin-programs/image/png-lib.folk
+source builtin-programs/quad-lib.folk
+source builtin-programs/browser/browser-lib.folk
+source builtin-programs/browser/browser-setup.folk
+source builtin-programs/browser/browser-driver.folk
+source builtin-programs/browser/browser.folk
+
+expectSteps {installing installing-shown installed rendered} 120
+
+Claim page has quad {table {{0 0 1} {0.2 0 1} {0.2 0.125 1} {0 0.125 1}}}
+Claim page has resolved geometry {width 0.2 height 0.125}
+Wish page renders "$browserFixtureUrl/index.html" in a browser
+
+When the browser setup is installing Chromium {
+    pass installing
+}
+When /someone/ wishes to draw text onto page with /...opts/ {
+    if {[string match "Installing browser*" [dict get $opts text]]} { pass installing-shown }
+}
+When the browser setup is ready with /...launch/ {
+    check installed {
+        assertEq [dict get $launch executablePath] auto
+        pass installed
+    }
+}
+When the browser setup has failed with message /msg/ {
+    fail "setup failed: $msg"
+}
+When the image library is /imageLib/ &\
+     page has browser frame /im/ with metadata /meta/ {
+    check rendered {
+        if {[dict get $meta status] ne "loaded"} { return }
+        assertPixel $imageLib $im 10 10 {255 0 0}
+        file delete -force $::env(PLAYWRIGHT_BROWSERS_PATH)
+        pass rendered
+    }
+}

@@ -547,6 +547,10 @@ When /someone/ wishes to load the browser driver &\
         def impl_start(launch):
             global LAUNCH
             LAUNCH = launch
+            # Playwright's node driver (spawned by _launch) looks for
+            # its Chromium under this path.
+            if launch.get("browsersPath"):
+                os.environ["PLAYWRIGHT_BROWSERS_PATH"] = launch["browsersPath"]
             threading.Thread(target=_loop_thread, daemon=True).start()
             while LOOP is None:
                 time.sleep(0.01)
@@ -556,7 +560,7 @@ When /someone/ wishes to load the browser driver &\
     $py def start {obj launch} {
         return impl_start(launch)
     }
-    $py start $launch
+    $py start [dict merge $launch [dict create browsersPath [$setup playwrightBrowsersPath]]]
 
     $py def openSession {str sid str url num width num height {list str} directives} {
         return impl_open_session(sid, url, width, height, directives)

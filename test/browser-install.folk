@@ -1,0 +1,59 @@
+# Zero-step setup, end to end: with no Chromium anywhere, the first
+# page that wants a browser triggers `playwright install chromium`,
+# says "Installing browser..." meanwhile, and renders once it's done.
+#
+# Downloads ~150 MB, so it only runs when FOLK_TEST_NETWORK=1 is set;
+# otherwise it skips (exit 0).
+
+source test/browser-test-helpers.tcl
+requireBrowserDriver
+if {![info exists ::env(FOLK_TEST_NETWORK)] || $::env(FOLK_TEST_NETWORK) ne "1"} {
+    testLog "SKIPPED: set FOLK_TEST_NETWORK=1 to run the Chromium download test"
+    Exit! 0
+}
+
+# An empty install location, no override, and ignore any system Chromium.
+set ::env(PLAYWRIGHT_BROWSERS_PATH) "/tmp/folk-chromium-install-test-[pid]"
+set ::env(FOLK_BROWSER_CHROMIUM) ""
+set ::env(FOLK_BROWSER_IGNORE_SYSTEM) 1
+file delete -force $::env(PLAYWRIGHT_BROWSERS_PATH)
+
+When { source builtin-programs/collect.folk }
+source builtin-programs/image/image-lib.folk
+source builtin-programs/image/png-lib.folk
+source builtin-programs/quad-lib.folk
+source builtin-programs/browser/browser-lib.folk
+source builtin-programs/browser/browser-setup.folk
+source builtin-programs/browser/browser-driver.folk
+source builtin-programs/browser/browser.folk
+
+expectSteps {installing installed rendered} 1500
+
+Claim page has quad {table {{0 0 1} {0.2 0 1} {0.2 0.125 1} {0 0.125 1}}}
+Claim page has resolved geometry {width 0.2 height 0.125}
+Wish page renders "$browserFixtureUrl/index.html" in a browser
+
+When the browser setup is installing Chromium {
+    pass installing
+}
+When /someone/ wishes to draw text onto page with /...opts/ {
+    if {[string match "Installing browser*" [dict get $opts text]]} { pass installing }
+}
+When the browser setup is ready with /...launch/ {
+    check installed {
+        assertEq [dict get $launch executablePath] auto
+        assert {[file exists "$::env(PLAYWRIGHT_BROWSERS_PATH)"]}
+        pass installed
+    }
+}
+When the browser setup has failed with message /msg/ {
+    fail "setup failed: $msg"
+}
+When the image library is /imageLib/ &\
+     page has browser frame /im/ with metadata /meta/ {
+    check rendered {
+        if {[dict get $meta status] ne "loaded"} { return }
+        assertPixel $imageLib $im 10 10 {255 0 0}
+        pass rendered
+    }
+}

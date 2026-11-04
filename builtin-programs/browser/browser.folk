@@ -251,7 +251,23 @@ When the browser library is /lib/ &\
 
 # A page that can't load (or a browser that can't start) says so on
 # the page instead of staying blank.
-When /surface/ has browser status error with message /msg/ &\
+When the browser setup library is /setup/ &\
+     /surface/ has browser status error with message /msg/ &\
+     /p/ has browser /surface/ with session /any/ {
+    set msg [$setup explainLaunchError $msg]
+    Claim $p has error "browser: $msg" with info $msg
+}
+# While Chromium is being downloaded for the first time, say so on
+# every page that asked for a browser.
+When the browser setup is installing Chromium &\
+     /p/ has browser /surface/ with session /any/ &\
+     /surface/ has resolved geometry /geom/ {
+    When /nobody/ claims the browser setup is ready with /...any/ {
+        Wish to draw text onto $surface with position {0.01 0.01} anchor topleft \
+            scale 24 text "Installing browser (first run, ~150 MB)..."
+    }
+}
+When the browser setup has failed with message /msg/ &\
      /p/ has browser /surface/ with session /any/ {
     Claim $p has error "browser: $msg" with info $msg
 }
