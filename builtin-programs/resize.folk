@@ -1,0 +1,231 @@
+# Physical resizing of programs.
+#
+# A resize tool is just a program that says:
+#
+#     When $this points up at /program/ {
+#         Wish $program is resized by $this
+#     }
+#
+# 1. Point the tool at a program. A blinking yellow square appears at
+#    the program's bottom-right corner, asking for a handle.
+#
+# 2. Put any AprilTag (a blank program works well) in the square. It
+#    becomes the handle for that corner: the center of its tag is the
+#    program's new bottom-right corner. A marching-ants outline shows
+#    the program's new size, with its width and height in mm, as you
+#    move the handle around. The tag stays where it is on the page;
+#    only the right and bottom margins change.
+#
+# 3. Take the tool away. The new size is locked in and saved, so it
+#    survives restarts. (A locked-in size overrides the program's
+#    printed geometry; see tags-geometry.folk.)
+#
+# To go back to the printed size, point a tool at the program that
+# says:
+#
+#     When $this points up at /program/ {
+#         Wish $program is restored to its printed size
+#     }
+
+set handleSquareSize 0.05 ;# meters; the yellow square is this wide
+set minimumMargin 0.005 ;# meters; keep at least this much page past the tag
+set toolLingerMs 2000 ;# how long the tool can go unseen before we lock in
+
+# Starting a resize: the tool keeps resizing the program until the
+# tool goes away, even if the tool stops pointing at the program in
+# the meantime (so you can't accidentally switch programs mid-resize).
+When /someone/ wishes /program/ is resized by /tool/ {
+    if {$program eq $tool} { return }
+    When /nobody/ claims resize tool $tool is resizing /anything/ {
+        Hold! -key [list session $tool] \
+            Claim resize tool $tool is resizing $program
+    }
+}
+
+When /someone/ wishes /program/ is restored to its printed size {
+    Hold! -save -key [list resized geometry $program] {}
+}
+
+When resize tool /tool/ is resizing /program/ {
+    # Keep the session alive while the tool is on the table. The
+    # linger means that a hand briefly covering the tool (while moving
+    # the handle, say) doesn't end the session.
+    When tag $tool has a program {
+        Claim -keep ${toolLingerMs}ms resize tool $tool is still around
+    }
+
+    When /nobody/ claims resize tool $tool is still around {
+        # This can also fire right as the session starts, before the
+        # claim above has landed, so double-check.
+        if {[llength [Query! tag $tool has a program]] > 0} { return }
+
+        # The tool is gone: lock in whatever the handle last proposed.
+        set proposals [Query! $program has proposed geometry /geom/]
+        if {[llength $proposals] > 0} {
+            set geom [dict get [lindex $proposals 0] geom]
+            Hold! -save -key [list resized geometry $program] \
+                Claim tag $program has resized geometry $geom
+        }
+
+        Hold! -key [list proposal $program] {}
+        Hold! -key [list handle $program] {}
+        Hold! -key [list session $tool] {}
+    }
+}
+
+# Makes a geometry (in the mm format of printed geometries) that keeps
+# the tag where it is on the page, but has the given page width and
+# height (in meters). geom is a resolved geometry (in meters).
+fn resizedGeometry {geom width height} {
+    set right [expr {$width - [dict get $geom left] - [dict get $geom tagSize]}]
+    set bottom [expr {$height - [dict get $geom top] - [dict get $geom tagSize]}]
+    set newGeom [dict create]
+    dict for {key value} $geom {
+        if {$key in {width height}} { continue }
+        if {$key eq "right"} { set value $right }
+        if {$key eq "bottom"} { set value $bottom }
+        dict set newGeom $key [format "%.1fmm" [expr {$value * 1000.0}]]
+    }
+    return $newGeom
+}
+
+# Returns {width height} in meters of a geometry in mm format.
+fn geometrySize {geom} {
+    set mm [dict create]
+    foreach key {tagSize left right top bottom} {
+        dict set mm $key [expr {[string map {mm ""} [dict get $geom $key]] / 1000.0}]
+    }
+    dict with mm {
+        list [expr {$left + $tagSize + $right}] [expr {$top + $tagSize + $bottom}]
+    }
+}
+
+When the quad library is /quadLib/ &\
+     the pose library is /poseLib/ &\
+     the quad changer is /quadChange/ &\
+     display /disp/ has width /displayWidth/ height /displayHeight/ &\
+     display /disp/ has intrinsics /displayIntrinsics/ &\
+     resize tool /tool/ is resizing /program/ {
+
+    fn quadChange
+
+    # Everything below happens in display space (as in points-at.folk)
+    # so that we can relate quads seen by different cameras, and so
+    # that we can draw outside the program's own canvas, which is only
+    # as big as the program's current size.
+    fn toDisplay {quad} { quadChange $quad "display $disp" }
+    fn toScreen {point} {
+        $poseLib project $displayIntrinsics $displayWidth $displayHeight $point
+    }
+    # Converts a {x y} point in page space (meters from the top-left
+    # corner of the page quad) to screen pixels.
+    fn pageToScreen {pageQuad xy} {
+        toScreen [$quadLib xyToPoint $pageQuad $xy]
+    }
+    # Screen-space angle of the page, for drawing text along it.
+    fn pageRadians {pageQuad} {
+        lassign [$quadLib vertices $pageQuad] topLeft topRight
+        set top [vec2 sub [toScreen $topRight] [toScreen $topLeft]]
+        expr {-atan2([lindex $top 1], [lindex $top 0])}
+    }
+
+    # Phase 1: no handle yet. Blink a yellow square at the program's
+    # bottom-right corner until a tag is put in it.
+    When /nobody/ claims $program is resized by handle /anything/ {
+        Wish $tool is labelled "resizing $program:\nput a tag in the yellow square"
+
+        When $program has quad /pageQuad/ &\
+             $program has resolved geometry /geom/ {
+            set pageQuad [toDisplay $pageQuad]
+            set corner [list [dict get $geom width] [dict get $geom height]]
+            set half [expr {$handleSquareSize / 2.0}]
+
+            When the clock time is /t/ {
+                if {int($t * 2) % 2 == 1} { return }
+
+                set points [lmap offset [list [list -$half -$half] [list $half -$half] \
+                                             [list $half $half] [list -$half $half] \
+                                             [list -$half -$half]] {
+                    pageToScreen $pageQuad [vec2 add $corner $offset]
+                }]
+                Wish to draw a line onto $disp with \
+                    points $points width 6 color yellow
+                Wish to draw text onto $disp with \
+                    position [pageToScreen $pageQuad [vec2 add $corner [list 0 [expr {$half + 0.01}]]]] \
+                    text "put a tag here" scale 24 color yellow anchor top \
+                    radians [pageRadians $pageQuad]
+            }
+
+            # Any other tag whose center is inside the square becomes
+            # the handle.
+            When tag /handle/ has quad /handleQuad/ {
+                if {$handle eq $program || $handle eq $tool} { return }
+                set center [$quadLib centroid [toDisplay $handleQuad]]
+                lassign [vec2 sub [$quadLib pointToXY $pageQuad $center] $corner] dx dy
+                if {abs($dx) <= $half && abs($dy) <= $half} {
+                    Hold! -key [list handle $program] \
+                        Claim $program is resized by handle $handle
+                }
+            }
+        }
+    }
+
+    # Phase 2: the handle's tag center is the program's new
+    # bottom-right corner. Keep proposing a geometry as it moves.
+    When $program is resized by handle /handle/ {
+        Wish $tool is labelled "resizing $program with $handle:\ntake me away to lock in the size"
+
+        When tag $handle has quad /handleQuad/ &\
+             $program has quad /pageQuad/ &\
+             $program has resolved geometry /geom/ {
+            set pageQuad [toDisplay $pageQuad]
+            set center [$quadLib centroid [toDisplay $handleQuad]]
+            lassign [$quadLib pointToXY $pageQuad $center] width height
+
+            # Never shrink the page past its tag (plus a little
+            # margin), so the tag always stays on the page.
+            set tagSize [dict get $geom tagSize]
+            set minWidth [expr {[dict get $geom left] + $tagSize + $minimumMargin}]
+            set minHeight [expr {[dict get $geom top] + $tagSize + $minimumMargin}]
+            if {$width < $minWidth} { set width $minWidth }
+            if {$height < $minHeight} { set height $minHeight }
+
+            Hold! -key [list proposal $program] \
+                Claim $program has proposed geometry \
+                [resizedGeometry $geom $width $height]
+        }
+    }
+
+    # Show the proposed size as a marching-ants outline with its
+    # dimensions in mm. (This outlives the handle: if the handle is
+    # taken away first, the last proposal stays until the tool goes.)
+    When $program has proposed geometry /newGeom/ &\
+         $program has quad /pageQuad/ {
+        set pageQuad [toDisplay $pageQuad]
+        lassign [geometrySize $newGeom] width height
+        set newQuad [$quadLib createFromGeometry $pageQuad \
+                         [dict create width $width height $height]]
+        lassign [lmap v [$quadLib vertices $newQuad] { toScreen $v }] \
+            topLeft topRight bottomRight bottomLeft
+
+        When the clock time is /t/ {
+            Wish to draw a dashed line onto $disp with \
+                points [list $topLeft $topRight $bottomRight $bottomLeft $topLeft] \
+                width 4 color white dashlength 12 \
+                dashoffset [expr {fmod($t * 48, 24)}]
+        }
+
+        set radians [pageRadians $pageQuad]
+        set padding 16 ;# pixels
+        set down [vec2 scale [vec2 normalize [vec2 sub $bottomLeft $topLeft]] $padding]
+        set right [vec2 scale [vec2 normalize [vec2 sub $topRight $topLeft]] $padding]
+        Wish to draw text onto $disp with \
+            position [vec2 add [vec2 midpoint $bottomLeft $bottomRight] $down] \
+            text [format "%.0f mm" [expr {$width * 1000.0}]] \
+            scale 28 color white anchor top radians $radians
+        Wish to draw text onto $disp with \
+            position [vec2 add [vec2 midpoint $topRight $bottomRight] $right] \
+            text [format "%.0f mm" [expr {$height * 1000.0}]] \
+            scale 28 color white anchor left radians $radians
+    }
+}

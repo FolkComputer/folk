@@ -1,0 +1,164 @@
+# Exercises builtin-programs/resize.folk headlessly: no camera or
+# GPU, just hand-asserted quads, a stub display, and a stub pose
+# library that 'projects' by scaling meters to pixels.
+
+Assert! when /__this/ has program code /__programCode/ {
+    SayWithSource $__this 1 0 {} {} \
+        when $__programCode with environment [list [list this $__this]]
+} with environment {}
+local proc LoadProgram! {programFilename} {
+    set fp [open $programFilename r]
+    Hold! -keep 100ms -on boot.folk -key [list $programFilename code] \
+        Claim $programFilename has program code [read $fp]
+    close $fp
+}
+
+apply {{} {
+    set __envStack [list]
+    LoadProgram! builtin-programs/collect.folk
+    LoadProgram! builtin-programs/quad-lib.folk
+    LoadProgram! builtin-programs/tags-geometry.folk
+    LoadProgram! builtin-programs/resize.folk
+}}
+
+# Stubs for the display and the pose library. Quads are asserted
+# directly in 'display' space, so the quad changer is the identity.
+set poseStub [library create poseStub {} {
+    proc project {intrinsics width height v} {
+        lassign $v x y z
+        list [expr {$x * 1000.0}] [expr {$y * 1000.0}]
+    }
+}]
+Assert! the pose library is $poseStub
+fn quadChange {q targetSpace} { return $q }
+Assert! the quad changer is [fn quadChange]
+Assert! display D has width 1920 height 1080
+Assert! display D has intrinsics stub
+Assert! the default program geometry is {tagSize 30mm top 28mm right 28mm left 157mm bottom 80mm}
+
+set program 100
+set tool 200
+set handle 300
+
+# Default page: 157 + 30 + 28 = 215mm wide, 28 + 30 + 80 = 138mm tall.
+proc pageQuad {width height} {
+    list display [list [list 0 0 0] [list $width 0 0] \
+                      [list $width $height 0] [list 0 $height 0]]
+}
+# A 30mm tag centered at (cx, cy).
+proc tagQuad {cx cy} {
+    set r 0.015
+    list display [list [list [expr {$cx - $r}] [expr {$cy - $r}] 0] \
+                      [list [expr {$cx + $r}] [expr {$cy - $r}] 0] \
+                      [list [expr {$cx + $r}] [expr {$cy + $r}] 0] \
+                      [list [expr {$cx - $r}] [expr {$cy + $r}] 0]]
+}
+proc mm {geom key} {
+    expr {[string map {mm ""} [dict get $geom $key]]}
+}
+proc near {a b} { expr {abs($a - $b) < 0.01} }
+
+Assert! test wishes $program has resolved geometry
+Assert! $program has quad [pageQuad 0.215 0.138]
+Assert! tag $tool has a program
+
+sleep 0.5
+set results [Query! $program has resolved geometry /geom/]
+assert {[llength $results] == 1}
+set geom [dict get [lindex $results 0] geom]
+assert {[near [dict get $geom width] 0.215]}
+assert {[near [dict get $geom height] 0.138]}
+puts "resize test: program has its printed geometry"
+
+# 1. Point the tool at the program: a session starts.
+Assert! $tool wishes $program is resized by $tool
+sleep 0.5
+assert {[llength [Query! resize tool $tool is resizing $program]] == 1}
+assert {[llength [Query! $program is resized by handle /h/]] == 0}
+puts "resize test: session started, waiting for a handle"
+
+# The tool stops pointing at the program: the session should stick.
+Retract! $tool wishes $program is resized by $tool
+sleep 0.5
+assert {[llength [Query! resize tool $tool is resizing $program]] == 1}
+
+# A tag far away from the corner is not a handle.
+Assert! tag $handle has quad [tagQuad 0.1 0.05]
+sleep 0.5
+assert {[llength [Query! $program is resized by handle /h/]] == 0}
+
+# 2. A tag placed in the yellow square at the corner becomes the handle.
+Retract! tag $handle has quad [tagQuad 0.1 0.05]
+Assert! tag $handle has quad [tagQuad 0.215 0.138]
+sleep 0.5
+set results [Query! $program is resized by handle /h/]
+assert {[llength $results] == 1}
+assert {[dict get [lindex $results 0] h] == $handle}
+set proposed [dict get [QueryOne! $program has proposed geometry /geom/] geom]
+assert {[near [mm $proposed right] 28]}
+assert {[near [mm $proposed bottom] 80]}
+assert {[near [mm $proposed left] 157]}
+assert {[near [mm $proposed tagSize] 30]}
+puts "resize test: handle latched at the corner: $proposed"
+
+# Moving the handle moves the corner.
+Retract! tag $handle has quad [tagQuad 0.215 0.138]
+Assert! tag $handle has quad [tagQuad 0.3 0.2]
+sleep 0.5
+set proposed [dict get [QueryOne! $program has proposed geometry /geom/] geom]
+assert {[near [mm $proposed right] 113]}
+assert {[near [mm $proposed bottom] 142]}
+puts "resize test: handle moved: $proposed"
+
+# The page can't shrink past its tag (plus a 5mm margin).
+Retract! tag $handle has quad [tagQuad 0.3 0.2]
+Assert! tag $handle has quad [tagQuad 0.05 0.02]
+sleep 0.5
+set proposed [dict get [QueryOne! $program has proposed geometry /geom/] geom]
+assert {[near [mm $proposed right] 5]}
+assert {[near [mm $proposed bottom] 5]}
+puts "resize test: clamped to the tag: $proposed"
+
+# Taking the handle away keeps the last proposal.
+Retract! tag $handle has quad [tagQuad 0.05 0.02]
+Assert! tag $handle has quad [tagQuad 0.3 0.2]
+sleep 0.5
+Retract! tag $handle has quad [tagQuad 0.3 0.2]
+sleep 0.5
+set proposed [dict get [QueryOne! $program has proposed geometry /geom/] geom]
+assert {[near [mm $proposed right] 113]}
+assert {[near [mm $proposed bottom] 142]}
+
+# A brief disappearance of the tool does not end the session.
+Retract! tag $tool has a program
+sleep 0.5
+Assert! tag $tool has a program
+sleep 0.5
+assert {[llength [Query! resize tool $tool is resizing $program]] == 1}
+assert {[llength [Query! tag $program has resized geometry /g/]] == 0}
+puts "resize test: session survived the tool blinking out"
+
+# 3. The tool goes away for good: the size is locked in.
+Retract! tag $tool has a program
+sleep 3
+assert {[llength [Query! resize tool $tool is resizing /p/]] == 0}
+assert {[llength [Query! $program has proposed geometry /g/]] == 0}
+assert {[llength [Query! $program is resized by handle /h/]] == 0}
+set resized [dict get [QueryOne! tag $program has resized geometry /g/] g]
+assert {[near [mm $resized right] 113]}
+assert {[near [mm $resized bottom] 142]}
+set geom [dict get [QueryOne! $program has resolved geometry /geom/] geom]
+assert {[near [dict get $geom width] 0.3]}
+assert {[near [dict get $geom height] 0.2]}
+puts "resize test: locked in: $resized"
+
+# Restoring the printed size removes the override.
+Assert! $tool wishes $program is restored to its printed size
+sleep 0.5
+assert {[llength [Query! tag $program has resized geometry /g/]] == 0}
+set geom [dict get [QueryOne! $program has resolved geometry /geom/] geom]
+assert {[near [dict get $geom width] 0.215]}
+assert {[near [dict get $geom height] 0.138]}
+puts "resize test: restored to printed size"
+
+Exit! 0
