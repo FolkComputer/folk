@@ -184,6 +184,7 @@ When /someone/ wishes to load the browser driver {
                     "requested": None, "url": None, "n": 0, "png": {},
                     "last_frame": 0.0, "dirty": True, "hover": None,
                     "last_tilt": None, "tilt_rest": None, "fragment": [],
+                    "last_links": None,
                 }
             if s["requested"] != url:
                 s["requested"] = url
@@ -231,28 +232,59 @@ When /someone/ wishes to load the browser driver {
                 s["tilt_rest"] = list(normal)
             return s["tilt_rest"]
 
+        HOVER_GRACE = 0.3
+
         def _hover(state, sid, href, dwell):
-            # Returns [href, progress 0..1, clicked?]. Hovering the same
-            # link for `dwell` seconds navigates to it.
+            # Sets (or, with an empty href, releases) the link the
+            # pointer is on. The dwell timer itself runs in _frame, so
+            # Folk only needs to call this when the target changes.
+            # Returns [href, progress 0..1].
             s = SESSIONS[sid]
             now = time.monotonic()
             h = s["hover"]
             if not href:
-                if h is not None:
+                if h is not None and h["left"] is None:
                     h["left"] = now
-                return ["", 0, False]
+                return ["", 0]
             if h is None or h["href"] != href or \
-               (h.get("left") is not None and now - h["left"] > 0.3):
-                h = s["hover"] = {"href": href, "since": now, "left": None}
+               (h["left"] is not None and now - h["left"] > HOVER_GRACE):
+                h = s["hover"] = {"href": href, "since": now, "left": None,
+                                  "dwell": float(dwell), "painted": -1.0}
             h["left"] = None
-            progress = min(1.0, (now - h["since"]) / dwell) if dwell > 0 else 1.0
-            s["page"].evaluate(HOVER_JS, [href, progress])
-            s["dirty"] = True
+            h["dwell"] = float(dwell)
+            _advance_hover(state, sid)
+            return [h["href"], _hover_progress(h)]
+
+        def _hover_progress(h):
+            if h["dwell"] <= 0:
+                return 1.0
+            return min(1.0, (time.monotonic() - h["since"]) / h["dwell"])
+
+        def _advance_hover(state, sid):
+            # Paints the dwell progress into the page and follows the
+            # link once the dwell is up. Returns True if it navigated.
+            s = SESSIONS[sid]
+            h = s["hover"]
+            if h is None:
+                return False
+            now = time.monotonic()
+            if h["left"] is not None and now - h["left"] > HOVER_GRACE:
+                s["page"].evaluate(HOVER_JS, ["", 0])
+                s["hover"] = None
+                s["dirty"] = True
+                return False
+            progress = _hover_progress(h)
             if progress >= 1.0:
                 s["hover"] = None
-                _navigate(state, sid, href, [])
-                return [href, 1.0, True]
-            return [href, progress, False]
+                _navigate(state, sid, h["href"], [])
+                return True
+            # Repaint in 5% steps so the fill visibly grows without
+            # forcing a screenshot on every call.
+            if progress - h["painted"] >= 0.05:
+                h["painted"] = progress
+                s["page"].evaluate(HOVER_JS, [h["href"], progress])
+                s["dirty"] = True
+            return False
 
         def _frame(state, sid, refresh):
             # Screenshot (in memory) if something changed, or every
@@ -261,13 +293,11 @@ When /someone/ wishes to load the browser driver {
             s = SESSIONS.get(sid)
             if s is None:
                 return {}
+            _advance_hover(state, sid)
             now = time.monotonic()
             if not s["dirty"] and now - s["last_frame"] < refresh:
                 return {}
             h = s["hover"]
-            if h is not None and h.get("left") is not None and now - h["left"] > 0.3:
-                s["page"].evaluate(HOVER_JS, ["", 0])
-                s["hover"] = None
             page = s["page"]
             s["n"] += 1
             # Keep the last few PNGs keyed by frame number, so a
@@ -279,14 +309,21 @@ When /someone/ wishes to load the browser driver {
             s["dirty"] = False
             s["last_frame"] = now
             scroll = page.evaluate("() => [window.scrollX, window.scrollY, document.documentElement.scrollHeight]")
+            links = page.evaluate(LINKS_JS)
+            # Folk only republishes the links statement when they
+            # actually moved or changed, so pointing rules don't
+            # re-run on every frame.
+            links_changed = links != s["last_links"]
+            s["last_links"] = links
             return {
                 "n": s["n"],
                 "url": page.url, "title": page.title(),
                 "width": s["size"][0], "height": s["size"][1],
                 "scrollX": scroll[0], "scrollY": scroll[1], "scrollHeight": scroll[2],
-                "links": page.evaluate(LINKS_JS),
+                "links": links, "linksChanged": links_changed,
                 "fragment": s["fragment"],
                 "hover": h["href"] if h else "",
+                "hoverProgress": _hover_progress(h) if h else 0,
             }
     }
 

@@ -52,7 +52,8 @@ When the browser driver is /driver/ &\
     check links {
         lassign [grab s1] im meta
         set links [dict get $meta links]
-        assertEq [llength $links] 1
+        assertEq [llength $links] 2
+        assertEq [lindex $links 1 0] "$browserFixtureUrl/two.html#second"
         lassign [lindex $links 0] href x y w h
         assertEq $href "$browserFixtureUrl/two.html"
         assertNear $x 100 1; assertNear $y 300 1
@@ -105,23 +106,29 @@ When the browser driver is /driver/ &\
 
     check hover-feedback {
         set href "$browserFixtureUrl/two.html"
-        lassign [$driver hover s1 $href 0.6] hovered progress clicked
+        # Settle the links after the scroll above, so the next frame
+        # reflects only the hover.
+        grab s1
+        lassign [$driver hover s1 $href 0.6] hovered progress
         assertEq $hovered $href
-        assert {!$clicked}
+        assert {$progress < 1}
         lassign [grab s1] im meta
         assertEq [dict get $meta hover] $href
         # Green outline just outside the link box.
         assertPixel $imageLib $im 98 340 {0 200 83} 60
+        # Links didn't move, so Folk shouldn't republish them.
+        assert {![dict get $meta linksChanged]}
         pass hover-feedback
     }
 
     check dwell-navigates {
+        # The dwell timer runs inside the driver's frame loop: no
+        # further hover calls are needed for the link to be followed.
         set href "$browserFixtureUrl/two.html"
         sleep 0.7
-        lassign [$driver hover s1 $href 0.6] hovered progress clicked
-        assert {$clicked}
         lassign [grab s1] im meta
         assertEq [dict get $meta url] $href
+        assert {[dict get $meta linksChanged]}
         assertPixel $imageLib $im 10 10 {255 0 255}
         assertPixel $imageLib $im 512 320 {255 0 255}
         pass dwell-navigates

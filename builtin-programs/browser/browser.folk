@@ -30,7 +30,13 @@
 #
 #     When /target/ is a link { Wish $this renders $target in a browser }
 #
-# to open whatever link is being pointed at.
+# to open whatever link is being pointed at. These stay as one steady
+# statement for as long as the pointer is on the link, even though
+# the pointer's quad updates every camera frame.
+#
+#     $surface has browser links $links with viewport {w h}
+#
+# changes only when the page's links move (scroll, navigation).
 #
 # Browser-produced statements:
 #
@@ -213,12 +219,21 @@ When the browser library is /lib/ &\
         }
     }
 
+    set linksKey [list browser links $surface]
     When the clock time is /t/ {
         set meta [$driver frame $sid $refresh]
         if {[dict size $meta] == 0} { return }
         set im [$frameLib adoptFrame $sid [$pngLib loadPngFromMemory [$driver framePng $sid [dict get $meta n]]]]
         Hold! -key $frameKey \
             Claim $surface has browser frame $im with metadata $meta
+        # Links get their own statement that only changes when they
+        # do, so pointing doesn't churn with every frame.
+        if {[dict get $meta linksChanged] ||
+            [llength [Query! $surface has browser links /any/ with viewport /any/]] == 0} {
+            Hold! -key $linksKey \
+                Claim $surface has browser links [dict get $meta links] \
+                    with viewport [list [dict get $meta width] [dict get $meta height]]
+        }
     }
 }
 
@@ -230,11 +245,19 @@ When /surface/ has browser frame /im/ with metadata /meta/ &\
 
 # ---- Pointing at links ----
 
+# The claims below use -keep so that when the pointer's quad updates
+# (every camera frame) and these rules re-run, an unchanged hovered
+# link is revived rather than removed and re-added: programs that
+# match on `/href/ is a link` see one steady statement.
+set BrowserHoverKeep 300ms
+
+# Where each whisker lands on the browser surface, in page UV. (A
+# pointer can have several whiskers: points-at.folk makes one per
+# requested length, plus a length-1 one for any `When X points D at
+# Y`.)
 When the browser library is /lib/ &\
-     the browser driver is /driver/ &\
      /pointer/ points /direction/ with length /l/ at /surface/ &\
      /surface/ is a browser with session /sid/ url /any/ &\
-     /surface/ has browser frame /any/ with metadata /meta/ &\
      /pointer/ has quad /pq/ & /surface/ has quad /sq/ {
 
     set pverts [lindex $pq 1]
@@ -250,27 +273,75 @@ When the browser library is /lib/ &\
     set tip [$lib whiskerTip $pverts $direction $l]
     set uv [$lib pointToUv $sverts $tip]
     if {![$lib uvInside $uv]} { return }
-    lassign [$lib uvToViewport $uv [dict get $meta width] [dict get $meta height]] px py
-    set link [$lib linkAt [dict get $meta links] $px $py]
-    Claim $pointer points at browser $surface at viewport point [list $px $py]
-    if {$link eq ""} { return }
+    Claim -keep $BrowserHoverKeep $pointer whisker $direction length $l \
+        lands on $surface at uv $uv
+}
+
+# The longest whisker that reaches the surface picks the link.
+When the browser library is /lib/ &\
+     the browser driver is /driver/ &\
+     /pointer/ points /direction/ at /surface/ &\
+     /surface/ is a browser with session /sid/ url /any/ &\
+     /surface/ has browser links /links/ with viewport /viewport/ {
+
+    When the collected results for \
+        [list $pointer whisker $direction length /l/ lands on $surface at uv /uv/] \
+        are /results/ {
+
+    set best ""
+    set bestL -1
+    foreach r $results {
+        if {[dict get $r l] > $bestL} {
+            set bestL [dict get $r l]
+            set best [dict get $r uv]
+        }
+    }
+    if {$best eq ""} { return }
+    lassign [$lib uvToViewport $best {*}$viewport] px py
+
+    # Dead band: a link we're already on keeps winning until the tip
+    # moves well clear of it, so camera jitter doesn't flicker
+    # between neighbouring links.
+    set current ""
+    foreach r [Query! $pointer is pointing at link /h/ on $surface] {
+        set current [dict get $r h]
+    }
+    set link ""
+    if {$current ne ""} {
+        set currentLinks [lmap l $links {
+            if {[lindex $l 0] ne $current} { continue }
+            set l
+        }]
+        set link [$lib linkAt $currentLinks $px $py 24]
+    }
+    if {$link eq ""} {
+        set link [$lib linkAt $links $px $py]
+    }
+    Claim -keep $BrowserHoverKeep $pointer points at browser $surface \
+        at viewport point [list $px $py]
+    if {$link eq ""} {
+        catch {$driver hover $sid "" 0}
+        return
+    }
     set href [lindex $link 0]
 
-    Claim $surface has hovered link $href
-    Claim $pointer is pointing at link $href on $surface
-    Claim $href is a link
+    Claim -keep $BrowserHoverKeep $surface has hovered link $href
+    Claim -keep $BrowserHoverKeep $pointer is pointing at link $href on $surface
+    Claim -keep $BrowserHoverKeep $href is a link
 
     set dwell $BrowserDwellSeconds
     foreach r [Query! /someone/ wishes the browser link dwell is /s/ seconds] {
         set dwell [dict get $r s]
     }
-    $driver hover $sid $href $dwell
-    On unmatch { catch {$driver hover $sid "" $dwell} }
+    # The driver runs the dwell timer in its own frame loop; this just
+    # tells it which link the pointer is on.
+    catch {$driver hover $sid $href $dwell}
+    On unmatch {
+        # Released only if no re-run has re-pointed within the grace
+        # period (the driver waits HOVER_GRACE before clearing).
+        catch {$driver hover $sid "" $dwell}
+    }
 
-    # Keep the dwell timer advancing while the pointer holds still
-    # (the quads only change when the camera sees movement).
-    When the clock time is /t/ {
-        $driver hover $sid $href $dwell
     }
 }
 
@@ -279,8 +350,7 @@ When the browser library is /lib/ &\
 When the browser library is /lib/ &\
      the browser driver is /driver/ &\
      /someone/ wishes /p/ browser is tilt-sensitive with /...options/ &\
-     /p/ has browser /surface/ with session /sid/ &\
-     /surface/ has browser frame /any/ with metadata /any/ {
+     /p/ has browser /surface/ with session /sid/ {
     if {![info exists options]} { return }
     set axis [dict getdef $options axis vertical]
     set inverted [dict getdef $options inverted false]
@@ -289,13 +359,14 @@ When the browser library is /lib/ &\
 
     When $p has quad /q/ & the clock time is /t/ {
         set verts [lindex $q 1]
-        set rest [$driver tiltRest $sid [$lib quadNormal $verts]]
+        # The driver may not have opened the session yet.
+        if {[catch {$driver tiltRest $sid [$lib quadNormal $verts]} rest]} { return }
         set degrees [$lib tiltDegrees $rest $verts $axis]
         set v [$lib tiltVelocity $degrees $deadzone $gain 2000 [expr {!!$inverted}]]
         if {$axis eq "vertical"} {
-            $driver tilt $sid 0 $v
+            catch {$driver tilt $sid 0 $v}
         } else {
-            $driver tilt $sid $v 0
+            catch {$driver tilt $sid $v 0}
         }
         Claim $p has browser tilt $degrees degrees velocity $v
     }

@@ -5,6 +5,11 @@
 # and holding the pointer still follows the link. Frames are checked
 # pixel-by-pixel.
 #
+# The pointer's quad is re-held with ~1mm of noise every 50ms, as a
+# camera would deliver it, and moves between the two fixture links.
+# `/href/ is a link` must fire exactly once per distinct link: no
+# churn from jitter, no churn from new frames.
+#
 # No camera/projector: pages are given quads directly, in a flat
 # "table" space, and the display is a fake orthographic projection.
 
@@ -14,16 +19,19 @@ source builtin-programs/image/image-lib.folk
 source builtin-programs/image/png-lib.folk
 source builtin-programs/quad-lib.folk
 source builtin-programs/geometric/points-at.folk
+When { source builtin-programs/collect.folk }
 source builtin-programs/browser/browser-lib.folk
 source builtin-programs/browser/browser-driver.folk
 source builtin-programs/browser/browser.folk
 
 set index "$browserFixtureUrl/index.html"
 set two "$browserFixtureUrl/two.html"
+set twoSecond "$browserFixtureUrl/two.html#second"
 
 expectSteps {
-    render whisker hover hover-in-texture link-claim link-opens-viewer dwell-navigates
-    placement-below youtube-wish binder
+    render whisker hover hover-in-texture link-claim link-opens-viewer
+    no-churn-while-jittering second-link back-to-first dwell-navigates
+    one-match-per-link placement-below youtube-wish binder
 } 150
 
 # ---- Fake table + display (1 m = 1000 display px) ----
@@ -49,18 +57,74 @@ page browserpage 0 0 0.2 0.125
 page viewer 0.5 0 0.2 0.125
 page belowsrc 1.0 0 0.2 0.125
 
-# The pointer sits just below the browser page, pointing up with a
-# whisker twice its height. Its tip lands at (0.0586, 0.0664) =
-# viewport (300, 340): the middle of the "Go to page two" link.
-page pointer 0.0486 0.1264 0.02 0.03
+# The pointer is a 2cm x 3cm page below the browser page, pointing up
+# with a whisker twice its height. With its top edge at y0, the tip
+# lands at (x0 + 0.01, y0 - 0.06).
+#   link 1 ("Go to page two") is viewport y 300..380 -> tip y 0.0664
+#   link 2 ("Second link")    is viewport y 460..540 -> tip y 0.0977
+fn pointerQuad {y0 noise} {
+    set x0 [expr {0.0486 + $noise * (rand() - 0.5) * 2}]
+    set y0 [expr {$y0 + $noise * (rand() - 0.5) * 2}]
+    list table [list [list $x0 $y0 1] [list [expr {$x0 + 0.02}] $y0 1] \
+                    [list [expr {$x0 + 0.02}] [expr {$y0 + 0.03}] 1] \
+                    [list $x0 [expr {$y0 + 0.03}] 1]]
+}
+set link1Y 0.1264
+set link2Y 0.1577
+Hold! -key pointerquad Claim pointer has quad [pointerQuad $link1Y 0]
+Claim pointer has resolved geometry {width 0.02 height 0.03}
 Wish pointer points up with length 2
 
-Wish the browser link dwell is 4 seconds
+Wish the browser link dwell is 6 seconds
 Wish browserpage renders $index in a browser
 
 # Someone else's program: open whatever link is being pointed at.
 When /target/ is a link {
     Wish viewer renders $target in a browser
+}
+# Count how many times that program is (re)started.
+When /href/ is a link {
+    set t [clock microseconds]
+    Hold! -key [list seen $t] Claim link seen $href at $t
+}
+fn seenCount {} { llength [Query! /x/ claims link seen /href/ at /t/] }
+
+# ---- Pointer motion: jitter, then move between links ----
+#
+# Phases start when the first hover is seen:
+#   0-3s   on link 1, jittering
+#   3-6s   on link 2
+#   6s+    back on link 1; the 6s dwell then follows it at ~12s.
+
+When browserpage has hovered link /href/ {
+    if {[llength [Query! /x/ claims hover started at /t/]] == 0} {
+        Hold! -key hoverstart Claim hover started at [clock microseconds]
+    }
+}
+When the clock time is /t/ & hover started at /t0/ {
+    set elapsed [expr {([clock microseconds] - $t0) / 1e6}]
+    set last 0
+    foreach r [Query! /x/ claims pointer jittered at /tj/] { set last [dict get $r tj] }
+    if {[clock microseconds] - $last < 50000} { return }
+    Hold! -key jittered Claim pointer jittered at [clock microseconds]
+
+    if {$elapsed < 3} {
+        set y $link1Y
+    } elseif {$elapsed < 6} {
+        set y $link2Y
+    } else {
+        set y $link1Y
+    }
+    Hold! -key pointerquad Claim pointer has quad [pointerQuad $y 0.001]
+
+    # End of phase 1: ~2.5s of jitter on link 1 must have produced
+    # exactly one `is a link` match.
+    if {$elapsed >= 2.5 && $elapsed < 3} {
+        check no-churn-while-jittering {
+            assertEq [seenCount] 1
+            pass no-churn-while-jittering
+        }
+    }
 }
 
 # ---- Checks ----
@@ -73,10 +137,9 @@ When the image library is /imageLib/ &\
         if {[dict get $meta hover] eq ""} {
             assertPixel $imageLib $im 110 310 {0 0 255}
             pass render
-        } else {
+        } elseif {[dict get $meta hover] eq $two} {
             # The pointer's hover shows up in the texture: a green
             # outline around the link.
-            assertEq [dict get $meta hover] $two
             assertPixel $imageLib $im 98 340 {0 200 83} 60
             pass hover-in-texture
         }
@@ -86,9 +149,17 @@ When the image library is /imageLib/ &\
         assertPixel $imageLib $im 10 10 {255 0 255}
         assertPixel $imageLib $im 512 320 {255 0 255}
         pass dwell-navigates
+        check one-match-per-link {
+            # two.html, two.html#second, two.html again.
+            assertEq [seenCount] 3
+            pass one-match-per-link
+        }
     }
 }
 
+# (This lengthless pattern also makes points-at.folk grow a second,
+# length-1 whisker from the pointer; browser.folk must ignore it in
+# favour of the longer one.)
 When pointer points up at browserpage {
     pass whisker
 }
@@ -96,23 +167,34 @@ When pointer points up at browserpage {
 When browserpage has hovered link /href/ &\
      pointer is pointing at link /href2/ on browserpage {
     check hover {
-        assertEq $href $two
-        assertEq $href2 $two
-        pass hover
+        # During a link change the old claims linger for the keep
+        # window, so mismatched pairs are expected; skip them.
+        if {$href ne $href2} { return }
+        if {$href eq $two} {
+            if {[llength [Query! /x/ claims test step second-link passed]] == 0} {
+                pass hover
+            } else {
+                pass back-to-first
+            }
+        } elseif {$href eq $twoSecond} {
+            # (The exact count is checked at the end; the counter's
+            # Hold may land a tick after this match.)
+            assert {[seenCount] <= 2}
+            pass second-link
+        }
     }
 }
 
 When /href/ is a link {
     check link-claim {
-        assertEq $href $two
-        pass link-claim
+        if {$href eq $two || $href eq $twoSecond} { pass link-claim }
     }
 }
 
 When the image library is /imageLib/ &\
      viewer has browser frame /im/ with metadata /meta/ {
     check link-opens-viewer {
-        assertEq [dict get $meta url] $two
+        if {[dict get $meta url] ne $two} { return }
         assertPixel $imageLib $im 10 10 {255 0 255}
         pass link-opens-viewer
     }
