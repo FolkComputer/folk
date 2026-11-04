@@ -17,10 +17,13 @@ proc isKeyboard {device} {
 #
 # This function goes through each of them and checks if they are keyboards
 proc walkInputEventPaths {} {
-    # set allDevices [glob -nocomplain "/dev/input/event*"]
-    set allDevices [glob -nocomplain "/dev/input/by-path/*"]
+    set allDevices [lsort [glob -nocomplain "/dev/input/by-path/*-event-*"]]
+    set seen [dict create]
     set keyboards [list]
     foreach device $allDevices {
+        set canonicalName [file readlink $device]
+        if {[dict exists $seen $canonicalName]} { continue }
+        dict set seen $canonicalName $device
         if {[isKeyboard $device]} {
             if {[file readable $device] == 0} {
                 puts stderr "keyboard: Device $device is not readable. Attempting to change permissions."
