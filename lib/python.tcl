@@ -68,6 +68,12 @@ $cc proc sockConnect {char* path} int {
     return -1;
 }
 
+$cc proc sockClose {int fd} void {
+    char key[64];
+    snprintf(key, sizeof(key), "uvx::socket:%d", fd);
+    Jim_DeleteAssocData(interp, key);
+}
+
 $cc proc sockSendStr {int fd char* data} void {
     uint32_t len = (uint32_t)strlen(data);
     // HACK: should check these.
@@ -349,7 +355,14 @@ def handle_conn(conn):
                         break
                     parsed_args.append(arg.decode('utf-8'))
 
-            result = func(*parsed_args)
+            try:
+                result = func(*parsed_args)
+            except Exception:
+                import traceback
+                send_frame(conn, b"error")
+                send_frame(conn, traceback.format_exc().encode('utf-8'))
+                send_frame(conn, b"")
+                continue
             if isinstance(result, (bytes, bytearray)):
                 send_frame(conn, b"okb")
                 send_frame(conn, result)
@@ -418,6 +431,11 @@ proc unknown {fnName args} {
         tailcall ::unknown $fnName {*}$args
     }
 
+    if {$socket < 0} {
+        set socket [$impl sockConnect $endpoint]
+        if {$socket < 0} { error "Uvx: failed to reconnect to Python at $endpoint" }
+    }
+
     # Send function name first
     $impl sockSendStr $socket $fnName
 
@@ -451,6 +469,8 @@ proc unknown {fnName args} {
 
     set response [$impl sockRecvMulti $socket]
     if {[llength $response] == 0} {
+        $impl sockClose $socket
+        set socket -1
         error "Python worker at $endpoint closed the connection"
     }
 
