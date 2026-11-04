@@ -44,6 +44,7 @@ Wish the web server handles route {/cnc} with handler {
             if (stopped || match.mapping !== mappingText) return;
             const snapshot = JSON.parse(match.json);
             if (snapshot.error) {
+                document.getElementById('matches').textContent = `Segmentation unavailable: ${snapshot.error}`;
                 for (const view of views.values()) view.error(snapshot.error);
                 return;
             }
@@ -150,7 +151,7 @@ Wish the web server handles route {/cnc} with handler {
             }
 
             async function frame() {
-                if (stopped || !live || points.length === 4) return;
+                if (stopped || !live || (points.length === 4 && latestSnapshot)) return;
                 if (document.hidden) {
                     timer = setTimeout(frame, 500);
                     return;
@@ -164,7 +165,7 @@ Wish the web server handles route {/cnc} with handler {
                     if (!r.ok) throw Error(`Camera: ${r.status}`);
                     const image = await createImageBitmap(await r.blob());
                     try {
-                        if (!live || stopped || generation !== version) return;
+                        if (!live || stopped || generation !== version || (points.length === 4 && latestSnapshot)) return;
                         if (canvas.width !== image.width) canvas.width = image.width;
                         if (canvas.height !== image.height) canvas.height = image.height;
                         ctx.drawImage(image, 0, 0);
