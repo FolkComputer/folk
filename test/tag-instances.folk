@@ -1,0 +1,133 @@
+# Tests for lib/tag-instances.tcl: several physical copies of the
+# same AprilTag id on the table at once.
+
+proc det {x y {size 100}} {
+    dict create id 7 c [list $x $y] size $size
+}
+proc snapshot {timestamp args} {
+    dict create timestamp $timestamp dets $args
+}
+proc centers {dets} {
+    lmap d $dets {dict get $d c}
+}
+
+# Instance ids.
+assert {[tagInstances instanceId 1234 1] eq "1234"}
+assert {[tagInstances instanceId 1234 2] eq "1234.2"}
+assert {[tagInstances base 1234.2] eq "1234"}
+assert {[tagInstances base 1234] eq "1234"}
+assert {[tagInstances base builtin-programs/foo.folk] eq "builtin-programs/foo.folk"}
+# An instance id still compares as a number (the calibration-tag
+# carve-outs rely on this).
+assert {[expr {1234.2 < 48600}]}
+assert {[expr {int(1234.2)}] == 1234}
+
+# collapse: one tag, seen by a stale entire-frame pass and a fresher
+# incremental pass after it moved a long way. Must stay ONE copy, at
+# the fresh position.
+set slots [tagInstances collapse [list \
+    [snapshot 1.0 [det 100 100]] \
+    [snapshot 1.1 [det 900 900]]]]
+assert {[llength $slots] == 1}
+assert {[centers $slots] eq {{900 900}}}
+assert {[dict get [lindex $slots 0] timestamp] == 1.1}
+
+# collapse: two copies. The entire-frame pass saw both; the fresher
+# incremental pass only rescanned around the first. Both copies
+# survive, and the first one takes the fresher position.
+set slots [tagInstances collapse [list \
+    [snapshot 1.0 [det 100 100] [det 800 100]] \
+    [snapshot 1.1 [det 110 100]]]]
+assert {[llength $slots] == 2}
+assert {[lsort [centers $slots]] eq [lsort {{110 100} {800 100}}]}
+
+# collapse: a detector sees one physical tag twice in one frame
+# (overlapping incremental scan regions). That is one copy.
+set slots [tagInstances collapse [list \
+    [snapshot 1.0 [det 100 100] [det 103 101]]]]
+assert {[llength $slots] == 1}
+
+# collapse: a fresher snapshot never adds copies.
+set slots [tagInstances collapse [list \
+    [snapshot 1.0 [det 100 100]] \
+    [snapshot 1.1 [det 100 100] [det 100 100]]]]
+assert {[llength $slots] == 1}
+
+# assign: two copies appear. They get numbers 1 and 2.
+proc stamp {timestamp dets} {
+    lmap d $dets { dict set d timestamp $timestamp }
+}
+lassign [tagInstances assign {} [stamp 1.0 [list [det 100 100] [det 800 100]]] 1.0 1.0] \
+    assignments prev
+assert {[dict get $assignments 1] ne "" && [dict get $assignments 2] ne ""}
+set k1Center [dict get [dict get $assignments 1] c]
+set k2Center [dict get [dict get $assignments 2] c]
+assert {$k1Center ne $k2Center}
+
+# assign: both copies drift a little. Numbers follow them, even when
+# the detections come in the other order.
+lassign [tagInstances assign $prev \
+             [stamp 1.1 [list [det 805 103] [det 104 98]]] 1.1 1.0] \
+    assignments prev
+assert {[dict get [dict get $assignments 1] c] eq {104 98}}
+assert {[dict get [dict get $assignments 2] c] eq {805 103}}
+
+# assign: copy 1 jumps far away while copy 2 stays put. Copy 2 keeps
+# its number by proximity, so copy 1 keeps its number too.
+lassign [tagInstances assign $prev \
+             [stamp 1.2 [list [det 806 103] [det 1500 900]]] 1.2 1.0] \
+    assignments prev
+assert {[dict get [dict get $assignments 1] c] eq {1500 900}}
+assert {[dict get [dict get $assignments 2] c] eq {806 103}}
+
+# assign: copy 2 is hidden for a frame, then comes back where it was.
+lassign [tagInstances assign $prev [stamp 1.3 [list [det 1500 900]]] 1.3 1.0] \
+    assignments prev
+assert {[dict size $assignments] == 1 && [dict exists $assignments 1]}
+lassign [tagInstances assign $prev \
+             [stamp 1.4 [list [det 1500 900] [det 806 103]]] 1.4 1.0] \
+    assignments prev
+assert {[dict get [dict get $assignments 2] c] eq {806 103}}
+
+# assign: copy 2 is taken off the table and a new copy is put down
+# somewhere else. The new copy takes over number 2, whether number 2
+# is still remembered (shortly after) or already forgotten (later).
+lassign [tagInstances assign $prev [stamp 1.5 [list [det 1500 900]]] 1.5 1.0] \
+    assignments prev
+lassign [tagInstances assign $prev \
+             [stamp 1.6 [list [det 1500 900] [det 300 300]]] 1.6 1.0] \
+    assignments prevSoon
+assert {[dict get [dict get $assignments 2] c] eq {300 300}}
+assert {[dict get [dict get $assignments 1] c] eq {1500 900}}
+lassign [tagInstances assign $prev \
+             [stamp 3.0 [list [det 1500 900] [det 300 300]]] 3.0 1.0] \
+    assignments prevLater
+assert {[dict get [dict get $assignments 2] c] eq {300 300}}
+assert {[dict get [dict get $assignments 1] c] eq {1500 900}}
+
+# assign: while copies 1 and 2 are both present, a third copy placed
+# far from both gets number 3 (never steals a live number).
+lassign [tagInstances assign $prevLater \
+             [stamp 3.1 [list [det 1500 900] [det 300 300] [det 900 500]]] 3.1 1.0] \
+    assignments prev
+assert {[dict get [dict get $assignments 3] c] eq {900 500}}
+
+# assign: a lone tag that moves quickly (further than its own size
+# between frames) stays number 1. It must never turn into "7.2".
+lassign [tagInstances assign {} [stamp 1.0 [list [det 100 100]]] 1.0 1.0] \
+    assignments prev
+lassign [tagInstances assign $prev [stamp 1.1 [list [det 1000 700]]] 1.1 1.0] \
+    assignments prev
+assert {[dict size $assignments] == 1}
+assert {[dict get [dict get $assignments 1] c] eq {1000 700}}
+
+# assign: a lone tag is lifted and put down somewhere else shortly
+# after. Still number 1.
+lassign [tagInstances assign $prev [list] 1.5 1.0] assignments prev
+assert {[dict size $assignments] == 0}
+lassign [tagInstances assign $prev [stamp 1.8 [list [det 50 50]]] 1.8 1.0] \
+    assignments prev
+assert {[dict get [dict get $assignments 1] c] eq {50 50}}
+
+puts "tag-instances: all assertions passed"
+Exit! 0

@@ -457,6 +457,23 @@ When /x/ is cool & \
 }
 ```
 
+### Several copies of one program
+
+Two (or more) printouts of the same program can be on the table at
+once. The first copy of tag 1234 that the camera sees runs with
+`$this` set to `1234`, exactly as before. Each further copy runs the
+same code as its own program, with `$this` set to `1234.2`, `1234.3`,
+and so on. The numbering follows each copy from frame to frame and a
+number is reused once its copy has been gone for a second.
+
+Because every copy has its own `$this`, it also has its own quad,
+canvas, pose, camera slice and so on, so a program like an OCR page
+or a resize tool just works on each copy independently.
+
+`[tagInstances base $this]` gives you the plain tag id back (`1234`),
+which is what the program's code is saved under, and every copy
+claims `tag $this is copy /k/ of tag /id/` while it is visible.
+
 ### Collecting results
 
 ```

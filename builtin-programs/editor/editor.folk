@@ -336,7 +336,7 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
 
                 # remove the edited code to restore the program to its original code
                 Hold! -on builtin-programs/programs.folk -key new-code-for:$program {}
-                file delete "$programDir/[regsub {\.folk$} $program {}].folk.edited"
+                file delete "$programDir/[tagInstances base [regsub {\.folk$} $program {}]].folk.edited"
 
                 Hold! -save -key buffer-for:$program {
                     When $program has program code /originalCode/ {
@@ -382,7 +382,8 @@ Subscribe: save code on editor /editor/ {
             Wish program $program is replaced with \
             code $programCode editedTime [clock seconds]
 
-        set programBase [regsub {\.folk$} $program ""]
+        # Copies of a tag (1234.2, ...) share the code of 1234.
+        set programBase [tagInstances base [regsub {\.folk$} $program ""]]
         set editedPath "$programDir/[set programBase].folk.edited"
         file mkdir [file dirname $editedPath]
         set fp [open $editedPath w]

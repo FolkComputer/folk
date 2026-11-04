@@ -9,6 +9,7 @@ lappend ::auto_path "./vendor"
 source "lib/c.tcl"
 source "lib/math.tcl"
 source "lib/text.tcl"
+source "lib/tag-instances.tcl"
 
 set pid [pid]
 

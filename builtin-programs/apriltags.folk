@@ -154,9 +154,10 @@ When camera /camera/ has width /width/ height /height/ &\
         try -signal {
 
         # Query all the existing tag detections that are out there.
-        # Find the most recent detection of each tag; will use these to
-        # give us regions of interest to do partial scans on the new
-        # camera frame.
+        # Find the most recent detection of each tag instance (each
+        # physical copy of a tag has its own instance id, see
+        # lib/tag-instances.tcl); will use these to give us regions of
+        # interest to do partial scans on the new camera frame.
         set dets [dict create]
         ForEach! tag /id/ has detection /det/ on camera $camera at timestamp /timestamp/ {
             # HACK: Setting aside this tag space (48600 to 48713) for
@@ -219,31 +220,82 @@ When camera /camera/ has width /width/ height /height/ &\
         [list /someone/ detects tags /tags/ on camera $camera \
              at timestamp /timestamp/ in time /aprilTime/] are /results/ {
 
-        set now [expr {[clock milliseconds] / 1000.0}]
-
-        set latestTagDets [dict create]
+        # Group the detections by tag id, keeping each detector's
+        # result for each frame together as one snapshot.
+        set now 0
+        set snapshotsById [dict create]
         foreach result $results {
             set timestamp [dict get $result timestamp]
+            if {$timestamp > $now} { set now $timestamp }
+            set byId [dict create]
             foreach tag [dict get $result tags] {
-                dict set tag timestamp $timestamp
-                dict set tag camera $camera
-                dict with tag {
-                    if {![dict exists $latestTagDets $id] ||
-                        [dict get $latestTagDets $id timestamp] < $timestamp} {
-
-                        dict set latestTagDets $id $tag
-                    }
-                }
+                dict lappend byId [dict get $tag id] $tag
+            }
+            dict for {id dets} $byId {
+                dict lappend snapshotsById $id [dict create timestamp $timestamp dets $dets]
             }
         }
 
-        dict for {id det} $latestTagDets {
-            # We want to not immediately destroy the entire drawlist /
-            # downstream statement set from the previous detection (give
-            # the new detection some time to converge first).
-            Claim -keep 8ms tag $id has detection $det on camera [dict get $det camera] \
-                at timestamp [dict get $det timestamp]
+        # Several physical copies of the same tag may be on the table
+        # at once. Each copy gets its own instance id (1234, 1234.2,
+        # 1234.3, ...) that is stable from frame to frame, so each copy
+        # runs as its own program and nothing downstream (poses,
+        # quads, canvases, atomically keys) is shared between copies.
+        # The copy numbering state is held per camera.
+        set prevInstances [QueryOne! camera $camera has tag instances /./ -default {}]
+        set forgetSeconds 1.0
+        set instances [dict create]
+        # Remember the numbering of tags that are not visible at all
+        # right now (a hand sweeping over both copies), so the copies
+        # get their own numbers back when they reappear.
+        dict for {id prev} $prevInstances {
+            if {[dict exists $snapshotsById $id]} { continue }
+            set retained [dict create]
+            dict for {k entry} $prev {
+                if {$now - [dict get $entry timestamp] <= $forgetSeconds} {
+                    dict set retained $k $entry
+                }
+            }
+            if {[dict size $retained] > 0} { dict set instances $id $retained }
         }
+        dict for {id snapshots} $snapshotsById {
+            set dets [tagInstances collapse $snapshots]
+
+            if {$id >= 48600} {
+                # Calibration tags (48600 to 48713) are never copied,
+                # so just take the freshest detection.
+                set det [lindex $dets 0]
+                foreach candidate $dets {
+                    if {[dict get $candidate timestamp] > [dict get $det timestamp]} {
+                        set det $candidate
+                    }
+                }
+                dict set det camera $camera
+                Claim -keep 8ms tag $id has detection $det on camera $camera \
+                    at timestamp [dict get $det timestamp]
+                continue
+            }
+
+            lassign [tagInstances assign [dict getdef $prevInstances $id {}] \
+                         $dets $now $forgetSeconds] assignments prev
+            dict set instances $id $prev
+            foreach {k det} $assignments {
+                set instance [tagInstances instanceId $id $k]
+                dict set det camera $camera
+                # We want to not immediately destroy the entire
+                # drawlist / downstream statement set from the previous
+                # detection (give the new detection some time to
+                # converge first).
+                Claim -keep 8ms tag $instance has detection $det on camera $camera \
+                    at timestamp [dict get $det timestamp]
+                Claim -keep 8ms tag $instance is copy $k of tag $id
+            }
+        }
+        # Only imperatively queried (by the next run of this body), so
+        # no keep time is needed.
+        Hold! -key [list tag instances $camera] \
+            Claim camera $camera has tag instances $instances
+
         set aprilTime [lmap r $results {dict get $r aprilTime}]
         Claim the AprilTag time is $aprilTime
     }
