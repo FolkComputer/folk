@@ -1,0 +1,39 @@
+# Film Strip Kit display sugar.
+#
+#   Wish $this displays named frame slices as a sequence with fps 30
+#   Wish $this displays named frame slices as a sequence   ;# fps 10
+#   Wish $this displays named frame slice cat
+
+When /someone/ wishes /p/ displays named frame slices as a sequence {
+    Wish $p displays named frame slices as a sequence with fps 10
+}
+
+When /someone/ wishes /p/ displays named frame slices as a sequence with fps /fps/ {
+    if {![string is double -strict $fps]} {
+        Say $p has error "film-strip: fps must be a number between 0 and 120, got \"$fps\"" with info {}
+        return
+    }
+    # Clamp to a sane range. fps 0 freezes on the first frame.
+    if {$fps < 0} { set fps 0 }
+    if {$fps > 120} { set fps 120 }
+
+    When $p has named frame slice images /images/ {
+        set names [dict keys $images]
+        set nframes [llength $names]
+        if {$nframes == 0} { return }
+        if {$fps == 0 || $nframes == 1} {
+            Wish $p displays image [dict get $images [lindex $names 0]]
+        } else {
+            When -atomicallyWithKey [list film-strip $p $fps] the clock time is /t/ {
+                set frameNumber [expr {round($t * $fps) % $nframes}]
+                Wish $p displays image [dict get $images [lindex $names $frameNumber]]
+            }
+        }
+    }
+}
+
+When /someone/ wishes /p/ displays named frame slice /name/ {
+    When $p has named frame slice $name /im/ {
+        Wish $p displays image $im
+    }
+}

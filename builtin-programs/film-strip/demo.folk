@@ -1,0 +1,26 @@
+# Film Strip Kit demos. Tag ids come from the Folk Demo Booklet space
+# (45000-45050; registry in builtin-programs/demos.folk).
+
+Claim 45009 has demo code {
+    # Cut this page's own camera view into quadrants, play as a loop.
+    Claim $this has named frame slices {
+        tl 0% 0% 50% 50%
+        tr 50% 0% 100% 50%
+        br 50% 50% 100% 100%
+        bl 0% 50% 50% 100%
+    }
+    Wish $this displays named frame slices as a sequence with fps 4
+}
+
+Claim 45010 has demo code {
+    # Animate a 2x2 film strip from a still image.
+    # Needs a strip at ~/folk-images/strip.png
+    Claim $this has frame source image "strip.png"
+    Claim $this has named frame slices {
+        a 0% 0% 50% 50%
+        b 50% 0% 100% 50%
+        c 0% 50% 50% 100%
+        d 50% 50% 100% 100%
+    }
+    Wish $this displays named frame slices as a sequence with fps 8
+}

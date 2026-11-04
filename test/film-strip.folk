@@ -1,0 +1,93 @@
+When { source builtin-programs/collect.folk }
+When { source builtin-programs/image/image-lib.folk }
+When { source builtin-programs/film-strip/slices.folk }
+When { source builtin-programs/film-strip/display.folk } ;# smoke-load
+
+When the image library is /imageLib/ {
+    # 200x100 RGB still source, served by a stub image loader.
+    set src [$imageLib imageNew 200 100 3 1]
+    Claim test still source is $src
+    fn fakeLoader {path args} { return $src }
+    Claim the image loader is [fn fakeLoader]
+
+    # Still branch: page has a frame source image. dog's corners are
+    # given bottom-right-to-top-left to test corner normalization.
+    Claim "page" has frame source image "whatever.png"
+    Claim "page" has named frame slices {cat 0% 0% 50% 50%  dog 100% 100% 50% 50%}
+    When "page" has named frame slice images /images/ {
+        Claim test saw still images $images
+    }
+
+    # Camera branch: campage has no still source; hand-claim a camera
+    # slice (camera/slice.folk isn't loaded, so the reified demand wish
+    # dangles harmlessly). 100x50 so its slices differ from src's.
+    set camIm [$imageLib imageNew 100 50 3 2]
+    Claim "campage" has named frame slices {a 0% 0% 100% 50%}
+    When "campage" has named frame slice /name/ /im/ {
+        Claim test saw camera frame $name $im
+    }
+    Claim "campage" has camera slice $camIm
+
+    # Error branch: malformed spec (not groups of 5), with a consumer
+    # so the lazy provider actually runs.
+    Claim "badpage" has frame source image "whatever.png"
+    Claim "badpage" has named frame slices {cat 0% 0% 50%}
+    When "badpage" has named frame slice images /images/ {}
+}
+
+sleep 2
+
+try {
+    set imageLib [dict get [QueryOne! the image library is /imageLib/] imageLib]
+    set src [dict get [QueryOne! test still source is /src/] src]
+
+    # --- Still branch
+    set images [dict get [QueryOne! test saw still images /images/] images]
+    assert {[dict keys $images] eq {cat dog}}
+
+    set cat [dict get $images cat]
+    assert {[$imageLib Image_width $cat] == 100}
+    assert {[$imageLib Image_height $cat] == 50}
+    # Corner-reversed dog normalizes to the same 100x50 extent.
+    set dog [dict get $images dog]
+    assert {[$imageLib Image_width $dog] == 100}
+    assert {[$imageLib Image_height $dog] == 50}
+    # Zero-copy: slices share the parent's row stride.
+    assert {[$imageLib Image_bytesPerRow $cat] == [$imageLib Image_bytesPerRow $src]}
+
+    # Per-name fan-out claims exist too.
+    set im [dict get [QueryOne! "page" has named frame slice cat /im/] im]
+    assert {[$imageLib Image_width $im] == 100}
+
+    # --- Camera branch: slice of the 100x50 camera image.
+    set im [dict get [QueryOne! test saw camera frame a /im/] im]
+    assert {[$imageLib Image_width $im] == 100}
+    assert {[$imageLib Image_height $im] == 25}
+
+    # --- Error branch
+    set e [dict get [QueryOne! "badpage" has error /e/ with info /info/] e]
+    assert {[string match "*groups of 5*" $e]}
+
+    puts "film-strip test: phase 1 passed"
+} on error {e opts} {
+    puts stderr "film-strip test FAILED: $e\n$opts"
+    Exit! 1
+}
+
+# --- Precedence: claiming a still source retracts the camera branch.
+Assert! tester claims "campage" has frame source image "whatever.png"
+sleep 2
+
+try {
+    # Now exactly one claim, from the still branch: frame a of the
+    # 200x100 src is 200x50 (the camera-branch 100x25 one is gone).
+    set im [dict get [QueryOne! test saw camera frame a /im/] im]
+    assert {[$imageLib Image_width $im] == 200}
+    assert {[$imageLib Image_height $im] == 50}
+
+    puts "film-strip test: all assertions passed"
+    Exit! 0
+} on error {e opts} {
+    puts stderr "film-strip test FAILED: $e\n$opts"
+    Exit! 1
+}

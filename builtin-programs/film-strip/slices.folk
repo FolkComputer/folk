@@ -1,0 +1,123 @@
+# Film Strip Kit: cut named sub-rectangle frames out of whatever image
+# an object "has" -- a claimed still image, or its live camera slice.
+#
+#   Claim $this has named frame slices { cat 0% 0% 50% 50%  dog 50% 50% 100% 0% }
+#   Claim $this has frame source image "strip.png"  ;# optional; wins over camera
+#   When $this has named frame slice cat /im/ { ... }
+#   When $this has named frame slice images /images/ { ... }
+#
+# Each frame is a name followed by two opposite corners (in any
+# order), as percentages of the source image's width and height. The
+# frames dict preserves spec order, which display.folk uses as the
+# animation order.
+
+# Parses the spec into an ordered dict: name -> {fracX fracY fracW fracH},
+# fractions 0..1 of the source image size.
+fn parseFrameSpec {spec} {
+    if {[llength $spec] == 0 || [llength $spec] % 5 != 0} {
+        error "film-strip: spec must be groups of 5 (name x1% y1% x2% y2%); got [llength $spec] words"
+    }
+    set frames [dict create]
+    foreach {name x1 y1 x2 y2} $spec {
+        if {$name eq "images"} {
+            error "film-strip: frame name \"images\" is reserved"
+        }
+        if {[dict exists $frames $name]} {
+            error "film-strip: duplicate frame name \"$name\""
+        }
+        set fracs [list]
+        foreach pct [list $x1 $y1 $x2 $y2] {
+            if {![regexp {^([-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+))%$} $pct -> v]} {
+                error "film-strip: frame \"$name\": expected a percentage like 50%, got \"$pct\""
+            }
+            if {$v < 0} { set v 0.0 } elseif {$v > 100} { set v 100.0 }
+            lappend fracs [expr {$v / 100.0}]
+        }
+        lassign $fracs ax ay bx by
+        set fx [expr {$ax < $bx ? $ax : $bx}]
+        set fy [expr {$ay < $by ? $ay : $by}]
+        set fw [expr {abs($bx - $ax)}]
+        set fh [expr {abs($by - $ay)}]
+        if {$fw == 0 || $fh == 0} {
+            error "film-strip: frame \"$name\" has zero width or height"
+        }
+        dict set frames $name [list $fx $fy $fw $fh]
+    }
+    return $frames
+}
+
+# Cuts zero-copy slices out of $im: they share $im's memory, so they
+# are only valid as long as $im is.
+fn sliceFrames {imageLib im frames} {
+    set w [$imageLib Image_width $im]
+    set h [$imageLib Image_height $im]
+    set images [dict create]
+    dict for {name f} $frames {
+        lassign $f fx fy fw fh
+        set x [expr {int($fx * $w)}]
+        set y [expr {int($fy * $h)}]
+        set sw [expr {int(ceil($fw * $w))}]
+        set sh [expr {int(ceil($fh * $h))}]
+        if {$x + $sw > $w} { set sw [expr {$w - $x}] }
+        if {$y + $sh > $h} { set sh [expr {$h - $y}] }
+        if {$sw < 1} { set sw 1 }
+        if {$sh < 1} { set sh 1 }
+        dict set images $name [$imageLib slice $im $x $y $sw $sh]
+    }
+    return $images
+}
+
+fn claimFrameImages {p images} {
+    Claim $p has named frame slice images $images
+    dict for {name im} $images {
+        Claim $p has named frame slice $name $im
+    }
+}
+
+# Only cut slices (and, for camera sources, only demand the expensive
+# warped camera slice) while someone is actually watching.
+When when /p/ has named frame slice images /images/ /lambda/ with environment /e/ {
+    Wish -nonatomically $p has named frame slice images
+}
+When when /p/ has named frame slice /name/ /im/ /lambda/ with environment /e/ {
+    Wish -nonatomically $p has named frame slice images
+}
+
+# Still-image source: wins over the camera when claimed. The loader
+# caches the loaded image, so these slices are stable statements and
+# the GPU texture gets reused across frames.
+When the image library is /imageLib/ &\
+     the image loader is /loadImage/ &\
+     /someone/ wishes /p/ has named frame slice images &\
+     /p/ has named frame slices /spec/ &\
+     /p/ has frame source image /path/ {
+    fn loadImage
+    try {
+        set frames [parseFrameSpec $spec]
+        set im [loadImage $path]  ;# a GIF path coerces to its first frame
+        set images [sliceFrames $imageLib $im $frames]
+    } on error {e opts} {
+        Say $p has error $e with info $opts
+        return
+    }
+    claimFrameImages $p $images
+}
+
+# Live camera source: used only when no still source is claimed. The
+# nested When re-runs for every camera frame; its slices are zero-copy
+# views into that frame's warped slice and are retracted (along with
+# all downstream matches) before camera/slice.folk frees it.
+When the image library is /imageLib/ &\
+     /someone/ wishes /p/ has named frame slice images &\
+     /p/ has named frame slices /spec/ &\
+     /nobody/ claims /p/ has frame source image /anything/ {
+    try {
+        set frames [parseFrameSpec $spec]
+    } on error {e opts} {
+        Say $p has error $e with info $opts
+        return
+    }
+    When $p has camera slice /slice/ {
+        claimFrameImages $p [sliceFrames $imageLib $slice $frames]
+    }
+}
