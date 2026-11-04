@@ -1,0 +1,17 @@
+if {[info exists ::env(EXIT_AT_PROFILE_POINT)] && $::env(EXIT_AT_PROFILE_POINT) ne ""} {
+    When the image library is /imageLib/ &\
+         the quad library is /quadLib/ &\
+         the points library is /pointsLib/ &\
+         the pose library is /poseLib/ &\
+         the print library is /printLib/ &\
+         the db library is /dbLib/ &\
+         the websocket library is /ws/ &\
+         the AprilTag detector maker is /april/ &\
+         the color map is /colorMap/ &\
+         the calibration matrix library is /matLib/ &\
+         the calibration model library is /modelLib/ {
+
+        puts $::realStderr "\n>>> PROFILE POINT: Core libraries published. Exiting. <<<\n"
+        Exit! 0
+    }
+}
