@@ -34,7 +34,7 @@ extern void trace(const char* format, ...);
 extern void HoldStatementGlobally(const char *key, double version,
                                   Clause *clause, long keepMs, Destructor* destructor,
                                   const char *sourceFileName, int sourceLineNumber);
-extern void workerReactivateOrSpawn(int64_t msSinceBoot, int targetNotBlockedWorkersCount);
+extern void workerReactivateOrSpawn();
 extern void dbGarbageCollectAtomicallys(Db* db, int64_t now);
 
 // How many ms are in each tick? You probably want this to be less
@@ -154,7 +154,7 @@ void sysmon() {
     }
 
     if (notBlockedWorkersCount < targetNotBlockedWorkersCount) {
-        workerReactivateOrSpawn(currentMs, targetNotBlockedWorkersCount);
+        workerReactivateOrSpawn();
     }
 #endif
 

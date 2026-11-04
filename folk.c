@@ -1659,7 +1659,7 @@ static void workerInfo(int threadIndex) {
     printf("Elapsed time: %.3f us\n", elapsed);
 }
 
-void workerReactivateOrSpawn(int64_t msSinceBoot, int targetNotBlockedWorkersCount) {
+void workerReactivateOrSpawn() {
     int nLivingThreads = 0;
     for (int i = 0; i < THREADS_MAX; i++) {
         if (threads[i].tid != 0) {
@@ -1670,29 +1670,7 @@ void workerReactivateOrSpawn(int64_t msSinceBoot, int targetNotBlockedWorkersCou
             }
         }
     }
-    // Arbitrarily picked: we don't want to have more than 15
-    // background threads hanging around.
-    if (nLivingThreads > targetNotBlockedWorkersCount + 15) {
-        if (msSinceBoot > 10000) {
-            // (Don't print a warning before 10 seconds have elapsed
-            // since boot, because we expect to have to do a lot of
-            // work at startup, and we don't want to spam stderr.)
-            /* fprintf(stderr, "folk: workerReactivateOrSpawn: " */
-            /*         "Not spawning new thread; too many already\n"); */
-        }
-
-        /* { */
-        /*     printf("SPAWN NEW WORKER\n" */
-        /*            "============================\n"); */
-        /*     for (int i = 0; i < THREADS_MAX; i++) { */
-        /*         printf("\nthread %d\n" */
-        /*                "------------------\n", i); */
-        /*         workerInfo(i); */
-        /*     } */
-        /* } */
-
-        return;
-    }
+    if (nLivingThreads >= THREADS_MAX) { return; }
     fprintf(stderr, "folk: workerReactivateOrSpawn: Worker spawn\n");
     workerSpawn();
 }
