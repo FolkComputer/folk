@@ -78,6 +78,7 @@ Wish the web server handles route "/calibrate" with hidden true handler {
            if (session) {
              activeCamera = session.camera;
              activeDisplay = session.display;
+             document.getElementById('session-progress').hidden = false;
              document.getElementById('session-progress').textContent =
                `Collecting pair \${Number(session.index) + 1} of \${session.total}: \${activeCamera} → \${activeDisplay}`;
              synchronizeCameraPreviews();
@@ -100,7 +101,7 @@ Wish the web server handles route "/calibrate" with hidden true handler {
         <aside style="container-type: inline-size">
           <svg id="calibration-graph" role="img" aria-label="Camera and projector calibration progress" style="width: 100%; display: block;"></svg>
           <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position):</p>
-          <p id="session-progress">Ready to calibrate the selected cameras in order.</p>
+          <p id="session-progress" hidden>Ready to calibrate the selected cameras in order.</p>
           $[join [lmap previewCamera $cameras {
               HtmlWhen camera $previewCamera has width /cameraWidth/ height /cameraHeight/ {
                   subst {
@@ -135,6 +136,7 @@ Wish the web server handles route "/calibrate" with hidden true handler {
           }] \n]
         </aside>
         <script>
+          document.getElementById('session-progress').hidden = pairs.length <= 1;
           function drawCalibrationGraph() {
             const svg = document.getElementById('calibration-graph');
             const height = 65 + Math.max(cameras.length * 85, displays.length * 85, pairs.length * 50);
