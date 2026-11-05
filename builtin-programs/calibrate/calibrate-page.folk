@@ -229,7 +229,7 @@ Wish the web server handles route "/calibrate" with hidden true handler {
               <div id="calibration-pairs"></div>
             </fieldset>
             </div>
-            <p>Start calibration: <button id="startCalibration">Start Calibration</button> <button id="stopCalibration">Stop Calibration</button></p>
+            <p>Start calibration: <button id="startCalibration">Start Calibration</button></p>
             <script>
               document.getElementById('multiple-calibration-pairs').hidden = pairs.length <= 1;
               pairs.forEach(([camera, display], index) => {
@@ -262,10 +262,6 @@ Wish the web server handles route "/calibrate" with hidden true handler {
                 folk.hold('start calibration', tcl`
                   Wish to collect calibration pairs \${selectedPairs} using measurements \${measurements} in session \${activeSession}
                 `, 'builtin-programs/calibrate/calibrate.folk');
-              });
-              stopCalibration.addEventListener('click', () => {
-                folk.hold('start calibration', '', 'builtin-programs/calibrate/calibrate.folk');
-                document.getElementById('session-progress').textContent = 'Calibration stopped.';
               });
             </script>
 
