@@ -1,6 +1,15 @@
 # Connection wish fulfillment
 # for wishes of the form:
-# "Wish $tag is connected to $tag2" or "Wish $tag is dynamically connected to $tag2"
+#   Wish $this is connected to $p
+#   Wish $this is connected to $p from right to left color red width 4
+#   Wish $this is dynamically connected to $p color green
+#
+# Options:
+#   from, to  anchor point: centroid (default), top, bottom, left, right,
+#             topleft, topright, bottomleft, bottomright
+#   color     color (default: grey, or white when dynamic)
+#   width     line width in projector pixels (default: 2, or 1 when dynamic)
+#   layer     draw layer (default: 0)
 
 When /anyone/ wishes /source/ is connected to /sink/ {
     Wish $source is connected to $sink from centroid to centroid
@@ -9,61 +18,108 @@ When /anyone/ wishes /source/ is dynamically connected to /sink/ {
     Wish $source is dynamically connected to $sink from centroid to centroid
 }
 
-When /anyone/ wishes /source/ is connected to /sink/ /...options/ & \
-  /source/ has region /source_region/ & \
-  /sink/ has region /sink_region/ {
-   if {$source == $sink} {return}
+When the quad library is /quadLib/ &\
+     the pose library is /poseLib/ &\
+     the quad changer is /quadChange/ &\
+     display /disp/ has width /w/ height /h/ &\
+     display /disp/ has intrinsics /intr/ {
 
-   set p1 [dict_getdef $options from centroid]
-   set p2 [dict_getdef $options to centroid]
-   set source [region $p1 $source_region]
-   set sink [region $p2 $sink_region]
+    fn quadChange
 
-   set direction [vec2 sub $sink $source]
-   set color [dict_getdef $options color grey]
-   set layer [dict_getdef $options layer 0]
+    # Anchor point (3D, display space) from the 4 corners of a quad.
+    fn connectionsMid {a b} {
+        lmap x $a y $b { expr {($x + $y) / 2.0} }
+    }
+    fn connectionsAnchor {vertices name} {
+        lassign $vertices tl tr br bl
+        switch $name {
+            centroid    { return [connectionsMid [connectionsMid $tl $br] [connectionsMid $tr $bl]] }
+            top         { return [connectionsMid $tl $tr] }
+            bottom      { return [connectionsMid $bl $br] }
+            left        { return [connectionsMid $tl $bl] }
+            right       { return [connectionsMid $tr $br] }
+            topleft     { return $tl }
+            topright    { return $tr }
+            bottomleft  { return $bl }
+            bottomright { return $br }
+            default     { error "connections: unknown anchor point '$name'" }
+        }
+    }
 
-   set c [vec2 scale [vec2 add $source $sink] 0.5]
-   set angle [expr {atan2(-[lindex $direction 1], [lindex $direction 0]) - 3.14159/2}]
+    # Filled triangle (arrow head) pointing in direction angle (radians).
+    fn connectionsArrowHead {center angle size} {
+        lassign $center cx cy
+        set pts {}
+        foreach da {0 2.0944 -2.0944} {
+            set a [expr {$angle + $da}]
+            lappend pts [list [expr {$cx + $size*cos($a)}] [expr {$cy + $size*sin($a)}]]
+        }
+        return $pts
+    }
 
-   Wish to draw a stroke with points [list $source $sink] width 2 color $color layer $layer
-   Wish to draw a shape with sides 3 center $c radius 30 radians $angle color $color filled true layer $layer
-}
+    When /anyone/ wishes /source/ is connected to /sink/ /...options/ &\
+         /source/ has quad /q1/ & /sink/ has quad /q2/ {
+        if {$source eq $sink} { return }
 
-set speed 75
-set spacing 50
-set maxsize 25
+        # Anchor points: quad -> display space -> projector pixels
+        set v1 [$quadLib vertices [quadChange $q1 "display $disp"]]
+        set v2 [$quadLib vertices [quadChange $q2 "display $disp"]]
+        set a [$poseLib project $intr $w $h \
+                   [connectionsAnchor $v1 [dict getdef $options from centroid]]]
+        set b [$poseLib project $intr $w $h \
+                   [connectionsAnchor $v2 [dict getdef $options to centroid]]]
+        set color [dict getdef $options color grey]
+        set width [dict getdef $options width 2]
+        set layer [dict getdef $options layer 0]
 
-When /anyone/ wishes /source/ is dynamically connected to /sink/ /...options/ & \
-  /source/ has region /source_region/ & \
-  /sink/ has region /sink_region/ {
+        Wish to draw a line onto $disp with \
+            points [list $a $b] width $width color $color layer $layer
 
-   if {$source == $sink} {return}
+        set d [vec2 sub $b $a]
+        set angle [expr {atan2([lindex $d 1], [lindex $d 0])}]
+        lassign [connectionsArrowHead [vec2 scale [vec2 add $a $b] 0.5] $angle 20] p0 p1 p2
+        Wish to draw a triangle onto $disp with \
+            p0 $p0 p1 $p1 p2 $p2 color $color layer $layer
+    }
 
-   set p1 [dict_getdef $options from centroid]
-   set p2 [dict_getdef $options to centroid]
-   set source [region $p1 $source_region]
-   set sink [region $p2 $sink_region]
+    When /anyone/ wishes /source/ is dynamically connected to /sink/ /...options/ &\
+         /source/ has quad /q1/ & /sink/ has quad /q2/ {
+        if {$source eq $sink} { return }
 
-   set direction [vec2 normalize [vec2 sub $sink $source]]
-   set distance [vec2 distance $sink $source]
-   set angle [expr {atan2(-[lindex $direction 1], [lindex $direction 0]) - 3.14159/2}] 
+        # Anchor points: quad -> display space -> projector pixels
+        set v1 [$quadLib vertices [quadChange $q1 "display $disp"]]
+        set v2 [$quadLib vertices [quadChange $q2 "display $disp"]]
+        set a [$poseLib project $intr $w $h \
+                   [connectionsAnchor $v1 [dict getdef $options from centroid]]]
+        set b [$poseLib project $intr $w $h \
+                   [connectionsAnchor $v2 [dict getdef $options to centroid]]]
+        set color [dict getdef $options color white]
+        set width [dict getdef $options width 1]
+        set layer [dict getdef $options layer 0]
 
-   set color [dict_getdef $options color white]
-   set layer [dict_getdef $options layer 0]
+        Wish to draw a line onto $disp with \
+            points [list $a $b] width $width color $color layer $layer
 
-   lassign [vec2 scale [vec2 add $source $sink] 0.5] cx cy
+        set distance [vec2 distance $a $b]
+        if {$distance < 1} { return }
+        set dir [vec2 normalize [vec2 sub $b $a]]
+        set angle [expr {atan2([lindex $dir 1], [lindex $dir 0])}]
 
-   Wish to draw a stroke with points [list $source $sink] width 1 color $color layer $layer
-   
-   When the clock time is /t/ {
-     set offset [expr {round($t*$speed) % $spacing}]
-     set count [expr {round($distance / $spacing)}]
-
-     for {set p $offset} {$p < $distance} {incr p $spacing} {
-        set c [vec2 add $source [vec2 scale $direction $p]]
-        set s [expr {min($maxsize, 0.20*min($p, $distance - $p))}]
-        Wish to draw a shape with sides 3 center $c radius $s radians $angle color $color filled true layer $layer
-      }
+        set speed 75
+        set spacing 50
+        set maxsize 25
+        When the clock time is /t/ {
+            set offset [expr {round($t*$speed) % $spacing}]
+            for {set p $offset} {$p < $distance} {incr p $spacing} {
+                # Jim expr has no min(): size grows towards the middle
+                set edge [expr {$p < $distance - $p ? $p : $distance - $p}]
+                set s [expr {0.2*$edge < $maxsize ? 0.2*$edge : $maxsize}]
+                if {$s < 1} { continue }
+                set c [vec2 add $a [vec2 scale $dir $p]]
+                lassign [connectionsArrowHead $c $angle $s] p0 p1 p2
+                Wish to draw a triangle onto $disp with \
+                    p0 $p0 p1 $p1 p2 $p2 color $color layer $layer
+            }
+        }
     }
 }
