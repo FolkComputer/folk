@@ -1,5 +1,5 @@
 Wish the web server handles route "/calibrate" with hidden true handler {
-    set cameras [dict getdef $QUERY cameras [list $QUERY(camera)]]
+    set cameras [dict get $QUERY cameras]
     set camera [lindex $cameras 0]
 
     upvar ^html ^html
@@ -54,7 +54,8 @@ Wish the web server handles route "/calibrate" with hidden true handler {
          const self = uuidv4();
 
          const folk = new FolkWS(document.getElementById('status'));
-         const cameras = [...new Set(new URLSearchParams(location.search).getAll('camera'))];
+         const params = new URLSearchParams(location.search);
+         const cameras = [...new Set(loadList(params.get('cameras')))];
          const displays = [...new Set(new URLSearchParams(location.search).getAll('display'))];
          const pairs = cameras.flatMap(camera => displays.map(display => [camera, display]));
          let activeDisplay = displays[0];
@@ -220,14 +221,17 @@ Wish the web server handles route "/calibrate" with hidden true handler {
           <li>
             <h3>Run the calibration process.</h3>
 
+            <div id="multiple-calibration-pairs" hidden>
             <p>Collect poses for each selected camera/projector pair in order. Move the board into the active camera's view when the preview changes. After all pairs are collected, jointly optimize their shared intrinsics and pair transforms. Select all cameras that use these projectors when recalibrating.</p>
             <fieldset>
               <legend>Pairs to calibrate</legend>
               <p>Uncheck pairs whose camera and projector don't overlap.</p>
               <div id="calibration-pairs"></div>
             </fieldset>
+            </div>
             <p>Start calibration: <button id="startCalibration">Start Calibration</button> <button id="stopCalibration">Stop Calibration</button></p>
             <script>
+              document.getElementById('multiple-calibration-pairs').hidden = pairs.length <= 1;
               pairs.forEach(([camera, display], index) => {
                 const label = document.createElement('label'), checkbox = document.createElement('input');
                 label.style.display = 'block';

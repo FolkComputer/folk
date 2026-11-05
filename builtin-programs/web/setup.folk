@@ -600,8 +600,6 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
 
       const params = new URLSearchParams();
       displays.forEach(display => params.append('display', display.value));
-      params.set('displays', dumpRaw(displays.map(display => display.value)));
-      cameras.forEach(camera => params.append('camera', camera.value));
       params.set('cameras', dumpRaw(cameras.map(camera => camera.value)));
 
       window.location.href = `/calibrate?\${params.toString()}`;
