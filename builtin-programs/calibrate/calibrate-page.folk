@@ -1,13 +1,6 @@
-When the codeToPostScript is /codeToPostScript/ {
-
-fn codeToPostScript
-
 Wish the web server handles route "/calibrate" with hidden true handler {
-    package require base64
-
     set cameras [dict getdef $QUERY cameras [list $QUERY(camera)]]
     set camera [lindex $cameras 0]
-    set displays [dict getdef $QUERY displays [list $QUERY(display)]]
 
     upvar ^html ^html
     html [csubst {
@@ -476,6 +469,4 @@ Content-Length: $fsize
 
 " \
         body $body
-}
-
 }

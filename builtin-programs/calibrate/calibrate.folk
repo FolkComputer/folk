@@ -1,24 +1,14 @@
 # calibrate.folk --
 #
-#     Implements camera-projector calibration: generate a calibration
-#     pattern PDF, have the user measure its real-world dimension, run
-#     iterative projector-camera process to get various poses of the
-#     printed tags alongside projected tags, do linear fit and then
-#     nonlinear refinement to find intrinsic and extrinsic parameters
-#     for the camera and projector.
+#     Collects camera-projector calibration poses by iteratively aligning
+#     projected tags with a printed calibration board. session.folk uses
+#     the collected poses to solve for camera and projector parameters.
 #
 #     Closely based on the technique in Audet (2009):
 #     http://www.ok.sc.e.titech.ac.jp/res/PCS/publications/procams2009.pdf
 #
 
 package require linalg
-
-foreach p {add norm sub scale matmul
-    getelem transpose determineSVD shape mkIdentity show
-    solvePGauss crossproduct getcol setcol unitLengthVector det
-} {
-    namespace import ::math::linearalgebra::$p
-}
 
 Hold! -key {calibration poses max} \
     Claim the calibration poses max is 10
@@ -83,9 +73,6 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             puts stderr "calibrate: Warning: camera $camera has [llength $camResults] use wishes"
         }
     }
-
-    package require linalg
-    namespace import ::math::linearalgebra::scale
 
     set tagSideLength 1.0
     set tagOuterLength [expr {$tagSideLength * 10/6}]
@@ -203,11 +190,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             return
         }
 
-        set aprilTime [time {
-            set tags [$calibrationTagDetector detect $frame]
-        }]
-
-        package require linalg
+        set tags [$calibrationTagDetector detect $frame]
 
         # This runs every frame, looks at the detected tags (both
         # projected and printed), and updates the H_modelToDisplay
@@ -401,8 +384,6 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             }
         }
 
-        puts "WOULD APPEND CALIBRATION..."
-
         # If the corners have _not_ moved a lot since last _saved_
         # calibration pose, this isn't different enough to be a good
         # calibration pose to save.
@@ -458,333 +439,4 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             }
         }
     }
-}
-
-fn processHomography {H} {
-    package require linalg
-    namespace import ::math::linearalgebra::getelem
-    namespace import ::math::linearalgebra::sub
-
-    fn h {i j} { getelem $H [- $j 1] [- $i 1] }
-
-    fn v {i j} {
-        list \
-            [* [h $i 1] [h $j 1]] \
-            [+ [* [h $i 1] [h $j 2]] [* [h $i 2] [h $j 1]]] \
-            [* [h $i 2] [h $j 2]] \
-            [+ [* [h $i 3] [h $j 1]] [* [h $i 1] [h $j 3]]] \
-            [+ [* [h $i 3] [h $j 2]] [* [h $i 2] [h $j 3]]] \
-            [* [h $i 3] [h $j 3]]
-    }
-
-    set V [list \
-               [v 1 2] \
-               [sub [v 1 1] [v 2 2]]]
-    return $V
-}
-
-
-# Uses Zhang's calibration technique
-# (https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr98-71.pdf)
-# to calibrate a projector or camera given a known 2D planar pattern
-# and multiple observed poses.
-#
-# Returns intrinsic matrix for the camera/projector, which explains
-# how 3D real-world coordinates get projected to 2D coordinates by
-# that device. (The intrinsic matrix can be used with an AprilTag
-# detector to get real-world coordinates for each AprilTag.)
-#
-# Arguments:
-#         width  width of camera or projector in pixels
-#         height height of camera or projector in pixels
-#         Hs     a list of N homographies from camera/projector image
-#                plane -> model plane (for N different poses).
-fn zhangUnrefinedCalibrate {name width height Hs} {
-    package require linalg
-    namespace import ::math::linearalgebra::shape \
-        ::math::linearalgebra::transpose \
-        ::math::linearalgebra::matmul \
-        ::math::linearalgebra::determineSVD \
-        ::math::linearalgebra::mkIdentity \
-        ::math::linearalgebra::solvePGauss \
-        ::math::linearalgebra::getcol \
-        ::math::linearalgebra::getelem \
-        ::math::linearalgebra::norm \
-        ::math::linearalgebra::scale \
-        ::math::linearalgebra::crossproduct \
-        ::math::linearalgebra::add \
-        ::math::linearalgebra::sub
-
-    # Homographies are only defined up to a scalar. Normalize before
-    # building V: its entries are quadratic in H, so arbitrary scale
-    # differences otherwise give some poses enormous weight in the fit.
-    # Keep the normalized Hs for extrinsics too, including a consistent sign.
-    set Hs [lmap H $Hs {
-        set h33 [getelem $H 2 2]
-        if {$h33 == 0} {
-            error "Cannot initialize calibration: homography maps model origin to infinity"
-        }
-        scale [expr {1.0 / $h33}] $H
-    }]
-
-    # Try to solve for the camera intrinsics:
-
-    # Construct V:
-    set Vtop [list]; set Vbottom [list]
-    foreach H $Hs {
-        lassign [processHomography $H] Vtop_ Vbottom_
-        lappend Vtop $Vtop_
-        lappend Vbottom $Vbottom_
-    }
-    set V [list {*}$Vtop {*}$Vbottom]
-    assert {[shape $V] eq [list [* 2 [llength $Hs]] 6]}
-
-    # Solve Vb = 0:
-    lassign [determineSVD [matmul [transpose $V] $V]] U S V
-    set b [lindex [transpose $V] [lindex [lsort-indices $S] 0]]
-
-    # Compute camera intrinsic matrix A:
-    lassign $b B11 B12 B22 B13 B23 B33
-    set v0 [expr {($B12*$B13 - $B11*$B23) / ($B11*$B22 - $B12*$B12)}]
-    set lambda [expr {$B33 - ($B13*$B13 + $v0*($B12*$B13 - $B11*$B23))/$B11}]
-    set alpha [expr {sqrt($lambda/$B11)}]
-    set beta [expr {sqrt($lambda*$B11/($B11*$B22 - $B12*$B12))}]
-    set gamma [expr {-$B12*$alpha*$alpha*$beta/$lambda}]
-    set u0 [expr {$gamma*$v0/$beta - $B13*$alpha*$alpha/$lambda}]
-    foreach var {v0 lambda alpha beta gamma u0} {
-        puts "$var = [set $var]"
-    }
-
-    set fx $alpha; set fy $beta
-    set cx $u0; set cy $v0
-    set s $gamma
-    puts "   Focal Length: \[ $fx $fy ]"
-    puts "Principal Point: \[ $cx $cy ]"
-    puts "           Skew: \[ $s ] "
-
-    # Intrinsic matrix:
-    set A [subst {
-        {$fx  $s   $cx}
-        {0    $fy  $cy}
-        {0    0    1}
-    }]
-    set Ainv [solvePGauss $A [mkIdentity 3]]
-
-    set extrinsics [lmap H $Hs {
-        set h1 [getcol $H 0]
-        set h2 [getcol $H 1]
-        set h3 [getcol $H 2]
-        set lambda [/ 1.0 [norm [matmul $Ainv $h1]]]
-
-        set r1 [scale $lambda [matmul $Ainv $h1]]
-        set r2 [scale $lambda [matmul $Ainv $h2]]
-        set r3 [crossproduct $r1 $r2]
-        set R [transpose [list $r1 $r2 $r3]]
-
-        set t [scale $lambda [matmul $Ainv $h3]]
-
-        # Refine R into a better rotation matrix (reorthogonalize)
-        # using SVD.
-        lassign [determineSVD $R] U S V
-        set R [matmul $U [transpose $V]]
-
-        dict create R $R t $t
-    }]
-
-    # Initialize distortion terms k1 and k2 to 0 -- they get figured
-    # out during nonlinear refinement.
-    set intrinsics [dict create \
-                        width $width height $height \
-                        fx $fx fy $fy cx $cx cy $cy s $s \
-                        k1 0 k2 0 p1 0 p2 0]
-    return [dict create \
-                name $name \
-                intrinsics $intrinsics \
-                extrinsics $extrinsics]
-}
-
-fn setCameraToProjectorExtrinsics {modelLib calibrationVar calibrationPoses} {
-    # Use the "Kabsch algorithm" (https://nghiaho.com/?page_id=671;
-    # https://zpl.fi/aligning-point-patterns-with-kabsch-umeyama-algorithm/)
-    # to find the rotation and translation from 3D camera-space to 3D
-    # projector-space.
-
-    upvar $calibrationVar cal
-
-    # Let's take all the points for which we have a corresponding
-    # camera frame point and projector frame point.
-    set cameraFramePoints [list]
-    set projectorFramePoints [list]
-
-    for {set i 0} {$i < [llength $calibrationPoses]} {incr i} {
-        set calibrationPose [lindex $calibrationPoses $i]
-
-        set Rc [dict get [lindex [dict get $cal camera extrinsics] $i] R]
-        set tc [dict get [lindex [dict get $cal camera extrinsics] $i] t]
-
-        set Rp [dict get [lindex [dict get $cal projector extrinsics] $i] R]
-        set tp [dict get [lindex [dict get $cal projector extrinsics] $i] t]
-
-        # TODO: Try using pose estimation instead?
-        dict for {id tag} [dict get $calibrationPose model] {
-            if {![$modelLib isProjectedTag $id]} { continue }
-            set k 0
-            foreach v [dict get $tag p] {
-                incr k
-                lappend v 0.0
-
-                set vc [add [matmul $Rc $v] $tc]
-                set vp [add [matmul $Rp $v] $tp]
-
-                lappend cameraFramePoints $vc
-                lappend projectorFramePoints $vp
-            }
-        }
-    }
-
-    # puts "cameraFramePoints = \[[join [lmap p $cameraFramePoints {concat \[ [join $p ,] \]}] ,\n]\]"
-    # puts "projectorFramePoints = \[[join [lmap p $projectorFramePoints {concat \[ [join $p ,] \]}] ,\n]\]"
-
-    set n [llength $cameraFramePoints]
-
-    set vcsum {0 0 0}
-    foreach vc $cameraFramePoints { set vcsum [add $vcsum $vc] }
-    set cameraFramePointsCentroid [scale [/ 1.0 $n] $vcsum]
-
-    set vpsum {0 0 0}
-    foreach vp $projectorFramePoints { set vpsum [add $vpsum $vp] }
-    set projectorFramePointsCentroid [scale [/ 1.0 $n] $vpsum]
-
-    set H [matmul [transpose [sub $cameraFramePoints \
-                                  [lrepeat $n $cameraFramePointsCentroid]]] \
-               [sub $projectorFramePoints \
-                    [lrepeat $n $projectorFramePointsCentroid]]]
-
-    lassign [determineSVD $H] U S V
-    set R [matmul $V [transpose $U]]
-    set t [sub $projectorFramePointsCentroid \
-               [matmul $R $cameraFramePointsCentroid]]
-
-    dict set cal R_cameraToProjector $R
-    dict set cal t_cameraToProjector $t
-}
-
-# End-to-end calibrates a camera-projector pair. calibrationPoses is
-# a list of N pose dictionaries. Each pose dictionary includes `tags`
-# from a camera detection, `model` with coordinates in meters,
-# `H_modelToDisplay`.
-fn unrefinedCalibrateCameraAndProjector {modelLib matLib calibrationPoses} {
-    package require linalg
-    namespace import ::math::linearalgebra::det
-    namespace import ::math::linearalgebra::scale
-
-    # Just used to get metadata about cam/proj:
-    set pose0 [lindex $calibrationPoses 0]
-
-    # First, calibrate the camera. "Using only the corners from
-    # printed markers xb and their detected corners xc, [...]
-    # calibrate the camera with no difficulties using Zhang’s method."
-    set i 0
-    set Hs_modelToCamera [lmap pose $calibrationPoses {
-        # Pairs of (camera coordinates, model coordinates).
-        set model [dict get $pose model]
-        set tags [dict get $pose tags]
-        set pointPairs [list]
-        dict for {id cameraTag} $tags {
-            if {![$modelLib isPrintedTag $id]} continue
-            set modelTag [dict get $model $id]
-            foreach modelCorner [dict get $modelTag p] \
-                cameraCorner [dict get $cameraTag p] {
-                    lappend pointPairs [list {*}$modelCorner {*}$cameraCorner]
-                }
-        }
-
-        set H [$matLib estimateHomography $pointPairs]
-        if {[det $H] < 0} {
-            set H [scale -1 $H]
-        }
-        set H
-    }]
-    puts "Zhang calibrate camera:"
-    puts "========"
-    set cameraName [dict get $pose0 camera]
-    set cameraWidth [dict get $pose0 cameraWidth]
-    set cameraHeight [dict get $pose0 cameraHeight]
-    set cameraCalibration [zhangUnrefinedCalibrate \
-                               $cameraName $cameraWidth $cameraHeight \
-                               $Hs_modelToCamera]
-    puts "\n======================\n"
-
-    # Second, calibrate the projector.
-    set i 0
-    set Hs_modelToDisplay [lmap pose $calibrationPoses {
-        set H_modelToDisplay [dict get $pose H_modelToDisplay]
-
-        set pointPairs [list]
-        set model [dict get $pose model]
-        dict for {id modelTag} $model {
-            if {![$modelLib isProjectedTag $id]} continue
-            foreach modelCorner [dict get $modelTag p] {
-                set displayCorner [$matLib applyHomography $H_modelToDisplay $modelCorner]
-                lappend pointPairs [list {*}$modelCorner {*}$displayCorner]
-            }
-        }
-
-        if {[det $H_modelToDisplay] < 0} {
-            set H_modelToDisplay [scale -1 $H_modelToDisplay]
-        }
-        set H_modelToDisplay
-    }]
-    puts "Zhang calibrate projector:"
-    puts "========"
-    set projectorName [dict get $pose0 display]
-    set projectorWidth [dict get $pose0 displayWidth]
-    set projectorHeight [dict get $pose0 displayHeight]
-    set projectorCalibration [zhangUnrefinedCalibrate \
-                                  $projectorName \
-                                  $projectorWidth $projectorHeight \
-                                  $Hs_modelToDisplay]
-    puts "\n======================\n"
-
-    set calibration [dict create \
-                         camera $cameraCalibration \
-                         projector $projectorCalibration]
-    setCameraToProjectorExtrinsics $modelLib calibration $calibrationPoses
-    return $calibration
-}
-
-Claim the calibration initializer is [fn unrefinedCalibrateCameraAndProjector] with extrinsics setter [fn setCameraToProjectorExtrinsics]
-
-When the calibration model library is /modelLib/ &\
-     the calibration matrix library is /matLib/ &\
-     the calibration poses max is /calibrationPosesMax/ &\
-     the calibration poses from camera /camera/ to display /display/ are /calibrationPoses/ &\
-     /nobody/ claims a calibration from camera /camera/ to display /display/ is /anything/ &\
-     the calibration refiner is /refineCalibration/ {
-
-    if {[llength $calibrationPoses] < $calibrationPosesMax} {
-        return
-    }
-
-    # Sessions solve all pairs together after collection, not after each pair.
-    if {[llength [Query! /someone/ wishes to collect calibration pairs /pairs/ using measurements /m/ in session /session/]]} { return }
-    set calibration [unrefinedCalibrateCameraAndProjector $modelLib $matLib \
-                         $calibrationPoses]
-    puts "======== Unrefined calibration ========="
-    puts $calibration
-    puts ""
-
-    set calibration [{*}$refineCalibration \
-                         $modelLib $matLib \
-                         [fn setCameraToProjectorExtrinsics] \
-                         $calibrationPoses $calibration]
-    puts "======== Refined calibration intrinsics ========="
-
-    puts "."
-    puts "======== Refined calibration ========="
-    puts $calibration
-    puts "."
-
-    Hold! -save -on calibration -key [list calibration $camera $display] \
-        Claim a calibration from camera $camera to display $display is $calibration
 }
