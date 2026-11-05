@@ -307,7 +307,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
         [if {$isUsingCamera} {
           set iframeWidth 600
           set cameraAreaHeight [expr {int(600.0 * $usingOpts(height) / $usingOpts(width))}]
-          set iframeHeight [expr {$cameraAreaHeight + 48}]
+          set iframeHeight [expr {$cameraAreaHeight + 128}]
           set existingCrops [dict getdef $usingOpts crops [list]]
           subst {
           <div class="camera-preview" data-camera="$camera"
@@ -424,7 +424,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
         sourceWidth: parseInt(m\[1]),
         sourceHeight: parseInt(m\[2]),
         iframeWidth: parseInt(iframe.width),
-        canvasHeight: parseInt(iframe.height) - 48,
+        canvasHeight: overlay.clientHeight,
       };
     }
 

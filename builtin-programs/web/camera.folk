@@ -49,14 +49,16 @@ Wish the web server handles route {/camera} with handler {
     <div style="padding: 8px">
       <span id="statusSpan">Status</span>
 
-      <label><input type="checkbox" id="cameraAutoexposure">Auto-exposure</label>
+      <div style="margin-top: 8px">
+        <label><input type="checkbox" id="cameraAutoexposure">Auto-exposure</label>
 
-      <div style="display: inline-block" id="manualExposure">
-        Manual exposure:
-        <input style="max-width: 100px" type="range" min="10" max="48" value="15" class="slider" id="cameraExposureSlider">
-        <input type="number" min="1000" max="320000" step="100" value="1500" id="cameraExposureNumber">μs
+        <div style="display: inline-block" id="manualExposure">
+          Manual exposure:
+          <input style="max-width: 100px" type="range" min="10" max="48" value="15" class="slider" id="cameraExposureSlider">
+          <input type="number" min="1000" max="320000" step="100" value="1500" id="cameraExposureNumber">μs
+        </div>
       </div>
-      <label>
+      <label style="display: block; margin-top: 8px">
         Gain:
         <input style="max-width: 100px" type="range" min="$gainMin" max="$gainMax" step="1" value="$gainAtPageLoad" id="cameraGainSlider">
         <input type="number" min="$gainMin" max="$gainMax" step="1" value="$gainAtPageLoad" id="cameraGainNumber">

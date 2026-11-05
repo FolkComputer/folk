@@ -21,7 +21,7 @@ Wish the web server handles route "/calibrate" with hidden true handler {
            .camera-image { container-type: inline-size; }
            aside iframe {
                width: 100%;
-               height: calc(100cqw * var(--camera-ratio) + 72px);
+               height: calc(100cqw * var(--camera-ratio) + 128px);
            }
            @media (max-width: 800px) {
                aside {
