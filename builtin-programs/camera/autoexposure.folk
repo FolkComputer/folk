@@ -1,0 +1,77 @@
+When the image library is /imageLib/ {
+    set aecc [C]
+    $aecc extend $imageLib
+    $aecc include <stdint.h>
+
+    $aecc struct TagLocalContrast {
+        int darkest;
+        int brightest;
+    }
+
+    $aecc proc getTagLocalContrast {Image grayFrame double[4][2] corners} TagLocalContrast {
+        FOLK_ENSURE(grayFrame.components == 1);
+    
+        int minX = INT_MAX;
+        int maxX = INT_MIN;
+        int minY = INT_MAX;
+        int maxY = INT_MIN;
+
+        TagLocalContrast minMax = {.darkest=255, .brightest=0};
+        
+        for (int i = 0; i < 4; i++) {
+            double x = corners[i][0];
+            double y = corners[i][1];
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+        }
+
+        for (int y = minY; y < maxY; y++) {
+            for (int x = minX; x < maxX; x++) {
+                uint8_t pixelValue = grayFrame.data[y * grayFrame.bytesPerRow + x];
+                if (pixelValue > minMax.brightest) minMax.brightest = pixelValue;
+                if (pixelValue < minMax.darkest) minMax.darkest = pixelValue;
+            }
+        }
+
+        return minMax;
+    }
+
+    set autoExpLib [$aecc compile]
+
+    puts "Before when"
+
+    When camera /camera/ has width /width/ height /height/ &\
+    /someone/ wishes camera /camera/ detects tags {
+        puts "Immediately after when"
+        set n 0
+        while true {
+            sleep 1
+            # get local apriltag slices
+            puts "start [incr n]"
+            Expect! /detector/ detects tags /tags/ on camera $camera \
+            at timestamp /frameTs/ in time /time/
+            try {
+                Require! camera $camera has gray frame /grayFrame/ at timestamp $frameTs
+            } on error e {
+                puts $e
+                continue
+            }
+            # puts $tags
+            # puts $grayFrame
+            foreach tag $tags {
+                set stats [$autoExpLib getTagLocalContrast $grayFrame [dict get $tag p]]
+                puts $stats
+            }
+            # get darkest pixel
+            # get lightest pixel
+            # compare contrast
+            # set contrast to target contrast value
+                # gain?
+                # exposure time?
+        }
+    }
+}
+
+
