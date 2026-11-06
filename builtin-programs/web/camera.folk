@@ -101,6 +101,7 @@ Wish the web server handles route {/camera} with handler {
       }
       cameraGainSlider.addEventListener('input', (e) => updateGain(e.target.value));
       cameraGainNumber.addEventListener('change', (e) => updateGain(e.target.value));
+      # either disable hold when autoexposure, or match keys
       function sendExposure(valueInMicroseconds) {
         ws.hold('exposure $baseCameraToControl', tcl`
           Wish camera $baseCameraToControl uses exposure time \${valueInMicroseconds} us
