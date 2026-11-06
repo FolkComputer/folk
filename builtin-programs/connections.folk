@@ -57,7 +57,10 @@ When the quad library is /quadLib/ &\
         return $pts
     }
 
-    When /anyone/ wishes /source/ is connected to /sink/ /...options/ &\
+    When /anyone/ wishes /source/ is connected to /sink/ {
+        Wish $source is connected to $sink with _ _
+    }
+    When /anyone/ wishes /source/ is connected to /sink/ with /...options/ &\
          /source/ has quad /q1/ & /sink/ has quad /q2/ {
         if {$source eq $sink} { return }
 
@@ -82,7 +85,10 @@ When the quad library is /quadLib/ &\
             p0 $p0 p1 $p1 p2 $p2 color $color layer $layer
     }
 
-    When /anyone/ wishes /source/ is dynamically connected to /sink/ /...options/ &\
+    When /anyone/ wishes /source/ is dynamically connected to /sink/ {
+        Wish $source is dynamically connected to $sink with _ _
+    }
+    When /anyone/ wishes /source/ is dynamically connected to /sink/ with /...options/ &\
          /source/ has quad /q1/ & /sink/ has quad /q2/ {
         if {$source eq $sink} { return }
 
