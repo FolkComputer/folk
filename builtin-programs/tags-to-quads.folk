@@ -546,7 +546,7 @@ When the quad changer is /quadChange/ &\
                 $displayWidth $displayHeight $v
         }] a b c d
 
-        Wish the GPU draws pipeline "image" with arguments \
+        Wish the GPU draws pipeline "composite-canvas" with arguments \
             [list [list $displayWidth $displayHeight] \
                  $displayToClip \
                  [dict get $wiOptions texture] $a $b $c $d] \
