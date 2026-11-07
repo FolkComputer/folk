@@ -35,7 +35,7 @@ assert {[catch {blib::readBuf $buf 0}] != 0}
 
 # Verify __defer slot exhaustion raises an error and runs cleanups
 set ec [dict link $C {}]
-ec::addcode {
+ec::code {
     static int g_cleanup_count = 0;
     static void cleanup_inc(void* ptr) {
         g_cleanup_count++;
@@ -118,5 +118,16 @@ assert {[dict get $e1 id] == 10}
 assert {[dict get $e1 value] > 3.14 && [dict get $e1 value] < 3.15}
 assert {[slib::getEntryValue $e1] > 3.14 && [slib::getEntryValue $e1] < 3.15}
 assert {[string match "id 10 value 3.14159*" $e1]}
+
+# Verify code and cflags methods
+set mc [dict link $C {}]
+mc::cflags -O2
+mc::cflags -Wall
+mc::code {
+    int test_code_fn(int a) { return a + 10; }
+}
+mc::proc callTestCode {int a} int { return test_code_fn(a); }
+set mclib [mc::compile]
+assert {[mclib::callTestCode 5] == 15}
 
 Exit! 0

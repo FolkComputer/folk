@@ -14,18 +14,18 @@
 #    Wish to play audio /home/folk/sounds/drums.wav
 
 set cc [dict link $C {}]
-cc::addcflags -I./vendor/miniaudio
+cc::cflags -I./vendor/miniaudio
 
 if {[catch {exec which sclang}] == 0} {
     # HACK: We're running msuic.folk and therefore are running JACK,
     # so we should force miniaudio to not use ALSA directly (because
     # that won't work).
-    cc::addcode {
+    cc::code {
         #define MA_NO_ALSA
         #define MA_NO_PULSEAUDIO
     }
 }
-cc::addcode {
+cc::code {
    #define MINIAUDIO_IMPLEMENTATION
 }
 
@@ -37,10 +37,10 @@ cc::include <unistd.h>
 cc::include <miniaudio.h>
 
 if {$tcl_platform::os ne "Darwin"} {
-    cc::addendcflags -lpthread -lm -ldl
+    cc::endcflags -lpthread -lm -ldl
 }
 
-cc::addcode {
+cc::code {
     static ma_context     g_ctx;
     static ma_engine      g_engine;
     static ma_sound_group g_group;

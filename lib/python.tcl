@@ -89,7 +89,7 @@ cc::proc sockRecvMulti {int fd} Zicl_Val {
 # These need to be maintained in C so that they can be written and
 # read from multiple threads (any thread may call into the Python
 # module at any time).
-cc::addcode {
+cc::code {
     // This C module is global, so we need to maintain a separate
     // functions/registeredArgtypes per uvx (per endpoint).
 

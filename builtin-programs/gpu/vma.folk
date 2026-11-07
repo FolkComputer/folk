@@ -3,10 +3,10 @@ When the GPU Vulkan C prototype is /Vulkan/ {
 
 # VMA (Vulkan Memory Allocator) module:
 set vmac [C++ $Vulkan]
-vmac::addcflags -I./vendor \
+vmac::cflags -I./vendor \
     -Wno-nullability-completeness -Wno-unused-private-field \
     -Wno-unused-variable
-vmac::addcode {
+vmac::code {
     #define VOLK_IMPLEMENTATION
     #include "volk/volk.h"
 
@@ -20,7 +20,7 @@ vmac::addcode {
 vmac::defineHandleType VkInstance
 vmac::defineHandleType VkPhysicalDevice
 vmac::defineHandleType VkDevice
-vmac::addcode { extern "C" {
+vmac::code { extern "C" {
 
 void vmaInit(VkInstance instance, VkPhysicalDevice physicalDevice, VkDevice device,
              PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr,

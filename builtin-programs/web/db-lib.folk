@@ -1,11 +1,11 @@
 Claim the db library is [apply [fn {} {
     set cc [dict link $C {}]
-    cc::addcflags -I. -I./vendor/tracy/public
+    cc::cflags -I. -I./vendor/tracy/public
     cc::include "db.h"
     cc::include "common.h"
     cc::include "vendor/stb_ds.h"
 
-    cc::addcode {
+    cc::code {
         typedef struct ListOfEdgeTo {
             size_t capacityEdges;
             size_t nEdges; // This is an estimate.
@@ -21,20 +21,20 @@ Claim the db library is [apply [fn {} {
         #include <pthread.h>
     }
     set dbCFd [file open "db.c" r]; set dbC [stream read $dbCFd]; close $dbCFd
-    cc::addcode [lindex [regexp -inline {typedef struct Destructor \{.*\} Destructor;} $dbC] 0]
-    cc::addcode [lindex [regexp -inline {typedef struct DestructorSet \{.*\} DestructorSet;} $dbC] 0]
-    cc::addcode [lindex [regexp -inline {typedef struct Statement \{.*\} Statement;} $dbC] 0]
-    cc::addcode [lindex [regexp -inline {typedef struct Match \{.*\} Match;} $dbC] 0]
-    cc::addcode [lindex [regexp -inline {typedef struct Hold \{.*\} Hold;} $dbC] 0]
-    cc::addcode [lindex [regexp -inline {typedef struct StatementRefList \{.*\} StatementRefList;} $dbC] 0]
-    cc::addcode [lindex [regexp -inline {typedef struct AtomicallyVersionList \{.*\} AtomicallyVersionList;} $dbC] 0]
-    cc::addcode [lindex [regexp -inline {typedef struct AtomicallyVersion \{.*\} AtomicallyVersion;} $dbC] 0]
-    cc::addcode [lindex [regexp -inline {typedef struct Atomically \{.*\} Atomically;} $dbC] 0]
-    cc::addcode [lindex [regexp -inline {typedef struct Db \{.*\} Db;} $dbC] 0]
+    cc::code [lindex [regexp -inline {typedef struct Destructor \{.*\} Destructor;} $dbC] 0]
+    cc::code [lindex [regexp -inline {typedef struct DestructorSet \{.*\} DestructorSet;} $dbC] 0]
+    cc::code [lindex [regexp -inline {typedef struct Statement \{.*\} Statement;} $dbC] 0]
+    cc::code [lindex [regexp -inline {typedef struct Match \{.*\} Match;} $dbC] 0]
+    cc::code [lindex [regexp -inline {typedef struct Hold \{.*\} Hold;} $dbC] 0]
+    cc::code [lindex [regexp -inline {typedef struct StatementRefList \{.*\} StatementRefList;} $dbC] 0]
+    cc::code [lindex [regexp -inline {typedef struct AtomicallyVersionList \{.*\} AtomicallyVersionList;} $dbC] 0]
+    cc::code [lindex [regexp -inline {typedef struct AtomicallyVersion \{.*\} AtomicallyVersion;} $dbC] 0]
+    cc::code [lindex [regexp -inline {typedef struct Atomically \{.*\} Atomically;} $dbC] 0]
+    cc::code [lindex [regexp -inline {typedef struct Db \{.*\} Db;} $dbC] 0]
     cc::argtype StatementRef { StatementRef $argname; sscanf(ziclShimString($shim), "s%d:%d", &$argname.idx, &$argname.gen); }
     cc::argtype MatchRef { MatchRef $argname; sscanf(ziclShimString($shim), "m%d:%d", &$argname.idx, &$argname.gen); }
 
-    cc::addcode {
+    cc::code {
         static Zicl_Val clauseToValue(Zicl_List* clause) {
             return Zicl_BoxList(Zicl_RefList(clause));
         }
@@ -107,7 +107,7 @@ Claim the db library is [apply [fn {} {
         matchRelease(db, match);
         return alive;
     }
-    cc::addcode {
+    cc::code {
         #define CHILD_STATEMENTS_REMOVING ((ListOfEdgeTo*)1)
     }
     cc::proc childStatements {Db* db MatchRef matchRef} Zicl_Val {

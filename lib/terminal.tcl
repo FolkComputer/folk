@@ -4,8 +4,8 @@
 #
 
 set cc [dict link $C {}]
-cc::addcflags -I./vendor/libtmt
-cc::addendcflags -lutil ./vendor/libtmt/tmt.c
+cc::cflags -I./vendor/libtmt
+cc::endcflags -lutil ./vendor/libtmt/tmt.c
 
 cc::include <sys/types.h>
 cc::include <stdlib.h>

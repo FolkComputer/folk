@@ -280,6 +280,7 @@ static int HoldStatementGloballyFunc(Zicl_Interp *interp, int argc, Zicl_Shim *a
     }
 
     Zicl_List* dupedClause; ZICL_TRY(Zicl_DupAsList(interp, Zicl_Current(&argv[3]), &dupedClause), rc);
+    defer { Zicl_DropRefList(dupedClause); }
 
     HoldStatementGlobally(key, version,
                           dupedClause, keepMs, destructorCodePassedIn,
@@ -455,10 +456,14 @@ Zicl_List* QuerySimple(bool isAtomically, Zicl_List* pattern) {
         Zicl_Dict* envDict = ziclNewDict(NULL, 0);
         defer { Zicl_DropRefDict(envDict); }
         char buf[100]; snprintf(buf, 100,  "s%d:%d", rs->results[i].idx, rs->results[i].gen);
-        ziclDictPut(envDict, ziclNewString("__ref", -1), ziclNewString(buf, -1));
+        Zicl_Val refVal = ziclNewString(buf, -1);
+        ziclDictPut(envDict, Zicl_InternStr("__ref"), refVal);
+        Zicl_DropRef(refVal);
 
         for (int j = 0; j < env->nBindings; j++) {
-            ziclDictPut(envDict, ziclNewString(env->bindings[j].name, -1), env->bindings[j].value);
+            Zicl_Val keyVal = ziclNewString(env->bindings[j].name, -1);
+            ziclDictPut(envDict, keyVal, env->bindings[j].value);
+            Zicl_DropRef(keyVal);
         }
         statementRelease(db, result);
 
@@ -655,7 +660,9 @@ static int __currentAtomicallyVersionFunc(Zicl_Interp *interp, int argc, Zicl_Sh
         char ret[100];
         snprintf(ret, 100, "(AtomicallyVersion*) %p",
                  versions[i]);
-        ziclListAppend(versionsList, ziclNewString(ret, -1));
+        Zicl_Val versionVal = ziclNewString(ret, -1);
+        ziclListAppend(versionsList, versionVal);
+        Zicl_DropRef(versionVal);
     }
     Zicl_SetResultOwning(interp, Zicl_BoxList(versionsList));
     return ZICL_OK;
@@ -700,12 +707,18 @@ static void interpSetupEnv(Zicl_Interp *interp) {
         char *eq = strchr(*e, '=');
         if (eq == NULL) continue;
 
-        ziclDictPut(envDict, ziclNewString(*e, eq - *e), ziclNewString(eq + 1, -1));
+        Zicl_Val key = ziclNewString(*e, eq - *e);
+        Zicl_Val val = ziclNewString(eq + 1, -1);
+        ziclDictPut(envDict, key, val);
+        Zicl_DropRef(key);
+        Zicl_DropRef(val);
     }
 
     Zicl_SetVariableString(interp, "env", Zicl_BoxDict(envDict));
     Zicl_Val stdoutValue; folkZiclAssert(Zicl_NewFileCapFromFd(realStdout, &stdoutValue));
+    defer { Zicl_DropRef(stdoutValue); }
     Zicl_Val stderrValue; folkZiclAssert(Zicl_NewFileCapFromFd(realStderr, &stderrValue));
+    defer { Zicl_DropRef(stderrValue); }
     Zicl_SetVariableString(interp, "realStdout", stdoutValue);
     Zicl_SetVariableString(interp, "realStderr", stderrValue);
 }
@@ -783,7 +796,7 @@ static void interpBoot() {
 void eval(const char* code) {
     if (interp == NULL) { interpBoot(); }
 
-    int error = Zicl_EvalValue(interp, ziclNewString(code, -1));
+    int error = Zicl_Eval(interp, code);
     if (error != ZICL_OK) {
         Zicl_MakeErrorMessage(interp);
         fprintf(stderr, "eval: (%s) -> (%s)\n", code, ziclString(Zicl_GetResult(interp)));
@@ -850,7 +863,9 @@ static void runBlockReportError(Zicl_Val thisValue, const char* sourceFileName, 
         // the previous one rather than accumulating duplicates.
         char suffix[256];
         snprintf(suffix, sizeof(suffix), "%s-error", ziclString(thisValue));
-        Zicl_Val keyObjs[] = { thisValue, ziclNewString(suffix, -1) };
+        Zicl_Val suffixVal = ziclNewString(suffix, -1);
+        defer { Zicl_DropRef(suffixVal); }
+        Zicl_Val keyObjs[] = { thisValue, suffixVal };
         Zicl_List* keyList = ziclNewList(keyObjs, 2);
         defer { Zicl_DropRefList(keyList); }
 
@@ -1842,7 +1857,7 @@ int main(int argc, char** argv) {
     if (argc == 1) {
         // booting normal Folk (no script passed at command line); set
         // up output redirection.
-        outputRedirectionInit(false);
+        outputRedirectionInit(true);
     } else {
         outputRedirectionInit(false);
     }

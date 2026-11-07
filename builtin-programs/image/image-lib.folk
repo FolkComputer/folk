@@ -3,7 +3,7 @@ cc::include <stdlib.h>
 cc::include <string.h>
 cc::include <math.h>
 
-cc::addcode {
+cc::code {
     typedef struct Image {
         // Pointer to the Buffer capability head managing `data` (or NULL before
         // a raw C-allocated buffer is wrapped into an Image Zicl_Obj).
@@ -373,7 +373,7 @@ cc::proc imageFree {Image im} void {
     Zicl_CapClose(im.cap);
 }
 
-cc::addcode {
+cc::code {
     static int solve8x8(double A[8][8], double b[8], double x[8])
     {
         for (int col = 0; col < 8; col++) {

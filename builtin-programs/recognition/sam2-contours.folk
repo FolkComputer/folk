@@ -1,5 +1,5 @@
 set cc [dict link $C {}]
-cc::addcflags -I.
+cc::cflags -I.
 cc::include "vendor/CContour.c"
 
 # Returns contours for a SAM2 mask byte string. Each contour is a Tcl list of

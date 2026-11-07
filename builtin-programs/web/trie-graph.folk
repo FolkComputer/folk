@@ -1,10 +1,10 @@
 set trieLib [apply [fn {} {
     set cc [dict link $C {}]
-    cc::addcflags -I. trie.o
+    cc::cflags -I. trie.o
     cc::include <stdlib.h>
     cc::include <string.h>
     cc::include "trie.h"
-    cc::addcode {
+    cc::code {
         typedef struct Db Db;
         extern Db* db;
 

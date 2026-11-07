@@ -74,14 +74,14 @@ fn gpuInit {useGlfw} {
     # Vulkan -- this library then exposes functions that we can call from
     # Tcl.
     set gpuc [dict link $Vulkan {}]
-    gpuc::addcflags -I./vendor
+    gpuc::cflags -I./vendor
     gpuc::include <pthread.h>
-    gpuc::addcode {
+    gpuc::code {
         #define VOLK_IMPLEMENTATION
         #include "volk/volk.h"
     }
     if {$useGlfw} {
-        gpuc::addcode {
+        gpuc::code {
             // This must be included _after_ volk.h (Vulkan).
             #include <GLFW/glfw3.h>
         }
@@ -89,11 +89,11 @@ fn gpuInit {useGlfw} {
 
     set macos [expr {$tcl_platform::os eq "darwin"}]
     if {$macos} {
-        gpuc::addcflags -I/opt/homebrew/include -L/opt/homebrew/lib
+        gpuc::cflags -I/opt/homebrew/include -L/opt/homebrew/lib
     }
 
     if {$useGlfw} {
-        gpuc::addendcflags -lglfw
+        gpuc::endcflags -lglfw
     } else {
         foreach renderFile [glob -nocomplain "/dev/dri/render*"] {
             if {![file readable $renderFile]} {
@@ -326,7 +326,7 @@ fn gpuInit {useGlfw} {
     }
     # Thread-local command pool and command buffer helpers. These are
     # used by textures, canvases, and draw code across all displays.
-    gpuc::addcode {
+    gpuc::code {
         __thread VkCommandPool _commandPool;
         __thread VkCommandBuffer _commandBuffer;
     }

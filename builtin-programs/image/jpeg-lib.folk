@@ -1,13 +1,13 @@
 When the image library is /imageLib/ {
 set cc [dict link $C {}]
 cc::extend $imageLib
-cc::addendcflags -lturbojpeg
+cc::endcflags -lturbojpeg
 cc::include <stdlib.h>
 cc::include <string.h>
 
 cc::typedef Buffer* Jpeg
 
-cc::addcode {
+cc::code {
     #undef EXTERN
     #include <turbojpeg.h>
     #include <stdint.h>

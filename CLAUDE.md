@@ -236,3 +236,5 @@ signal becomes `error "..." [list MY DOMAIN $detail]` paired with
 -   Make sure comments don't include internal thought processes or references to temporary state. Comments should be written for future readers of the code, not for scratch work.
 -   Don't leave comments behind after fixing ownership/ref counting bugs, unless it's significantly outside of normal ownership patterns. They quickly balloon out of control and make the code incomprehensible. See "don't make comments with internal thought process."
 -   Minimize parenthetical asides, as it makes the writing hard to follow. Do your best to have a linear structure with your sentences.
+-   Do not add backwards compatibility aliases for experimental code or newly refactored APIs. In an experimental branch, maintaining compatibility between competing or transitional designs clutters the interfaces and hides dead code. Change callers to the canonical interface directly.
+-   Prefer asserts over defensive if-conditions. Fail fast and fail loud rather than silently swallowing unexpected states or invalid inputs.

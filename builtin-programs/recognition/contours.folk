@@ -1,7 +1,7 @@
 When the image library is /imageLib/ {
     set cc [dict link $C {}]
     cc::extend $imageLib
-    cc::addcflags -I.
+    cc::cflags -I.
     cc::include "vendor/CContour.c"
 
     # Binarizes the first channel of `im` at `threshold` and returns

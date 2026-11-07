@@ -1,6 +1,6 @@
 set cc [dict link $C {}]
-cc::addcflags -I./vendor
-cc::addcode {
+cc::cflags -I./vendor
+cc::code {
     #define VOLK_IMPLEMENTATION
     #include "volk/volk.h"
 }

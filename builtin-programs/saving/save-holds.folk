@@ -6,7 +6,7 @@ cc::include <stdio.h>
 cc::include <string.h>
 cc::include <unistd.h>
 
-cc::addcode {
+cc::code {
 
 // key = value of -on passed to Hold!,
 // val = a dict whose key = the value passed to -key

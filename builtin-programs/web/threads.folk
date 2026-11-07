@@ -1,9 +1,9 @@
 set threadMonitorLib [apply [fn {} {
     set cc [dict link $C {}]
-    cc::addcflags -I. -I./vendor/tracy/public
+    cc::cflags -I. -I./vendor/tracy/public
     cc::include "workqueue.h"
     cc::include "common.h"
-    cc::addcode {
+    cc::code {
         extern ThreadControlBlock threads[];
         extern int _Atomic threadCount;
 
@@ -105,7 +105,7 @@ set threadMonitorLib [apply [fn {} {
         return ziclNewString("", 0);
     }
 
-    cc::addcode {
+    cc::code {
         #include "vendor/c11-queues/mpmc_queue.h"
         extern struct mpmc_queue globalWorkQueue;
         extern _Atomic int globalWorkQueueSize;

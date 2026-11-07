@@ -23,7 +23,7 @@ camc::include <unistd.h>
 camc::include <stdint.h>
 camc::include <stdlib.h>
 
-camc::addcode {
+camc::code {
     typedef struct CameraBuffer {
         uint8_t* start;
         size_t length;
@@ -77,7 +77,7 @@ camc::rtype Camera* {
     $robj = Camera_wrap($rvalue);
 }
 
-camc::addcode {
+camc::code {
     void quit(const char* msg) {
         FOLK_ERROR("camera/usb: Quitting: [%s] %d: %s\n",
                    msg, errno, strerror(errno));
@@ -234,7 +234,7 @@ camc::proc cameraStart {Camera* camera} void {
     }
 }
 
-camc::addcode {
+camc::code {
     int camera_capture(Camera* camera) {
         struct v4l2_buffer buf;
         memset(&buf, 0, sizeof buf);
@@ -308,7 +308,7 @@ camc::proc setExposure {Camera* camera int value} void {
     }
 }
 
-camc::addcflags -Wall -Werror
+camc::cflags -Wall -Werror
 set camLib [camc::compile]
 
 When camera /cameraPath/ has width /decompWidth/ height /decompHeight/ {

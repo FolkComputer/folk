@@ -62,7 +62,7 @@ fn rotationVectorToRotationMatrix {r} {
 set NUM_TAGS_IN_MODEL 20
 
 set cc [dict link $Apriltag {}]
-cc::addcflags -I./vendor/cmpfit -Wall -Werror
+cc::cflags -I./vendor/cmpfit -Wall -Werror
 
 cc::include <math.h>
 cc::include <string.h>
@@ -75,7 +75,7 @@ cc::include <common/matd.h>
 # Mono calibration
 # ----------------
 
-cc::addcode [csubst {
+cc::code [csubst {
     #define MAX_POINTS_PER_POSE $[* $NUM_TAGS_IN_MODEL 4]
 
     typedef struct Intrinsics {
@@ -150,7 +150,7 @@ cc::proc monoSetPoints {int poseCount
     }
 }
 
-cc::addcode {
+cc::code {
     void rotationVectorToRotationMatrix(double r[3], double out[3][3]) {
         double theta = sqrt(r[0]*r[0] + r[1]*r[1] + r[2]*r[2]);
         if (fabs(theta) < 0.0001) {
@@ -330,7 +330,7 @@ cc::proc monoRefineCalibrationOptimize {double[paramsCount] params} Zicl_Val {
 # Stereo calibration
 # ------------------
 
-cc::addcode {
+cc::code {
     int StereoPoseCount;
     int StereoPointsCount;
     int* StereoPosePointsCount;

@@ -5,9 +5,9 @@ When the GPU Vulkan C prototype is /Vulkan/ &\
 
 
 set gpuc [dict link $Vulkan {}]
-gpuc::addcflags -I./vendor
-gpuc::addendcflags $vmaDll
-gpuc::addcode {
+gpuc::cflags -I./vendor
+gpuc::endcflags $vmaDll
+gpuc::code {
     #define VOLK_IMPLEMENTATION
     #include "volk/volk.h"
 
@@ -68,7 +68,7 @@ gpuc::define {
 gpuc::defineHandleType VkDescriptorSetLayout
 gpuc::defineHandleType VkDescriptorSet
 
-gpuc::addcode {
+gpuc::code {
     VkDevice device;
     void initPlaceholderTexture();
 }
@@ -96,7 +96,7 @@ gpuc::struct GpuTextureBlock {
     // mostly for debugging:
     char* description;
 }
-gpuc::addcode {
+gpuc::code {
     // Array of GpuTextureBlocks. Each element points to all GPU-side
     // data structures associated with a particular texture (that we
     // will destroy when we evict that texture).
@@ -187,7 +187,7 @@ gpuc::proc textureManagerInit {} void {
 }
 
 # Buffer allocation:
-gpuc::addcode [csubst {
+gpuc::code [csubst {
     uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
         VkPhysicalDeviceMemoryProperties memProperties;
         vkGetPhysicalDeviceMemoryProperties(*physicalDevice_ptr(), &memProperties);
@@ -236,7 +236,7 @@ gpuc::proc createBuffer {VkDeviceSize size VkBufferUsageFlags usage VkMemoryProp
 }
 
 # Texture allocation:
-gpuc::addcode [csubst {
+gpuc::code [csubst {
     void createImage(uint32_t width, uint32_t height,
                      VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties,
                      VkImage* image, VmaAllocation* allocation) {
@@ -305,7 +305,7 @@ gpuc::proc endSingleTimeCommands {VkCommandBuffer commandBuffer VkFence fence} v
     pthread_mutex_unlock(graphicsQueueMutex_ptr());
 }
 
-gpuc::addcode {
+gpuc::code {
     static __thread VkFence _fence = VK_NULL_HANDLE;
 }
 gpuc::proc getFence {} VkFence {
@@ -428,7 +428,7 @@ gpuc::proc copyImageToRgba {Image im Image ret} void {
     }
 }
 
-gpuc::addcode [csubst {
+gpuc::code [csubst {
     GpuTextureHandle allocateGpuTextureHandle() {
         for (;;) {
             for (int i = 0; i < getMaxTextures(); i++) {
@@ -448,7 +448,7 @@ gpuc::addcode [csubst {
     }
 }]
 
-gpuc::addcode {
+gpuc::code {
     static void enqueueDeferredTextureOp(enum DeferredTextureOp op, GpuTextureHandle handle) {
         pthread_mutex_lock(&deferredQueueMutex);
         if (deferredQueueCount >= DEFERRED_QUEUE_CAP) {
@@ -573,7 +573,7 @@ gpuc::proc createGpuTexture {int width int height int format} GpuTextureBlock* {
 
 # Per-worker reusable texture upload slots. Staging buffers stay alive
 # until their slot is reused and the previous upload fence has signaled.
-gpuc::addcode {
+gpuc::code {
     #define INFLIGHT_UPLOADS 8
     struct InflightUpload {
         VkCommandBuffer cmdBuffer;
@@ -758,7 +758,7 @@ gpuc::proc freeGpuTexture {GpuTextureHandle gim} void {
 
 # Actually destroy a texture's GPU resources. Must only be called
 # on the GPU thread between frames when the GPU is idle.
-gpuc::addcode {
+gpuc::code {
     static void retireGpuTexture(GpuTextureHandle gim) {
         GpuTextureBlock* block = &gpuTextures[gim];
         if (gim == 0 || !block->alive || block->retiring) return;

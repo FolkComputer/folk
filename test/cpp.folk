@@ -1,5 +1,5 @@
 set cpp [C++]
-cpp::addcflags -std=c++11
+cpp::cflags -std=c++11
 cpp::include <vector>
 cpp::proc addInCpp {int a int b} int {
     std::vector<int> xs = {a, b};

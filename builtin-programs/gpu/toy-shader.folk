@@ -11,7 +11,7 @@ When the GPU Vulkan C prototype is /Vulkan/ &\
 set cc [dict link $C {}]
 cc::include <string.h>
 cc::include <stdint.h>
-cc::addcode {
+cc::code {
     // HACK: copied from pipelines.folk
     typedef struct PushConstantsEncoder {
         int (*encode)(Zicl_Interp* interp, Zicl_Val obj, uint8_t out[128]);

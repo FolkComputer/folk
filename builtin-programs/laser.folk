@@ -2,12 +2,12 @@ When the image library is /imageLib/ &\
      libapriltag has been built with C prototype /Apriltag/ {
 
 set cc [dict link $Apriltag {}]
-cc::addendcflags vendor/blobdetect/hk.c
+cc::endcflags vendor/blobdetect/hk.c
 cc::extend $imageLib
 
 cc::include <apriltag.h>
 cc::include <math.h>
-cc::addcode {
+cc::code {
     int hoshen_kopelman(int **matrix, int m, int n);
 
     typedef struct {

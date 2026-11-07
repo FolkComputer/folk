@@ -22,9 +22,9 @@ When libapriltag has been built with C prototype /Apriltag/ &\
 
 set cc [dict link $Apriltag {}]
 cc::extend $imageLib
-cc::addcflags -Wall -Werror
+cc::cflags -Wall -Werror
 
-cc::addcode {
+cc::code {
     #include <apriltag.h>
     #include <tagStandard52h13.h>
     apriltag_family_t *tf = NULL;

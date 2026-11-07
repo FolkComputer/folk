@@ -5,8 +5,8 @@ When the GPU library is /gpuLib/ &\
     set gpuc [dict link $C {}]
     gpuc::include <pthread.h>
     gpuc::include <string.h>
-    gpuc::addcflags -I./vendor
-    gpuc::addcode {
+    gpuc::cflags -I./vendor
+    gpuc::code {
         #define VOLK_IMPLEMENTATION
         #include "volk/volk.h"
     }
@@ -27,7 +27,7 @@ When the GPU library is /gpuLib/ &\
         }
     }}] }
 
-    gpuc::addcode {
+    gpuc::code {
         VkDevice device;
         // Canvas format must match the pipeline render pass format
         // (VK_FORMAT_B8G8R8A8_UNORM) so that shared pipelines are
@@ -87,7 +87,7 @@ When the GPU library is /gpuLib/ &\
         }
     }
 
-    gpuc::addcode {
+    gpuc::code {
         typedef struct GpuCanvas {
             Zicl_CapHead head;
             VkExtent2D extent;
@@ -178,7 +178,7 @@ When the GPU library is /gpuLib/ &\
     gpuc::proc destroy {GpuCanvas* wi} void {
         Zicl_CapClose(&wi->head);
     }
-    gpuc::addcode {
+    gpuc::code {
         __thread GpuCanvas* boundCanvas;
         __thread VkPipeline boundPipeline;
         __thread VkDescriptorSet boundDescriptorSet;
@@ -222,7 +222,7 @@ When the GPU library is /gpuLib/ &\
         boundPipeline = VK_NULL_HANDLE;
         boundDescriptorSet = VK_NULL_HANDLE;
     }
-    gpuc::addcode {
+    gpuc::code {
         // Process-local binary values owned by Zicl, not serialized draw commands.
         // Cached handles are only used while their pipeline statement is acquired.
         typedef struct EncodedDraw {

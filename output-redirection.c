@@ -180,10 +180,7 @@ void outputRedirectionInit(bool doRedirect) {
 }
 
 void installLocalStdoutAndStderr(int stdoutfd, int stderrfd) {
-    if (programFdsTable == NULL) {
-        return;
-    }
-
+    assert(stdoutfd != -1 && stderrfd != -1);
     threadLocalStdout = stdoutfd;
     Zicl_SetLocalStdout(stdoutfd);
     threadLocalStderr = stderrfd;
@@ -246,17 +243,13 @@ void installLocalStdoutAndStderrForProgram(const char *thisProgram) {
         pthread_rwlock_unlock(&programFdsLock);
     }
 
-    if (stdoutfd == -1 || stderrfd == -1) { return; }
+    assert(stdoutfd != -1 && stderrfd != -1);
     installLocalStdoutAndStderr(stdoutfd, stderrfd);
 }
 
 static int __installLocalStdoutAndStderrFunc(Zicl_Interp *interp, int argc, Zicl_Shim *argv) {
     assert(argc == 2);
     installLocalStdoutAndStderrForProgram(ziclShimString(&argv[1]));
-    return ZICL_OK;
-}
-
-static int __doNothingFunc(Zicl_Interp *interp, int argc, Zicl_Shim *argv) {
     return ZICL_OK;
 }
 

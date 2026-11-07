@@ -18,10 +18,10 @@ set makeCamera {
 
     cpp::include <libcamera/libcamera.h>
     # osnr: HACK: just throwing any possible path in.
-    cpp::addcflags -I/usr/local/include/libcamera -I/usr/include/libcamera
-    cpp::addendcflags -lcamera
+    cpp::cflags -I/usr/local/include/libcamera -I/usr/include/libcamera
+    cpp::endcflags -lcamera
 
-    cpp::addcode {
+    cpp::code {
         using namespace libcamera;
 
         std::unique_ptr<CameraManager> cm;
@@ -122,7 +122,7 @@ set makeCamera {
         }
     }
 
-    cpp::addcode {
+    cpp::code {
         static void requestComplete(Request *request) {
             if (request->status() == Request::RequestCancelled) {
 		return;

@@ -31,20 +31,20 @@ foreach result $useDisplays {
 }
 
 set cc [dict link $C {}]
-cc::addcflags -I./vendor
+cc::cflags -I./vendor
 cc::include <stdlib.h>
 cc::include <unistd.h>
 cc::include <pthread.h>
-cc::addcode {
+cc::code {
     #define VOLK_IMPLEMENTATION
     #include "volk/volk.h"
 }
 if {$useGlfw} {
-    cc::addcode {
+    cc::code {
         // This must be included _after_ volk.h (Vulkan).
         #include <GLFW/glfw3.h>
     }
-    cc::addendcflags -lglfw
+    cc::endcflags -lglfw
 }
 
 cc::extend $gpuLib
@@ -58,7 +58,7 @@ fn vktry {call} { string map {\n " "} [csubst {{
     }
 }}] }
 
-cc::addcode [subst {
+cc::code [subst {
     typedef struct DisplayState {
         Zicl_CapHead head;
         VkSurfaceKHR surface;

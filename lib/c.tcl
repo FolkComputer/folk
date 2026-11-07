@@ -149,7 +149,7 @@ set C {
             Zicl_CapDropInFlight((Zicl_CapHead*)ptr);
         }
     }
-    code {}
+    addedCode {}
 
     vars {}
     procs {}
@@ -314,8 +314,8 @@ set C {
         }
     }
 
-    cflags {-I./vendor/zicl/zig-out/include -I./}
-    endcflags {}
+    addedCflags {-I./vendor/zicl/zig-out/include -I./}
+    addedEndCflags {}
 }
 
 # Registers a new argtype.
@@ -339,13 +339,13 @@ method C::ret {self rtype robj rvalue} {
 
 method C::include {self h} {
     if {[string index $h 0] eq "<"} {
-        lappend self::code "#include $h" :extend
+        lappend self::addedCode "#include $h" :extend
     } else {
-        lappend self::code "#include \"$h\"" :extend
+        lappend self::addedCode "#include \"$h\"" :extend
     }
 }
 
-method C::addcode {self newcode {extendArg {:noextend}}} {
+method C::code {self newcode {extendArg {:noextend}}} {
     lassign [vm source $newcode] filename line
     if {$filename ne ""} {
         set newcode [subst {
@@ -353,12 +353,12 @@ method C::addcode {self newcode {extendArg {:noextend}}} {
 $newcode
 }]
     }
-    lappend self::code $newcode {*}$extendArg
+    lappend self::addedCode $newcode {*}$extendArg
     list
 }
 
 method C::define {self newvars} {
-    lappend self::code $newvars :noextend
+    lappend self::addedCode $newvars :noextend
 
     regsub -all -line {/\*.*?\*/} $newvars "" newvars
     regsub -all -line {//.*$} $newvars "" newvars
@@ -371,7 +371,7 @@ method C::define {self newvars} {
         }
         dict set self::vars $varname $vartype
 
-        lappend self::code [subst {
+        lappend self::addedCode [subst {
             $vartype *${varname}_ptr() {
                 return &$varname;
             }
@@ -381,7 +381,7 @@ method C::define {self newvars} {
 
 method C::typedef {self t newt {emitC true}} {
     if {$emitC} {
-        lappend self::code "typedef $t $newt;" :extend
+        lappend self::addedCode "typedef $t $newt;" :extend
     }
     set argtype $t; set rtype $t
 
@@ -418,7 +418,7 @@ method C::objtype {self type code} {
 }
 
 method C::struct {self type fields} {
-    lappend self::code [subst {
+    lappend self::addedCode [subst {
         typedef struct $type $type;
         struct $type {$fields};
     }] :extend
@@ -672,8 +672,8 @@ method C::proc {self name arguments rtype body} {
     }]
 }
 
-method C::addcflags {self args} { lappend self::cflags {*}$args }
-method C::addendcflags {self args} { lappend self::endcflags {*}$args }
+method C::cflags {self args} { lappend self::addedCflags {*}$args }
+method C::endcflags {self args} { lappend self::addedEndCflags {*}$args }
 
 method C::compile {self args} {
     set noload false
@@ -748,7 +748,7 @@ extern "C" \{
                               $self::prelude \
                               $unexternC \
                               \
-                              {*}[lmap {snippet extend} $self::code {set snippet}] \
+                              {*}[lmap {snippet extend} $self::addedCode {set snippet}] \
                               \
                               $externC \
                               {*}[dict values $self::objtypes] \
@@ -766,7 +766,7 @@ extern "C" \{
         set ignoreUnresolved -Wl,-undefined,dynamic_lookup
     }
     if {[__isTracyEnabled]} {
-        lappend self::cflags -DTRACY_ENABLE=1 -I./vendor/tracy/public
+        lappend self::addedCflags -DTRACY_ENABLE=1 -I./vendor/tracy/public
     }
     set asan_flags {}
     if {[vm exists env::ASAN_ENABLE] && $env::ASAN_ENABLE ne ""} {
@@ -776,14 +776,14 @@ extern "C" \{
                         {*}$($tcl_platform::os eq "linux" ? [list -Wno-alloc-size-larger-than] : [list]) \
                         -U_FORTIFY_SOURCE -O2 -march=native -g \
                         -fno-omit-frame-pointer -fPIC \
-                        {*}$self::cflags $cfile -c -o [file rootname $cfile].o]
+                        {*}$self::addedCflags $cfile -c -o [file rootname $cfile].o]
     if {[string trim $out] ne ""} {
         puts $out
     }
 
     exec $self::compiler {*}$asan_flags -shared $ignoreUnresolved \
         -O2 -o /tmp/$cid.so [file rootname $cfile].o \
-        {*}$self::endcflags
+        {*}$self::addedEndCflags
 
     if {$noload} {
         # Return the name of the compiled file instead of loading it.
@@ -803,7 +803,7 @@ extern "C" \{
         objtypes $self::objtypes \
         procs $self::procs \
         vars $self::vars \
-        code $self::code]
+        code $self::addedCode]
     return $fns
 }
 
@@ -823,7 +823,7 @@ method C::import {self srclib srcname {destname {}}} {
 
     set cname [string map {":" "_" "!" "_"} $srcname]
     set addr [dynlib lookup $srcCap $cname]
-    self::addcode "$rtype (*$destname) ([join $arglist {, }]) = ($rtype (*) ([join $arglist {, }])) ${addr}UL;"
+    self::code "$rtype (*$destname) ([join $arglist {, }]) = ($rtype (*) ([join $arglist {, }])) ${addr}UL;"
 }
 
 # Shares another compiled library's types, procs, and vars with this one, so
@@ -852,8 +852,8 @@ method C::extend {self args} {
         # typedef has to reach every unit that inherited its objtype code, not
         # just the first). The lsearch is what keeps a diamond from emitting
         # the same declaration twice.
-        if {$extend eq ":extend" && [lsearch -exact $self::code $snippet] < 0} {
-            lappend self::code $snippet :extend
+        if {$extend eq ":extend" && [lsearch -exact $self::addedCode $snippet] < 0} {
+            lappend self::addedCode $snippet :extend
         }
     }
 
@@ -887,7 +887,7 @@ method C::extend {self args} {
 
     dict for {varname vartype} [dict get $srcinfo vars] {
         set addr [dynlib lookup $srcCap ${varname}_ptr]
-        self::addcode "$vartype* (*${varname}_ptr)() = ($vartype* (*)()) ${addr}UL;"
+        self::code "$vartype* (*${varname}_ptr)() = ($vartype* (*)()) ${addr}UL;"
     }
 
     # Chain $srclib's own per-thread command registration into this unit's,
@@ -897,12 +897,12 @@ method C::extend {self args} {
     set srcid [dict get $srcinfo cid]
     if {[lsearch $self::extends $srcid] < 0} {
         set addr [dynlib lookup $srcCap ${srcid}_register]
-        self::addcode "void (*${srcid}_register)(Zicl_Interp*) = (void (*)(Zicl_Interp*)) ${addr}UL;"
+        self::code "void (*${srcid}_register)(Zicl_Interp*) = (void (*)(Zicl_Interp*)) ${addr}UL;"
         lappend self::extends $srcid
     }
 }
 
-C::addcode {
+C::code {
     typedef struct Buffer {
         Zicl_CapHead head;
         size_t size;
@@ -976,6 +976,6 @@ fn C++ {{proto {}}} {
     if {$proto eq {}} { set proto $C }
     set cpp [dict link $proto {}]
     set cpp::compiler c++
-    cpp::addcflags -Wno-write-strings
+    cpp::cflags -Wno-write-strings
     return $cpp
 }

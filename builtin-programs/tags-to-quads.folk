@@ -89,7 +89,7 @@ cc::include <math.h>
 cc::include <common/matd.h>
 cc::include <common/homography.h>
 
-cc::addcode {
+cc::code {
     #define MATD_VAR(name, nr, nc) \
               matd_t* name = alloca(sizeof(matd_t)); \
               name->data = alloca((nr)*(nc)*sizeof(double)); \
@@ -113,7 +113,7 @@ cc::proc pseudoInverse {matd_t* a} matd_t* {
     return pinv;
 }
 
-cc::addcode { 
+cc::code { 
 void rotationVectorToRotationMatrix(double r[3], double out[3][3]) {
     double theta = sqrt(r[0]*r[0] + r[1]*r[1] + r[2]*r[2]);
     if (fabs(theta) < 0.0001) {

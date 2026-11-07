@@ -5,11 +5,11 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
      the html library is /htmlLib/ {
     dict assign $htmlLib html
     set cc [dict link $C {}]
-    cc::addendcflags -lpng
-    cc::addcflags -I./vendor
-    cc::addendcflags $vmaDll
+    cc::endcflags -lpng
+    cc::cflags -I./vendor
+    cc::endcflags $vmaDll
     cc::include <png.h>
-    cc::addcode {
+    cc::code {
         #define VOLK_IMPLEMENTATION
         #include "volk/volk.h"
 
@@ -138,7 +138,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         return im;
     }
 
-    cc::addcode {
+    cc::code {
         struct WriteState {
             uint8_t* buffer;
             size_t* size; 

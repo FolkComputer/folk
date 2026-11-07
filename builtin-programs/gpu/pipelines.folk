@@ -11,9 +11,9 @@ When the GPU Vulkan C prototype is /Vulkan/ &\
 
 
 set cc [dict link $Vulkan {}]
-cc::addcflags -I./vendor
+cc::cflags -I./vendor
 cc::include <pthread.h>
-cc::addcode {
+cc::code {
     #define VOLK_IMPLEMENTATION
     #include "volk/volk.h"
 }
@@ -30,7 +30,7 @@ fn vktry {call} { string map {\n " "} [csubst {{
     }
 }}] }
 
-cc::addcode {
+cc::code {
     VkDevice device;
 }
 
@@ -59,7 +59,7 @@ cc::typedef uint64_t VkDeviceSize
 cc::argtype VkDescriptorType { int $argname; { long _wide; __ENSURE_OK(Zicl_GetLong(interp, $shim, &_wide)); $argname = (int)_wide; } }
 cc::rtype VkDescriptorType { $robj = Zicl_NewLong($rvalue); }
 
-cc::addcode {
+cc::code {
     typedef struct PushConstantsEncoder {
         int (*encode)(Zicl_Interp* interp, Zicl_Val obj, uint8_t out[128]);
     } PushConstantsEncoder;
@@ -478,7 +478,7 @@ fn pipelineCompilerLib::pipeline {fnDict args} {
             }
         }
     }
-    cc::addcode [csubst {
+    cc::code [csubst {
         typedef struct Args {
             $[join [lmap {argtype argname} $pushConstants {
                 set alignas [expr {$argtype eq "mat3" ? "16" : "sizeof($argtype)"}]

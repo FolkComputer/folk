@@ -1,11 +1,11 @@
 When the image library is /imageLib/ {
 set cc [dict link $C {}]
 cc::extend $imageLib
-cc::addendcflags -lpng
+cc::endcflags -lpng
 cc::include <stdlib.h>
 cc::include <string.h>
 
-cc::addcode {
+cc::code {
     #undef EXTERN
     #include <png.h>
     #include <stdint.h>

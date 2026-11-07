@@ -1,6 +1,6 @@
 set Apriltag [dict link $C {}]
-Apriltag::addcflags -I./vendor/apriltag
-Apriltag::addendcflags -Wl,-rpath,[pwd]/vendor/apriltag/build \
+Apriltag::cflags -I./vendor/apriltag
+Apriltag::endcflags -Wl,-rpath,[pwd]/vendor/apriltag/build \
     ./vendor/apriltag/build/libapriltag.so
 Claim libapriltag has been built with C prototype $Apriltag
 

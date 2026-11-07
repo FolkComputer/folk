@@ -8,12 +8,12 @@ When when the collected results for /clause/ with settle /settle/ are /resultsVa
 }
 
 set cc [dict link $C {}]
-cc::addcflags -I.
+cc::cflags -I.
 cc::include <string.h>
 cc::include <pthread.h>
 cc::include "trie.h"
 cc::include "db.h"
-cc::addcode {
+cc::code {
     extern Db* db;
     extern Zicl_List* claimizeClause(Zicl_List* clause);
     extern void HoldStatementGlobally(const char *key, double version,
@@ -137,7 +137,9 @@ cc::proc Recollect! {Zicl_Val patternObj bool isAtomically} bool {
 
             Zicl_Dict* envDict = ziclNewDict(NULL, 0);
             for (int j = 0; j < env->nBindings; j++) {
-                ziclDictPut(envDict, ziclNewString(env->bindings[j].name, -1), env->bindings[j].value);
+                Zicl_Val keyVal = ziclNewString(env->bindings[j].name, -1);
+                ziclDictPut(envDict, keyVal, env->bindings[j].value);
+                Zicl_DropRef(keyVal);
                 Zicl_DropRef(env->bindings[j].value);
             }
             ziclListAppend(resultsList, Zicl_BoxDict(envDict));

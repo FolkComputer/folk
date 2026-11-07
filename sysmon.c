@@ -24,10 +24,9 @@
 
 #include "common.h"
 #include "epoch.h"
+#include "output-redirection.h"
 #include "trie.h"
 #include "zicl-helpers.h"
-
-extern void installLocalStdoutAndStderr(int stdoutfd, int stderrfd);
 
 // TODO: declare these in folk.h or something.
 extern ThreadControlBlock threads[];
@@ -246,14 +245,19 @@ static void checkRam() {
     int selfRamMb = ru.ru_maxrss / (1024 * 1024);
 #endif
 
+    Zicl_List* selfRamClause = clauseFormat("sysmon.c claims %s has self RAM usage %d MB",
+                                            thisNode, selfRamMb);
     HoldStatementGlobally("selfRam", tick,
-                          clauseFormat("sysmon.c claims %s has self RAM usage %d MB",
-                                       thisNode, selfRamMb),
+                          selfRamClause,
                           0, ZICL_NONE, "sysmon.c", __LINE__);
+    Zicl_DropRefList(selfRamClause);
+
+    Zicl_List* totalRamClause = clauseFormat("sysmon.c claims %s has available RAM %d MB of %d MB",
+                                             thisNode, freeRamMb, totalRamMb);
     HoldStatementGlobally("totalRam", tick,
-                          clauseFormat("sysmon.c claims %s has available RAM %d MB of %d MB",
-                                       thisNode, freeRamMb, totalRamMb),
+                          totalRamClause,
                           0, ZICL_NONE, "sysmon.c", __LINE__);
+    Zicl_DropRefList(totalRamClause);
 
     if (freeRamMb < 200) {
         // Hard die if we are likely to run out of RAM
@@ -273,14 +277,7 @@ void *sysmonMain(void *ptr) {
 
     epochThreadInit();
 
-    {
-        char path[256];
-        snprintf(path, sizeof(path), "/var/tmp/folk-%d/sysmon.c.stdout", getpid());
-        int outfd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
-        snprintf(path, sizeof(path), "/var/tmp/folk-%d/sysmon.c.stderr", getpid());
-        int errfd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
-        installLocalStdoutAndStderr(outfd, errfd);
-    }
+    installLocalStdoutAndStderrForProgram("sysmon.c");
 
     tick = 0;
     gethostname(thisNode, sizeof(thisNode));

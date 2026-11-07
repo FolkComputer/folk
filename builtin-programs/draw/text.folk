@@ -9,7 +9,7 @@ cc::struct GlyphInfo {
     float planeBounds[4];
     float atlasBounds[4];
 }
-cc::addcode {
+cc::code {
     typedef struct Font {
         Zicl_CapHead head;
         Image atlasImage;
