@@ -181,8 +181,12 @@ When /anyone/ wishes /thing/ is a terminal {
 }
 
 When /anyone/ wishes /thing/ is a terminal spawning /cmd/ {
+  Claim -keep 600000ms $thing is a terminal spawning $cmd
+}
+
+When /thing/ is a terminal spawning /cmd/ {
   set term [$terminalLib termCreate 12 43 $cmd]
-  Claim -keep 600000ms -destructor [list $terminalLib termDestroy $term] \
+  Claim -destructor [list $terminalLib termDestroy $term] \
     $thing has terminal $term spawning $cmd
 }
 
