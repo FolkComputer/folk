@@ -185,7 +185,7 @@ When /anyone/ wishes /thing/ is a terminal spawning /cmd/ {
 }
 
 When /thing/ is a terminal spawning /cmd/ {
-  set term [$terminalLib termCreate 12 43 $cmd]
+  set term [$terminalLib termCreate 24 65 $cmd]
   Claim -destructor [list $terminalLib termDestroy $term] \
     $thing has terminal $term spawning $cmd
 }
