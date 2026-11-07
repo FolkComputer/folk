@@ -254,6 +254,12 @@ TrOCR, SAM2), you should [install
 uv](https://docs.astral.sh/uv/getting-started/installation/) such that
 the `uvx` command is available.
 
+### Terminal support
+
+Install libghostty -- you can do this with snap on Ubuntu: `snap install ghostty --classic`
+
+Then `Wish $this is a terminal` in a program.
+
 ## Development tools
 
 ### Address Sanitizer

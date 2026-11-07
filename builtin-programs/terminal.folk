@@ -1,64 +1,216 @@
+# Locate the installed shared library when this program starts.
+set ghosttyPrefix ""
+foreach prefix {/snap/ghostty/current /usr/local /usr /opt/homebrew} {
+  foreach lib [list $prefix/lib/libghostty-vt.so $prefix/lib/libghostty-vt.dylib] {
+    if {[file exists $lib] && [file exists $prefix/include/ghostty/vt.h]} {
+      set ghosttyPrefix $prefix
+      set ghosttyLibrary $lib
+      break
+    }
+  }
+  if {$ghosttyPrefix ne ""} { break }
+}
+if {$ghosttyPrefix eq ""} { error "terminal: install libghostty-vt (headers and shared library)" }
+
 # Terminal
 #
 # Spawn terminals with any command (default "bash"):
 #   Wish $this is a terminal
 #   Wish $this is a terminal spawning "any command"
 #
-# Send keyboard events to the terminal:
-#   Claim $thing has keyboard input
-#
-# Optionally, draw the terminal on an arbitrary region:
-#   Claim $thing has terminal region $region
-#
-#
-# Example program: Tie it all together with a simple vim editor...
-#
-#   When $this points up at /target/ & /target/ has program /anything/ {
-#     Wish $this is a terminal spawning "vim ~/folk-printed-programs/$target.folk"
-#     When $this has region /r/ {
-#       Claim $this has terminal region [region move $r right 350px]
-#     }
-#     Claim $this has keyboard input
-#   }
-#
-#
+# Keyboard input is automatic. To draw on another page or canvas:
+#   Claim $this has terminal canvas $canvas
 
-error "FIXME: terminal.folk not currently working."
+set cc [C]
+$cc cflags -I$ghosttyPrefix/include
+$cc endcflags -lutil -Wl,-rpath,$ghosttyPrefix/lib $ghosttyLibrary
+foreach header {sys/types.h stdlib.h unistd.h fcntl.h string.h time.h signal.h sys/wait.h errno.h ghostty/vt.h} {
+  $cc include <$header>
+}
+if {$::tcl_platform(os) eq "darwin"} { $cc include <util.h> } else { $cc include <pty.h> }
 
-source lib/terminal.tcl
+$cc code {
+  typedef struct {
+    GhosttyTerminal terminal;
+    GhosttyRenderState render;
+    GhosttyRenderStateRowIterator rows;
+    GhosttyRenderStateRowCells cells;
+    int pty_fd;
+    pid_t pid;
+  } VTerminal;
 
-# WIP: Needs to finish being fixed for folk2.
+  static void termWriteBytes(VTerminal *vt, const uint8_t *data, size_t len) {
+    while (len) {
+      ssize_t n = write(vt->pty_fd, data, len);
+      if (n > 0) { data += n; len -= n; }
+      else if (n < 0 && errno == EINTR) { continue; }
+      else { break; }
+    }
+  }
+
+  static void termReply(GhosttyTerminal terminal, void *userdata, const uint8_t *data, size_t len) {
+    termWriteBytes(userdata, data, len);
+  }
+}
+
+$cc proc termCreate {int rows int cols char* cmd} VTerminal* {
+  VTerminal *vt = calloc(1, sizeof(VTerminal));
+  FOLK_ENSURE(vt != NULL);
+  if (ghostty_terminal_new(NULL, &vt->terminal, cols, rows) != GHOSTTY_SUCCESS ||
+      ghostty_render_state_new(NULL, &vt->render) != GHOSTTY_SUCCESS ||
+      ghostty_render_state_row_iterator_new(NULL, &vt->rows) != GHOSTTY_SUCCESS ||
+      ghostty_render_state_row_cells_new(NULL, &vt->cells) != GHOSTTY_SUCCESS) {
+    ghostty_render_state_row_cells_free(vt->cells);
+    ghostty_render_state_row_iterator_free(vt->rows);
+    ghostty_render_state_free(vt->render);
+    ghostty_terminal_free(vt->terminal);
+    free(vt);
+    FOLK_ERROR("terminal: could not create Ghostty terminal");
+  }
+
+  struct winsize ws = {.ws_row = rows, .ws_col = cols};
+  vt->pid = forkpty(&vt->pty_fd, NULL, NULL, &ws);
+  if (vt->pid == 0) {
+    setenv("TERM", "xterm-256color", 1);
+    execlp("bash", "bash", "-c", cmd, NULL);
+    _exit(127);
+  }
+  if (vt->pid < 0) {
+    ghostty_render_state_row_cells_free(vt->cells);
+    ghostty_render_state_row_iterator_free(vt->rows);
+    ghostty_render_state_free(vt->render);
+    ghostty_terminal_free(vt->terminal);
+    free(vt);
+    FOLK_ERROR("terminal: forkpty failed");
+  }
+  fcntl(vt->pty_fd, F_SETFL, O_NONBLOCK);
+  ghostty_terminal_set(vt->terminal, GHOSTTY_TERMINAL_OPT_USERDATA, vt);
+  ghostty_terminal_set(vt->terminal, GHOSTTY_TERMINAL_OPT_WRITE_PTY, (const void *)termReply);
+  return vt;
+}
+
+$cc proc termDestroy {VTerminal* vt} void {
+  // Reap exited children before signalling, so a reused PID is never killed.
+  if (waitpid(vt->pid, NULL, WNOHANG) == 0) {
+    kill(vt->pid, SIGKILL);
+    while (waitpid(vt->pid, NULL, 0) < 0 && errno == EINTR) {}
+  }
+  close(vt->pty_fd);
+  ghostty_render_state_row_cells_free(vt->cells);
+  ghostty_render_state_row_iterator_free(vt->rows);
+  ghostty_render_state_free(vt->render);
+  ghostty_terminal_free(vt->terminal);
+  free(vt);
+}
+
+$cc proc termRead {VTerminal* vt} Jim_Obj* {
+  uint8_t buf[4096];
+  // Bound work per tick even if the child continuously produces output.
+  for (int i = 0; i < 64; i++) {
+    ssize_t n = read(vt->pty_fd, buf, sizeof(buf));
+    if (n > 0) { ghostty_terminal_vt_write(vt->terminal, buf, n); }
+    else if (n < 0 && errno == EINTR) { continue; }
+    else { break; }
+  }
+
+  FOLK_ENSURE(ghostty_render_state_update(vt->render, vt->terminal) == GHOSTTY_SUCCESS);
+  bool visible = false, inViewport = false;
+  uint16_t cx = 0, cy = 0;
+  ghostty_render_state_get(vt->render, GHOSTTY_RENDER_STATE_DATA_CURSOR_VISIBLE, &visible);
+  ghostty_render_state_get(vt->render, GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_HAS_VALUE, &inViewport);
+  ghostty_render_state_get(vt->render, GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_X, &cx);
+  ghostty_render_state_get(vt->render, GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_Y, &cy);
+  ghostty_render_state_get(vt->render, GHOSTTY_RENDER_STATE_DATA_ROW_ITERATOR, &vt->rows);
+
+  Jim_Obj *text = Jim_NewStringObj(interp, "", 0);
+  int y = 0;
+  while (ghostty_render_state_row_iterator_next(vt->rows)) {
+    if (y) { Jim_AppendString(interp, text, "\n", 1); }
+    ghostty_render_state_row_get(vt->rows, GHOSTTY_RENDER_STATE_ROW_DATA_CELLS, &vt->cells);
+    int x = 0;
+    while (ghostty_render_state_row_cells_next(vt->cells)) {
+      GhosttyCell cell;
+      GhosttyCellWide wide;
+      ghostty_render_state_row_cells_get(vt->cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_RAW, &cell);
+      ghostty_cell_get(cell, GHOSTTY_CELL_DATA_WIDE, &wide);
+      if (visible && inViewport && x == cx && y == cy && time(NULL) % 2 == 0) {
+        Jim_AppendString(interp, text, wide == GHOSTTY_CELL_WIDE_WIDE ? "█ " : "█", -1);
+      } else if (wide != GHOSTTY_CELL_WIDE_SPACER_TAIL) {
+        GhosttyBuffer grapheme = {.ptr = buf, .cap = sizeof(buf)};
+        GhosttyResult result = ghostty_render_state_row_cells_get(vt->cells,
+            GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_UTF8, &grapheme);
+        if (result == GHOSTTY_OUT_OF_SPACE) {
+          grapheme.ptr = malloc(grapheme.len);
+          grapheme.cap = grapheme.len;
+          FOLK_ENSURE(grapheme.ptr != NULL);
+          result = ghostty_render_state_row_cells_get(vt->cells,
+              GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_UTF8, &grapheme);
+        }
+        FOLK_ENSURE(result == GHOSTTY_SUCCESS);
+        Jim_AppendString(interp, text, grapheme.len ? (char *)grapheme.ptr : " ", grapheme.len ? grapheme.len : 1);
+        if (grapheme.ptr != buf) { free(grapheme.ptr); }
+      }
+      x++;
+    }
+    y++;
+  }
+  return text;
+}
+
+$cc proc termWrite {VTerminal* vt Jim_Obj* key} void {
+  int len;
+  const char *data = Jim_GetString(key, &len);
+  termWriteBytes(vt, (const uint8_t *)data, len);
+}
+set terminalLib [$cc compile]
+
+# From `man console_codes`; printable characters come directly from the keyboard.
+set keymap [dict create \
+  Remove "\x1b\[3~" Tab "\x09" Linefeed "\x0a" Return "\x0d" \
+  nul "\x00" Delete "\x7f" Escape "\x1b" \
+  Control_backslash "\x1c" Control_bracketright "\x1d" \
+  Control_asciicircum "\x1e" Control_underscore "\x1f" \
+  Up "\x1b\[A" Down "\x1b\[B" Right "\x1b\[C" Left "\x1b\[D" \
+  Home "\x1b\[H" End "\x1b\[F" Prior "\x1b\[5~" Next "\x1b\[6~"]
+for {set i 0} {$i < 26} {incr i} {
+  dict set keymap Control_[format %c $($i + 97)] [format %c $($i + 1)]
+}
 
 When /anyone/ wishes /thing/ is a terminal {
   Wish $thing is a terminal spawning bash
 }
 
-When /thing/ has terminal region /r/ & /r/ has keyboard input {
-  Claim $thing has keyboard input
+When /anyone/ wishes /thing/ is a terminal spawning /cmd/ {
+  set term [$terminalLib termCreate 12 43 $cmd]
+  Claim -keep 600000ms -destructor [list $terminalLib termDestroy $term] \
+    $thing has terminal $term spawning $cmd
 }
 
-When /anyone/ wishes /thing/ is a terminal spawning /cmd/ {
-  set term [$terminalLib create 12 43 $cmd]
-  # Keep for 10 minutes.
-  Claim -keep [expr {10*60*1000}]ms \
-    -destructor [list $terminalLib destroy $term]
-    $thing has terminal $term spawning $cmd
+When /thing/ has terminal /term/ spawning /cmd/ {
+  Claim $thing handles keyboard input
 
-  When the clock time is /t/ {
-    set body {
-      Wish region $region is labelled [$terminalLib read $term]
+  When -serially the clock time is /t/ {
+    set text [$terminalLib termRead $term]
+    When $thing has terminal canvas /canvas/ {
+      Wish to draw text onto $canvas with text $text position {0.01 0.01} \
+        anchor topleft scale 0.005 font CourierPrimeCode
     }
-    When $thing has terminal region /region/ $body
-    When /nobody/ claims $thing has terminal region /x/ & $thing has region /region/ $body
+    When /nobody/ claims $thing has terminal canvas /canvas/ {
+      Wish to draw text onto $thing with text $text position {0.01 0.01} \
+        anchor topleft scale 0.005 font CourierPrimeCode
+    }
   }
 
-  When /anyone/ claims $thing has keyboard input \
-    & keyboard /anyone/ claims key /key/ is /direction/ with /...options/ {
-    if {$direction != "up"} {
+  When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
+       /keyboard/ is typing into $thing {
+    Subscribe: keyboard $kbPath claims key /key/ is /direction/ with /...options/ {
+      if {$direction eq "up"} { return }
       if {[dict exists $options printable]} {
-        $terminalLib write $term [dict get $options printable]
-      } else {
-        $terminalLib handleKey $term $key
+        $terminalLib termWrite $term [dict get $options printable]
+      } elseif {[dict exists $keymap $key]} {
+        $terminalLib termWrite $term [dict get $keymap $key]
+      } elseif {[string length $key] == 1} {
+        $terminalLib termWrite $term $key
       }
     }
   }
