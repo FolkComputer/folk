@@ -120,7 +120,7 @@ When the GPU library is /gpuLib/ &\
         static inline GpuCanvas* GpuCanvas_unwrap(Zicl_Interp* interp, Zicl_Shim* shim) {
             Zicl_CapHead* head = NULL;
             __ENSURE_OK(Zicl_ResolveCap(interp, shim, GpuCanvas_VTable, &head));
-            __capCleanupDefer(head);
+            __defer(__capDropInFlight, head);
             return Zicl_ContainerOf(head, GpuCanvas, head);
         }
 

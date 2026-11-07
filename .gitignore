@@ -9,3 +9,4 @@ CFLAGS
 play
 .vscode/settings.json
 .agent-shell
+perf.data*

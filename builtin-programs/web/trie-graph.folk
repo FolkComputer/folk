@@ -96,7 +96,7 @@ void tfree(void *ptr) {
         static inline TrieCap* Trie_resolve(Zicl_Interp* interp, Zicl_Shim* shim) {
             Zicl_CapHead* head = NULL;
             __ENSURE_OK(Zicl_ResolveCap(interp, shim, Trie_VTable, &head));
-            __capCleanupDefer(head);
+            __defer(__capDropInFlight, head);
             return Zicl_ContainerOf(head, TrieCap, head);
         }
 

@@ -150,7 +150,7 @@ cc::objtype Image {
         Image* imPtr = NULL;
         __ENSURE_OK(Image_shimmerFrom(interp, shim, &imPtr));
         __ENSURE_OK(Zicl_CapMarkInFlight(interp, imPtr->cap));
-        __capCleanupDefer(imPtr->cap);
+        __defer(__capDropInFlight, imPtr->cap);
         Buffer* buf = Zicl_ContainerOf(imPtr->cap, Buffer, head);
         Image im = *imPtr;
         im.data = buf->data + im.index;

@@ -17,9 +17,11 @@ fn csubst {s} {
         switch -- $c {
             "\\" {
                 incr i; set next [string index $s $i]
-                # TODO: This is a hack to deal with \n.
-                if {$next eq "n"} { lappend result "\\" }
-                lappend result $next
+                if {$next eq "\$"} {
+                    lappend result "\$"
+                } else {
+                    lappend result "\\" $next
+                }
             }
             {$} {
                 set remaining [string range $s $i end]
@@ -87,6 +89,7 @@ set C {
     prelude {
         #include <inttypes.h>
         #include <stdint.h>
+        #include <assert.h>
         #include <stdbool.h>
         #include <stdio.h>
         #include <stdlib.h>
@@ -104,24 +107,6 @@ set C {
         extern __thread jmp_buf __onError;
         extern __thread bool __onErrorIsSet;
 
-        typedef struct __CapCleanup {
-            Zicl_CapHead* heads[16];
-            int count;
-        } __CapCleanup;
-        static __thread __CapCleanup __capCleanup;
-
-        static inline void __capCleanupDefer(Zicl_CapHead* head) {
-            if (__capCleanup.count < 16) {
-                __capCleanup.heads[__capCleanup.count++] = head;
-            }
-        }
-
-        static inline void __capCleanupRunTo(int base) {
-            while (__capCleanup.count > base) {
-                Zicl_CapDropInFlight(__capCleanup.heads[--__capCleanup.count]);
-            }
-        }
-
         #define __ENSURE(EXPR) if (!(EXPR)) { Zicl_SetErrorString(interp, "failed to convert argument from Tcl to C in: " #EXPR, -1); longjmp(__onError, 0); }
         #define __ENSURE_OK(EXPR) if ((EXPR) != ZICL_OK) { longjmp(__onError, 0); }
 
@@ -133,6 +118,36 @@ set C {
         #define FOLK_ABORT() longjmp(__onError, 0)
         #define FOLK_ENSURE(EXPR) if (!(EXPR)) { Zicl_SetErrorString(interp, "assertion failed: " #EXPR, -1); longjmp(__onError, 0); }
         #define FOLK_CHECK(EXPR, MSG) if (!(EXPR)) { FOLK_ERROR(MSG); }
+
+        typedef struct __DeferredFunc {
+            void *ptr;
+            void (*run)(void*);
+        } __DeferredFunc;
+        #define __MAX_DEFERRED_FUNCS 16
+        static __thread __DeferredFunc __deferred_funcs[__MAX_DEFERRED_FUNCS] __attribute__((unused));
+        static __thread int __deferred_count __attribute__((unused)) = 0;
+
+        static inline __attribute__((unused)) void __defer(void (*run)(void*), void* ptr) {
+            assert(__onErrorIsSet);
+            if (__deferred_count >= __MAX_DEFERRED_FUNCS) {
+                if (run) run(ptr);
+                FOLK_ERROR("out of deferred function slots");
+            }
+            __deferred_funcs[__deferred_count++] = (__DeferredFunc){ .ptr = ptr, .run = run };
+        }
+
+        static inline __attribute__((unused)) void __deferredRunTo(int base) {
+            while (__deferred_count > base) {
+                __deferred_count--;
+                if (__deferred_funcs[__deferred_count].run) {
+                    __deferred_funcs[__deferred_count].run(__deferred_funcs[__deferred_count].ptr);
+                }
+            }
+        }
+
+        static inline void __capDropInFlight(void* ptr) {
+            Zicl_CapDropInFlight((Zicl_CapHead*)ptr);
+        }
     }
     code {}
 
@@ -167,7 +182,15 @@ set C {
         intptr_t {identity { intptr_t $argname; __ENSURE_OK(Zicl_GetLong(interp, $shim, (long *)&$argname)); }}
         uint16_t {identity { uint16_t $argname; { long _wide_$argname; __ENSURE_OK(Zicl_GetLong(interp, $shim, &_wide_$argname)); $argname = (uint16_t)_wide_$argname; } }}
         uint32_t {identity { uint32_t $argname; { long _wide_$argname; __ENSURE_OK(Zicl_GetLong(interp, $shim, &_wide_$argname)); $argname = (uint32_t)_wide_$argname; } }}
-        uint64_t {identity { uint64_t $argname; __ENSURE(sscanf(ziclShimString($shim), "%" PRIu64, &$argname) == 1); }}
+        uint64_t {identity {
+            uint64_t $argname;
+            {
+                long _wide_$argname;
+                __ENSURE_OK(Zicl_GetLong(interp, $shim, &_wide_$argname));
+                __ENSURE(_wide_$argname >= 0);
+                $argname = (uint64_t)_wide_$argname;
+            }
+        }}
         char* {identity { char* $argname = (char*) ziclShimString($shim); } }
         Zicl_Val {identity { Zicl_Val $argname = Zicl_Current($shim); }}
         Zicl_Shim* {identity { Zicl_Shim* $argname = $shim; }}
@@ -181,9 +204,11 @@ set C {
             } elseif {[regexp {(^[^\[]+)\[([^\]]*)\]$} $argtype -> basetype arraylen]} {
                 # note: arraylen can be "" or a named identifier
                 if {$basetype eq "char"} {identity {
-                    int $[set argname]_len; const char *$[set argname]_bytes = ziclShimString($shim, &len);
+                    int $[set argname]_len; const char *$[set argname]_bytes = ziclShimGetString($shim, &$[set argname]_len);
                     if ($[set argname]_len > $arraylen) $[set argname]_len = $arraylen;
-                    char $argname[$arraylen]; memcpy($argname, $[set argname]_bytes, $[set argname]_len);
+                    char $argname[$arraylen];
+                    memset($argname, 0, $arraylen);
+                    memcpy($argname, $[set argname]_bytes, $[set argname]_len);
                 } } else {
                     if {[regexp {^[a-zA-Z_]} $arraylen]} {
                         set countvar $arraylen
@@ -240,14 +265,19 @@ set C {
     rtypes {
         int {identity { $robj = Zicl_NewLong($rvalue); }}
         int32_t {identity { $robj = Zicl_NewLong($rvalue); }}
-        double {identity { $robj = Zicl_NewLong($rvalue); }}
-        float {identity { $robj = Zicl_NewLong($rvalue); }}
+        double {identity { $robj = Zicl_NewDouble($rvalue); }}
+        float {identity { $robj = Zicl_NewDouble($rvalue); }}
         char {identity { $robj = ziclNewString(&$rvalue, 1); }}
         bool {identity { $robj = Zicl_NewBool($rvalue); }}
         uint8_t {identity { $robj = Zicl_NewLong($rvalue); }}
         uint16_t {identity { $robj = Zicl_NewLong($rvalue); }}
         uint32_t {identity { $robj = Zicl_NewLong($rvalue); }}
-        uint64_t {identity { $robj = Zicl_NewLong((uint64_t)($rvalue)); }}
+        uint64_t {identity {
+            if ((uint64_t)$rvalue > (uint64_t)INT64_MAX) {
+                FOLK_ERROR("uint64_t value %" PRIu64 " exceeds INT64_MAX", (uint64_t)$rvalue);
+            }
+            $robj = Zicl_NewLong((long)$rvalue);
+        }}
         size_t {identity { $robj = Zicl_NewLong($rvalue); }}
         intptr_t {identity { $robj = Zicl_NewLong($rvalue); }}
         char* {identity { $robj = ziclNewString($rvalue, -1); } }
@@ -257,7 +287,7 @@ set C {
                 identity { folkZiclAssert(Zicl_NewStringFormatted(&$robj, "($rtype) 0x%" PRIxPTR, (uintptr_t) $rvalue)); }
             } elseif {[regexp {(^[^\[]+)\[(\d*)\]$} $rtype -> basetype arraylen]} {
                 if {$basetype eq "char"} {identity {
-                    $robj = ziclValuePrintf($rvalue);
+                    $robj = ziclNewString($rvalue, strnlen($rvalue, $arraylen));
                 } } else {identity {
                     {
                         Zicl_Val objv[$arraylen];
@@ -416,6 +446,8 @@ method C::struct {self type fields} {
 
     self::include <string.h>
     dict set self::objtypes $type [csubst {
+        // Forward declare the vtable, so we can use it in the object's
+        // methods before the vtable has been initialized.
         extern const Zicl_ObjVTable* $[set type]_VTable;
 
         static inline $type* $[set type]_fromObj(const Zicl_Obj* objPtr) {
@@ -461,21 +493,27 @@ method C::struct {self type fields} {
         int $[set type]_updateStringProc(Zicl_Obj* objPtr) {
             $type* struct_ptr = $[set type]_fromObj(objPtr);
 
-            const char *format = "$[join [lmap fieldname $fieldnames {
-                subst {$fieldname {%s}}
-                }] { }]";
             $[join [lmap {fieldtype fieldname} $fields {
                 csubst {
                     Zicl_Val struct_$fieldname;
                     $[self::ret $fieldtype struct_$fieldname struct_ptr->$fieldname]
                 }
             }] "\n"]
-            // Calculate the length first, so we can allocate the right number of bytes.
-            size_t bytes_len = snprintf(NULL, 0, format, $[join [lmap fieldname $fieldnames {subst {ziclString(struct_$fieldname)}}] ", "]);
-            char* bytes = malloc(bytes_len + 1);
-            defer { free(bytes); }
-            snprintf(bytes, bytes_len + 1, format, $[join [lmap fieldname $fieldnames {subst {ziclString(struct_$fieldname)}}] ", "]);
-            folkZiclAssert(Zicl_SetObjectString(objPtr, bytes, bytes_len));
+            $[if {[llength $fieldnames] > 0} {
+                csubst {
+                    const char* items[] = {
+                        $[join [lmap fieldname $fieldnames {
+                            subst {"$fieldname", ziclString(struct_$fieldname)}
+                        }] ",\n                        "]
+                    };
+                    int bytes_len = 0;
+                    const char* bytes = Zicl_FormatList(items, sizeof(items) / sizeof(items[0]), &bytes_len);
+                    if (bytes == NULL) return ZICL_OOM;
+                    folkZiclAssert(Zicl_SetObjectString(objPtr, bytes, bytes_len));
+                }
+            } else {
+                subst {folkZiclAssert(Zicl_SetObjectString(objPtr, "", 0));}
+            }]
             $[join [lmap {fieldtype fieldname} $fields {
                 subst {Zicl_DropRef(struct_$fieldname);}
             }] "\n"]
@@ -608,7 +646,7 @@ method C::proc {self name arguments rtype body} {
                 Zicl_SetResultString(interp, "Wrong number of arguments to $name", -1);
                 return ZICL_ERR;
             }
-            int __capCleanupBase = __capCleanup.count;
+            int __deferredBase = __deferred_count;
             bool didSetOnError = false;
             if (!__onErrorIsSet) {
                 int __r = setjmp(__onError);
@@ -617,7 +655,7 @@ method C::proc {self name arguments rtype body} {
 
                 if (__r != 0) {
                     __onErrorIsSet = false;
-                    __capCleanupRunTo(__capCleanupBase);
+                    __deferredRunTo(__deferredBase);
                     return ZICL_ERR;
                 }
             }
@@ -625,7 +663,7 @@ method C::proc {self name arguments rtype body} {
             [join $loadargs "\n"]
             $saverv
 
-            __capCleanupRunTo(__capCleanupBase);
+            __deferredRunTo(__deferredBase);
             if (didSetOnError) {
                 __onErrorIsSet = false;
             }
@@ -896,7 +934,7 @@ C::objtype Buffer {
     static inline Buffer* Buffer_unwrap(Zicl_Interp* interp, Zicl_Shim* shim) {
         Zicl_CapHead* head = NULL;
         __ENSURE_OK(Zicl_ResolveCap(interp, shim, Buffer_VTable, &head));
-        __capCleanupDefer(head);
+        __defer(__capDropInFlight, head);
         return Zicl_ContainerOf(head, Buffer, head);
     }
 

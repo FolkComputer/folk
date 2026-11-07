@@ -33,4 +33,90 @@ assert {[blib::readBuf $buf 2] == 12}
 close $buf
 assert {[catch {blib::readBuf $buf 0}] != 0}
 
+# Verify __defer slot exhaustion raises an error and runs cleanups
+set ec [dict link $C {}]
+ec::addcode {
+    static int g_cleanup_count = 0;
+    static void cleanup_inc(void* ptr) {
+        g_cleanup_count++;
+    }
+}
+ec::proc testOverflow {} int {
+    g_cleanup_count = 0;
+    for (int i = 0; i < 20; i++) {
+        __defer(cleanup_inc, NULL);
+    }
+    return g_cleanup_count;
+}
+ec::proc getCleanupCount {} int {
+    return g_cleanup_count;
+}
+set elib [ec::compile]
+assert {[catch {elib::testOverflow} err] != 0}
+assert {[string match "*out of deferred function slots*" $err]}
+# All 16 queued + 1 overflow item should have run cleanup (17 total)
+assert {[elib::getCleanupCount] == 17}
+
+# Verify double / float returns
+set fc [dict link $C {}]
+fc::proc getPi {} double {
+    return 3.14159;
+}
+fc::proc getHalf {} float {
+    return 0.5f;
+}
+# Verify csubst escapes (\t, \", \$, etc.)
+fc::proc getEscapes {} char* {
+    return "tab\there\nand\"quote\"and\$dollar";
+}
+# Verify char[N] arg and return
+fc::proc firstTwo {char[4] str} char* {
+    static char out[3];
+    out[0] = str[0];
+    out[1] = str[1];
+    out[2] = '\0';
+    return out;
+}
+set flib [fc::compile]
+assert {[flib::getPi] > 3.14 && [flib::getPi] < 3.15}
+assert {[flib::getHalf] > 0.49 && [flib::getHalf] < 0.51}
+assert {[flib::getEscapes] eq "tab\there\nand\"quote\"and\$dollar"}
+assert {[flib::firstTwo "abcd"] eq "ab"}
+
+# Verify uint64_t range checks
+fc::proc passU64 {uint64_t x} uint64_t {
+    return x;
+}
+fc::proc overflowU64 {} uint64_t {
+    return (uint64_t)INT64_MAX + 100ULL;
+}
+set glib [fc::compile]
+assert {[glib::passU64 42] == 42}
+assert {[catch {glib::passU64 -1}] != 0}
+assert {[catch {glib::overflowU64} err] != 0}
+assert {[string match "*exceeds INT64_MAX*" $err]}
+
+# Verify struct string serialization with Zicl_FormatList
+set sc [dict link $C {}]
+sc::struct Entry {
+    int id;
+    double value;
+}
+sc::proc makeEntry {int id double value} Entry {
+    Entry e;
+    e.id = id;
+    e.value = value;
+    return e;
+}
+sc::proc getEntryValue {Entry e} double {
+    return e.value;
+}
+set slib [sc::compile]
+
+set e1 [slib::makeEntry 10 3.14159]
+assert {[dict get $e1 id] == 10}
+assert {[dict get $e1 value] > 3.14 && [dict get $e1 value] < 3.15}
+assert {[slib::getEntryValue $e1] > 3.14 && [slib::getEntryValue $e1] < 3.15}
+assert {[string match "id 10 value 3.14159*" $e1]}
+
 Exit! 0

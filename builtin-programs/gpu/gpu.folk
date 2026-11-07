@@ -46,7 +46,7 @@ method Vulkan::defineHandleType {self type} {
         static inline $type ${type}_unwrap(Zicl_Interp* interp, Zicl_Shim* shim) {
             Zicl_CapHead* head = NULL;
             __ENSURE_OK(Zicl_ResolveCap(interp, shim, ${type}_VTable, &head));
-            __capCleanupDefer(head);
+            __defer(__capDropInFlight, head);
             return Zicl_ContainerOf(head, ${type}_Cap, head)->handle;
         }
 
