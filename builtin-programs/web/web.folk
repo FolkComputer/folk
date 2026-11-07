@@ -123,9 +123,12 @@ fn HtmlWhen args {
     set pattern [lreplace $pattern end end]
     set envStack [uplevel captureEnvStack]
     lappend envStack [list ^HtmlWhen ${^HtmlWhen}]
+    # Older renderers can outlive a route edit. Scope updates to the whole
+    # renderer so bodies (and captured values) sharing a query cannot collide.
+    binary scan [$sha1Lib sha1 [list $pattern $body $envStack]] H* renderId
     # TODO: Retract this when the page is closed.
     When -noncapturing the collected results for $pattern are /results/ \
-        [list apply {{pattern body envStack} {
+        [list apply {{renderId body envStack} {
             proc htmlEscape {s} { string map {& "&amp;" < "&lt;" > "&gt;" "\"" "&quot;"} $s }
 
             upvar results results
@@ -136,8 +139,8 @@ fn HtmlWhen args {
                 lset envStack end $result
                 lappend htmls [applyBlock $body $envStack]
             }
-            Notify: the html for $pattern is [join $htmls \n]
-        }} $pattern $body $envStack]
+            Notify: the html for $renderId is [join $htmls \n]
+        }} $renderId $body $envStack]
 
     set htmls [list]
     lappend envStack {}
@@ -164,7 +167,7 @@ fn HtmlWhen args {
         (function() {
           const el = document.currentScript.previousElementSibling;
           const callbacks = {$callbacksJs};
-          folk.subscribe(`the html for {$pattern} is /html/`, ({html}) => {
+          folk.subscribe(`the html for {$renderId} is /html/`, ({html}) => {
             if (window.Idiomorph) {
               Idiomorph.morph(el, html, {morphStyle:'innerHTML', callbacks:callbacks});
             } else {
@@ -176,9 +179,10 @@ fn HtmlWhen args {
     }]
 }
 
-# Route handlers need HtmlWhen in their lexical environment: applyBlock may
-# clear its cached command while rendering a nested HTML block.
-proc handleRead {chan addr} {^HtmlWhen} {
+# Route handlers need HtmlWhen and its hash library in their lexical
+# environment: applyBlock may clear its cached command while rendering a
+# nested HTML block.
+proc handleRead {chan addr} {^HtmlWhen sha1Lib} {
     $chan buffering none
 
     gets $chan line; set line [string range $line 0 end-1]
@@ -213,7 +217,7 @@ proc handleRead {chan addr} {^HtmlWhen} {
                     set ^json [proc json {body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: application/json; charset=utf-8\n\n" body $body}]
 
                     if {[lindex $handler 0] eq "applyBlock"} {
-                        set env [dict create QUERY $QUERY ^HtmlWhen ${^HtmlWhen}]
+                        set env [dict create QUERY $QUERY ^HtmlWhen ${^HtmlWhen} sha1Lib $sha1Lib]
                         loop i [llength $vars] {
                             dict set env $i [lindex $vars $i]
                         }
