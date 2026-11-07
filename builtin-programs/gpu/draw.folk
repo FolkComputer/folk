@@ -643,9 +643,10 @@ while true {
             } else {
                 set instances [list [dict get $options arguments]]
             }
+            set key [dict getdef $options key {}]
             foreach instance $instances {
                 dict lappend displayList $layer \
-                    [list $gpu draw $pipeline $instance]
+                    [list $key [list $gpu draw $pipeline $instance]]
             }
         } on error e {
             puts stderr "Error: GPU draws pipeline $name: [errorInfo $e]"
@@ -690,7 +691,9 @@ while true {
         set drawCount 0
         foreach layer [lsort -real [dict keys $displayList]] {
             set layerDisplayList [dict get $displayList $layer]
-            foreach displayCommand $layerDisplayList {
+            # Keep overlapping canvases in the same order every frame.
+            foreach entry [lsort -index 0 $layerDisplayList] {
+                set displayCommand [lindex $entry 1]
                 incr drawCount
                 try { {*}$displayCommand } \
                     on error e { puts stderr [errorInfo $e] }

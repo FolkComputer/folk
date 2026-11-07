@@ -550,7 +550,7 @@ When the quad changer is /quadChange/ &\
             [list [list $displayWidth $displayHeight] \
                  $displayToClip \
                  [dict get $wiOptions texture] $a $b $c $d] \
-            layer [dict getdef $wiOptions layer 0]
+            layer [dict getdef $wiOptions layer 0] key $writableTextureId
     }
 }
 
