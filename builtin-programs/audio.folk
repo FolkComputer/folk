@@ -30,6 +30,7 @@ $cc code {
 }
 
 $cc include <pthread.h>
+$cc include <signal.h>
 $cc include <stdio.h>
 $cc include <stdint.h>
 $cc include <stdlib.h>
@@ -242,9 +243,18 @@ $cc code {
 }
 
 $cc proc audioInit {} bool {
+    // Folk cancels a When block by signalling SIGUSR1, and only
+    // threads that run Tcl can handle that. The threads that
+    // miniaudio starts inherit this mask, so they never get it.
+    sigset_t cancel, old;
+    sigemptyset(&cancel); sigaddset(&cancel, SIGUSR1);
+    pthread_sigmask(SIG_BLOCK, &cancel, &old);
+
     pthread_mutex_lock(&g_state_mtx);
     bool success = audio_init_impl();
     pthread_mutex_unlock(&g_state_mtx);
+
+    pthread_sigmask(SIG_SETMASK, &old, NULL);
 
     if (success) {
         return true;
@@ -338,6 +348,89 @@ $cc proc playSound {char* path} ma_sound* {
 
     fprintf(stderr, "miniaudio: playing %s\n", path);
     return snd;
+}
+
+# A stream of raw PCM that another program feeds a chunk at a time,
+# mixed with everything else that is playing. (video.folk uses this
+# for a video's soundtrack.)
+$cc code {
+    typedef struct AudioStream {
+        ma_pcm_rb rb;
+        ma_sound  snd;
+        int       channels;
+        bool      started;
+    } AudioStream;
+}
+
+# The samples are signed 16-bit, interleaved.
+$cc proc audioStreamOpen {int sampleRate int channels} AudioStream* {
+    AudioStream* s = calloc(1, sizeof *s);
+    s->channels = channels;
+
+    // Room for a quarter of a second.
+    ma_result r = ma_pcm_rb_init(ma_format_s16, channels, sampleRate / 4,
+                                 NULL, NULL, &s->rb);
+    if (r != MA_SUCCESS) {
+        free(s);
+        FOLK_ERROR("miniaudio: audioStreamOpen: buffer init failed: %s (%d)\n",
+                   ma_result_description(r), (int)r);
+    }
+    ma_pcm_rb_set_sample_rate(&s->rb, sampleRate);
+
+    r = ma_sound_init_from_data_source(&g_engine, &s->rb,
+                                       MA_SOUND_FLAG_NO_SPATIALIZATION,
+                                       &g_group, &s->snd);
+    if (r != MA_SUCCESS) {
+        ma_pcm_rb_uninit(&s->rb);
+        free(s);
+        FOLK_ERROR("miniaudio: audioStreamOpen: sound init failed: %s (%d)\n",
+                   ma_result_description(r), (int)r);
+    }
+    return s;
+}
+
+$cc proc audioStreamSetVolume {AudioStream* s double volume} void {
+    ma_sound_set_volume(&s->snd, (float)volume);
+}
+
+# Queues the samples in `pcm`. Waits while the stream is full, so
+# whoever is writing gets slowed down to the speed of playback.
+$cc proc audioStreamWrite {AudioStream* s Jim_Obj* pcm} void {
+    int len; const char* bytes = Jim_GetString(pcm, &len);
+    int frameSize = 2 * s->channels;
+    ma_uint32 frames = len / frameSize;
+
+    int waitedMs = 0;
+    while (frames > 0) {
+        ma_uint32 n = frames; void* buf;
+        if (ma_pcm_rb_acquire_write(&s->rb, &n, &buf) != MA_SUCCESS) { return; }
+        if (n == 0) {
+            // Full. If nothing gets played for a whole second, the
+            // audio device is stuck: drop these samples.
+            if (waitedMs >= 1000) { return; }
+            usleep(5 * 1000); waitedMs += 5;
+            continue;
+        }
+        memcpy(buf, bytes, (size_t)n * frameSize);
+        ma_pcm_rb_commit_write(&s->rb, n);
+        bytes += (size_t)n * frameSize; frames -= n;
+        waitedMs = 0;
+    }
+
+    // Playback starts once the stream is half full, so that a late
+    // chunk doesn't immediately run it dry.
+    if (!s->started &&
+        ma_pcm_rb_available_read(&s->rb) >= ma_pcm_rb_available_write(&s->rb)) {
+        s->started = true;
+        ma_sound_start(&s->snd);
+    }
+}
+
+$cc proc audioStreamClose {AudioStream* s} void {
+    ma_sound_stop(&s->snd);
+    ma_sound_uninit(&s->snd);
+    ma_pcm_rb_uninit(&s->rb);
+    free(s);
 }
 
 try {
