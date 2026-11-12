@@ -8,17 +8,53 @@
 #    Wish $this plays video "demo.mp4"
 #    Wish $this plays video "demo.mp4" with width 0.2 position {0.05 0}
 #
+# Play it without sound, or quieter:
+#
+#    Wish $this plays video "demo.mp4" with muted true
+#    Wish $this plays video "demo.mp4" with volume 0.3
+#
 # Play a file somewhere else in ~/folk-data:
 #
 #    Wish $this plays video "~/folk-data/captures/demo.mp4"
 #
-# The options are the same as for `Wish $this displays image`.
-# Playback is muted and loops forever. Removing the wish stops it;
-# wishing again restarts from the beginning.
+# The other options are the same as for `Wish $this displays image`.
+# Playback loops forever. Removing the wish stops it; wishing again
+# restarts from the beginning.
 
 When /someone/ wishes /p/ plays video /path/ {
     Wish $p plays video $path with scale 1.0
 }
+
+# The picture and the sound have to start at the same moment. So if
+# audio.folk comes up while a video is playing (it takes a while to
+# compile when Folk starts), the video starts over, now with sound.
+When the audio library is /audioLib/ {
+    Claim videos play sound through $audioLib
+}
+When /nobody/ claims the audio library is /anything/ {
+    Claim videos play sound through none
+}
+
+When videos play sound through /audioLib/ &\
+     /someone/ wishes /p/ plays video /path/ with /...options/ {
+    # HACK: the short wish above matches this too, with no options.
+    # (test/options.folk is the test for that.)
+    if {![info exists options]} { return }
+
+    # A bare name is looked up in ~/folk-data/video. A full path is
+    # fine too, as long as it stays inside ~/folk-data.
+    set dataDir "$::env(HOME)/folk-data"
+    set file [file join $dataDir/video [regsub {^~/} $path "$::env(HOME)/"]]
+    if {[string first "$dataDir/" $file] != 0 || [string match {*/../*} $file] ||
+        ![file isfile $file]} {
+        Say $p has error "video: No video '$path' in ~/folk-data" with info {}
+        return
+    }
+    Claim $p plays video $path from $file through $audioLib with options $options
+}
+
+# The picture and the sound each come from their own ffmpeg, which
+# plays the file in real time (-re), over and over.
 
 When the image library is /imageLib/ {
     set cc [C]
@@ -33,30 +69,17 @@ When the image library is /imageLib/ {
     }
     set videoLib [$cc compile]
 
-    When /someone/ wishes /p/ plays video /path/ with /...options/ {
-        # HACK: because we match partially
-        if {![info exists options]} { return }
-
-        # A bare name is looked up in ~/folk-data/video. A full path is
-        # fine too, as long as it stays inside ~/folk-data.
-        set dataDir "$::env(HOME)/folk-data"
-        set file [file join $dataDir/video [regsub {^~/} $path "$::env(HOME)/"]]
-        if {[string first "$dataDir/" $file] != 0 || [string match {*/../*} $file] ||
-            ![file isfile $file]} {
-            Say $p has error "video: No video '$path' in ~/folk-data" with info {}
-            return
-        }
-
+    When /p/ plays video /path/ from /file/ through /audioLib/ with options /options/ {
         # Atomically, so that the previous frame stays up until the
         # next one has been loaded onto the GPU.
         When -atomically $p has video $path frame /im/ {
             Wish $p displays image $im with {*}$options
         }
 
-        # ffmpeg decodes in real time (-re) and writes each frame to
-        # the pipe as a PPM: `P6\n<width> <height>\n255\n`, then RGB
-        # bytes. Frames are capped at 640px wide and 25fps, since every
-        # one of them goes through the pipe and onto the GPU.
+        # ffmpeg writes each frame to the pipe as a PPM:
+        # `P6\n<width> <height>\n255\n`, then RGB bytes. Frames are
+        # capped at 640px wide and 25fps, since every one of them goes
+        # through the pipe and onto the GPU.
         set ffmpeg [open |[list ffmpeg -nostdin -loglevel error \
                                -re -stream_loop -1 -i $file \
                                -an -vf "scale='min(640,iw)':-2,fps=25" \
@@ -93,5 +116,42 @@ When the image library is /imageLib/ {
             catch {kill SIGKILL [pid $ffmpeg]}
             catch {$ffmpeg close}
         }
+    }
+}
+
+# Without audio.folk (no sound card, say), videos play silently.
+#
+# This waits for the picture's ffmpeg to have started. If the two
+# were started at the same instant, each could inherit the other's
+# pipe, and then neither pipe would close when its own ffmpeg exits.
+When /p/ plays video /path/ from /file/ through /audioLib/ with options /options/ &\
+     /p/ plays video /path/ in process /picturePid/ {
+    if {$audioLib eq "none" || [dict getdef $options muted false]} { return }
+
+    # ffmpeg writes the soundtrack to the pipe as raw samples (16-bit,
+    # stereo, 48kHz), which we pass on to audio.folk to play. It's
+    # quiet because a video with no soundtrack is not an error here,
+    # and any other problem with the file gets reported above.
+    set ffmpeg [open |[list ffmpeg -nostdin -loglevel quiet \
+                           -re -stream_loop -1 -i $file \
+                           -vn -f s16le -ar 48000 -ac 2 -] r]
+    $ffmpeg readsize 4096
+
+    # As above: this is what stops the sound when the wish goes away.
+    Claim $p plays video $path sound in process [pid $ffmpeg] \
+        -destructor [list catch [list kill SIGKILL [pid $ffmpeg]]]
+
+    set stream [$audioLib audioStreamOpen 48000 2]
+    $audioLib audioStreamSetVolume $stream [dict getdef $options volume 1.0]
+    try -signal {
+        # 4096 bytes is about 20ms of sound.
+        while {[set pcm [$ffmpeg read 4096]] ne ""} {
+            $audioLib audioStreamWrite $stream $pcm
+        }
+    } on signal sig {
+    } finally {
+        $audioLib audioStreamClose $stream
+        catch {kill SIGKILL [pid $ffmpeg]}
+        catch {$ffmpeg close}
     }
 }
