@@ -17,7 +17,7 @@ proc isKeyboard {device} {
 #
 # This function goes through each of them and checks if they are keyboards
 proc walkInputEventPaths {} {
-    set allDevices [lsort [glob -nocomplain "/dev/input/by-path/*-event-*"]]
+    set allDevices [lsort [glob -nocomplain "/dev/input/by-path/*-event-*" "/dev/input/by-path/keyboard-*"]]
     set seen [dict create]
     set keyboards [list]
     foreach device $allDevices {
