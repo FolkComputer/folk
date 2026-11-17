@@ -538,6 +538,10 @@ $cc proc drawEnd {} void {
         pthread_mutex_lock(graphicsQueueMutex_ptr());
         VkResult presentResult = vkQueuePresentKHR(*presentQueue_ptr(), &presentInfo);
         pthread_mutex_unlock(graphicsQueueMutex_ptr());
+
+        // Wait for this display's submission to complete before we
+        // reuse the shared command buffer for the next display.
+        // Do this even if presentation failed, before unwinding the display.
         vkWaitForFences(device, 1, &ds->inFlightFence, VK_TRUE, UINT64_MAX);
         if (presentResult != VK_SUCCESS && presentResult != VK_SUBOPTIMAL_KHR) {
             FOLK_ERROR("Failed vkQueuePresentKHR: %s (%d)\n",
