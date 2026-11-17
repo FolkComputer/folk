@@ -16,6 +16,9 @@ When the GPU library is /gpuLib/ &\
      the GPU pipeline library is /pipelineLib/ &\
      the GPU pipeline compiler library is /pipelineCompilerLib/ {
 
+# The macOS boot shim evaluates this body without a program identity.
+set this builtin-programs/gpu/draw.folk
+
 fn defineVulkanHandleType
 set haveGlfw [$gpuLib getSupportsGlfw]
 
@@ -51,7 +54,6 @@ local proc vktry {call} { string map {\n " "} [csubst {{
 
 $cc code [subst {
     typedef struct DisplayState {
-        struct DisplayState* next;
         VkSurfaceKHR surface;
         VkSwapchainKHR swapchain;
         uint32_t swapchainImageCount;
@@ -71,7 +73,6 @@ $cc code [subst {
     VkDevice device;
     VkPhysicalDevice physicalDevice;
 
-    static DisplayState* activeDisplays;
     static DisplayState* currentDisplay;
     static VkPipeline boundPipeline;
     static VkDescriptorSet boundDescriptorSet;
@@ -106,9 +107,6 @@ $cc code [csubst {
         if (ds->swapchain) vkDestroySwapchainKHR(device, ds->swapchain, NULL);
         if (ds->surface) vkDestroySurfaceKHR(*instance_ptr(), ds->surface, NULL);
         $[if {$haveGlfw} {expr {{if (ds->window) glfwDestroyWindow(ds->window);}}}]
-        DisplayState** link = &activeDisplays;
-        while (*link && *link != ds) link = &(*link)->next;
-        if (*link) *link = ds->next;
         free(ds->swapchainFramebuffers);
         free(ds->swapchainImageViews);
         free(ds->renderFinishedSemaphores);
@@ -116,9 +114,6 @@ $cc code [csubst {
     }
 }]
 $cc proc closeDisplay {DisplayState* ds} void { destroyDisplay(ds); }
-$cc proc closeDisplays {} void {
-    while (activeDisplays) destroyDisplay(activeDisplays);
-}
 
 local proc vktryDisplay {call} { string map {\n " "} [csubst {{
     VkResult res = $call;
@@ -391,8 +386,6 @@ $cc proc initDisplay {char* display uint32_t width uint32_t height uint32_t refr
         $[vktryDisplay {vkCreateFence(device, &fenceInfo, NULL, &ds->inFlightFence)}]
     }
 
-    ds->next = activeDisplays;
-    activeDisplays = ds;
     return ds;
 }
 $cc proc getDisplayWidth {DisplayState* ds} uint32_t { return ds->swapchainExtent.width; }
@@ -581,15 +574,21 @@ set gpu [makeGpu $gpuLib $pipelineLib $drawLib]
 
 tracy setThreadName "gpu"
 
-# Track initialized displays: dict mapping display name -> DisplayState*
+# Statements own the display pointers; ForEach! retains them while in use.
 set displays [dict create]
-set displayOptions [dict create]
-set displayInfo [dict create]
 set retryAt [dict create]
 # macOS runs this body directly on the main thread, without a match.
-# Those display resources live until process exit.
+# Its statements live until explicitly retired or the process exits.
 if {[__currentMatchRef] ne ""} {
-    On unmatch [list $drawLib closeDisplays]
+    On unmatch {
+        ForEach! the GPU draw library $drawLib has display /display/ with state /ds/ /...any/ {
+            Hold! -key [list display-state $drawLib $display] {}
+        }
+    }
+}
+
+When the GPU draw library /drawLib/ has display /display/ with state /ds/ /...any/ {
+    Claim display $display has width [$drawLib getDisplayWidth $ds] height [$drawLib getDisplayHeight $ds]
 }
 
 set kGpu [tracy makeString "gpu"]
@@ -654,6 +653,13 @@ When /wisher/ wishes the GPU compiles pipeline /name/ /source/ {
 
 set missingPipelines [dict create]
 while true {
+    # Destructors run on workers. Close displays here so GLFW teardown stays
+    # on the thread that creates windows and polls events.
+    ForEach! the GPU retires display /retiredDisplay/ using /retiredDrawLib/ {
+        $retiredDrawLib closeDisplay $retiredDisplay
+        Hold! -key [list close-display $retiredDrawLib $retiredDisplay] {}
+    }
+
     # Advance texture retirement once per frame, then run canvas redraw work.
     $gpuTextureLib beginTextureFrame
     ForEach! /someone/ wishes the GPU runs frame prelude handler /hd/ {
@@ -708,29 +714,28 @@ while true {
     foreach result [Query! $::thisNode has display /display/ with info /displayInfo/] {
         dict set available $result(display) $result(displayInfo)
     }
-    dict for {display ds} $displays {
+    set displays [dict create]
+    ForEach! the GPU draw library $drawLib has display /display/ with state /ds/ mode /mode/ info /info/ {
         if {![dict exists $wanted $display] || ![dict exists $available $display] ||
-            [dict get $displayOptions $display] ne [dict get $wanted $display] ||
-            [dict get $displayInfo $display] ne [dict get $available $display]} {
-            $drawLib closeDisplay $ds
-            dict unset displays $display
-            dict unset displayOptions $display
-            dict unset displayInfo $display
-            Hold! -key [list display $display] {}
+            $mode ne [dict get $wanted $display] || $info ne [dict get $available $display]} {
+            Hold! -key [list display-state $drawLib $display] {}
+        } else {
+            dict set displays $display $ds
         }
     }
     set now [clock milliseconds]
-    dict for {display opts} $wanted {
+    dict for {display mode} $wanted {
         if {[dict exists $displays $display] || ![dict exists $available $display]} continue
         if {$now < [dict getdef $retryAt $display 0]} continue
         try {
-            set ds [$drawLib initDisplay $display $opts(width) $opts(height) $opts(refreshRate)]
+            set ds [$drawLib initDisplay $display $mode(width) $mode(height) $mode(refreshRate)]
+            # Destructors run without this scope, so carry the hold owner explicitly.
+            Hold! -key [list display-state $drawLib $display] \
+                -destructor [list Hold! -on $this \
+                    -key [list close-display $drawLib $ds] Claim the GPU retires display $ds using $drawLib] \
+                Claim the GPU draw library $drawLib has display $display with state $ds mode $mode info [dict get $available $display]
             dict set displays $display $ds
-            dict set displayOptions $display $opts
-            dict set displayInfo $display [dict get $available $display]
             dict unset retryAt $display
-            Hold! -key [list display $display] Claim display $display has width [$drawLib getDisplayWidth $ds] \
-                height [$drawLib getDisplayHeight $ds]
         } on error e {
             puts stderr "gpu/draw: $e; retrying in 1 second"
             dict set retryAt $display [expr {$now + 1000}]
@@ -742,7 +747,8 @@ while true {
     $gpuTextureLib drainDeferredTextureOps
 
     # Draw to each active display.
-    dict for {displayName ds} $displays {
+    ForEach! the GPU draw library $drawLib has display /displayName/ with state /ds/ /...any/ {
+        if {![dict exists $displays $displayName] || [dict get $displays $displayName] ne $ds} continue
         try {
             if {![$gpu drawStart $ds]} continue
 
@@ -761,12 +767,9 @@ while true {
             $gpu drawEnd
         } on error e {
             puts stderr "gpu/draw: $displayName: $e; retrying in 1 second"
-            $drawLib closeDisplay $ds
             dict unset displays $displayName
-            dict unset displayOptions $displayName
-            dict unset displayInfo $displayName
             dict set retryAt $displayName [expr {[clock milliseconds] + 1000}]
-            Hold! -key [list display $displayName] {}
+            Hold! -key [list display-state $drawLib $displayName] {}
         }
     }
 
