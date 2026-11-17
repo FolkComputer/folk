@@ -1,74 +1,70 @@
+# Display discovery shares the renderer's instance and physical device.
+When the GPU library is /gpuLib/ {
 set cc [C]
 $cc cflags -I./vendor
 $cc code {
     #define VOLK_IMPLEMENTATION
     #include "volk/volk.h"
+    static VkFence hotplugFence;
 }
+$cc extend $gpuLib
 
+$cc proc initEnumeration {} void {
+    volkInitialize();
+    volkLoadInstanceOnly(*instance_ptr());
+    volkLoadDevice(*device_ptr());
+}
+$cc proc stopHotplug {} void {
+    if (hotplugFence != VK_NULL_HANDLE) {
+        vkDestroyFence(*device_ptr(), hotplugFence, NULL);
+        hotplugFence = VK_NULL_HANDLE;
+    }
+}
+$cc proc armHotplug {} bool {
+    if (!*supportsDisplayControl_ptr()) return false;
+    VkDeviceEventInfoEXT info = {0};
+    info.sType = VK_STRUCTURE_TYPE_DEVICE_EVENT_INFO_EXT;
+    info.deviceEvent = VK_DEVICE_EVENT_TYPE_DISPLAY_HOTPLUG_EXT;
+    VkFence next = VK_NULL_HANDLE;
+    VkResult res = vkRegisterDeviceEventEXT(*device_ptr(), &info, NULL, &next);
+    // Register before rescanning so changes during enumeration are not missed.
+    if (hotplugFence != VK_NULL_HANDLE) vkDestroyFence(*device_ptr(), hotplugFence, NULL);
+    hotplugFence = res == VK_SUCCESS ? next : VK_NULL_HANDLE;
+    if (res != VK_SUCCESS) {
+        fprintf(stderr, "gpu/enumerate: hotplug registration failed (%d); polling instead\n", res);
+    }
+    return res == VK_SUCCESS;
+}
+$cc proc hotplugged {} bool {
+    VkResult res = vkGetFenceStatus(*device_ptr(), hotplugFence);
+    if (res == VK_NOT_READY) return false;
+    if (res != VK_SUCCESS) FOLK_ERROR("Hotplug fence failed: %s (%d)", VkResultToString(res), res);
+    return true;
+}
 $cc proc enumerateDisplays {} Jim_Obj* {
-    FOLK_ENSURE(volkInitialize() == VK_SUCCESS);
-
-    // Create a minimal Vulkan instance for display enumeration.
-    VkInstance instance;
-    {
-        VkInstanceCreateInfo createInfo = {0};
-        createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-
-        const char* enabledExtensions[] = {
-            VK_KHR_DISPLAY_EXTENSION_NAME,
-            VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
-#ifdef __APPLE__
-            VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
-#endif
-        };
-        createInfo.enabledExtensionCount = sizeof(enabledExtensions)/sizeof(enabledExtensions[0]);
-        createInfo.ppEnabledExtensionNames = enabledExtensions;
-
-#ifdef __APPLE__
-        createInfo.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
-#endif
-
-        VkResult res = vkCreateInstance(&createInfo, NULL, &instance);
-        if (res != VK_SUCCESS) {
-            if (res == VK_ERROR_EXTENSION_NOT_PRESENT) {
-                FOLK_ERROR("Unable to enumerate displays (for example, this doesn't work on macOS)");
-            }
-            FOLK_ERROR("Failed to create Vulkan instance: %d", res);
-        }
-    }
-
-    volkLoadInstance(instance);
-
-    uint32_t physicalDeviceCount = 0;
-    vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, NULL);
-    if (physicalDeviceCount == 0) {
-        vkDestroyInstance(instance, NULL);
-        return Jim_NewListObj(interp, NULL, 0);
-    }
-
-    VkPhysicalDevice physicalDevices[physicalDeviceCount];
-    vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, physicalDevices);
-
+    if (!*supportsDisplay_ptr()) return Jim_NewListObj(interp, NULL, 0);
     Jim_Obj *allDisplaysList = Jim_NewListObj(interp, NULL, 0);
+    VkResult res;
 
-    // Enumerate displays for each physical device
-    for (uint32_t devIdx = 0; devIdx < physicalDeviceCount; devIdx++) {
-        VkPhysicalDevice physicalDevice = physicalDevices[devIdx];
+    // Use the same physical device as rendering.
+    {
+        VkPhysicalDevice physicalDevice = *physicalDevice_ptr();
 
         uint32_t displayCount;
-        vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, NULL);
+        if ((res = vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, NULL)) != VK_SUCCESS) goto failed;
 
-        VkDisplayPropertiesKHR displayProps[displayCount];
-        vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, displayProps);
+        VkDisplayPropertiesKHR displayProps[displayCount ? displayCount : 1];
+        if ((res = vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, displayProps)) != VK_SUCCESS) goto failed;
 
         for (uint32_t i = 0; i < displayCount; i++) {
             uint32_t modeCount;
-            vkGetDisplayModePropertiesKHR(physicalDevice, displayProps[i].display,
-                                          &modeCount, NULL);
+            if ((res = vkGetDisplayModePropertiesKHR(physicalDevice, displayProps[i].display,
+                                          &modeCount, NULL)) != VK_SUCCESS) goto failed;
 
-            VkDisplayModePropertiesKHR modeProps[modeCount];
-            vkGetDisplayModePropertiesKHR(physicalDevice, displayProps[i].display,
-                                          &modeCount, modeProps);
+            VkDisplayModePropertiesKHR modeProps[modeCount ? modeCount : 1];
+            if ((res = vkGetDisplayModePropertiesKHR(physicalDevice, displayProps[i].display,
+                                          &modeCount, modeProps)) != VK_SUCCESS) goto failed;
+            if (modeCount == 0) continue;
 
             Jim_Obj *modesList = Jim_NewListObj(interp, NULL, 0);
             for (uint32_t j = 0; j < modeCount; j++) {
@@ -94,22 +90,65 @@ $cc proc enumerateDisplays {} Jim_Obj* {
         }
     }
 
-    vkDestroyInstance(instance, NULL);
-
     return allDisplaysList;
+failed:
+    Jim_FreeNewObj(interp, allDisplaysList);
+    FOLK_ERROR("Display enumeration failed: %s (%d)", VkResultToString(res), res);
 }
 
 set displayLib [$cc compile]
+$displayLib initEnumeration
+On unmatch [list $displayLib stopHotplug]
 
-if {![catch {exec pkg-config --exists glfw3}]} {
+if {[$gpuLib getSupportsGlfw]} {
     Claim $::thisNode has display glfw with info {name "GLFW (windowed)"}
 }
 
-try {
-    foreach display [$displayLib enumerateDisplays] {
-        Claim $::thisNode has display $display(name) with info $display
+# Arm before the first scan. Without the extension, rescan once per second.
+set hotplug [$displayLib armHotplug]
+set previousDisplays {}
+set generation 0
+set rescan true
+while true {
+    if {$rescan} {
+        try {
+            set displays [lmap display [$displayLib enumerateDisplays] {
+                # Even an off/on cycle with identical modes invalidates surfaces.
+                dict set display generation $generation
+                set display
+            }]
+            if {$displays ne $previousDisplays} {
+                Hold! -key displays {
+                    foreach display $displays {
+                        Claim $::thisNode has display $display(name) with info $display
+                    }
+                }
+                set previousDisplays $displays
+            }
+            set rescan false
+        } on error e {
+            puts stderr "gpu/enumerate: $e; retrying"
+            after 1000
+        }
     }
-} finally {
-    Claim $::thisNode has had displays enumerated
+    if {$hotplug} {
+        after 100
+        try {
+            if {[$displayLib hotplugged]} {
+                set hotplug [$displayLib armHotplug]
+                incr generation
+                set rescan true
+            }
+        } on error e {
+            puts stderr "gpu/enumerate: $e; polling instead"
+            $displayLib stopHotplug
+            set hotplug false
+            incr generation
+            set rescan true
+        }
+    } else {
+        after 1000
+        set rescan true
+    }
 }
-
+}

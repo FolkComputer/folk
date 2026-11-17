@@ -31,7 +31,8 @@ fn defineVulkanHandleType {cc type} {
 }
 Claim the GPU Vulkan handle type definer is [fn defineVulkanHandleType]
 
-fn gpuInit {useGlfw} {
+fn gpuInit {} {
+    set haveGlfw [expr {![catch {exec pkg-config --exists glfw3}]}]
     # First, we build the C GPU library, which can make direct calls into
     # Vulkan -- this library then exposes functions that we can call from
     # Tcl.
@@ -39,11 +40,12 @@ fn gpuInit {useGlfw} {
     $gpuc cflags -I./vendor
     $gpuc include <pthread.h>
     $gpuc include <stdlib.h>
+    $gpuc include <string.h>
     $gpuc code {
         #define VOLK_IMPLEMENTATION
         #include "volk/volk.h"
     }
-    if {$useGlfw} {
+    if {$haveGlfw} {
         $gpuc code {
             // This must be included _after_ volk.h (Vulkan).
             #include <GLFW/glfw3.h>
@@ -55,14 +57,14 @@ fn gpuInit {useGlfw} {
         $gpuc cflags -I/opt/homebrew/include -L/opt/homebrew/lib
     }
 
-    if {$useGlfw} {
-        $gpuc endcflags -lglfw
-    } else {
-        foreach renderFile [glob -nocomplain "/dev/dri/render*"] {
-            if {![file readable $renderFile]} {
-                puts stderr "Gpu: Warning: $renderFile is not readable by current user; Vulkan device may not appear.
+    if {$haveGlfw} {
+        $gpuc cflags {*}[exec pkg-config --cflags glfw3]
+        $gpuc endcflags {*}[exec pkg-config --libs glfw3]
+    }
+    foreach renderFile [glob -nocomplain "/dev/dri/render*"] {
+        if {![file readable $renderFile]} {
+            puts stderr "Gpu: Warning: $renderFile is not readable by current user; Vulkan device may not appear.
     Try doing `sudo chmod 666 $renderFile`."
-            }
         }
     }
 
@@ -106,7 +108,7 @@ fn gpuInit {useGlfw} {
     local proc vktry {call} { string map {\n " "} [csubst {{
         VkResult res = $call;
         if (res != VK_SUCCESS) {
-            FOLK_ERROR("Failed vkCreateInstance: %s (%d)\n",
+            FOLK_ERROR("Failed $call: %s (%d)\n",
                     VkResultToString(res), res);
             if (res == VK_ERROR_LAYER_NOT_PRESENT) {
                 FOLK_ERROR("It looks like a required layer is missing.\n"
@@ -131,15 +133,22 @@ fn gpuInit {useGlfw} {
         VkQueue computeQueue;
 
         pthread_mutex_t displaySurfaceMutex;
+        bool supportsDisplay;
+        bool supportsDisplayControl;
+        bool supportsGlfw;
     }
     defineVulkanHandleType $gpuc VkPhysicalDevice
     defineVulkanHandleType $gpuc VkDevice
     $gpuc proc getPhysicalDevice {} VkPhysicalDevice { return physicalDevice; }
     $gpuc proc getDevice {} VkDevice { return device; }
 
-    $gpuc proc init {bool useGlfw} void {
+    $gpuc proc getSupportsDisplay {} bool { return supportsDisplay; }
+    $gpuc proc getSupportsDisplayControl {} bool { return supportsDisplayControl; }
+    $gpuc proc getSupportsGlfw {} bool { return supportsGlfw; }
+
+    $gpuc proc init {} void {
         $[vktry volkInitialize()]
-        $[if {$useGlfw} { expr {"glfwInit();"} }]
+        $[if {$haveGlfw} { expr {"supportsGlfw = glfwInit();"} }]
 
         // Set up VkInstance instance:
         {
@@ -156,32 +165,52 @@ fn gpuInit {useGlfw} {
             createInfo.ppEnabledLayerNames = validationLayers;
             */
 
-            $[if {$macos} {subst -nocommands {
-                const char* enabledExtensions[] = {
-                    VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
-                    VK_KHR_SURFACE_EXTENSION_NAME,
-                    "VK_EXT_metal_surface",
-                    VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
-                };
-                createInfo.enabledExtensionCount = sizeof(enabledExtensions)/sizeof(enabledExtensions[0]);
-
-            }} elseif {$useGlfw} {subst -nocommands {
-                const char** enabledExtensions = glfwGetRequiredInstanceExtensions(&createInfo.enabledExtensionCount);
-
-            }} else {subst -nocommands {
-                const char* enabledExtensions[] = {
-                    // 2 extensions for non-X11/Wayland display
-                    VK_KHR_SURFACE_EXTENSION_NAME,
-                    VK_KHR_DISPLAY_EXTENSION_NAME,
-                    VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
-                };
-                createInfo.enabledExtensionCount = sizeof(enabledExtensions)/sizeof(enabledExtensions[0]);
-            }}]
+            // Enable both presentation backends up front. Display wishes only
+            // choose which surfaces to create; they do not recreate the GPU.
+            uint32_t extensionCount = 0;
+            $[vktry {vkEnumerateInstanceExtensionProperties(NULL, &extensionCount, NULL)}]
+            VkExtensionProperties extensions[extensionCount];
+            $[vktry {vkEnumerateInstanceExtensionProperties(NULL, &extensionCount, extensions)}]
+            const char* wantedExtensions[] = {
+                VK_KHR_SURFACE_EXTENSION_NAME,
+                VK_KHR_DISPLAY_EXTENSION_NAME,
+                VK_EXT_DISPLAY_SURFACE_COUNTER_EXTENSION_NAME,
+                VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
+#ifdef __APPLE__
+                VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
+                "VK_EXT_metal_surface",
+#endif
+            };
+            const char* enabledExtensions[extensionCount];
+            uint32_t glfwExtensionCount = 0;
+            const char** glfwExtensions = NULL;
+            $[if {$haveGlfw} { expr {
+                "if (supportsGlfw) glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+                 if (!glfwExtensions) supportsGlfw = false;"
+            } }]
+            bool supportsDisplayCounter = false;
+            for (uint32_t i = 0; i < extensionCount; i++) {
+                const char* name = extensions[i].extensionName;
+                bool wanted = false;
+                for (uint32_t j = 0; j < sizeof(wantedExtensions)/sizeof(wantedExtensions[0]); j++) {
+                    if (strcmp(name, wantedExtensions[j]) == 0) wanted = true;
+                }
+                for (uint32_t j = 0; j < glfwExtensionCount; j++) {
+                    if (strcmp(name, glfwExtensions[j]) == 0) wanted = true;
+                }
+                if (!wanted) continue;
+                enabledExtensions[createInfo.enabledExtensionCount++] = name;
+                if (strcmp(name, VK_KHR_DISPLAY_EXTENSION_NAME) == 0) supportsDisplay = true;
+                if (strcmp(name, VK_EXT_DISPLAY_SURFACE_COUNTER_EXTENSION_NAME) == 0) supportsDisplayCounter = true;
+#ifdef __APPLE__
+                if (strcmp(name, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME) == 0)
+                    createInfo.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+#endif
+            }
+            // Remember the instance dependency when enabling the device extension.
+            supportsDisplayControl = supportsDisplay && supportsDisplayCounter;
             createInfo.ppEnabledExtensionNames = enabledExtensions;
 
-            $[if {$macos} { expr {{
-                createInfo.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
-            }} }]
             VkResult res = vkCreateInstance(&createInfo, NULL, &instance);
             if (res != VK_SUCCESS) {
                 FOLK_ERROR("Failed vkCreateInstance: %s (%d)\n",
@@ -243,22 +272,25 @@ fn gpuInit {useGlfw} {
 
             VkPhysicalDeviceFeatures deviceFeatures = {0};
 
-            $[if {$macos} {subst -nocommands {
-                const char *deviceExtensions[] = {
-                    VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-                    "VK_KHR_portability_subset",
-                    VK_KHR_MAINTENANCE3_EXTENSION_NAME
-                };
-            }} elseif {$useGlfw} {subst -nocommands {
-                const char *deviceExtensions[] = {
-                    VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-                };
-            }} else {subst -nocommands {
-                const char *deviceExtensions[] = {
-                    VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-                    VK_KHR_MAINTENANCE3_EXTENSION_NAME
-                };
-            }}]
+            uint32_t extensionCount = 0;
+            $[vktry {vkEnumerateDeviceExtensionProperties(physicalDevice, NULL, &extensionCount, NULL)}]
+            VkExtensionProperties extensions[extensionCount];
+            $[vktry {vkEnumerateDeviceExtensionProperties(physicalDevice, NULL, &extensionCount, extensions)}]
+            const char* deviceExtensions[extensionCount];
+            uint32_t enabledExtensionCount = 0;
+            bool hasDisplayControl = false;
+            for (uint32_t i = 0; i < extensionCount; i++) {
+                const char* name = extensions[i].extensionName;
+                if (strcmp(name, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0 ||
+                    strcmp(name, VK_KHR_MAINTENANCE3_EXTENSION_NAME) == 0 ||
+                    strcmp(name, "VK_KHR_portability_subset") == 0) {
+                    deviceExtensions[enabledExtensionCount++] = name;
+                } else if (supportsDisplayControl && strcmp(name, VK_EXT_DISPLAY_CONTROL_EXTENSION_NAME) == 0) {
+                    deviceExtensions[enabledExtensionCount++] = name;
+                    hasDisplayControl = true;
+                }
+            }
+            supportsDisplayControl = hasDisplayControl;
 
             VkDeviceCreateInfo createInfo = {0};
             createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -266,7 +298,7 @@ fn gpuInit {useGlfw} {
             createInfo.queueCreateInfoCount = 1;
             createInfo.pEnabledFeatures = &deviceFeatures;
             createInfo.enabledLayerCount = 0;
-            createInfo.enabledExtensionCount = sizeof(deviceExtensions)/sizeof(deviceExtensions[0]);
+            createInfo.enabledExtensionCount = enabledExtensionCount;
             createInfo.ppEnabledExtensionNames = deviceExtensions;
 
             /* VkPhysicalDeviceDescriptorIndexingFeatures descriptorIndexingFeatures = {0}; */
@@ -361,7 +393,7 @@ fn gpuInit {useGlfw} {
 
     set gpuLib [$gpuc compile]
 
-    $gpuLib init $useGlfw
+    $gpuLib init
 
     Claim the GPU library is $gpuLib
 
@@ -369,18 +401,5 @@ fn gpuInit {useGlfw} {
     Claim the GPU device is [$gpuLib getDevice]
 }
 
-if {$::tcl_platform(os) eq "darwin"} {
-    gpuInit true
-    return
-}
-
-When $::thisNode has had displays enumerated {
-    # so we know that there isn't an extant Vulkan instance already.
-
-    When /nobody/ wishes $::thisNode uses display "glfw" with /...any/ {
-        gpuInit false
-    }
-    When /someone/ wishes $::thisNode uses display "glfw" with /...any/ {
-        gpuInit true
-    }
-}
+# GPU lifetime is independent of display discovery and display wishes.
+gpuInit
