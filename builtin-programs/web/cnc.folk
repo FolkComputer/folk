@@ -336,7 +336,19 @@ Wish the web server handles route {/cnc} with handler {
 <body>
     <h1>CNC bed</h1>
     <p>
-        Click the same four bed corners in perimeter order in both views: same starting corner, same direction.
+        Select the same four physical bed corners in both camera views, in CNC coordinate order:
+    </p>
+    <ol>
+        <li>Bed zero (X=0, Y=0).</li>
+        <li>The adjacent corner in the +X direction.</li>
+        <li>The opposite corner (+X, +Y).</li>
+        <li>The adjacent corner in the +Y direction.</li>
+    </ol>
+    <p>
+        Follow the machine's axis directions, regardless of how the camera image is rotated.
+        The first corner defines bed zero. Work zero is separate and can change at runtime; its offset must be synced from the CNC controller to place the G-code on the bed.
+    </p>
+    <p>
         First click freezes the image; fourth click saves. Selections and projection persist after closing this page.
         Saved bed bounding boxes are automatically segmented and colored; each overlay stays aligned with its source frame.
     </p>
