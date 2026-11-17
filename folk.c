@@ -429,6 +429,11 @@ static int DestructorFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
         return JIM_ERR;
     }
 
+    if (self->currentMatch == NULL) {
+        Jim_SetResultString(interp, "Cannot create destructor outside a match", -1);
+        return JIM_ERR;
+    }
+
     Destructor* d = destructorNew(destructorHelper,
                                   strdup(Jim_GetString(argv[1], NULL)));
     matchAddDestructor(self->currentMatch, d);

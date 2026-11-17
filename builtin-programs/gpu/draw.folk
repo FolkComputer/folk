@@ -582,7 +582,11 @@ set displays [dict create]
 set displayOptions [dict create]
 set displayInfo [dict create]
 set retryAt [dict create]
-On unmatch [list $drawLib closeDisplays]
+# macOS runs this body directly on the main thread, without a match.
+# Those display resources live until process exit.
+if {[__currentMatchRef] ne ""} {
+    On unmatch [list $drawLib closeDisplays]
+}
 
 set kGpu [tracy makeString "gpu"]
 set kLatency [tracy makeString "latency"]
