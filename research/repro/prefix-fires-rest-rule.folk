@@ -1,0 +1,22 @@
+# A statement that stops where a rule's `with /...options/` tail begins
+# fires the rule anyway, with the rest variable unbound -- but only when
+# the statement arrives after the rule. See FINDINGS.md, E1.
+#
+# Expected: one line, from the plain rule.
+# Observed: a second line, "options rule fired ... options bound: 0".
+
+set log /tmp/folk-repro-prefix.txt
+file delete $log
+fn note {text} { set fd [open $log a]; puts $fd $text; close $fd }
+
+When /someone/ wishes /p/ draws text /text/ with /...options/ {
+    note "options rule fired for '$text', options bound: [info exists options]"
+}
+When /someone/ wishes /p/ draws text /text/ {
+    note "plain rule fired for '$text'"
+}
+sleep 0.3
+
+Wish page draws text late            ;# arrives after the rules exist
+sleep 0.3
+Exit! 0

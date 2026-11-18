@@ -1,0 +1,23 @@
+# A rule that claims what it tests the absence of never settles: the claim
+# removes the rule's own premise, which removes the claim. Negation is not
+# stratified. See FINDINGS.md, E11.
+#
+# Expected (Datalog): the program is rejected, or the rule runs once.
+# Observed: the body runs hundreds of times a second for as long as the
+# program is loaded.
+
+set raw /tmp/folk-negation-raw.log
+file delete $raw
+When { source builtin-programs/collect.folk }
+fn tick {} { set fd [open $raw a]; puts $fd ran; close $fd }
+
+When /nobody/ claims the lamp is on {
+    tick
+    Claim the lamp is on
+}
+sleep 3
+set fd [open $raw r]; set runs [llength [split [string trim [read $fd]] "\n"]]; close $fd
+set fd [open /tmp/folk-repro-negation.txt w]
+puts $fd "body ran $runs times in 3 seconds"
+close $fd
+Exit! 0

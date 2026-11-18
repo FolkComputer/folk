@@ -1,0 +1,4 @@
+     17 folk.c:832:18: runtime error: variable length array bound evaluates to non-positive value 0
+      1 db.c:922:5: runtime error: member access within null pointer of type 'struct Match'
+      1 SUMMARY: AddressSanitizer: heap-use-after-free trie.c:99 in clauseToString
+      1 SUMMARY: AddressSanitizer: SEGV nptl/pthread_mutex_lock.c:80 in ___pthread_mutex_lock

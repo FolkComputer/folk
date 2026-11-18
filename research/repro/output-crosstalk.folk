@@ -1,0 +1,40 @@
+# Each program's stdout goes to its own file under /var/tmp/folk-PID/. The
+# file is looked up in a stb_ds hash map under a read lock, but stb_ds
+# lookups write their result into the map's header and read it back, so
+# two concurrent lookups can swap results. See FINDINGS.md, E13.
+#
+# Six programs each print their own name on every tick, on all workers.
+#
+# Expected: every line in a program's file names that program.
+# Observed (when the race is hit): lines from another program.
+
+When /p/ has program code /code/ {
+    SayWithSource $p 1 0 {} {} when $code with environment [list [list this $p]]
+}
+foreach p {alpha bravo charlie delta echo foxtrot} {
+    Claim $p has program code {
+        When the tick is /t/ { puts "from $this" }
+    }
+}
+sleep 0.5
+for {set t 0} {$t < 4000} {incr t} {
+    Hold! -key tick the tick is $t
+    if {$t % 50 == 0} { after 1 }
+}
+sleep 1
+
+set dir /var/tmp/folk-[pid]
+set total 0; set wrong 0
+foreach p {alpha bravo charlie delta echo foxtrot} {
+    if {![file exists $dir/$p.stdout]} { continue }
+    set fd [open $dir/$p.stdout r]
+    foreach line [split [string trim [read $fd]] "\n"] {
+        incr total
+        if {$line ne "from $p"} { incr wrong }
+    }
+    close $fd
+}
+set fd [open /tmp/folk-repro-crosstalk.txt w]
+puts $fd "$total lines written, $wrong in the wrong program's file"
+close $fd
+Exit! 0

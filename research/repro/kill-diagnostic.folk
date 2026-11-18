@@ -1,0 +1,22 @@
+# When a match is removed while its body has been running for more than
+# 100 ms, matchRemoveSelf prints a "KILL (...)" line describing the work
+# item of the worker it is about to signal. It copies the item under a
+# mutex but reads the clause it points to afterwards, while the worker is
+# free to finish and free that clause. See FINDINGS.md, E3.
+#
+# Each round starts bodies that take a little over 100 ms and retracts
+# their parent statements around the moment they finish. Run under the
+# ASan build to see the report (it takes a lucky round):
+#   heap-use-after-free ... in clauseToString  (called from traceItem)
+
+for {set i 0} {$i < 500} {incr i} {
+    for {set j 0} {$j < 3} {incr j} {
+        set seconds [expr {0.1002 + 0.0004 * $j + rand() * 0.0004}]
+        Assert! when job $i $j runs [list sleep $seconds] with environment {}
+        Assert! job $i $j runs
+    }
+    sleep 0.1008
+    for {set j 0} {$j < 3} {incr j} { Retract! job $i $j runs }
+}
+sleep 1
+Exit! 0

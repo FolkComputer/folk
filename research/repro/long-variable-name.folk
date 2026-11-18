@@ -1,0 +1,10 @@
+# trieScanVariable writes the terminating NUL one byte past a 100-byte
+# buffer when a variable name is exactly 100 bytes long. See FINDINGS.md,
+# E9. Run under the ASan build to see the report; the normal build
+# silently overwrites one byte of stack.
+
+set name [string repeat x 100]
+Assert! the thing is here
+sleep 0.2
+QuerySimple! 0 the thing is /$name/
+Exit! 0

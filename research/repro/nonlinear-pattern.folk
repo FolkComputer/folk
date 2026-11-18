@@ -1,0 +1,14 @@
+# A variable that occurs twice in one clause is not required to match the
+# same term both times. See FINDINGS.md, E6.
+#
+# Expected: only `c likes c` matches /x/ likes /x/.
+# Observed: `a likes b` matches too, with x bound to b.
+
+set log /tmp/folk-repro-nonlinear.txt
+Assert! a likes b
+Assert! c likes c
+sleep 0.3
+set fd [open $log w]
+foreach result [Query! /x/ likes /x/] { puts $fd "matched with x = [dict get $result x]" }
+close $fd
+Exit! 0

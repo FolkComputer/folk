@@ -1,0 +1,14 @@
+# A query that matches 8000 statements or more ends the whole process
+# from inside dbQuery. See FINDINGS.md, E10.
+#
+# Expected: 9000 results, or an error the caller can catch.
+# Observed: the process exits with status 1 and nothing is caught.
+
+set log /tmp/folk-repro-many.txt
+file delete $log
+for {set i 0} {$i < 9000} {incr i} { Assert! item $i exists }
+sleep 3
+set fd [open $log a]; puts $fd "asserted 9000 statements; querying them"; close $fd
+set code [catch { set n [llength [Query! item /i/ exists]] } err]
+set fd [open $log a]; puts $fd "query returned (catch code $code): $n"; close $fd
+Exit! 0

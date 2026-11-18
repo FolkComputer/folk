@@ -1,0 +1,25 @@
+     97 SUMMARY: ThreadSanitizer: data race workqueue.c:133 in workQueueSteal
+     38 SUMMARY: ThreadSanitizer: data race trie.c:157 in trieAddImpl
+     25 SUMMARY: ThreadSanitizer: data race trie.c:23 in termDup
+     15 SUMMARY: ThreadSanitizer: data race workqueue.c:119 in workQueueSteal
+     15 SUMMARY: ThreadSanitizer: data race workqueue.c:117 in workQueueSteal
+     14 SUMMARY: ThreadSanitizer: data race trie.c:35 in termEq
+     10 SUMMARY: ThreadSanitizer: data race trie.c:227 in trieScanVariable
+     10 SUMMARY: ThreadSanitizer: data race folk.c:1536 in workerInit
+      9 SUMMARY: ThreadSanitizer: data race trie.c:285 in trieLookupImpl
+      8 SUMMARY: ThreadSanitizer: data race vendor/stb_ds.h:1316 in stbds_hmget_key
+      8 SUMMARY: ThreadSanitizer: data race db.c:581 in statementNew
+      8 SUMMARY: ThreadSanitizer: data race block-stats.c:36 in blockStatsUpdate
+      7 SUMMARY: ThreadSanitizer: data race trie.c:220 in trieAdd
+      6 SUMMARY: ThreadSanitizer: data race folk.c:1380 in workerRun
+      5 SUMMARY: ThreadSanitizer: data race folk.c:1489 in workerSteal
+      4 SUMMARY: ThreadSanitizer: data race output-redirection.c:200 in __installLocalStdoutAndStderrFunc
+      4 SUMMARY: ThreadSanitizer: data race folk.c:164 in clauseUnify
+      3 SUMMARY: ThreadSanitizer: data race trie.c:273 in trieLookupImpl
+      2 SUMMARY: ThreadSanitizer: data race trie.c:88 in clauseFree
+      1 SUMMARY: ThreadSanitizer: heap-use-after-free trie.c:99 in clauseToString
+      1 SUMMARY: ThreadSanitizer: heap-use-after-free trie.c:29 in termLen
+      1 SUMMARY: ThreadSanitizer: heap-use-after-free trie.c:106 in clauseToString
+      1 SUMMARY: ThreadSanitizer: data race trie.c:229 in trieScanVariable
+      1 SUMMARY: ThreadSanitizer: data race folk.c:169 in clauseUnify
+      1 SUMMARY: ThreadSanitizer: SEGV nptl/pthread_mutex_lock.c:80 in ___pthread_mutex_lock

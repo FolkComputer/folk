@@ -1,0 +1,15 @@
+# Any term that starts and ends with "/" and has no space is a variable,
+# in stored statements as well as in patterns. A path ending in a slash is
+# such a term. See FINDINGS.md, E8.
+#
+# Expected: asking for the directory /home/ finds nothing.
+# Observed: it finds the statement about /tmp/.
+
+set log /tmp/folk-repro-slash.txt
+Assert! the upload directory is /tmp/
+sleep 0.3
+set fd [open $log w]
+puts $fd "statements with directory {/home/}: [llength [QuerySimple! 0 the upload directory is {/home/}]]"
+puts $fd "statements with directory {elsewhere}: [llength [QuerySimple! 0 the upload directory is elsewhere]]"
+close $fd
+Exit! 0

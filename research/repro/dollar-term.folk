@@ -1,0 +1,22 @@
+# A pattern term whose value begins with "$" is passed to [subst] in the
+# caller's scope (desugarWhen in prelude.tcl), so data in a pattern is
+# evaluated as code. See FINDINGS.md, E5.
+#
+# Expected: both rules are registered with the literal term.
+# Observed: the first fails with a Tcl error; the second runs a command.
+
+set log /tmp/folk-repro-dollar.txt
+file delete $log
+proc note {text} { set fd [open $::log a]; puts $fd $text; close $fd }
+set ::log $log
+
+# An ordinary value that happens to start with a dollar sign.
+set price {$5.00}
+set code [catch { When the price is $price { } } err]
+note "price {$price}: catch code $code, $err"
+
+# The same hole with a value chosen by someone else.
+set label "\$\[exec sh -c {echo a command ran >> $log}\]"
+set code [catch { When the label is $label { } } err]
+note "label: catch code $code"
+Exit! 0

@@ -1,0 +1,10 @@
+# `On unmatch` (and the Destructor command under it) dereferences the
+# current match without checking that there is one. The top level of the
+# boot program, which is also how every file in test/ runs, has none.
+# See FINDINGS.md, E2.
+#
+# Expected: an error, or the body running at exit.
+# Observed: the process dies with SIGSEGV (exit status 139).
+
+On unmatch { puts "cleaning up" }
+Exit! 0

@@ -1,0 +1,23 @@
+# A statement that a rule derives from itself outlives the statement it
+# was first derived from. See FINDINGS.md, E4.
+#
+# Expected: after the hold is cleared, nothing claims that a is cool.
+# Observed: one derived claim stays for good.
+
+set log /tmp/folk-repro-cyclic.txt
+file delete $log
+fn note {text} { set fd [open $log a]; puts $fd $text; close $fd }
+
+# Matches the held statement, and also (through the implicit
+# `/someone/ claims`) the claim it makes itself.
+When a is cool { Claim a is cool }
+
+Hold! -key base a is cool
+sleep 0.5
+note "while held:    [llength [Query! /p/ claims a is cool]] derived claim(s)"
+
+Hold! -key base {}
+sleep 1.0
+note "hold cleared:  [llength [Query! /p/ claims a is cool]] derived claim(s),\
+[llength [QuerySimple! 0 a is cool]] base statement(s)"
+Exit! 0

@@ -1,0 +1,13 @@
+# Option words are recognised anywhere among the terms of a clause, so a
+# statement cannot contain them. See FINDINGS.md, E7.
+#
+# Expected: the statement `... claims the flag is -keep 5ms`.
+# Observed: the statement `... claims the flag is`.
+
+set log /tmp/folk-repro-option.txt
+Claim the flag is -keep 5ms
+sleep 0.3
+set fd [open $log w]
+foreach result [Query! /p/ claims the flag /...rest/] { puts $fd "stored: the flag [dict get $result rest]" }
+close $fd
+Exit! 0

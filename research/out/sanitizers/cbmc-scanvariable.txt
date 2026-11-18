@@ -1,0 +1,8 @@
+make: Entering directory '/home/user/folk/research/verify'
+cbmc -I../.. -I../../vendor/jimtcl --function main --bounds-check --pointer-check \
+	--unwind 112 cbmc_scanvariable.c 2>&1 | grep -E ': FAILURE|^\*\* |VERIFICATION' 
+** Results:
+[trieScanVariable.pointer_dereference.53] line 240 dereference failure: pointer outside object bounds in outVarName[(signed long int)varLen]: FAILURE
+** 1 of 837 failed (2 iterations)
+VERIFICATION FAILED
+make: Leaving directory '/home/user/folk/research/verify'

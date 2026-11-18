@@ -1,0 +1,14 @@
+Thread 227 "folk" received signal SIGSEGV, Segmentation fault.
+[Switching to Thread ADDR (LWP 26965)]
+__memcpy_avx512_unaligned_erms () at ../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:488
+#0  __memcpy_avx512_unaligned_erms () at ../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:488
+#1  ADDR in clauseToString (c=c@entry=ADDR) at trie.c:110
+#2  ADDR in traceItem (buf=buf@entry=ADDR "", bufsz=bufsz@entry=10000, item=...) at folk.c:1456
+#3  ADDR in matchRemoveSelf (db=db@entry=ADDR, match=match@entry=ADDR) at db.c:999
+#4  ADDR in statementRemoveSelf (db=db@entry=ADDR, stmt=stmt@entry=ADDR, doDeindex=doDeindex@entry=true) at db.c:803
+#5  ADDR in statementDecrParentCountAndMaybeRemoveSelf (db=db@entry=ADDR, stmt=stmt@entry=ADDR) at db.c:732
+#6  ADDR in dbRetractStatements (db=ADDR, pattern=pattern@entry=ADDR) at db.c:1618
+#7  ADDR in workerRun (item=...) at folk.c:1385
+#8  ADDR in workerLoop () at folk.c:1522
+#9  ADDR in workerMain (arg=<optimized out>) at folk.c:1625
+#10 ADDR in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:447

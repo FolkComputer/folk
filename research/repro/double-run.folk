@@ -1,0 +1,32 @@
+# A rule and a statement that are added at the same moment by two threads
+# can each discover the other, and the body runs twice (the FIXME in
+# reactToNewStatement, folk.c). See FINDINGS.md, E14.
+#
+# Each round asserts one rule and the one statement it matches, back to
+# back, so that two workers pick them up together.
+#
+# Expected: every body runs once.
+# Observed: a few rounds in a thousand run it twice.
+
+set rounds 3000
+set raw /tmp/folk-double-raw.log
+file delete $raw
+
+for {set i 0} {$i < $rounds} {incr i} {
+    Assert! when round $i is on [list apply {{raw i} {
+        set fd [open $raw a]; puts $fd $i; close $fd
+    }} $raw $i] with environment {}
+    Assert! round $i is on
+    if {$i % 100 == 99} { sleep 0.05 }
+}
+sleep 2
+
+set fd [open $raw r]; set lines [split [string trim [read $fd]] "\n"]; close $fd
+set seen [dict create]
+foreach line $lines { dict incr seen $line }
+set twice 0
+dict for {round n} $seen { if {$n > 1} { incr twice } }
+set fd [open /tmp/folk-repro-double.txt w]
+puts $fd "$rounds rounds: [dict size $seen] bodies ran at least once, $twice ran twice"
+close $fd
+Exit! 0
