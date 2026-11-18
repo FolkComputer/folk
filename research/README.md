@@ -12,7 +12,7 @@ TLA+ model, which is in the model checker's own language.
 | `extract/` | A parser for Folk programs that evaluates nothing, and the static analysis built on it: corpus metrics, grammar and pattern lints, the graph of which rule's statements reach which rule. | `make -C research/extract` |
 | `model/` | A TLA+ model of statements, matches and the removal cascade, with the configurations that pass and the two that fail on purpose. | `make -C research/model` |
 | `verify/` | Sanitizer and Tracy builds of `folk` next to the normal one, the test suite run under them, a CBMC harness and two GenMC harnesses. | see the scripts and `Makefile`s there |
-| `repro/` | One small Folk program per defect in `FINDINGS.md`, each saying in its header what was expected and what happens. | `research/repro/run.sh` |
+| `repro/` | A small Folk program for each of the defects E1 to E13 in `FINDINGS.md` (two for E10), each saying in its header what was expected and what happens. | `research/repro/run.sh` |
 | `bench/` | Headless benchmarks, wrappers that profile them with perf + FlameGraph and with Tracy, and one what-if patch. | `research/bench/run-all.sh` |
 | `out/` | What all of the above produced on the machine described in `FINDINGS.md`. Generated; safe to delete and rebuild. | |
 

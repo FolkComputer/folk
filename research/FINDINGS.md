@@ -182,9 +182,11 @@ of the fns it calls). O2 measures what the captured environment costs.
 
 ## 2. Qualified errors
 
-Each has a reproducer in [`repro/`](repro/) whose header says what was expected
-and what happens; `repro/run.sh` runs them all. "Stock build" means `./folk`
-as `make` produces it.
+E1 to E12 each have a reproducer in [`repro/`](repro/) whose header says what
+was expected and what happens; `repro/run.sh` runs them all. E13 has one as
+well, but it did not hit the race in a full Folk run, so E13 to E16 rest on
+the evidence named in the last column. "Stock build" means `./folk` as `make`
+produces it.
 
 | | Defect | Effect | Evidence |
 |---|---|---|---|
