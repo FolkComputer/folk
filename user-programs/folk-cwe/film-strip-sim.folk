@@ -1,14 +1,12 @@
 # Exercise the Film Strip Kit on the simulated folk-cwe host.
-# Two fake "pages" (no AprilTags involved): their geometry, canvas
-# and canvas projection are claimed directly, standing in for
-# tags-geometry.folk and gpu/canvases.folk.
+# Two fake "pages" (no AprilTags involved): their resolved geometry
+# is claimed directly, standing in for tags-geometry.folk, which is
+# all `Wish $p displays image` needs to resolve layout. The
+# simulation recorder captures the resulting draw-an-image wishes.
 
 fn claimSimPage {page} {
     # A 15cm x 10cm page.
     Claim $page has resolved geometry [dict create width 0.15 height 0.10]
-    Claim $page has canvas projection \
-        [list [list [expr {2.0/0.15}] 0 -1] [list 0 [expr {2.0/0.10}] -1] [list 0 0 1]]
-    Claim $page has canvas [list $page canvas] with width 1024 height 1024
 }
 
 # 1. Still-image film strip: the 2x2 quadrants of ~/folk-images/strip.png.
