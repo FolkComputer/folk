@@ -1,0 +1,45 @@
+# Exercise the Film Strip Kit on the simulated folk-cwe host.
+# Two fake "pages" (no AprilTags involved): their geometry, canvas
+# and canvas projection are claimed directly, standing in for
+# tags-geometry.folk and gpu/canvases.folk.
+
+fn claimSimPage {page} {
+    # A 15cm x 10cm page.
+    Claim $page has resolved geometry [dict create width 0.15 height 0.10]
+    Claim $page has canvas projection \
+        [list [list [expr {2.0/0.15}] 0 -1] [list 0 [expr {2.0/0.10}] -1] [list 0 0 1]]
+    Claim $page has canvas [list $page canvas] with width 1024 height 1024
+}
+
+# 1. Still-image film strip: the 2x2 quadrants of ~/folk-images/strip.png.
+claimSimPage "sim-still"
+Claim "sim-still" has frame source image "strip.png"
+Claim "sim-still" has named frame slices {
+    a 0% 0% 50% 50%
+    b 50% 0% 100% 50%
+    c 0% 50% 50% 100%
+    d 50% 50% 100% 100%
+}
+Wish "sim-still" displays named frame slices as a sequence with fps 4
+
+# 2. Live "camera" source: a 200x200 view that pans across the strip,
+# re-cut every clock tick with a -destructor, mimicking
+# camera/slice.folk's per-camera-frame churn.
+claimSimPage "sim-camera"
+Claim "sim-camera" has named frame slices {
+    left 0% 0% 50% 100%
+    right 50% 0% 100% 100%
+}
+Wish "sim-camera" displays named frame slices as a sequence with fps 2
+
+When the image library is /imageLib/ &\
+     the png library is /pngLib/ {
+    set strip [$pngLib loadPng "$::env(HOME)/folk-images/strip.png"]
+    When the clock time is /t/ {
+        set px [expr {(int($t * 4) * 25) % 200}]
+        set quad [list [list $px 0] [list [expr {$px + 200}] 0] \
+                      [list [expr {$px + 200}] 200] [list $px 200]]
+        set im [$imageLib warpQuad $strip $quad 200 200]
+        Claim "sim-camera" has camera slice $im -destructor [list $imageLib imageFree $im]
+    }
+}

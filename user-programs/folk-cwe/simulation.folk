@@ -1,0 +1,69 @@
+# folk-cwe: a simulated Folk host for headless cloud containers
+# (no Vulkan, no camera). Stubs the GPU statement vocabulary so the
+# display pipeline runs to completion, and records what "would be
+# displayed" as PNG files in ~/folk-cwe-sim/, plus a report.txt of
+# system state ~30s after boot.
+
+set outdir "$::env(HOME)/folk-cwe-sim"
+file mkdir $outdir
+Claim the simulation output directory is $outdir
+
+# Pretend to be a display, which drives the fallback identity
+# calibration from calibrate/load-calibration.folk.
+Claim display folk-cwe-sim has width 1920 height 1080
+
+# GPU stubs: enough for draw/image.folk to run end to end.
+When /someone/ wishes the GPU creates canvas /id/ with /...options/ {
+    dict set options width [dict getdef $options width 1024]
+    dict set options height [dict getdef $options height 1024]
+    Claim the GPU has created canvas $id with {*}$options
+}
+When /someone/ wishes the GPU loads image /im/ as texture {
+    Claim the GPU has loaded image $im as texture [list simtex $im]
+}
+
+# Recorder: save each distinct image that reaches the simulated
+# screen, up to 16 frames per canvas.
+When the png library is /pngLib/ &\
+     the simulation output directory is /outdir/ &\
+     /someone/ wishes the GPU draws pipeline "image" onto canvas /id/ with arguments /args/ {
+    set gim [lindex $args 2]
+    if {[lindex $gim 0] ne "simtex"} { return }
+    set im [lindex $gim 1]
+    set page [lindex $id 0]
+    try {
+        set existing [glob -nocomplain [file join $outdir "frame-$page-*.png"]]
+        if {[llength $existing] < 16} {
+            set fname [file join $outdir \
+                           [format "frame-%s-%d.png" $page [clock microseconds]]]
+            $pngLib saveAsPng $im $fname
+        }
+    } on error {e o} {
+        puts stderr "folk-cwe recorder: $e"
+    }
+}
+
+# Status report, written once, ~30 seconds after boot.
+set bootTime [clock seconds]
+When the simulation output directory is /outdir/ &\
+     the clock time is /t/ {
+    set report [file join $outdir report.txt]
+    if {$t - $bootTime > 30 && ![file exists $report]} {
+        set lines [list "folk-cwe simulation report (booted $bootTime, now [expr {int($t)}])"]
+        set r [Query! /p/ has named frame slice images /images/]
+        lappend lines "named frame slice images claims: [llength $r]\
+                       (pages: [lsort [lmap m $r {dict get $m p}]])"
+        set r [Query! /p/ has named frame slice /name/ /im/]
+        lappend lines "per-frame slice claims (incl. images dicts): [llength $r]"
+        set r [Query! /someone/ wishes the GPU draws pipeline "image" onto canvas /id/ with arguments /args/]
+        lappend lines "live image draw wishes: [llength $r]"
+        set errs [Query! /p/ has error /e/ with info /info/]
+        lappend lines "error claims: [llength $errs]"
+        foreach m $errs {
+            lappend lines "  ERROR on [dict get $m p]:\
+                           [string range [lindex [split [dict get $m e] \n] 0] 0 200]"
+        }
+        set f [open $report w]; puts $f [join $lines \n]; close $f
+        puts "folk-cwe: wrote $report"
+    }
+}
