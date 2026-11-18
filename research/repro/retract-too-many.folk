@@ -1,0 +1,14 @@
+# Retract! with a pattern that matches 500 statements or more ends the
+# whole process from inside dbRetractStatements. See FINDINGS.md, E10.
+#
+# Expected: the 600 statements are removed.
+# Observed: "dbQuery: Hit max results" and exit status 1.
+
+set log /tmp/folk-repro-retract.txt
+for {set i 0} {$i < 600} {incr i} { Assert! scratch item $i }
+sleep 1
+set fd [open $log w]; puts $fd "asserted 600 statements; retracting them with one pattern"; close $fd
+Retract! scratch item /i/
+sleep 1
+set fd [open $log a]; puts $fd "still running after the Retract!"; close $fd
+Exit! 0

@@ -14,3 +14,5 @@ vendor/jimtcl/conftest__.dSYM/Contents/Resources/Relocations/aarch64/conftest__.
 research/extract/oracle
 research/verify/build/
 research/verify/genmc/genrc_extract.h
+research/out/*.dot
+research/out/perf/*.folded

@@ -1,6 +1,6 @@
 # A rule and a statement that are added at the same moment by two threads
 # can each discover the other, and the body runs twice (the FIXME in
-# reactToNewStatement, folk.c). See FINDINGS.md, E14.
+# reactToNewStatement, folk.c). See FINDINGS.md, E12.
 #
 # Each round asserts one rule and the one statement it matches, back to
 # back, so that two workers pick them up together.

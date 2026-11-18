@@ -2,8 +2,10 @@
 # in stored statements as well as in patterns. A path ending in a slash is
 # such a term. See FINDINGS.md, E8.
 #
-# Expected: asking for the directory /home/ finds nothing.
-# Observed: it finds the statement about /tmp/.
+# Expected: asking for the directory `elsewhere` finds nothing.
+# Observed: it finds the statement about /tmp/, whose last term matches
+# anything. (The first query below also matches, but there the variable is
+# the one in the query.)
 
 set log /tmp/folk-repro-slash.txt
 Assert! the upload directory is /tmp/
