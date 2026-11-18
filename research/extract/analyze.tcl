@@ -12,9 +12,11 @@
 #   emissions.tsv     every statement shape a program can emit
 #   generic.tsv       patterns and statements with no literal word
 #   unmatched.tsv     patterns that no emission in the tree can match
-#   unhandled.tsv     wishes that no When in the tree can match
+#   unhandled.tsv     wishes that nothing in the tree reads
+#   polled.tsv        wishes read only by Query! and ForEach!, never by a rule
 #   cycles.txt        rule cycles and rules that negate their own output
 #   capture.tsv       variables captured vs. used, per rule body
+#   prefix-fires.tsv  statements that fire a /...rest/ rule they do not match
 #   interfaces.tsv    every statement shape with its producers and readers
 #   undefined-commands.tsv  commands called but defined nowhere
 #   subsystems.dot    programs.dot folded by directory
@@ -693,6 +695,7 @@ puts $fd "where\twish"
 set unhandled 0
 set wishCount 0
 set wishSampledOnly 0
+set polled {}
 for {set e 0} {$e < [llength $emissions]} {incr e} {
     lassign [lindex $emissions $e] id scope kind terms
     if {[lindex $terms 1] ne {lit wishes}} { continue }
@@ -707,12 +710,19 @@ for {set e 0} {$e < [llength $emissions]} {incr e} {
             set sampled 1
         }
     }
-    if {!$reactive && $sampled} { incr wishSampledOnly }
+    if {!$reactive && $sampled} {
+        incr wishSampledOnly
+        lappend polled "[emissionWhere [lindex $emissions $e]]\t[clauseText [lrange $terms 2 end]]"
+    }
     if {!$reactive && !$sampled} {
         puts $fd "[emissionWhere [lindex $emissions $e]]\t[clauseText [lrange $terms 2 end]]"
         incr unhandled
     }
 }
+close $fd
+set fd [open $out/polled.tsv w]
+puts $fd "where\twish"
+puts $fd [join $polled "\n"]
 close $fd
 
 set fd [open $out/generic.tsv w]
@@ -995,6 +1005,61 @@ dict for {edge labels} $ruleEdges {
 puts $fd "}"
 close $fd
 
+# ---- Output: statements that fire a rest-variable rule without matching ----
+
+# When a statement is added, folk.c looks for rules by querying the trie
+# for `when <statement> /__lambda/ with environment /__env/`. A stored
+# rule `when P1 .. Pk /...rest/ <body> with environment <env>` is found by
+# that query not only when the statement continues past Pk, but also when
+# the statement is short enough for the query's own tail to run into the
+# rest variable (trieLookupImpl returns everything below a stored rest
+# variable without looking further):
+#   statement has k-1 terms: /__lambda/ lines up with Pk, `with` with rest
+#   statement has k-2 terms: additionally needs Pk to be `with` or a variable
+# clauseUnify then accepts the pair because it only compares the terms both
+# sides have, and the body runs with the rest variable unbound.
+proc prefixFires {p s} {
+    set k [expr {[llength $p] - 1}]
+    if {$k < 1 || [lindex $p $k 0] ne "rest"} { return 0 }
+    set n [llength $s]
+    foreach term $s {
+        if {[lindex $term 0] in {splat rest}} { return 0 }
+    }
+    if {$n == $k - 1} {
+        return [unifies [lrange $p 0 $k-2] $s]
+    }
+    if {$n == $k - 2 && $n > 0} {
+        lassign [lindex $p $k-1] type value
+        if {($type eq "lit" && $value eq "with") || $type in {var wild}} {
+            return [unifies [lrange $p 0 $k-3] $s]
+        }
+    }
+    return 0
+}
+set fd [open $out/prefix-fires.tsv w]
+puts $fd "statement_at\tstatement\trule_at\trule_pattern"
+set prefixPairs 0
+set prefixRules [dict create]
+for {set c 0} {$c < [llength $consumers]} {incr c} {
+    lassign [lindex $consumers $c] cid cscope ckind pattern
+    if {$ckind ne "when"} { continue }
+    if {[lindex $pattern end 0] ne "rest"} { continue }
+    for {set e 0} {$e < [llength $emissions]} {incr e} {
+        lassign [lindex $emissions $e] eid escope ekind terms
+        if {$ekind eq "rule" || [dict exists $genericEmissions $e]} { continue }
+        set hit [prefixFires $pattern $terms]
+        if {!$hit && [lindex $terms 1] eq {lit claims}} {
+            set hit [prefixFires $pattern [lrange $terms 2 end]]
+        }
+        if {$hit} {
+            incr prefixPairs
+            dict set prefixRules $cid 1
+            puts $fd "[emissionWhere [lindex $emissions $e]]\t[clauseText $terms]\t[where [lindex $forms $cid]]\t[clauseText $pattern]"
+        }
+    }
+}
+close $fd
+
 # ---- Output: interfaces ----
 
 # Folk programs do not import each other; they meet on statement shapes.
@@ -1270,6 +1335,8 @@ puts $m "  negate-then-Hold! (default idiom) $negHolds"
 puts $m "  negate-then-Claim/Wish candidates $negLoops"
 puts $m "  Notify: sites / Subscribe: sites [llength $notifies] / [llength $subscribes]"
 puts $m "  distinct statement shapes         [dict size $shapeProducers]   (interfaces.tsv)"
+puts $m "  statement/rule pairs where a short statement fires a /...rest/ rule"
+puts $m "    without matching it            $prefixPairs pairs, [dict size $prefixRules] rules   (prefix-fires.tsv)"
 puts $m "  command names with no definition $undefinedCount   (undefined-commands.tsv, needs review)"
 puts $m ""
 puts $m "Environment capture (rule bodies outside procs, system programs)"
