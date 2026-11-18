@@ -1,0 +1,33 @@
+# How the cost of adding a statement depends on how many siblings its
+# terms have in the trie. N statements are asserted in two shapes:
+#   wide      `wide RUN <i> x`          N children under one trie node
+#   bucketed  `bucketed RUN <i/100> <i%100>`   at most 100 under any node
+# and the time until the last of them is in the database is measured.
+#
+# Writes /tmp/folk-bench-trie.txt.
+
+set fd [open /tmp/folk-bench-trie.txt w]
+proc waitFor {args} {
+    while {[llength [QuerySimple! 0 {*}$args]] == 0} { after 1 }
+}
+foreach n {1000 2000 4000 7000} {
+    foreach shape {wide bucketed} {
+        set t0 [clock microseconds]
+        for {set i 0} {$i < $n} {incr i} {
+            if {$shape eq "wide"} {
+                Assert! wide $n $i x
+            } else {
+                Assert! bucketed $n [expr {$i / 100}] [expr {$i % 100}]
+            }
+        }
+        # Asserts are taken oldest first, so the sentinel goes in last.
+        Assert! sentinel $shape $n is in
+        waitFor sentinel $shape $n is in
+        set us [expr {[clock microseconds] - $t0}]
+        puts $fd [format "%-8s n=%5d  %7.1f ms  %6.1f us per statement" \
+                      $shape $n [expr {$us / 1000.0}] [expr {double($us) / $n}]]
+        flush $fd
+    }
+}
+close $fd
+Exit! 0

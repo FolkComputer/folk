@@ -1,0 +1,12 @@
+# Does nothing for ten seconds. Whatever CPU this uses is what the
+# evaluator costs when no statement is changing. Every second it records
+# how many threads the process has.
+
+set log /tmp/folk-bench-idle.txt
+set fd [open $log w]
+for {set s 1} {$s <= 10} {incr s} {
+    sleep 1
+    puts $fd "$s s: [llength [glob /proc/[pid]/task/*]] threads"
+}
+close $fd
+Exit! 0

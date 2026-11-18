@@ -1,0 +1,101 @@
+# A small reactive pipeline that drives itself as fast as the evaluator
+# allows. Each tick replaces one held statement; three rules react, one
+# of them a two-clause join; the last rule holds the next tick. Per tick
+# that is 5 statements and 5 matches created and the previous tick's
+# removed, which is the shape of most of builtin-programs.
+#
+# Environment variables:
+#   BENCH_TICKS    ticks to run (default 5000)
+#   BENCH_FNS      fn definitions in scope of the rules (default 0)
+#   BENCH_BLOCKED  rule bodies parked in a sleep, as bodies waiting on a
+#                  camera, a socket or a subprocess are (default 0)
+#   BENCH_LATENCY  1 to also log the time of every tick and report the
+#                  distribution of tick-to-tick intervals (default 0)
+#
+# Writes one line to /tmp/folk-bench-pipeline.txt and the block statistics
+# to /tmp/folk-bench-pipeline.blocks.txt.
+
+proc envOr {name default} {
+    expr {[info exists ::env($name)] ? $::env($name) : $default}
+}
+set ticks [envOr BENCH_TICKS 5000]
+set fns [envOr BENCH_FNS 0]
+set blocked [envOr BENCH_BLOCKED 0]
+set latency [envOr BENCH_LATENCY 0]
+set stamps /tmp/folk-bench-pipeline.stamps
+file delete $stamps
+
+# Ballast: helper functions the rules never call, as a real program has
+# many more helpers in scope than any one rule uses.
+for {set i 0} {$i < $fns} {incr i} {
+    fn helper$i {a b} {
+        set sum 0
+        foreach x $a {
+            foreach y $b {
+                if {$x < $y} {
+                    set sum [expr {$sum + $x * $y}]
+                } else {
+                    set sum [expr {$sum - $x * $y}]
+                }
+            }
+        }
+        set label "the sum of products is $sum"
+        return [list $sum $label [string length $label]]
+    }
+}
+unset i
+
+for {set b 0} {$b < $blocked} {incr b} {
+    When parked body $b is wanted { sleep 100000 }
+    Claim parked body $b is wanted
+}
+unset b
+sleep 0.5
+
+set t0 [clock microseconds]
+
+When the tick is /t/ {
+    Claim the doubled tick is [expr {$t * 2}]
+}
+When the doubled tick is /d/ {
+    Claim the result is [expr {$d + 1}]
+}
+When the tick is /t/ & the doubled tick is /d/ {
+    Claim tick $t is consistent with $d
+}
+When the result is /r/ {
+    set t [expr {($r - 1) / 2}]
+    if {$latency} { set fd [open $stamps a]; puts $fd [clock microseconds]; close $fd }
+    if {$t >= $ticks} {
+        set elapsed [expr {([clock microseconds] - $t0) / 1e6}]
+        set threads [llength [glob /proc/[pid]/task/*]]
+        set tail ""
+        if {$latency} {
+            set fd [open $stamps r]; set times [split [string trim [read $fd]] "\n"]; close $fd
+            set gaps {}
+            for {set k 1} {$k < [llength $times]} {incr k} {
+                lappend gaps [expr {[lindex $times $k] - [lindex $times $k-1]}]
+            }
+            set gaps [lsort -integer $gaps]
+            set n [llength $gaps]
+            set tail [format "  tick interval us: p50=%d p90=%d p99=%d p99.9=%d max=%d" \
+                          [lindex $gaps [expr {$n / 2}]] [lindex $gaps [expr {$n * 90 / 100}]] \
+                          [lindex $gaps [expr {$n * 99 / 100}]] [lindex $gaps [expr {$n * 999 / 1000}]] \
+                          [lindex $gaps end]]
+        }
+        set fd [open /tmp/folk-bench-pipeline.txt w]
+        puts $fd [format "ticks=%d fns=%d blocked=%d  %.2f s  %.0f ticks/s  %.0f us/tick  threads=%d%s" \
+                      $ticks $fns $blocked $elapsed [expr {$ticks / $elapsed}] \
+                      [expr {1e6 * $elapsed / $ticks}] $threads $tail]
+        close $fd
+        set fd [open /tmp/folk-bench-pipeline.blocks.txt w]
+        foreach stat [lsort -index 0 [__blockRuntimeStats]] {
+            lassign $stat where ewmaNs count
+            puts $fd [format "%-40s %8d runs  %9.1f us (EWMA)" $where $count [expr {$ewmaNs / 1000.0}]]
+        }
+        close $fd
+        Exit! 0
+    }
+    Hold! -key tick the tick is [expr {$t + 1}]
+}
+Hold! -key tick the tick is 0

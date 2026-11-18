@@ -1,0 +1,50 @@
+--- folk.c	2026-11-18 08:41:43.218141649 +0000
++++ folk.c	2026-11-18 10:16:08.177089220 +0000
+@@ -11,6 +11,7 @@
+ #include <setjmp.h>
+ #include <sys/syscall.h>
+ #include <fcntl.h>
++#include <time.h>
+ 
+ #if __has_include ("tracy/TracyC.h")
+ #include "tracy/TracyC.h"
+@@ -1494,6 +1495,7 @@
+ }
+ void workerLoop() {
+     int64_t schedtick = 0;
++    int idleRounds = 0;
+     for (;;) {
+         schedtick++;
+         if (interp->sigmask & (1 << SIGUSR1)) {
+@@ -1516,8 +1518,14 @@
+             item = globalWorkQueueTake();
+         }
+         if (item.op == NONE) {
++            // WHAT-IF: after a short spin, nap instead of burning the core.
++            if (++idleRounds > 200) {
++                struct timespec nap = { 0, 50 * 1000 };
++                nanosleep(&nap, NULL);
++            }
+             continue;
+         }
++        idleRounds = 0;
+ 
+         workerRun(item);
+     }
+--- sysmon.c	2026-11-18 08:41:43.218932573 +0000
++++ sysmon.c	2026-11-18 10:16:08.177275388 +0000
+@@ -130,6 +130,14 @@
+         pid_t tid = threads[i].tid;
+         if (tid == 0 || threads[i].isDeactivated) { continue; }
+ 
++        // WHAT-IF: a worker between work items is available to take one,
++        // whatever scheduler state it happens to be in.
++        if (threads[i].currentItemStartTimestamp == 0) {
++            notBlockedWorkersCount++;
++            threads[i].wasObservedAsBlocked = false;
++            continue;
++        }
++
+         char path[100]; snprintf(path, 100, "/proc/%d/stat", tid);
+         FILE *fp = fopen(path, "r");
+         if (fp == NULL) { continue; }

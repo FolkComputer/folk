@@ -1,0 +1,111 @@
+# What one use of each evaluator primitive costs, measured with Tcl's own
+# [time] from inside a rule body, where a rule's code normally runs.
+#
+# BENCH_FNS sets how many helper fns are in scope (default 0); none of the
+# measured code calls them.
+#
+# Writes /tmp/folk-bench-costs.txt.
+
+proc envOr {name default} {
+    expr {[info exists ::env($name)] ? $::env($name) : $default}
+}
+set fns [envOr BENCH_FNS 0]
+for {set i 0} {$i < $fns} {incr i} {
+    fn helper$i {a b} {
+        set sum 0
+        foreach x $a {
+            foreach y $b {
+                if {$x < $y} {
+                    set sum [expr {$sum + $x * $y}]
+                } else {
+                    set sum [expr {$sum - $x * $y}]
+                }
+            }
+        }
+        set label "the sum of products is $sum"
+        return [list $sum $label [string length $label]]
+    }
+}
+unset i
+
+When the cost benchmark should run {
+    set n 2000
+    set results {}
+    proc us {timing} { lindex $timing 0 }
+
+    lappend results [list "empty loop body" [us [time { } $n]]]
+
+    # The primitives first, while the only locals in scope are small: a
+    # When captures every local, so anything big here would be measured
+    # as part of it.
+    set i 0
+    lappend results [list "Claim (new statement)" \
+        [us [time { Claim cost probe [incr i] is claimed } $n]]]
+    set i 0
+    lappend results [list "Claim (statement already present)" \
+        [us [time { Claim cost probe 1 is claimed } $n]]]
+    set i 0
+    lappend results [list "Hold! (replace keyed statement)" \
+        [us [time { Hold! -key costprobe the held probe is [incr i] } $n]]]
+    set i 0
+    lappend results [list "When (new rule, nothing matches)" \
+        [us [time { When cost rule [incr i] is wanted { } } $n]]]
+    lappend results [list "Query! (one clause, one result)" \
+        [us [time { Query! the held probe is /x/ } $n]]]
+    lappend results [list "QuerySimple! (one clause, one result)" \
+        [us [time { QuerySimple! 0 the held probe is /x/ } $n]]]
+
+
+    # Then what it costs to enter a body, and the steps of applyBlock
+    # (prelude.tcl) one at a time.
+    lappend results [list "captureEnvStack" [us [time { captureEnvStack } $n]]]
+
+    set envStack [captureEnvStack]
+    lappend results [list "serialise captured environment to a string" \
+        [us [time { string length [string cat $envStack " "] } $n]]]
+    lappend results [list "evaluateBlock {} (enter an empty body)" \
+        [us [time { evaluateBlock {} $envStack } $n]]]
+
+    # The steps of applyBlock (prelude.tcl), one at a time.
+    lappend results [list "  dict merge of the environment stack" \
+        [us [time { set env [dict merge {*}$envStack] } $n]]]
+    set str [string range $envStack 0 end]
+    lappend results [list "  the same, parsing it from its string form" \
+        [us [time { set env [dict merge {*}[string range $str 0 end]] } $n]]]
+    set env [dict merge {*}$envStack]
+    lappend results [list "  rename-to-delete every fn in the environment" \
+        [us [time {
+            foreach name [dict keys $env] {
+                if {[string index $name 0] eq "^"} {
+                    try { rename [string range $name 1 end] {} } on error e {}
+                }
+            }
+        } $n]]]
+    lappend results [list "  the same, skipping fns that have no proc" \
+        [us [time {
+            foreach name [dict keys $env] {
+                if {[string index $name 0] eq "^" &&
+                    [exists -command [string range $name 1 end]]} {
+                    rename [string range $name 1 end] {}
+                }
+            }
+        } $n]]]
+    lappend results [list "  bind variables and apply an empty body" \
+        [us [time {
+            set e2 $env
+            dict set e2 __envStack $envStack
+            dict set e2 __env $e2
+            apply [list [dict keys $e2] {}] {*}[dict values $e2]
+        } $n]]]
+
+    set bytes [string length $envStack]
+    set fd [open /tmp/folk-bench-costs.txt w]
+    puts $fd "helper fns in scope: $fns; captured environment: $bytes bytes"
+    foreach result $results {
+        lassign $result what micros
+        puts $fd [format "  %-46s %8.1f us" $what $micros]
+    }
+    close $fd
+    Exit! 0
+}
+Claim the cost benchmark should run
