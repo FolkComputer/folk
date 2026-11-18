@@ -1,0 +1,7 @@
+where	wish
+builtin-programs/calibrate/draw-model.folk:87	the GPU draws pipeline fillTriangle with arguments [list $surfaceToClip $p1 $p... layer 99
+builtin-programs/calibrate/draw-model.folk:89	the GPU draws pipeline fillTriangle with arguments [list $surfaceToClip $p0 $p... layer 99
+builtin-programs/calibrate/draw-model.folk:130	the GPU draws pipeline image with arguments [list [list $displayWidth $... layer 100
+builtin-programs/gpu/canvases.folk:318	the GPU runs frame prelude handler [list apply {{gpuCanvasLib ...
+builtin-programs/gpu/canvases.folk:551	the GPU draws pipeline composite-canvas with arguments [list [list $dispWidth $dis... layer [dict getdef $canvOpts laye...
+builtin-programs/tags-to-quads.folk:549	the GPU draws pipeline composite-canvas with arguments [list [list $displayWidth $... layer [dict getdef $wiOptions lay... key $writableTextureId

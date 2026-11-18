@@ -1,0 +1,1050 @@
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" width="1200" height="550" onload="init(evt)" viewBox="0 0 1200 550" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<!-- Flame graph stack visualization. See https://github.com/brendangregg/FlameGraph for latest version, and http://www.brendangregg.com/flamegraphs.html for examples. -->
+<!-- NOTES:  -->
+<defs>
+	<linearGradient id="background" y1="0" y2="1" x1="0" x2="0" >
+		<stop stop-color="#eeeeee" offset="5%" />
+		<stop stop-color="#eeeeb0" offset="95%" />
+	</linearGradient>
+</defs>
+<style type="text/css">
+	text { font-family:Verdana; font-size:12px; fill:rgb(0,0,0); }
+	#search, #ignorecase { opacity:0.1; cursor:pointer; }
+	#search:hover, #search.show, #ignorecase:hover, #ignorecase.show { opacity:1; }
+	#subtitle { text-anchor:middle; font-color:rgb(160,160,160); }
+	#title { text-anchor:middle; font-size:17px}
+	#unzoom { cursor:pointer; }
+	#frames > *:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+	.hide { display:none; }
+	.parent { opacity:0.5; }
+</style>
+<script type="text/ecmascript">
+<![CDATA[
+	"use strict";
+	var details, searchbtn, unzoombtn, matchedtxt, svg, searching, currentSearchTerm, ignorecase, ignorecaseBtn;
+	function init(evt) {
+		details = document.getElementById("details").firstChild;
+		searchbtn = document.getElementById("search");
+		ignorecaseBtn = document.getElementById("ignorecase");
+		unzoombtn = document.getElementById("unzoom");
+		matchedtxt = document.getElementById("matched");
+		svg = document.getElementsByTagName("svg")[0];
+		searching = 0;
+		currentSearchTerm = null;
+
+		// use GET parameters to restore a flamegraphs state.
+		var params = get_params();
+		if (params.x && params.y)
+			zoom(find_group(document.querySelector('[x="' + params.x + '"][y="' + params.y + '"]')));
+                if (params.s) search(params.s);
+	}
+
+	// event listeners
+	window.addEventListener("click", function(e) {
+		var target = find_group(e.target);
+		if (target) {
+			if (target.nodeName == "a") {
+				if (e.ctrlKey === false) return;
+				e.preventDefault();
+			}
+			if (target.classList.contains("parent")) unzoom(true);
+			zoom(target);
+			if (!document.querySelector('.parent')) {
+				// we have basically done a clearzoom so clear the url
+				var params = get_params();
+				if (params.x) delete params.x;
+				if (params.y) delete params.y;
+				history.replaceState(null, null, parse_params(params));
+				unzoombtn.classList.add("hide");
+				return;
+			}
+
+			// set parameters for zoom state
+			var el = target.querySelector("rect");
+			if (el && el.attributes && el.attributes.y && el.attributes._orig_x) {
+				var params = get_params()
+				params.x = el.attributes._orig_x.value;
+				params.y = el.attributes.y.value;
+				history.replaceState(null, null, parse_params(params));
+			}
+		}
+		else if (e.target.id == "unzoom") clearzoom();
+		else if (e.target.id == "search") search_prompt();
+		else if (e.target.id == "ignorecase") toggle_ignorecase();
+	}, false)
+
+	// mouse-over for info
+	// show
+	window.addEventListener("mouseover", function(e) {
+		var target = find_group(e.target);
+		if (target) details.nodeValue = "Function: " + g_to_text(target);
+	}, false)
+
+	// clear
+	window.addEventListener("mouseout", function(e) {
+		var target = find_group(e.target);
+		if (target) details.nodeValue = ' ';
+	}, false)
+
+	// ctrl-F for search
+	// ctrl-I to toggle case-sensitive search
+	window.addEventListener("keydown",function (e) {
+		if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) {
+			e.preventDefault();
+			search_prompt();
+		}
+		else if (e.ctrlKey && e.keyCode === 73) {
+			e.preventDefault();
+			toggle_ignorecase();
+		}
+	}, false)
+
+	// functions
+	function get_params() {
+		var params = {};
+		var paramsarr = window.location.search.substr(1).split('&');
+		for (var i = 0; i < paramsarr.length; ++i) {
+			var tmp = paramsarr[i].split("=");
+			if (!tmp[0] || !tmp[1]) continue;
+			params[tmp[0]]  = decodeURIComponent(tmp[1]);
+		}
+		return params;
+	}
+	function parse_params(params) {
+		var uri = "?";
+		for (var key in params) {
+			uri += key + '=' + encodeURIComponent(params[key]) + '&';
+		}
+		if (uri.slice(-1) == "&")
+			uri = uri.substring(0, uri.length - 1);
+		if (uri == '?')
+			uri = window.location.href.split('?')[0];
+		return uri;
+	}
+	function find_child(node, selector) {
+		var children = node.querySelectorAll(selector);
+		if (children.length) return children[0];
+	}
+	function find_group(node) {
+		var parent = node.parentElement;
+		if (!parent) return;
+		if (parent.id == "frames") return node;
+		return find_group(parent);
+	}
+	function orig_save(e, attr, val) {
+		if (e.attributes["_orig_" + attr] != undefined) return;
+		if (e.attributes[attr] == undefined) return;
+		if (val == undefined) val = e.attributes[attr].value;
+		e.setAttribute("_orig_" + attr, val);
+	}
+	function orig_load(e, attr) {
+		if (e.attributes["_orig_"+attr] == undefined) return;
+		e.attributes[attr].value = e.attributes["_orig_" + attr].value;
+		e.removeAttribute("_orig_"+attr);
+	}
+	function g_to_text(e) {
+		var text = find_child(e, "title").firstChild.nodeValue;
+		return (text)
+	}
+	function g_to_func(e) {
+		var func = g_to_text(e);
+		// if there's any manipulation we want to do to the function
+		// name before it's searched, do it here before returning.
+		return (func);
+	}
+	function update_text(e) {
+		var r = find_child(e, "rect");
+		var t = find_child(e, "text");
+		var w = parseFloat(r.attributes.width.value) -3;
+		var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+		t.attributes.x.value = parseFloat(r.attributes.x.value) + 3;
+
+		// Smaller than this size won't fit anything
+		if (w < 2 * 12 * 0.59) {
+			t.textContent = "";
+			return;
+		}
+
+		t.textContent = txt;
+		var sl = t.getSubStringLength(0, txt.length);
+		// check if only whitespace or if we can fit the entire string into width w
+		if (/^ *$/.test(txt) || sl < w)
+			return;
+
+		// this isn't perfect, but gives a good starting point
+		// and avoids calling getSubStringLength too often
+		var start = Math.floor((w/sl) * txt.length);
+		for (var x = start; x > 0; x = x-2) {
+			if (t.getSubStringLength(0, x + 2) <= w) {
+				t.textContent = txt.substring(0, x) + "..";
+				return;
+			}
+		}
+		t.textContent = "";
+	}
+
+	// zoom
+	function zoom_reset(e) {
+		if (e.attributes != undefined) {
+			orig_load(e, "x");
+			orig_load(e, "width");
+		}
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_reset(c[i]);
+		}
+	}
+	function zoom_child(e, x, ratio) {
+		if (e.attributes != undefined) {
+			if (e.attributes.x != undefined) {
+				orig_save(e, "x");
+				e.attributes.x.value = (parseFloat(e.attributes.x.value) - x - 10) * ratio + 10;
+				if (e.tagName == "text")
+					e.attributes.x.value = find_child(e.parentNode, "rect[x]").attributes.x.value + 3;
+			}
+			if (e.attributes.width != undefined) {
+				orig_save(e, "width");
+				e.attributes.width.value = parseFloat(e.attributes.width.value) * ratio;
+			}
+		}
+
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_child(c[i], x - 10, ratio);
+		}
+	}
+	function zoom_parent(e) {
+		if (e.attributes) {
+			if (e.attributes.x != undefined) {
+				orig_save(e, "x");
+				e.attributes.x.value = 10;
+			}
+			if (e.attributes.width != undefined) {
+				orig_save(e, "width");
+				e.attributes.width.value = parseInt(svg.width.baseVal.value) - (10 * 2);
+			}
+		}
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_parent(c[i]);
+		}
+	}
+	function zoom(node) {
+		var attr = find_child(node, "rect").attributes;
+		var width = parseFloat(attr.width.value);
+		var xmin = parseFloat(attr.x.value);
+		var xmax = parseFloat(xmin + width);
+		var ymin = parseFloat(attr.y.value);
+		var ratio = (svg.width.baseVal.value - 2 * 10) / width;
+
+		// XXX: Workaround for JavaScript float issues (fix me)
+		var fudge = 0.0001;
+
+		unzoombtn.classList.remove("hide");
+
+		var el = document.getElementById("frames").children;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			var a = find_child(e, "rect").attributes;
+			var ex = parseFloat(a.x.value);
+			var ew = parseFloat(a.width.value);
+			var upstack;
+			// Is it an ancestor
+			if (0 == 0) {
+				upstack = parseFloat(a.y.value) > ymin;
+			} else {
+				upstack = parseFloat(a.y.value) < ymin;
+			}
+			if (upstack) {
+				// Direct ancestor
+				if (ex <= xmin && (ex+ew+fudge) >= xmax) {
+					e.classList.add("parent");
+					zoom_parent(e);
+					update_text(e);
+				}
+				// not in current path
+				else
+					e.classList.add("hide");
+			}
+			// Children maybe
+			else {
+				// no common path
+				if (ex < xmin || ex + fudge >= xmax) {
+					e.classList.add("hide");
+				}
+				else {
+					zoom_child(e, xmin, ratio);
+					update_text(e);
+				}
+			}
+		}
+		search();
+	}
+	function unzoom(dont_update_text) {
+		unzoombtn.classList.add("hide");
+		var el = document.getElementById("frames").children;
+		for(var i = 0; i < el.length; i++) {
+			el[i].classList.remove("parent");
+			el[i].classList.remove("hide");
+			zoom_reset(el[i]);
+			if(!dont_update_text) update_text(el[i]);
+		}
+		search();
+	}
+	function clearzoom() {
+		unzoom();
+
+		// remove zoom state
+		var params = get_params();
+		if (params.x) delete params.x;
+		if (params.y) delete params.y;
+		history.replaceState(null, null, parse_params(params));
+	}
+
+	// search
+	function toggle_ignorecase() {
+		ignorecase = !ignorecase;
+		if (ignorecase) {
+			ignorecaseBtn.classList.add("show");
+		} else {
+			ignorecaseBtn.classList.remove("show");
+		}
+		reset_search();
+		search();
+	}
+	function reset_search() {
+		var el = document.querySelectorAll("#frames rect");
+		for (var i = 0; i < el.length; i++) {
+			orig_load(el[i], "fill")
+		}
+		var params = get_params();
+		delete params.s;
+		history.replaceState(null, null, parse_params(params));
+	}
+	function search_prompt() {
+		if (!searching) {
+			var term = prompt("Enter a search term (regexp " +
+			    "allowed, eg: ^ext4_)"
+			    + (ignorecase ? ", ignoring case" : "")
+			    + "\nPress Ctrl-i to toggle case sensitivity", "");
+			if (term != null) search(term);
+		} else {
+			reset_search();
+			searching = 0;
+			currentSearchTerm = null;
+			searchbtn.classList.remove("show");
+			searchbtn.firstChild.nodeValue = "Search"
+			matchedtxt.classList.add("hide");
+			matchedtxt.firstChild.nodeValue = ""
+		}
+	}
+	function search(term) {
+		if (term) currentSearchTerm = term;
+		if (currentSearchTerm === null) return;
+
+		var re = new RegExp(currentSearchTerm, ignorecase ? 'i' : '');
+		var el = document.getElementById("frames").children;
+		var matches = new Object();
+		var maxwidth = 0;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			var func = g_to_func(e);
+			var rect = find_child(e, "rect");
+			if (func == null || rect == null)
+				continue;
+
+			// Save max width. Only works as we have a root frame
+			var w = parseFloat(rect.attributes.width.value);
+			if (w > maxwidth)
+				maxwidth = w;
+
+			if (func.match(re)) {
+				// highlight
+				var x = parseFloat(rect.attributes.x.value);
+				orig_save(rect, "fill");
+				rect.attributes.fill.value = "rgb(230,0,230)";
+
+				// remember matches
+				if (matches[x] == undefined) {
+					matches[x] = w;
+				} else {
+					if (w > matches[x]) {
+						// overwrite with parent
+						matches[x] = w;
+					}
+				}
+				searching = 1;
+			}
+		}
+		if (!searching)
+			return;
+		var params = get_params();
+		params.s = currentSearchTerm;
+		history.replaceState(null, null, parse_params(params));
+
+		searchbtn.classList.add("show");
+		searchbtn.firstChild.nodeValue = "Reset Search";
+
+		// calculate percent matched, excluding vertical overlap
+		var count = 0;
+		var lastx = -1;
+		var lastw = 0;
+		var keys = Array();
+		for (k in matches) {
+			if (matches.hasOwnProperty(k))
+				keys.push(k);
+		}
+		// sort the matched frames by their x location
+		// ascending, then width descending
+		keys.sort(function(a, b){
+			return a - b;
+		});
+		// Step through frames saving only the biggest bottom-up frames
+		// thanks to the sort order. This relies on the tree property
+		// where children are always smaller than their parents.
+		var fudge = 0.0001;	// JavaScript floating point
+		for (var k in keys) {
+			var x = parseFloat(keys[k]);
+			var w = matches[keys[k]];
+			if (x >= lastx + lastw - fudge) {
+				count += w;
+				lastx = x;
+				lastw = w;
+			}
+		}
+		// display matched percent
+		matchedtxt.classList.remove("hide");
+		var pct = 100 * count / maxwidth;
+		if (pct != 100) pct = pct.toFixed(1)
+		matchedtxt.firstChild.nodeValue = "Matched: " + pct + "%";
+	}
+]]>
+</script>
+<rect x="0.0" y="0" width="1200.0" height="550.0" fill="url(#background)"  />
+<text id="title" x="600.00" y="24" >idle</text>
+<text id="details" x="10.00" y="533" > </text>
+<text id="unzoom" x="10.00" y="24" class="hide">Reset Zoom</text>
+<text id="search" x="1090.00" y="24" >Search</text>
+<text id="ignorecase" x="1174.00" y="24" >ic</text>
+<text id="matched" x="1090.00" y="533" > </text>
+<g id="frames">
+<g >
+<title>all (39,436,307,862 samples, 100%)</title><rect x="10.0" y="501" width="1180.0" height="15.0" fill="rgb(213,39,9)" rx="2" ry="2" />
+<text  x="13.00" y="511.5" ></text>
+</g>
+<g >
+<title>__rseq_handle_notify_resume (971,915,721 samples, 2.46%)</title><rect x="639.7" y="341" width="29.1" height="15.0" fill="rgb(238,153,36)" rx="2" ry="2" />
+<text  x="642.71" y="351.5" >__..</text>
+</g>
+<g >
+<title>[x86_64-linux-gnu-ld.bfd] (226,680,034 samples, 0.57%)</title><rect x="1177.3" y="373" width="6.8" height="15.0" fill="rgb(240,163,39)" rx="2" ry="2" />
+<text  x="1180.31" y="383.5" ></text>
+</g>
+<g >
+<title>JimCallProcedure (66,198,594 samples, 0.17%)</title><rect x="212.0" y="229" width="2.0" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="215.04" y="239.5" ></text>
+</g>
+<g >
+<title>JimCallProcedure (69,207,621 samples, 0.18%)</title><rect x="209.4" y="101" width="2.1" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="212.43" y="111.5" ></text>
+</g>
+<g >
+<title>do_task_stat (151,454,359 samples, 0.38%)</title><rect x="190.5" y="213" width="4.5" height="15.0" fill="rgb(244,183,43)" rx="2" ry="2" />
+<text  x="193.49" y="223.5" ></text>
+</g>
+<g >
+<title>Jim_EvalFile (194,583,746 samples, 0.49%)</title><rect x="208.4" y="405" width="5.9" height="15.0" fill="rgb(226,99,23)" rx="2" ry="2" />
+<text  x="211.44" y="415.5" ></text>
+</g>
+<g >
+<title>do_syscall_64 (41,123,369 samples, 0.10%)</title><rect x="196.0" y="357" width="1.3" height="15.0" fill="rgb(209,20,4)" rx="2" ry="2" />
+<text  x="199.04" y="367.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (194,583,746 samples, 0.49%)</title><rect x="208.4" y="389" width="5.9" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="211.44" y="399.5" ></text>
+</g>
+<g >
+<title>range_query::value_on_edge (38,114,342 samples, 0.10%)</title><rect x="135.0" y="453" width="1.2" height="15.0" fill="rgb(236,145,34)" rx="2" ry="2" />
+<text  x="138.03" y="463.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (66,198,594 samples, 0.17%)</title><rect x="212.0" y="261" width="2.0" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="215.04" y="271.5" ></text>
+</g>
+<g >
+<title>x64_sys_call (42,126,378 samples, 0.11%)</title><rect x="670.0" y="357" width="1.2" height="15.0" fill="rgb(247,194,46)" rx="2" ry="2" />
+<text  x="672.96" y="367.5" ></text>
+</g>
+<g >
+<title>seq_put_decimal_ull_width (43,129,387 samples, 0.11%)</title><rect x="192.8" y="197" width="1.3" height="15.0" fill="rgb(244,183,43)" rx="2" ry="2" />
+<text  x="195.83" y="207.5" ></text>
+</g>
+<g >
+<title>[x86_64-linux-gnu-as] (47,141,423 samples, 0.12%)</title><rect x="13.1" y="325" width="1.4" height="15.0" fill="rgb(249,206,49)" rx="2" ry="2" />
+<text  x="16.06" y="335.5" ></text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (12,487,462,050 samples, 31.66%)</title><rect x="297.6" y="389" width="373.6" height="15.0" fill="rgb(218,63,15)" rx="2" ry="2" />
+<text  x="300.57" y="399.5" >entry_SYSCALL_64_after_hwframe</text>
+</g>
+<g >
+<title>[cc1] (874,623,848 samples, 2.22%)</title><rect x="51.7" y="453" width="26.1" height="15.0" fill="rgb(229,111,26)" rx="2" ry="2" />
+<text  x="54.66" y="463.5" >[..</text>
+</g>
+<g >
+<title>JimEvalObjList (69,207,621 samples, 0.18%)</title><rect x="209.4" y="133" width="2.1" height="15.0" fill="rgb(231,120,28)" rx="2" ry="2" />
+<text  x="212.43" y="143.5" ></text>
+</g>
+<g >
+<title>as (290,872,610 samples, 0.74%)</title><rect x="10.0" y="485" width="8.7" height="15.0" fill="rgb(244,179,42)" rx="2" ry="2" />
+<text  x="13.00" y="495.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (104,312,936 samples, 0.26%)</title><rect x="208.6" y="261" width="3.1" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="211.62" y="271.5" ></text>
+</g>
+<g >
+<title>start_thread (33,119,357,180 samples, 83.98%)</title><rect x="186.2" y="453" width="991.0" height="15.0" fill="rgb(212,34,8)" rx="2" ry="2" />
+<text  x="189.20" y="463.5" >start_thread</text>
+</g>
+<g >
+<title>_IO_file_fopen@@GLIBC_2.2.5 (98,294,882 samples, 0.25%)</title><rect x="197.3" y="389" width="3.0" height="15.0" fill="rgb(237,148,35)" rx="2" ry="2" />
+<text  x="200.33" y="399.5" ></text>
+</g>
+<g >
+<title>[x86_64-linux-gnu-as] (137,412,233 samples, 0.35%)</title><rect x="11.2" y="357" width="4.1" height="15.0" fill="rgb(249,206,49)" rx="2" ry="2" />
+<text  x="14.17" y="367.5" ></text>
+</g>
+<g >
+<title>cc1 (5,440,320,816 samples, 13.80%)</title><rect x="18.7" y="485" width="162.8" height="15.0" fill="rgb(217,59,14)" rx="2" ry="2" />
+<text  x="21.70" y="495.5" >cc1</text>
+</g>
+<g >
+<title>[x86_64-linux-gnu-ld.bfd] (346,038,105 samples, 0.88%)</title><rect x="1177.2" y="405" width="10.3" height="15.0" fill="rgb(240,163,39)" rx="2" ry="2" />
+<text  x="1180.19" y="415.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (98,294,882 samples, 0.25%)</title><rect x="208.6" y="213" width="3.0" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="211.65" y="223.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (188,565,692 samples, 0.48%)</title><rect x="208.4" y="373" width="5.7" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="211.44" y="383.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (42,126,378 samples, 0.11%)</title><rect x="212.8" y="149" width="1.2" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="215.76" y="159.5" ></text>
+</g>
+<g >
+<title>do_syscall_64 (12,487,462,050 samples, 31.66%)</title><rect x="297.6" y="373" width="373.6" height="15.0" fill="rgb(209,20,4)" rx="2" ry="2" />
+<text  x="300.57" y="383.5" >do_syscall_64</text>
+</g>
+<g >
+<title>asm_exc_page_fault (35,105,315 samples, 0.09%)</title><rect x="1179.3" y="325" width="1.0" height="15.0" fill="rgb(225,93,22)" rx="2" ry="2" />
+<text  x="1182.29" y="335.5" ></text>
+</g>
+<g >
+<title>[cc1] (1,049,147,414 samples, 2.66%)</title><rect x="20.0" y="469" width="31.4" height="15.0" fill="rgb(229,111,26)" rx="2" ry="2" />
+<text  x="22.96" y="479.5" >[c..</text>
+</g>
+<g >
+<title>rand_r (394,182,537 samples, 1.00%)</title><rect x="683.0" y="405" width="11.7" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="685.95" y="415.5" ></text>
+</g>
+<g >
+<title>workQueueSteal (241,725,169 samples, 0.61%)</title><rect x="701.9" y="405" width="7.3" height="15.0" fill="rgb(248,198,47)" rx="2" ry="2" />
+<text  x="704.92" y="415.5" ></text>
+</g>
+<g >
+<title>[x86_64-linux-gnu-ld.bfd] (216,649,944 samples, 0.55%)</title><rect x="1177.4" y="357" width="6.5" height="15.0" fill="rgb(240,163,39)" rx="2" ry="2" />
+<text  x="1180.43" y="367.5" ></text>
+</g>
+<g >
+<title>__memset_avx512_unaligned_erms (63,189,567 samples, 0.16%)</title><rect x="145.3" y="469" width="1.9" height="15.0" fill="rgb(214,43,10)" rx="2" ry="2" />
+<text  x="148.29" y="479.5" ></text>
+</g>
+<g >
+<title>Jim_EvalFile (184,553,656 samples, 0.47%)</title><rect x="208.5" y="341" width="5.5" height="15.0" fill="rgb(226,99,23)" rx="2" ry="2" />
+<text  x="211.53" y="351.5" ></text>
+</g>
+<g >
+<title>__x64_sys_openat (81,243,729 samples, 0.21%)</title><rect x="197.6" y="309" width="2.4" height="15.0" fill="rgb(251,215,51)" rx="2" ry="2" />
+<text  x="200.60" y="319.5" ></text>
+</g>
+<g >
+<title>[cc1] (369,107,312 samples, 0.94%)</title><rect x="77.8" y="437" width="11.1" height="15.0" fill="rgb(229,111,26)" rx="2" ry="2" />
+<text  x="80.83" y="447.5" ></text>
+</g>
+<g >
+<title>globalWorkQueueTake (264,794,376 samples, 0.67%)</title><rect x="200.5" y="421" width="7.9" height="15.0" fill="rgb(216,54,12)" rx="2" ry="2" />
+<text  x="203.45" y="431.5" ></text>
+</g>
+<g >
+<title>[unknown] (204,613,836 samples, 0.52%)</title><rect x="88.9" y="437" width="6.1" height="15.0" fill="rgb(210,24,5)" rx="2" ry="2" />
+<text  x="91.87" y="447.5" ></text>
+</g>
+<g >
+<title>__libc_start_call_main (262,788,358 samples, 0.67%)</title><rect x="10.0" y="437" width="7.9" height="15.0" fill="rgb(210,26,6)" rx="2" ry="2" />
+<text  x="13.00" y="447.5" ></text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (182,547,638 samples, 0.46%)</title><rect x="189.6" y="325" width="5.5" height="15.0" fill="rgb(218,63,15)" rx="2" ry="2" />
+<text  x="192.62" y="335.5" ></text>
+</g>
+<g >
+<title>seq_read_iter (172,517,548 samples, 0.44%)</title><rect x="189.9" y="245" width="5.2" height="15.0" fill="rgb(232,128,30)" rx="2" ry="2" />
+<text  x="192.92" y="255.5" ></text>
+</g>
+<g >
+<title>_dl_start_user (34,102,306 samples, 0.09%)</title><rect x="1188.9" y="469" width="1.1" height="15.0" fill="rgb(236,145,34)" rx="2" ry="2" />
+<text  x="1191.95" y="479.5" ></text>
+</g>
+<g >
+<title>irange::set (34,102,306 samples, 0.09%)</title><rect x="128.2" y="453" width="1.1" height="15.0" fill="rgb(249,206,49)" rx="2" ry="2" />
+<text  x="131.25" y="463.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (66,198,594 samples, 0.17%)</title><rect x="212.0" y="309" width="2.0" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="215.04" y="319.5" ></text>
+</g>
+<g >
+<title>_IO_file_open (97,291,873 samples, 0.25%)</title><rect x="197.3" y="373" width="2.9" height="15.0" fill="rgb(249,205,49)" rx="2" ry="2" />
+<text  x="200.33" y="383.5" ></text>
+</g>
+<g >
+<title>interpBoot (207,622,863 samples, 0.53%)</title><rect x="208.4" y="421" width="6.2" height="15.0" fill="rgb(253,221,52)" rx="2" ry="2" />
+<text  x="211.38" y="431.5" ></text>
+</g>
+<g >
+<title>[unknown] (50,150,450 samples, 0.13%)</title><rect x="91.3" y="421" width="1.5" height="15.0" fill="rgb(210,24,5)" rx="2" ry="2" />
+<text  x="94.27" y="431.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (64,192,576 samples, 0.16%)</title><rect x="212.1" y="181" width="1.9" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="215.10" y="191.5" ></text>
+</g>
+<g >
+<title>JimCallProcedure (66,198,594 samples, 0.17%)</title><rect x="212.0" y="277" width="2.0" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="215.04" y="287.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (69,207,621 samples, 0.18%)</title><rect x="209.4" y="117" width="2.1" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="212.43" y="127.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (106,318,954 samples, 0.27%)</title><rect x="208.6" y="277" width="3.1" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="211.56" y="287.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (66,198,594 samples, 0.17%)</title><rect x="212.0" y="293" width="2.0" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="215.04" y="303.5" ></text>
+</g>
+<g >
+<title>__get_user_8 (285,857,565 samples, 0.72%)</title><rect x="654.2" y="325" width="8.6" height="15.0" fill="rgb(242,171,41)" rx="2" ry="2" />
+<text  x="657.20" y="335.5" ></text>
+</g>
+<g >
+<title>_dl_start_user (41,123,369 samples, 0.10%)</title><rect x="183.4" y="469" width="1.2" height="15.0" fill="rgb(236,145,34)" rx="2" ry="2" />
+<text  x="186.38" y="479.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (66,198,594 samples, 0.17%)</title><rect x="212.0" y="245" width="2.0" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="215.04" y="255.5" ></text>
+</g>
+<g >
+<title>[x86_64-linux-gnu-ld.bfd] (390,170,501 samples, 0.99%)</title><rect x="1177.2" y="421" width="11.7" height="15.0" fill="rgb(240,163,39)" rx="2" ry="2" />
+<text  x="1180.19" y="431.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (184,553,656 samples, 0.47%)</title><rect x="208.5" y="325" width="5.5" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="211.53" y="335.5" ></text>
+</g>
+<g >
+<title>[x86_64-linux-gnu-as] (262,788,358 samples, 0.67%)</title><rect x="10.0" y="469" width="7.9" height="15.0" fill="rgb(249,206,49)" rx="2" ry="2" />
+<text  x="13.00" y="479.5" ></text>
+</g>
+<g >
+<title>Jim_UplevelCoreCommand (69,207,621 samples, 0.18%)</title><rect x="209.4" y="149" width="2.1" height="15.0" fill="rgb(224,88,21)" rx="2" ry="2" />
+<text  x="212.43" y="159.5" ></text>
+</g>
+<g >
+<title>[cc1] (80,240,720 samples, 0.20%)</title><rect x="88.9" y="421" width="2.4" height="15.0" fill="rgb(229,111,26)" rx="2" ry="2" />
+<text  x="91.87" y="431.5" ></text>
+</g>
+<g >
+<title>do_syscall_64 (182,547,638 samples, 0.46%)</title><rect x="189.6" y="309" width="5.5" height="15.0" fill="rgb(209,20,4)" rx="2" ry="2" />
+<text  x="192.62" y="319.5" ></text>
+</g>
+<g >
+<title>do_filp_open (65,195,585 samples, 0.17%)</title><rect x="197.7" y="277" width="2.0" height="15.0" fill="rgb(211,28,6)" rx="2" ry="2" />
+<text  x="200.72" y="287.5" ></text>
+</g>
+<g >
+<title>JimCallProcedure (106,318,954 samples, 0.27%)</title><rect x="208.6" y="293" width="3.1" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="211.56" y="303.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (109,327,981 samples, 0.28%)</title><rect x="208.6" y="309" width="3.2" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="211.56" y="319.5" ></text>
+</g>
+<g >
+<title>exit_to_user_mode_loop (1,217,652,926 samples, 3.09%)</title><rect x="633.5" y="357" width="36.5" height="15.0" fill="rgb(224,90,21)" rx="2" ry="2" />
+<text  x="636.52" y="367.5" >exi..</text>
+</g>
+<g >
+<title>constrain_operands (39,117,351 samples, 0.10%)</title><rect x="116.9" y="453" width="1.1" height="15.0" fill="rgb(233,129,30)" rx="2" ry="2" />
+<text  x="119.87" y="463.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (71,213,639 samples, 0.18%)</title><rect x="209.4" y="181" width="2.1" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="212.40" y="191.5" ></text>
+</g>
+<g >
+<title>workQueueTake (6,757,271,633 samples, 17.13%)</title><rect x="709.2" y="405" width="202.1" height="15.0" fill="rgb(247,195,46)" rx="2" ry="2" />
+<text  x="712.15" y="415.5" >workQueueTake</text>
+</g>
+<g >
+<title>sysmonMain (475,426,266 samples, 1.21%)</title><rect x="186.2" y="437" width="14.3" height="15.0" fill="rgb(251,213,51)" rx="2" ry="2" />
+<text  x="189.23" y="447.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (67,201,603 samples, 0.17%)</title><rect x="209.5" y="69" width="2.0" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="212.49" y="79.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (45,135,405 samples, 0.11%)</title><rect x="209.5" y="37" width="1.3" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="212.49" y="47.5" ></text>
+</g>
+<g >
+<title>__isoc23_fscanf (236,710,124 samples, 0.60%)</title><rect x="188.1" y="405" width="7.0" height="15.0" fill="rgb(254,229,54)" rx="2" ry="2" />
+<text  x="191.06" y="415.5" ></text>
+</g>
+<g >
+<title>[unknown] (1,004,012,009 samples, 2.55%)</title><rect x="77.8" y="453" width="30.1" height="15.0" fill="rgb(210,24,5)" rx="2" ry="2" />
+<text  x="80.83" y="463.5" >[u..</text>
+</g>
+<g >
+<title>bfd_elf_size_dynamic_sections (47,141,423 samples, 0.12%)</title><rect x="1184.4" y="373" width="1.4" height="15.0" fill="rgb(230,116,27)" rx="2" ry="2" />
+<text  x="1187.42" y="383.5" ></text>
+</g>
+<g >
+<title>clone3 (33,119,357,180 samples, 83.98%)</title><rect x="186.2" y="469" width="991.0" height="15.0" fill="rgb(216,54,12)" rx="2" ry="2" />
+<text  x="189.20" y="479.5" >clone3</text>
+</g>
+<g >
+<title>__libc_start_main@@GLIBC_2.34 (262,788,358 samples, 0.67%)</title><rect x="10.0" y="453" width="7.9" height="15.0" fill="rgb(229,113,27)" rx="2" ry="2" />
+<text  x="13.00" y="463.5" ></text>
+</g>
+<g >
+<title>ld (428,284,843 samples, 1.09%)</title><rect x="1177.2" y="485" width="12.8" height="15.0" fill="rgb(219,68,16)" rx="2" ry="2" />
+<text  x="1180.19" y="495.5" ></text>
+</g>
+<g >
+<title>__close_nocancel (45,135,405 samples, 0.11%)</title><rect x="195.9" y="389" width="1.4" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="198.92" y="399.5" ></text>
+</g>
+<g >
+<title>exc_page_fault (35,105,315 samples, 0.09%)</title><rect x="1179.3" y="309" width="1.0" height="15.0" fill="rgb(212,35,8)" rx="2" ry="2" />
+<text  x="1182.29" y="319.5" ></text>
+</g>
+<g >
+<title>exc_page_fault (44,132,396 samples, 0.11%)</title><rect x="145.8" y="437" width="1.4" height="15.0" fill="rgb(212,35,8)" rx="2" ry="2" />
+<text  x="148.83" y="447.5" ></text>
+</g>
+<g >
+<title>read (188,565,692 samples, 0.48%)</title><rect x="189.4" y="341" width="5.7" height="15.0" fill="rgb(252,216,51)" rx="2" ry="2" />
+<text  x="192.44" y="351.5" ></text>
+</g>
+<g >
+<title>do_sys_openat2 (81,243,729 samples, 0.21%)</title><rect x="197.6" y="293" width="2.4" height="15.0" fill="rgb(253,221,52)" rx="2" ry="2" />
+<text  x="200.60" y="303.5" ></text>
+</g>
+<g >
+<title>fclose@@GLIBC_2.2.5 (52,156,468 samples, 0.13%)</title><rect x="195.7" y="405" width="1.6" height="15.0" fill="rgb(251,213,51)" rx="2" ry="2" />
+<text  x="198.71" y="415.5" ></text>
+</g>
+<g >
+<title>collect2 (37,111,333 samples, 0.09%)</title><rect x="184.6" y="485" width="1.1" height="15.0" fill="rgb(247,194,46)" rx="2" ry="2" />
+<text  x="187.61" y="495.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (100,300,900 samples, 0.25%)</title><rect x="208.6" y="229" width="3.0" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="211.65" y="239.5" ></text>
+</g>
+<g >
+<title>[unknown] (38,114,342 samples, 0.10%)</title><rect x="135.0" y="437" width="1.2" height="15.0" fill="rgb(210,24,5)" rx="2" ry="2" />
+<text  x="138.03" y="447.5" ></text>
+</g>
+<g >
+<title>[unknown] (3,120,360,999 samples, 7.91%)</title><rect x="51.4" y="469" width="93.3" height="15.0" fill="rgb(210,24,5)" rx="2" ry="2" />
+<text  x="54.36" y="479.5" >[unknown]</text>
+</g>
+<g >
+<title>ggc_internal_alloc (61,183,549 samples, 0.16%)</title><rect x="164.4" y="469" width="1.8" height="15.0" fill="rgb(225,93,22)" rx="2" ry="2" />
+<text  x="167.38" y="479.5" ></text>
+</g>
+<g >
+<title>bfd_link_hash_lookup (51,153,459 samples, 0.13%)</title><rect x="1181.8" y="309" width="1.5" height="15.0" fill="rgb(241,167,39)" rx="2" ry="2" />
+<text  x="1184.81" y="319.5" ></text>
+</g>
+<g >
+<title>_IO_file_underflow@@GLIBC_2.2.5 (216,649,944 samples, 0.55%)</title><rect x="188.6" y="357" width="6.5" height="15.0" fill="rgb(206,5,1)" rx="2" ry="2" />
+<text  x="191.60" y="367.5" ></text>
+</g>
+<g >
+<title>[x86_64-linux-gnu-as] (166,499,494 samples, 0.42%)</title><rect x="10.6" y="373" width="5.0" height="15.0" fill="rgb(249,206,49)" rx="2" ry="2" />
+<text  x="13.57" y="383.5" ></text>
+</g>
+<g >
+<title>[x86_64-linux-gnu-ld.bfd] (391,173,510 samples, 0.99%)</title><rect x="1177.2" y="469" width="11.7" height="15.0" fill="rgb(240,163,39)" rx="2" ry="2" />
+<text  x="1180.19" y="479.5" ></text>
+</g>
+<g >
+<title>path_openat (64,192,576 samples, 0.16%)</title><rect x="197.8" y="261" width="1.9" height="15.0" fill="rgb(249,202,48)" rx="2" ry="2" />
+<text  x="200.75" y="271.5" ></text>
+</g>
+<g >
+<title>ksys_read (178,535,602 samples, 0.45%)</title><rect x="189.7" y="293" width="5.4" height="15.0" fill="rgb(229,113,27)" rx="2" ry="2" />
+<text  x="192.74" y="303.5" ></text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (86,258,774 samples, 0.22%)</title><rect x="197.5" y="341" width="2.6" height="15.0" fill="rgb(218,63,15)" rx="2" ry="2" />
+<text  x="200.51" y="351.5" ></text>
+</g>
+<g >
+<title>__vfscanf_internal (236,710,124 samples, 0.60%)</title><rect x="188.1" y="389" width="7.0" height="15.0" fill="rgb(210,26,6)" rx="2" ry="2" />
+<text  x="191.06" y="399.5" ></text>
+</g>
+<g >
+<title>cc (104,312,936 samples, 0.26%)</title><rect x="181.5" y="485" width="3.1" height="15.0" fill="rgb(234,135,32)" rx="2" ry="2" />
+<text  x="184.49" y="495.5" ></text>
+</g>
+<g >
+<title>_dl_sysdep_start (39,117,351 samples, 0.10%)</title><rect x="183.4" y="437" width="1.2" height="15.0" fill="rgb(234,137,32)" rx="2" ry="2" />
+<text  x="186.44" y="447.5" ></text>
+</g>
+<g >
+<title>sched_yield@plt (34,102,306 samples, 0.09%)</title><rect x="700.9" y="405" width="1.0" height="15.0" fill="rgb(207,10,2)" rx="2" ry="2" />
+<text  x="703.90" y="415.5" ></text>
+</g>
+<g >
+<title>__memmove_avx512_unaligned_erms (51,153,459 samples, 0.13%)</title><rect x="1178.8" y="341" width="1.5" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1181.81" y="351.5" ></text>
+</g>
+<g >
+<title>blkcg_maybe_throttle_current (38,114,342 samples, 0.10%)</title><rect x="668.8" y="341" width="1.1" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="671.79" y="351.5" ></text>
+</g>
+<g >
+<title>asm_exc_page_fault (44,132,396 samples, 0.11%)</title><rect x="145.8" y="453" width="1.4" height="15.0" fill="rgb(225,93,22)" rx="2" ry="2" />
+<text  x="148.83" y="463.5" ></text>
+</g>
+<g >
+<title>Jim_ForCoreCommand (64,192,576 samples, 0.16%)</title><rect x="209.5" y="53" width="1.9" height="15.0" fill="rgb(253,224,53)" rx="2" ry="2" />
+<text  x="212.49" y="63.5" ></text>
+</g>
+<g >
+<title>Jim_SourceCoreCommand (184,553,656 samples, 0.47%)</title><rect x="208.5" y="357" width="5.5" height="15.0" fill="rgb(221,77,18)" rx="2" ry="2" />
+<text  x="211.53" y="367.5" ></text>
+</g>
+<g >
+<title>[x86_64-linux-gnu-as] (199,598,791 samples, 0.51%)</title><rect x="10.2" y="389" width="5.9" height="15.0" fill="rgb(249,206,49)" rx="2" ry="2" />
+<text  x="13.15" y="399.5" ></text>
+</g>
+<g >
+<title>workerSteal (8,732,196,354 samples, 22.14%)</title><rect x="911.3" y="405" width="261.3" height="15.0" fill="rgb(249,202,48)" rx="2" ry="2" />
+<text  x="914.34" y="415.5" >workerSteal</text>
+</g>
+<g >
+<title>[unknown] (34,102,306 samples, 0.09%)</title><rect x="91.7" y="405" width="1.0" height="15.0" fill="rgb(210,24,5)" rx="2" ry="2" />
+<text  x="94.69" y="415.5" ></text>
+</g>
+<g >
+<title>[x86_64-linux-gnu-as] (262,788,358 samples, 0.67%)</title><rect x="10.0" y="421" width="7.9" height="15.0" fill="rgb(249,206,49)" rx="2" ry="2" />
+<text  x="13.00" y="431.5" ></text>
+</g>
+<g >
+<title>seq_read (172,517,548 samples, 0.44%)</title><rect x="189.9" y="261" width="5.2" height="15.0" fill="rgb(213,37,8)" rx="2" ry="2" />
+<text  x="192.92" y="271.5" ></text>
+</g>
+<g >
+<title>__put_user_8 (201,604,809 samples, 0.51%)</title><rect x="662.8" y="325" width="6.0" height="15.0" fill="rgb(230,118,28)" rx="2" ry="2" />
+<text  x="665.75" y="335.5" ></text>
+</g>
+<g >
+<title>workerSteal (152,457,368 samples, 0.39%)</title><rect x="1172.6" y="421" width="4.6" height="15.0" fill="rgb(249,202,48)" rx="2" ry="2" />
+<text  x="1175.62" y="431.5" ></text>
+</g>
+<g >
+<title>workerLoop (31,724,171,661 samples, 80.44%)</title><rect x="223.4" y="421" width="949.2" height="15.0" fill="rgb(212,35,8)" rx="2" ry="2" />
+<text  x="226.38" y="431.5" >workerLoop</text>
+</g>
+<g >
+<title>Jim_EvalObj (94,282,846 samples, 0.24%)</title><rect x="208.7" y="197" width="2.8" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="211.71" y="207.5" ></text>
+</g>
+<g >
+<title>schedule (8,373,119,132 samples, 21.23%)</title><rect x="383.0" y="341" width="250.5" height="15.0" fill="rgb(254,229,54)" rx="2" ry="2" />
+<text  x="385.99" y="351.5" >schedule</text>
+</g>
+<g >
+<title>workQueueSteal (7,340,019,862 samples, 18.61%)</title><rect x="953.0" y="389" width="219.6" height="15.0" fill="rgb(248,198,47)" rx="2" ry="2" />
+<text  x="956.00" y="399.5" >workQueueSteal</text>
+</g>
+<g >
+<title>sysmon (455,366,086 samples, 1.15%)</title><rect x="186.8" y="421" width="13.7" height="15.0" fill="rgb(214,43,10)" rx="2" ry="2" />
+<text  x="189.83" y="431.5" ></text>
+</g>
+<g >
+<title>bfd_elf_link_add_symbols (114,343,026 samples, 0.29%)</title><rect x="1180.4" y="341" width="3.4" height="15.0" fill="rgb(246,189,45)" rx="2" ry="2" />
+<text  x="1183.43" y="351.5" ></text>
+</g>
+<g >
+<title>[libbfd-2.42-system.so] (62,186,558 samples, 0.16%)</title><rect x="1181.5" y="325" width="1.8" height="15.0" fill="rgb(237,147,35)" rx="2" ry="2" />
+<text  x="1184.48" y="335.5" ></text>
+</g>
+<g >
+<title>workerMain (32,642,927,905 samples, 82.77%)</title><rect x="200.5" y="437" width="976.7" height="15.0" fill="rgb(248,199,47)" rx="2" ry="2" />
+<text  x="203.45" y="447.5" >workerMain</text>
+</g>
+<g >
+<title>__GI___libc_open (91,273,819 samples, 0.23%)</title><rect x="197.4" y="357" width="2.7" height="15.0" fill="rgb(249,202,48)" rx="2" ry="2" />
+<text  x="200.36" y="367.5" ></text>
+</g>
+<g >
+<title>vfs_read (174,523,566 samples, 0.44%)</title><rect x="189.9" y="277" width="5.2" height="15.0" fill="rgb(224,88,21)" rx="2" ry="2" />
+<text  x="192.86" y="287.5" ></text>
+</g>
+<g >
+<title>finish_task_switch.isra.0 (7,695,085,048 samples, 19.51%)</title><rect x="403.3" y="309" width="230.2" height="15.0" fill="rgb(246,189,45)" rx="2" ry="2" />
+<text  x="406.27" y="319.5" >finish_task_switch.isra.0</text>
+</g>
+<g >
+<title>ht_lookup_with_hash (54,162,486 samples, 0.14%)</title><rect x="125.2" y="453" width="1.6" height="15.0" fill="rgb(217,58,13)" rx="2" ry="2" />
+<text  x="128.21" y="463.5" ></text>
+</g>
+<g >
+<title>globalWorkQueueTake (392,176,519 samples, 0.99%)</title><rect x="671.2" y="405" width="11.8" height="15.0" fill="rgb(216,54,12)" rx="2" ry="2" />
+<text  x="674.22" y="415.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (66,198,594 samples, 0.17%)</title><rect x="212.0" y="197" width="2.0" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="215.04" y="207.5" ></text>
+</g>
+<g >
+<title>[x86_64-linux-gnu-as] (71,213,639 samples, 0.18%)</title><rect x="12.7" y="341" width="2.2" height="15.0" fill="rgb(249,206,49)" rx="2" ry="2" />
+<text  x="15.73" y="351.5" ></text>
+</g>
+<g >
+<title>[x86_64-linux-gnu-as] (219,658,971 samples, 0.56%)</title><rect x="10.0" y="405" width="6.6" height="15.0" fill="rgb(249,206,49)" rx="2" ry="2" />
+<text  x="13.00" y="415.5" ></text>
+</g>
+<g >
+<title>workQueueTake (293,881,637 samples, 0.75%)</title><rect x="214.6" y="421" width="8.8" height="15.0" fill="rgb(247,195,46)" rx="2" ry="2" />
+<text  x="217.59" y="431.5" ></text>
+</g>
+<g >
+<title>__libc_start_main@@GLIBC_2.34 (390,170,501 samples, 0.99%)</title><rect x="1177.2" y="453" width="11.7" height="15.0" fill="rgb(229,113,27)" rx="2" ry="2" />
+<text  x="1180.19" y="463.5" ></text>
+</g>
+<g >
+<title>__x64_sys_sched_yield (10,259,779,061 samples, 26.02%)</title><rect x="326.5" y="357" width="307.0" height="15.0" fill="rgb(209,18,4)" rx="2" ry="2" />
+<text  x="329.53" y="367.5" >__x64_sys_sched_yield</text>
+</g>
+<g >
+<title>__schedule (8,344,031,871 samples, 21.16%)</title><rect x="383.9" y="325" width="249.6" height="15.0" fill="rgb(227,103,24)" rx="2" ry="2" />
+<text  x="386.86" y="335.5" >__schedule</text>
+</g>
+<g >
+<title>_dl_start (39,117,351 samples, 0.10%)</title><rect x="183.4" y="453" width="1.2" height="15.0" fill="rgb(237,151,36)" rx="2" ry="2" />
+<text  x="186.44" y="463.5" ></text>
+</g>
+<g >
+<title>proc_single_show (155,466,395 samples, 0.39%)</title><rect x="190.4" y="229" width="4.7" height="15.0" fill="rgb(221,77,18)" rx="2" ry="2" />
+<text  x="193.43" y="239.5" ></text>
+</g>
+<g >
+<title>folk (33,135,405,324 samples, 84.02%)</title><rect x="185.7" y="485" width="991.5" height="15.0" fill="rgb(248,201,48)" rx="2" ry="2" />
+<text  x="188.72" y="495.5" >folk</text>
+</g>
+<g >
+<title>Jim_EvalObj (66,198,594 samples, 0.17%)</title><rect x="212.0" y="213" width="2.0" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="215.04" y="223.5" ></text>
+</g>
+<g >
+<title>bitmap_set_bit (85,255,765 samples, 0.22%)</title><rect x="112.2" y="453" width="2.5" height="15.0" fill="rgb(215,49,11)" rx="2" ry="2" />
+<text  x="115.19" y="463.5" ></text>
+</g>
+<g >
+<title>do_sched_yield (1,871,614,794 samples, 4.75%)</title><rect x="327.0" y="341" width="56.0" height="15.0" fill="rgb(214,43,10)" rx="2" ry="2" />
+<text  x="329.98" y="351.5" >do_sc..</text>
+</g>
+<g >
+<title>Jim_EvalObj (42,126,378 samples, 0.11%)</title><rect x="212.8" y="165" width="1.2" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="215.76" y="175.5" ></text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (41,123,369 samples, 0.10%)</title><rect x="196.0" y="373" width="1.3" height="15.0" fill="rgb(218,63,15)" rx="2" ry="2" />
+<text  x="199.04" y="383.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (70,210,630 samples, 0.18%)</title><rect x="209.4" y="165" width="2.1" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="212.40" y="175.5" ></text>
+</g>
+<g >
+<title>JimCallProcedure (102,306,918 samples, 0.26%)</title><rect x="208.6" y="245" width="3.1" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="211.62" y="255.5" ></text>
+</g>
+<g >
+<title>[x86_64-linux-gnu-ld.bfd] (310,932,790 samples, 0.79%)</title><rect x="1177.2" y="389" width="9.3" height="15.0" fill="rgb(240,163,39)" rx="2" ry="2" />
+<text  x="1180.19" y="399.5" ></text>
+</g>
+<g >
+<title>[unknown] (34,102,306 samples, 0.09%)</title><rect x="128.2" y="437" width="1.1" height="15.0" fill="rgb(210,24,5)" rx="2" ry="2" />
+<text  x="131.25" y="447.5" ></text>
+</g>
+<g >
+<title>__x64_sys_close (37,111,333 samples, 0.09%)</title><rect x="196.2" y="341" width="1.1" height="15.0" fill="rgb(231,123,29)" rx="2" ry="2" />
+<text  x="199.16" y="351.5" ></text>
+</g>
+<g >
+<title>__sched_yield (14,632,898,301 samples, 37.11%)</title><rect x="233.4" y="405" width="437.8" height="15.0" fill="rgb(213,40,9)" rx="2" ry="2" />
+<text  x="236.38" y="415.5" >__sched_yield</text>
+</g>
+<g >
+<title>_IO_default_uflow (216,649,944 samples, 0.55%)</title><rect x="188.6" y="373" width="6.5" height="15.0" fill="rgb(205,2,0)" rx="2" ry="2" />
+<text  x="191.60" y="383.5" ></text>
+</g>
+<g >
+<title>__libc_start_call_main (390,170,501 samples, 0.99%)</title><rect x="1177.2" y="437" width="11.7" height="15.0" fill="rgb(210,26,6)" rx="2" ry="2" />
+<text  x="1180.19" y="447.5" ></text>
+</g>
+<g >
+<title>bitmap_clear_bit (66,198,594 samples, 0.17%)</title><rect x="152.1" y="469" width="2.0" height="15.0" fill="rgb(207,13,3)" rx="2" ry="2" />
+<text  x="155.11" y="479.5" ></text>
+</g>
+<g >
+<title>fopen@@GLIBC_2.2.5 (103,309,927 samples, 0.26%)</title><rect x="197.3" y="405" width="3.1" height="15.0" fill="rgb(247,195,46)" rx="2" ry="2" />
+<text  x="200.27" y="415.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (67,201,603 samples, 0.17%)</title><rect x="209.5" y="85" width="2.0" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="212.49" y="95.5" ></text>
+</g>
+<g >
+<title>rand_r@plt (205,616,845 samples, 0.52%)</title><rect x="694.7" y="405" width="6.2" height="15.0" fill="rgb(209,22,5)" rx="2" ry="2" />
+<text  x="697.75" y="415.5" ></text>
+</g>
+<g >
+<title>[x86_64-linux-gnu-ld.bfd] (38,114,342 samples, 0.10%)</title><rect x="1177.7" y="341" width="1.1" height="15.0" fill="rgb(240,163,39)" rx="2" ry="2" />
+<text  x="1180.67" y="351.5" ></text>
+</g>
+<g >
+<title>do_syscall_64 (86,258,774 samples, 0.22%)</title><rect x="197.5" y="325" width="2.6" height="15.0" fill="rgb(209,20,4)" rx="2" ry="2" />
+<text  x="200.51" y="335.5" ></text>
+</g>
+</g>
+</svg>

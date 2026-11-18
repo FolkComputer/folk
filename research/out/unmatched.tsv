@@ -1,0 +1,81 @@
+where	kind	class	pattern	possible_producers_elsewhere
+boot.folk:40	collected	wish-api	/any/ wishes program $_this does not run	
+builtin-programs/calibrate/calibrate-page.folk:68	query	wish-api+text	/someone/ wishes to collect calibration pairs /pairs/ using measurements /measurements/ in session /session/	builtin-programs/calibrate/calibrate-page.folk:265
+builtin-programs/calibrate/calibrate.folk:437	query	wish-api+text	/someone/ wishes to collect calibration pairs /pairs/ using measurements /m/ in session /session/	builtin-programs/calibrate/calibrate-page.folk:265
+builtin-programs/calibrate/calibration-board.folk:57	query	claim+text	paper format /./ is the default paper format	builtin-programs/print/print.folk:11
+builtin-programs/calibrate/session.folk:286	when	wish-api+text	/someone/ wishes to collect calibration pairs /pairs/ using measurements /measurements/ in session /session/	builtin-programs/calibrate/calibrate-page.folk:265
+builtin-programs/calibrate/session.folk:301	query	wish-api+text	/someone/ wishes to collect calibration pairs $pairs using measurements $measurements in session $session	builtin-programs/calibrate/calibrate-page.folk:265
+builtin-programs/calibrate/session.folk:349	query	wish-api+text	/someone/ wishes to collect calibration pairs /pairs/ using measurements /m/ in session /session/	builtin-programs/calibrate/calibrate-page.folk:265
+builtin-programs/camera/slice.folk:90	when	wish-api+text	/someone/ wishes /p/ displays camera slice /slice/	builtin-programs/demos.folk:43
+builtin-programs/camera/usb.folk:412	when	wish-api+text	/someone/ wishes camera $camera uses exposure time /exposureTimeUs/ us	builtin-programs/web/camera.folk:106
+builtin-programs/camera/usb.folk:413	query	wish-api	/owner/ wishes camera $camera temporarily uses exposure time /us/ us	
+builtin-programs/camera/usb.folk:417	when	wish-api+text	/someone/ wishes camera $camera uses gain /gain/	builtin-programs/web/camera.folk:99
+builtin-programs/camera/usb.folk:420	when	wish-api	/someone/ wishes camera $camera temporarily uses exposure time /exposureTimeUs/ us	
+builtin-programs/collect.folk:5	when	rule-on-rules	when the collected results for /clause/ with settle /settle/ are /resultsVar/ /body/ with environment /e/	
+builtin-programs/connections.folk:14	when	wish-api+text	/anyone/ wishes /source/ is connected to /sink/	builtin-programs/connections.folk:3 builtin-programs/connections.folk:4 builtin-programs/connections.folk:15 builtin-programs/connections.folk:61
+builtin-programs/connections.folk:17	when	wish-api+text	/anyone/ wishes /source/ is dynamically connected to /sink/	builtin-programs/connections.folk:5 builtin-programs/connections.folk:18 builtin-programs/connections.folk:89
+builtin-programs/connections.folk:60	when	wish-api+text	/anyone/ wishes /source/ is connected to /sink/	builtin-programs/connections.folk:3 builtin-programs/connections.folk:4 builtin-programs/connections.folk:15 builtin-programs/connections.folk:61
+builtin-programs/connections.folk:88	when	wish-api+text	/anyone/ wishes /source/ is dynamically connected to /sink/	builtin-programs/connections.folk:5 builtin-programs/connections.folk:18 builtin-programs/connections.folk:89
+builtin-programs/draw/arc.folk:35	when	wish-api+text	/someone/ wishes to draw an arc onto /p/ with /...options/	builtin-programs/draw/arc.folk:38
+builtin-programs/draw/contour.folk:1	when	wish-api+text	/someone/ wishes /p/ draws contour /contour/ with /...options/	builtin-programs/draw/contour.folk:4
+builtin-programs/draw/curve.folk:58	when	wish-api+text	/someone/ wishes to draw a curve onto /p/ with /...options/	builtin-programs/draw/curve.folk:61
+builtin-programs/draw/fill.folk:89	when	wish-api+text	/someone/ wishes /thing/ is filled /color/	builtin-programs/draw/fill.folk:90 builtin-programs/draw/fill.folk:95
+builtin-programs/draw/fill.folk:93	when	wish-api+text	/someone/ wishes /thing/ is filled /color/ with /...options/	builtin-programs/draw/fill.folk:90 builtin-programs/draw/fill.folk:95
+builtin-programs/draw/shapes.folk:224	when	wish-api+text	/someone/ wishes /p/ draws a /shape/	builtin-programs/demos.folk:27 builtin-programs/draw/shapes.folk:225 builtin-programs/draw/shapes.folk:278 builtin-programs/draw/shapes.folk:291
+builtin-programs/draw/shapes.folk:245	when	wish-api+text	/someone/ wishes /p/ draws text /text/	builtin-programs/draw/shapes.folk:246
+builtin-programs/draw/shapes.folk:277	when	wish-api+text	/someone/ wishes /p/ draws a polyline /points/	builtin-programs/draw/shapes.folk:278
+builtin-programs/draw/shapes.folk:290	when	wish-api+text	/someone/ wishes /p/ draws a polygon /points/	builtin-programs/draw/shapes.folk:291
+builtin-programs/draw/shapes.folk:318	when	wish-api	/someone/ wishes /p/ draws a set of points /points/ with /...options/	
+builtin-programs/draw/shapes.folk:323	when	wish-api	/someone/ wishes /p/ draws a set of points /points/	
+builtin-programs/editor/print-editor.folk:10	query	claim+text	paper format /./ is the default paper format	builtin-programs/print/print.folk:11
+builtin-programs/editor/print-editor.folk:15	query	wish-api	/someone/ wishes $program prints with mixin /mixin/	
+builtin-programs/editor/print-editor.folk:33	when	wish-api+text	/someone/ wishes editor /editor/ has a print preview	builtin-programs/editor/print-editor.folk:34
+builtin-programs/editor/print-editor.folk:41	query	claim+text	paper format /./ is the default paper format	builtin-programs/print/print.folk:11
+builtin-programs/editor-control.folk:1	when	claim+text	/page/ has editor code /editorCode/	builtin-programs/editor-control.folk:67 builtin-programs/editor-control.folk:95
+builtin-programs/errors.folk:12	when	claim	/p/ has warning /w/ with info /info/	
+builtin-programs/esc-pos.folk:12	query	claim	$printer is at /address/	
+builtin-programs/esc-pos.folk:43	query	claim	$printer has tag geometry /geometry/	
+builtin-programs/geometric/intersect.folk:2	when	claim+text	/p/ has region /r/	user-programs/folk-charles/tag-regions.folk:10 test/system.folk:35
+builtin-programs/geometric/intersect.folk:2	when	claim+text	/p2/ has region /r2/	user-programs/folk-charles/tag-regions.folk:10 test/system.folk:35
+builtin-programs/geometric/intersect.folk:23	when	rule-on-rules+text	when /p/ has neighbor /n/ /lambda/ with environment /e/	builtin-programs/geometric/intersect.folk:16 builtin-programs/geometric/intersect.folk:24
+builtin-programs/geometric/points-at.folk:6	when	rule-on-rules	when /rect/ points /direction/ at /someone/ /lambda/ with environment /e/	
+builtin-programs/gpu/draw.folk:23	query	wish-api+text	/someone/ wishes $::thisNode uses display /display/ with /...displayOpts/	builtin-programs/web/setup.folk:76 builtin-programs/web/setup.folk:164 builtin-programs/web/setup.folk:192
+builtin-programs/gpu/gpu.folk:380	collected	wish-api	/any/ wishes $::thisNode uses display glfw with /...any/	
+builtin-programs/gpu/gpu.folk:383	when	wish-api	/someone/ wishes $::thisNode uses display glfw with /...any/	
+builtin-programs/gpu/toy-shader.folk:84	when	wish-api+text	/wisher/ wishes /p/ draws toy shader /shaderCode/	builtin-programs/gpu/toy-shader.folk:106
+builtin-programs/keyboard.folk:45	when	claim+text	/page/ is a keyboard with path /keyboard/	builtin-programs/keyboard.folk:46 builtin-programs/web/keyboards.folk:52
+builtin-programs/laser.folk:167	when	wish-api	/someone/ wishes to detect laser blobs	
+builtin-programs/points.folk:49	when	rule-on-rules	when point /point/ corresponds to point /anything/ on /targetSurface/ /lambda/ with environment /anything/	
+builtin-programs/print/print.folk:213	when	claim+text	$::thisNode claims printer /name/ is a cups printer with /...options/	builtin-programs/print/print.folk:5
+builtin-programs/print/print.folk:233	query	claim+text	paper format /./ is the default paper format	builtin-programs/print/print.folk:11
+builtin-programs/print/print.folk:267	query	claim	printer /printer/ is a receipt printer	
+builtin-programs/print/print.folk:267	query	claim+text	printer /printer/ is the default printer	builtin-programs/print/print.folk:10
+builtin-programs/print/print.folk:359	query	claim+text	printer /./ is the default printer	builtin-programs/print/print.folk:10
+builtin-programs/print/print.folk:369	query	claim+text	paper format /./ is the default paper format	builtin-programs/print/print.folk:11
+builtin-programs/recognition/contours.folk:79	when	wish-api+text	/someone/ wishes /p/ has contours	builtin-programs/recognition/contours.folk:80 builtin-programs/recognition/contours.folk:83 builtin-programs/recognition/contours.folk:92 builtin-programs/recognition/sam2-contours.folk:67
+builtin-programs/recognition/craft.folk:1	when	rule-on-rules	when the CRAFT text detector is /any/ /any/ with environment /any/	
+builtin-programs/recognition/dinov2.folk:1	when	rule-on-rules	when the DINOv2 image embedder is /any/ /any/ with environment /any/	
+builtin-programs/recognition/sam2-contours.folk:56	when	wish-api	/someone/ wishes /obj/ has contours in /v/	
+builtin-programs/recognition/sam2.folk:1	when	rule-on-rules	when the SAM2 segmenter is /any/ /any/ with environment /any/	
+builtin-programs/recognition/sam2.folk:353	when	wish-api+text	/anyone/ wishes /page/ tracks object /id/ /...any/	builtin-programs/recognition/sam2.folk:360 builtin-programs/recognition/sam2.folk:363 builtin-programs/recognition/sam2.folk:416
+builtin-programs/recognition/sam2.folk:359	when	wish-api+text	/someone/ wishes /page/ tracks object /id/ from filename /filename/	builtin-programs/recognition/sam2.folk:360 builtin-programs/recognition/sam2.folk:363 builtin-programs/recognition/sam2.folk:416
+builtin-programs/recognition/sam2.folk:385	when	wish-api+text	/someone/ wishes $page tracks object /id/ in frame /slice/ with /...promptSpecs/	builtin-programs/recognition/sam2.folk:360 builtin-programs/recognition/sam2.folk:363 builtin-programs/recognition/sam2.folk:416
+builtin-programs/recognition/sam2.folk:425	query	wish-api+text	/anyone/ wishes $page tracks object /id/ /...trackingSpec/	builtin-programs/recognition/sam2.folk:360 builtin-programs/recognition/sam2.folk:363 builtin-programs/recognition/sam2.folk:416
+builtin-programs/recognition/trocr.folk:1	when	rule-on-rules	when the TrOCR text recognizer is /any/ /any/ with environment /any/	
+builtin-programs/sprites.folk:10	when	wish-api+text	/anyone/ wishes /p/ draws sprite /path/ with /...options/	builtin-programs/sprites.folk:12 builtin-programs/sprites.folk:38
+builtin-programs/tags-geometry.folk:1	when	claim	program /program/ is scaled by x /xScale/ y /yScale/	
+builtin-programs/terminal-ui.folk:43	query	rule-on-rules	when $programCode with environment [list [list this $program]]	
+builtin-programs/terminal.folk:179	when	wish-api+text	/anyone/ wishes /thing/ is a terminal	builtin-programs/terminal.folk:18 builtin-programs/terminal.folk:19 builtin-programs/terminal.folk:180 builtin-programs/terminal.folk:184
+builtin-programs/terminal.folk:199	when	claim+text	$thing has terminal canvas /canvas/	builtin-programs/terminal.folk:22
+builtin-programs/terminal.folk:203	collected	claim+text	/any/ claims $thing has terminal canvas /canvas/	builtin-programs/terminal.folk:22
+builtin-programs/unix-commands.folk:96	when	wish-api+text	/wisher/ wishes /p/ runs Unix command /command/	builtin-programs/unix-commands.folk:3 builtin-programs/unix-commands.folk:4 builtin-programs/unix-commands.folk:97 builtin-programs/unix-commands.folk:101 builtin-programs/unix-commands.folk:102
+builtin-programs/web/camera.folk:26	query	wish-api+text	/someone/ wishes camera $baseCameraToControl uses exposure time /exposureTime/ us	builtin-programs/web/camera.folk:106
+builtin-programs/web/camera.folk:33	query	wish-api+text	/someone/ wishes camera $baseCameraToControl uses gain /gain/	builtin-programs/web/camera.folk:99
+builtin-programs/web/new.folk:255	query	wish-api	/someone/ wishes $program prints with mixin /mixin/	
+user-programs/folk-charles/tag-regions.folk:3	when	claim+text	/tag/ has region /r/	user-programs/folk-charles/tag-regions.folk:10 test/system.folk:35
+user-programs/folk-charles/web-image.folk:1	when	claim+text	the camera frame is /im/	user-programs/haippi7/laser-camera.folk:27
+user-programs/folk-haip.local/web-endpoints.folk:9	collected	claim+text	/regionName/ has region /region/	user-programs/folk-charles/tag-regions.folk:10 test/system.folk:35
+user-programs/haippi7/highlight-laser-region.folk:3	when	claim	/someone/ claims /something/ region /id/ data /regionData/	
+user-programs/haippi7/highlight-laser-region.folk:13	when	claim	/someone/ claims /something/ region /id/ data /regionData/	
+user-programs/haippi7/laser-region-manager.folk:1	collected	claim	/someone/ claims /something/ region /id/ data /data/	
+user-programs/haippi7/web-image.folk:1	when	claim+text	the camera frame is /im/	user-programs/haippi7/laser-camera.folk:27

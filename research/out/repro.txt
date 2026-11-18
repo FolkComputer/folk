@@ -1,0 +1,36 @@
+== cyclic-support  (./folk, exit status 0)
+   while held:    1 derived claim(s)
+   hold cleared:  1 derived claim(s), 0 base statement(s)
+== dollar-term  (./folk, exit status 0)
+   price {$5.00}: catch code 1, can't read "5": no such variable
+   a command ran
+   label: catch code 0
+== double-run  (./folk, exit status 0)
+   3000 rounds: 3000 bodies ran at least once, 22 ran twice
+== kill-diagnostic  (research/verify/build/asan/folk, exit status 0)
+   ERROR: AddressSanitizer: SEGV on unknown address ADDR (pc ADDR bp ADDR sp ADDR T143)
+   SUMMARY: AddressSanitizer: SEGV /home/user/folk/vendor/jimtcl/jim-signal.c:44 in signal_handler
+== long-variable-name  (research/verify/build/asan/folk, exit status 0)
+   ERROR: AddressSanitizer: stack-buffer-overflow on address ADDR at pc ADDR bp ADDR sp ADDR
+   SUMMARY: AddressSanitizer: stack-buffer-overflow /home/user/folk/trie.c:240 in trieScanVariable
+== negation-oscillates  (./folk, exit status 0)
+   body ran 10022 times in 3 seconds
+== nonlinear-pattern  (./folk, exit status 0)
+   matched with x = b
+   matched with x = c
+== option-in-clause  (./folk, exit status 0)
+   stored: the flag is
+== output-crosstalk  (./folk, exit status 0)
+   12538 lines written, 0 in the wrong program's file
+== prefix-fires-rest-rule  (./folk, exit status 0)
+   options rule fired for 'late', options bound: 0
+   plain rule fired for 'late'
+== retract-too-many  (./folk, exit status 1)
+   asserted 600 statements; retracting them with one pattern
+== slash-term  (./folk, exit status 0)
+   statements with directory {/home/}: 1
+   statements with directory {elsewhere}: 1
+== too-many-results  (./folk, exit status 1)
+   asserted 9000 statements; querying them
+   dbQuery: Too many results for query (item /i/ exists )
+== unmatch-at-top-level  (./folk, exit status 139)

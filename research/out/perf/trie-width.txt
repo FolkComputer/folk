@@ -1,0 +1,8 @@
+wide     n= 1000      6.6 ms     6.6 us per statement
+bucketed n= 1000      3.0 ms     3.0 us per statement
+wide     n= 2000     16.4 ms     8.2 us per statement
+bucketed n= 2000      7.1 ms     3.5 us per statement
+wide     n= 4000     50.1 ms    12.5 us per statement
+bucketed n= 4000     12.5 ms     3.1 us per statement
+wide     n= 7000    126.1 ms    18.0 us per statement
+bucketed n= 7000     21.0 ms     3.0 us per statement

@@ -1,0 +1,941 @@
+where	kind	statement	matching_patterns
+boot.folk:30	rule	when /_this/ has program code /programCode/ body with environment env	0
+boot.folk:40	rule	when the collected results for pattern are /__results/ body with environment env	1
+boot.folk:41	rule	when the collected results for pattern are /__results/ body with environment env	1
+boot.folk:45	rule	when /someone/ wishes program $_this is replaced with /...replacedOpts/ body with environment env	0
+boot.folk:64	hold	$this claims $programFilename has program code $code	6
+builtin-programs/apriltags.folk:1	rule	when the image library is /imageLib/ body with environment env	0
+builtin-programs/apriltags.folk:48	claim	$this claims libapriltag has been built with config [fn configCcWithLibapriltag]	5
+builtin-programs/apriltags.folk:116	claim	$this claims the AprilTag detector maker is [fn makeAprilTagDetector]	1
+builtin-programs/apriltags.folk:120	rule	when camera /camera/ has width /width/ height /height/ body with environment env	0
+builtin-programs/apriltags.folk:120	rule	when /someone/ wishes camera /camera/ detects tags body with environment env	0
+builtin-programs/apriltags.folk:136	rule	when camera $camera has gray frame /frame/ at timestamp /frameTs/ body with environment env	0
+builtin-programs/apriltags.folk:144	hold	$this claims [list $this entire-frame] detects tags $tags on camera $camera at timestamp $frameTs in time $aprilTime	1
+builtin-programs/apriltags.folk:154	rule	when the image library is /imageLib/ body with environment env	0
+builtin-programs/apriltags.folk:154	rule	when camera $camera has gray frame /frame/ at timestamp /frameTs/ body with environment env	0
+builtin-programs/apriltags.folk:213	hold	$this claims [list $this incremental] detects tags $tags on camera $camera at timestamp $frameTs in time $aprilTime	1
+builtin-programs/apriltags.folk:223	rule	when the collected results for [list /someone/ detects tag... are /results/ body with environment env	1
+builtin-programs/apriltags.folk:249	claim	$this claims tag $id has detection $det on camera [dict get $det camera] at timestamp [dict get $det timestamp]	5
+builtin-programs/apriltags.folk:253	claim	$this claims the AprilTag time is $aprilTime	0
+builtin-programs/audio.folk:352	claim	$this claims the audio library is $audioLib	1
+builtin-programs/audio.folk:357	rule	when the audio library is /audioLib/ body with environment env	0
+builtin-programs/audio.folk:357	rule	when /someone/ wishes to play audio /sound/ body with environment env	0
+builtin-programs/calibrate/calibrate-page.folk:1	wish	$this wishes the web server handles route /calibrate with hidden true handler {     set cameras [dict get ...}	2
+builtin-programs/calibrate/calibrate-page.folk:400	rule	when the calibration poses from camera /camera/ to display /display/ are /calibrationPoses/ body with environment env	0
+builtin-programs/calibrate/calibrate-page.folk:436	rule	when the collected results for pattern are /__results/ body with environment env	1
+builtin-programs/calibrate/calibrate-page.folk:437	claim	$this claims the calibration report from camera $camera to display $display is $posesReport	0
+builtin-programs/calibrate/calibrate-page.folk:439	rule	when a calibration from camera $camera to display $display is /calibration/ body with environment env	0
+builtin-programs/calibrate/calibrate-page.folk:455	claim	$this claims the calibration report from camera $camera to display $display is $calibrationReport	0
+builtin-programs/calibrate/calibrate-page.folk:459	wish	$this wishes the web server handles route /calibration-poses/([^/]+)$ with handler {     set filename "$::env(H...}	2
+builtin-programs/calibrate/calibrate.folk:13	hold	$this claims the calibration poses max is 10	3
+builtin-programs/calibrate/calibrate.folk:17	rule	when the db library is /dbLib/ body with environment env	0
+builtin-programs/calibrate/calibrate.folk:17	rule	when /someone/ wishes to calibrate camera /camera/ to display /display/ using measurements /measurements/ body with environment env	0
+builtin-programs/calibrate/calibrate.folk:36	rule	when camera /camera/ has width /cameraWidth/ height /cameraHeight/ body with environment env	0
+builtin-programs/calibrate/calibrate.folk:36	rule	when display /display/ has width /displayWidth/ height /displayHeight/ body with environment env	0
+builtin-programs/calibrate/calibrate.folk:36	rule	when the AprilTag detector maker is /makeAprilTagDetector/ body with environment env	0
+builtin-programs/calibrate/calibrate.folk:36	rule	when the jpeg library is /jpegLib/ body with environment env	0
+builtin-programs/calibrate/calibrate.folk:36	rule	when the calibration model library is /modelLib/ body with environment env	0
+builtin-programs/calibrate/calibrate.folk:36	rule	when the calibration matrix library is /matLib/ body with environment env	0
+builtin-programs/calibrate/calibrate.folk:36	rule	when /someone/ wishes to calibrate camera /camera/ to display /display/ using measurements /measurements/ body with environment env	0
+builtin-programs/calibrate/calibrate.folk:67	say	$this wishes $::thisNode uses camera $camera with width 1920 height 1080	4
+builtin-programs/calibrate/calibrate.folk:94	hold	$this claims the calibration last-seen poses are [list]	1
+builtin-programs/calibrate/calibrate.folk:104	hold	$this claims the calibration poses from camera $camera to display $display are [list]	4
+builtin-programs/calibrate/calibrate.folk:107	hold	$this claims the calibration cycle time is 0	1
+builtin-programs/calibrate/calibrate.folk:113	rule	when the calibration poses from camera $camera to display $display are /poses/ body with environment env	0
+builtin-programs/calibrate/calibrate.folk:113	rule	when the calibration poses max is /posesMax/ body with environment env	0
+builtin-programs/calibrate/calibrate.folk:113	rule	when the calibration cycle time is /cycleTime/ body with environment env	0
+builtin-programs/calibrate/calibrate.folk:113	rule	when the calibration model-to-display homography is /H_modelToDisplay/ with /...modelToDisplayOpts/ body with environment env	0
+builtin-programs/calibrate/calibrate.folk:119	wish	$this wishes to draw calibration model [dict get $modelToDisplayOp... using model-to-display homography $H_modelToDisplay with message $message on display $display	1
+builtin-programs/calibrate/calibrate.folk:152	claim	$this claims the calibration model-to-display homography is $H_modelToDisplay with model $baseModel version -1 frameTimestamp [expr {[clock milliseconds]... modelTimestamp [expr {[clock milliseconds]...	2
+builtin-programs/calibrate/calibrate.folk:158	claim	$this claims the calibration HoldDefaultModel! is [fn HoldDefaultModel!]	0
+builtin-programs/calibrate/calibrate.folk:165	rule	when the calibration poses max is /calibrationPosesMax/ body with environment env	0
+builtin-programs/calibrate/calibrate.folk:165	rule	when camera $camera has gray frame /frame/ at timestamp /frameTimestamp/ body with environment env	0
+builtin-programs/calibrate/calibrate.folk:306	hold	$this claims the calibration model-to-display homography is $nextH_modelToDisplay with model $nextModel version $nextVersion frameTimestamp $nextModelFrameTimestamp modelTimestamp $nextModelTimestamp	2
+builtin-programs/calibrate/calibrate.folk:313	hold	$this claims the calibration cycle time is $($nextModelTimestamp - $mo...	1
+builtin-programs/calibrate/calibrate.folk:365	hold	$this claims the calibration last-seen poses are $seenPoses	1
+builtin-programs/calibrate/calibrate.folk:408	hold	$this claims the calibration poses from camera $camera to display $display are $calibrationPoses	4
+builtin-programs/calibrate/calibrate.folk:420	hold	$this claims the calibration measurements are $measurements	1
+builtin-programs/calibrate/calibrate.folk:428	hold	$this claims the calibration poses from camera $camera to display $display are $calibrationPoses	4
+builtin-programs/calibrate/calibrate.folk:433	hold	$this claims calibration collected [llength $calibrationPoses] poses from camera $camera to display $display at [clock seconds]	0
+builtin-programs/calibrate/calibrate.folk:435	hold	$this claims the calibration collection completed run $calibrationId with $calibrationPoses at [clock seconds]	2
+builtin-programs/calibrate/calibration-board.folk:24	rule	when the calibration measurements are /measurements/ body with environment env	0
+builtin-programs/calibrate/calibration-board.folk:42	claim	$this claims the calibrated print scale is $scale	1
+builtin-programs/calibrate/calibration-board.folk:43	claim	$this claims the calibrated print translation is [list $tx $ty]	1
+builtin-programs/calibrate/calibration-board.folk:46	rule	when the print library is /printLib/ body with environment env	0
+builtin-programs/calibrate/calibration-board.folk:46	rule	when the calibration model library is /modelLib/ body with environment env	0
+builtin-programs/calibrate/calibration-board.folk:46	rule	when the calibration matrix library is /matLib/ body with environment env	0
+builtin-programs/calibrate/calibration-board.folk:204	claim	$this claims the makeCalibrationBoardPs is [fn makeCalibrationBoardPs]	0
+builtin-programs/calibrate/calibration-board.folk:212	claim	$this claims the makeCalibrationBoardPdf is [fn makeCalibrationBoardPdf]	0
+builtin-programs/calibrate/calibration-board.folk:226	claim	$this claims the makeCalibrationBoardPng is [fn makeCalibrationBoardPng]	0
+builtin-programs/calibrate/calibration-board.folk:228	wish	$this wishes the web server handles route /calibrate/board.pdf with hidden true handler {     dict create statusAndH...}	2
+builtin-programs/calibrate/calibration-board.folk:237	wish	$this wishes the web server handles route /calibrate/board.png with hidden true handler {     dict create statusAndH...}	2
+builtin-programs/calibrate/draw-model.folk:1	rule	when display /display/ has width /displayWidth/ height /displayHeight/ body with environment env	0
+builtin-programs/calibrate/draw-model.folk:1	rule	when the calibration matrix library is /matLib/ body with environment env	0
+builtin-programs/calibrate/draw-model.folk:1	rule	when the calibration model library is /modelLib/ body with environment env	0
+builtin-programs/calibrate/draw-model.folk:1	rule	when /someone/ wishes to draw calibration model /model/ using model-to-display homography /H_modelToDisplay/ with message /calibrationMessage/ on display /display/ body with environment env	0
+builtin-programs/calibrate/draw-model.folk:39	wish	$this wishes the GPU creates canvas $boardCanvas with width $displayWidth height $displayHeight	1
+builtin-programs/calibrate/draw-model.folk:41	rule	when the GPU has created canvas $boardCanvas with /...opts/ body with environment env	0
+builtin-programs/calibrate/draw-model.folk:42	claim	$this claims $board has canvas $boardCanvas with {*}$opts	28
+builtin-programs/calibrate/draw-model.folk:44	claim	$this claims $board has canvas projection $boardCanvasToClipSpace	12
+builtin-programs/calibrate/draw-model.folk:48	rule	when $board has canvas /any/ with /...wiOpts/ body with environment env	0
+builtin-programs/calibrate/draw-model.folk:55	wish	$this wishes the GPU draws pipeline fillTriangle onto canvas $boardCanvas with arguments [list {{1 0 0} {0 1 0} {0 0... layer 99	1
+builtin-programs/calibrate/draw-model.folk:59	wish	$this wishes the GPU draws pipeline fillTriangle onto canvas $boardCanvas with arguments [list {{1 0 0} {0 1 0} {0 0... layer 99	1
+builtin-programs/calibrate/draw-model.folk:75	wish	$this wishes to draw an AprilTag onto $board with id $id corners $displayOuterCorners background $bgColor layer 100	1
+builtin-programs/calibrate/draw-model.folk:87	wish	$this wishes the GPU draws pipeline fillTriangle with arguments [list $surfaceToClip $p1 $p... layer 99	1
+builtin-programs/calibrate/draw-model.folk:89	wish	$this wishes the GPU draws pipeline fillTriangle with arguments [list $surfaceToClip $p0 $p... layer 99	1
+builtin-programs/calibrate/draw-model.folk:118	wish	$this wishes to draw text onto $board with text $calibrationMessage radians $displayRadians position $displayCenter anchor top color black layer 100 scale $textScale	1
+builtin-programs/calibrate/draw-model.folk:130	wish	$this wishes the GPU draws pipeline image with arguments [list [list $displayWidth $... layer 100	1
+builtin-programs/calibrate/load-calibration.folk:1	rule	when display /disp/ has width /displayWidth/ height /displayHeight/ body with environment env	0
+builtin-programs/calibrate/load-calibration.folk:1	rule	when the collected results for pattern are /__results/ body with environment env	1
+builtin-programs/calibrate/load-calibration.folk:8	wish	$this wishes to draw text onto $disp with x $cx y [* $displayHeight 0.1] text $warning color red scale 40	1
+builtin-programs/calibrate/load-calibration.folk:11	wish	$this wishes to draw text onto $disp with x $cx y [* $displayHeight 0.7] radians 3.14159 text $warning color red scale 40	1
+builtin-programs/calibrate/load-calibration.folk:16	rule	when the collected results for pattern are /__results/ body with environment env	1
+builtin-programs/calibrate/load-calibration.folk:20	rule	when display /disp/ has width /displayWidth/ height /displayHeight/ body with environment env	0
+builtin-programs/calibrate/load-calibration.folk:21	claim	$this claims display $disp has intrinsics [dict create \             ...	6
+builtin-programs/calibrate/load-calibration.folk:27	rule	when camera /cam/ has width /cameraWidth/ height /cameraHeight/ body with environment env	0
+builtin-programs/calibrate/load-calibration.folk:28	claim	$this claims camera $cam has intrinsics [dict create \             ...	3
+builtin-programs/calibrate/load-calibration.folk:34	rule	when display /disp/ has width /any/ height /any/ body with environment env	0
+builtin-programs/calibrate/load-calibration.folk:34	rule	when camera /cam/ has width /any/ height /any/ body with environment env	0
+builtin-programs/calibrate/load-calibration.folk:36	claim	$this claims camera $cam to display $disp has extrinsics [dict create \             ...	1
+builtin-programs/calibrate/load-calibration.folk:42	rule	when a calibration from camera /camera/ to display /display/ is /calibration/ body with environment env	0
+builtin-programs/calibrate/load-calibration.folk:55	claim	$this claims camera $camera has intrinsics [dict get $calibration came...	3
+builtin-programs/calibrate/load-calibration.folk:57	claim	$this claims display $display has intrinsics [dict get $calibration proj...	6
+builtin-programs/calibrate/load-calibration.folk:63	claim	$this claims camera $camera to display $display has extrinsics $extrinsics	1
+builtin-programs/calibrate/load-calibration.folk:66	rule	when the collected results for {/somebody/ claims the defau...} are /results/ body with environment env	1
+builtin-programs/calibrate/load-calibration.folk:72	claim	$this claims the default program geometry is $defaultGeometry	3
+builtin-programs/calibrate/matlib.folk:1	rule	when libapriltag has been built with config /configCcWithLibapriltag/ body with environment env	0
+builtin-programs/calibrate/matlib.folk:252	claim	$this claims the calibration matrix library is $matLib	5
+builtin-programs/calibrate/model.folk:5	claim	$this claims the calibration model library is [library create modelLib { ...	5
+builtin-programs/calibrate/refine.folk:8	rule	when libapriltag has been built with config /configCcWithLibapriltag/ body with environment env	0
+builtin-programs/calibrate/refine.folk:792	claim	$this claims the calibration refiner is [fn refineCalibration]	1
+builtin-programs/calibrate/refine.folk:858	claim	$this claims the joint calibration refiner is [fn refineJointCalibration]	1
+builtin-programs/calibrate/session.folk:282	claim	$this claims the calibration initializer is [fn unrefinedCalibrateCamer... with extrinsics setter [fn setCameraToProjectorExt...	2
+builtin-programs/calibrate/session.folk:286	rule	when /someone/ wishes to collect calibration pairs /pairs/ using measurements /measurements/ in session /session/ body with environment env	0
+builtin-programs/calibrate/session.folk:290	claim	$this claims the calibration session $session is optimizing	0
+builtin-programs/calibrate/session.folk:291	rule	when the calibration model library is /modelLib/ body with environment env	0
+builtin-programs/calibrate/session.folk:291	rule	when the calibration matrix library is /matLib/ body with environment env	0
+builtin-programs/calibrate/session.folk:291	rule	when the joint calibration refiner is /refineJointCalibration/ body with environment env	0
+builtin-programs/calibrate/session.folk:291	rule	when the calibration initializer is /initializer/ with extrinsics setter /setter/ body with environment env	0
+builtin-programs/calibrate/session.folk:304	hold	$this claims a calibration from camera $camera to display $display is $calibration	6
+builtin-programs/calibrate/session.folk:307	hold	$this claims the calibration session $session is complete	0
+builtin-programs/calibrate/session.folk:315	claim	$this claims the calibration session $session is collecting camera $camera to display $display at index $index of [llength $pairs]	0
+builtin-programs/calibrate/session.folk:316	wish	$this wishes to calibrate camera $camera to display $display using measurements $measurements	2
+builtin-programs/calibrate/session.folk:317	rule	when the calibration collection completed run /run/ with /poses/ at /timestamp/ body with environment env	0
+builtin-programs/calibrate/session.folk:319	hold	$this claims the calibration session $session collected camera $camera to display $display poses $poses at $timestamp	1
+builtin-programs/calibrate/session.folk:336	rule	when the calibration model library is /modelLib/ body with environment env	0
+builtin-programs/calibrate/session.folk:336	rule	when the calibration matrix library is /matLib/ body with environment env	0
+builtin-programs/calibrate/session.folk:336	rule	when the calibration poses max is /calibrationPosesMax/ body with environment env	0
+builtin-programs/calibrate/session.folk:336	rule	when the calibration poses from camera /camera/ to display /display/ are /calibrationPoses/ body with environment env	0
+builtin-programs/calibrate/session.folk:336	rule	when the collected results for pattern are /__results/ body with environment env	1
+builtin-programs/calibrate/session.folk:336	rule	when the calibration initializer is /initializer/ with extrinsics setter /setter/ body with environment env	0
+builtin-programs/calibrate/session.folk:336	rule	when the calibration refiner is /refineCalibration/ body with environment env	0
+builtin-programs/calibrate/session.folk:367	hold	$this claims a calibration from camera $camera to display $display is $calibration	6
+builtin-programs/camera/enumerate.folk:120	claim	$this claims $::thisNode has camera $camera with {*}$info	4
+builtin-programs/camera/rpi.folk:216	rule	when the image library is /imageLib/ body with environment env	0
+builtin-programs/camera/rpi.folk:216	rule	when /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ body with environment env	0
+builtin-programs/camera/rpi.folk:229	claim	$this claims camera $cameraPath has width $width height $height	7
+builtin-programs/camera/rpi.folk:247	hold	$this claims camera $cameraPath has gray frame $frame at timestamp $timestamp	4
+builtin-programs/camera/rpi.folk:249	hold	$this claims camera $cameraPath has frame $frame at timestamp $timestamp	3
+builtin-programs/camera/slice.folk:5	rule	when the image library is /imageLib/ body with environment env	0
+builtin-programs/camera/slice.folk:5	rule	when the quad library is /quadLib/ body with environment env	0
+builtin-programs/camera/slice.folk:5	rule	when the pose library is /poseLib/ body with environment env	0
+builtin-programs/camera/slice.folk:5	rule	when the quad changer is /quadChange/ body with environment env	0
+builtin-programs/camera/slice.folk:54	rule	when /someone/ wishes /p/ has camera slice body with environment env	0
+builtin-programs/camera/slice.folk:54	rule	when camera /cam/ has intrinsics /cameraIntrinsics/ body with environment env	0
+builtin-programs/camera/slice.folk:54	rule	when camera /cam/ has frame /frame/ at timestamp /timestamp/ body with environment env	0
+builtin-programs/camera/slice.folk:54	rule	when /p/ has quad /q/ body with environment env	0
+builtin-programs/camera/slice.folk:59	wish	$this wishes $p has camera slice with width $width	1
+builtin-programs/camera/slice.folk:60	rule	when $p has camera slice /slice/ with width $width body with environment env	1
+builtin-programs/camera/slice.folk:61	claim	$this claims $p has camera slice $slice	3
+builtin-programs/camera/slice.folk:65	rule	when /someone/ wishes /p/ has camera slice with width /width/ body with environment env	0
+builtin-programs/camera/slice.folk:65	rule	when camera /cam/ has intrinsics /cameraIntrinsics/ body with environment env	0
+builtin-programs/camera/slice.folk:65	rule	when camera /cam/ has frame /frame/ at timestamp /timestamp/ body with environment env	0
+builtin-programs/camera/slice.folk:65	rule	when /p/ has quad /q/ body with environment env	0
+builtin-programs/camera/slice.folk:78	claim	$this claims $p has camera slice $slice with width $width	1
+builtin-programs/camera/slice.folk:83	rule	when when /p/ has camera slice /slice/ /lambda/ with environment /e/ body with environment env	0
+builtin-programs/camera/slice.folk:84	wish	$this wishes $p has camera slice	1
+builtin-programs/camera/slice.folk:86	rule	when when /p/ has camera slice /slice/ with width /width/ /lambda/ with environment /e/ body with environment env	0
+builtin-programs/camera/slice.folk:87	wish	$this wishes $p has camera slice with width $width	1
+builtin-programs/camera/slice.folk:90	rule	when /someone/ wishes /p/ displays camera slice /slice/ body with environment env	0
+builtin-programs/camera/slice.folk:91	wish	$this wishes $p displays image $slice	1
+builtin-programs/camera/usb.folk:7	rule	when the image library is /imageLib/ body with environment env	0
+builtin-programs/camera/usb.folk:7	rule	when the jpeg library is /jpegLib/ body with environment env	0
+builtin-programs/camera/usb.folk:351	rule	when camera /cameraPath/ has width /decompWidth/ height /decompHeight/ body with environment env	0
+builtin-programs/camera/usb.folk:352	rule	when camera $cameraPath has jpeg frame /jpeg/ at timestamp /ts/ body with environment env	0
+builtin-programs/camera/usb.folk:356	hold	$this claims camera $cameraPath has gray frame $grayImage at timestamp $ts	4
+builtin-programs/camera/usb.folk:360	rule	when camera $cameraPath has jpeg frame /jpeg/ at timestamp /ts/ body with environment env	0
+builtin-programs/camera/usb.folk:364	hold	$this claims camera $cameraPath has frame $frameImage at timestamp $ts	3
+builtin-programs/camera/usb.folk:370	rule	when /someone/ wishes $::thisNode uses camera /camera/ with /...options/ body with environment env	0
+builtin-programs/camera/usb.folk:395	claim	$this claims camera $camera has gain range $gainMin to $gainMax	1
+builtin-programs/camera/usb.folk:405	claim	$this claims camera [list $camera $i] has width [dict get $crop width] height [dict get $crop height]	7
+builtin-programs/camera/usb.folk:409	claim	$this claims camera $camera has width $width height $height	7
+builtin-programs/camera/usb.folk:412	rule	when /someone/ wishes camera $camera uses exposure time /exposureTimeUs/ us body with environment env	0
+builtin-programs/camera/usb.folk:417	rule	when /someone/ wishes camera $camera uses gain /gain/ body with environment env	0
+builtin-programs/camera/usb.folk:420	rule	when /someone/ wishes camera $camera temporarily uses exposure time /exposureTimeUs/ us body with environment env	0
+builtin-programs/camera/usb.folk:451	hold	$this claims camera $cropPath has jpeg frame $croppedJpeg at timestamp $timestamp	3
+builtin-programs/camera/usb.folk:460	hold	$this claims camera $camera has jpeg frame $jpeg at timestamp $timestamp	3
+builtin-programs/collect.folk:1	rule	when when the collected results for /clause/ are /resultsVar/ /body/ with environment /e/ body with environment env	0
+builtin-programs/collect.folk:3	wish	$this wishes to collect results for $clause with settle 0ms	1
+builtin-programs/collect.folk:5	rule	when when the collected results for /clause/ with settle /settle/ are /resultsVar/ /body/ with environment /e/ body with environment env	0
+builtin-programs/collect.folk:7	wish	$this wishes to collect results for $clause with settle $settle	1
+builtin-programs/collect.folk:283	rule	when /someone/ wishes to collect results for /pattern/ with settle /settle/ body with environment env	0
+builtin-programs/collect.folk:288	rule	when {*}$pattern body with environment env	0
+builtin-programs/collect.folk:296	rule	when the internal time is /t/ body with environment env	0
+builtin-programs/connections.folk:14	rule	when /anyone/ wishes /source/ is connected to /sink/ body with environment env	0
+builtin-programs/connections.folk:15	wish	$this wishes $source is connected to $sink from centroid to centroid	0
+builtin-programs/connections.folk:17	rule	when /anyone/ wishes /source/ is dynamically connected to /sink/ body with environment env	0
+builtin-programs/connections.folk:18	wish	$this wishes $source is dynamically connected to $sink from centroid to centroid	0
+builtin-programs/connections.folk:21	rule	when the quad library is /quadLib/ body with environment env	0
+builtin-programs/connections.folk:21	rule	when the pose library is /poseLib/ body with environment env	0
+builtin-programs/connections.folk:21	rule	when the quad changer is /quadChange/ body with environment env	0
+builtin-programs/connections.folk:21	rule	when display /disp/ has width /w/ height /h/ body with environment env	0
+builtin-programs/connections.folk:21	rule	when display /disp/ has intrinsics /intr/ body with environment env	0
+builtin-programs/connections.folk:60	rule	when /anyone/ wishes /source/ is connected to /sink/ body with environment env	0
+builtin-programs/connections.folk:61	wish	$this wishes $source is connected to $sink with _ _	1
+builtin-programs/connections.folk:63	rule	when /anyone/ wishes /source/ is connected to /sink/ with /...options/ body with environment env	0
+builtin-programs/connections.folk:63	rule	when /source/ has quad /q1/ body with environment env	0
+builtin-programs/connections.folk:63	rule	when /sink/ has quad /q2/ body with environment env	0
+builtin-programs/connections.folk:78	wish	$this wishes to draw a line onto $disp with points [list $a $b] width $width color $color layer $layer	1
+builtin-programs/connections.folk:84	wish	$this wishes to draw a triangle onto $disp with p0 $p0 p1 $p1 p2 $p2 color $color layer $layer	1
+builtin-programs/connections.folk:88	rule	when /anyone/ wishes /source/ is dynamically connected to /sink/ body with environment env	0
+builtin-programs/connections.folk:89	wish	$this wishes $source is dynamically connected to $sink with _ _	1
+builtin-programs/connections.folk:91	rule	when /anyone/ wishes /source/ is dynamically connected to /sink/ with /...options/ body with environment env	0
+builtin-programs/connections.folk:91	rule	when /source/ has quad /q1/ body with environment env	0
+builtin-programs/connections.folk:91	rule	when /sink/ has quad /q2/ body with environment env	0
+builtin-programs/connections.folk:106	wish	$this wishes to draw a line onto $disp with points [list $a $b] width $width color $color layer $layer	1
+builtin-programs/connections.folk:117	rule	when the clock time is /t/ body with environment env	0
+builtin-programs/connections.folk:126	wish	$this wishes to draw a triangle onto $disp with p0 $p0 p1 $p1 p2 $p2 color $color layer $layer	1
+builtin-programs/decorations/label.folk:1	rule	when /thing/ has resolved geometry /geom/ body with environment env	0
+builtin-programs/decorations/label.folk:2	rule	when the collected results for [list /someone/ wishes $thi... are /results/ body with environment env	1
+builtin-programs/decorations/label.folk:45	wish	$this wishes to draw text onto $thing with {*}$options	1
+builtin-programs/decorations/label.folk:49	rule	when /someone/ wishes /thing/ is labelled /text/ body with environment env	0
+builtin-programs/decorations/label.folk:50	wish	$this wishes $thing is labelled $text with font PTSans-Regular	1
+builtin-programs/decorations/outline.folk:1	rule	when /someone/ wishes /thing/ is outlined /color/ body with environment env	0
+builtin-programs/decorations/outline.folk:1	rule	when /thing/ has resolved geometry /geom/ body with environment env	0
+builtin-programs/decorations/outline.folk:11	wish	$this wishes to draw a line onto $thing with points $points width 0.01 color $color	1
+builtin-programs/decorations/title.folk:8	rule	when /thing/ has quad /quad/ body with environment env	0
+builtin-programs/decorations/title.folk:9	claim	$this claims $thing has a quad	1
+builtin-programs/decorations/title.folk:12	rule	when the quad library is /quadLib/ body with environment env	0
+builtin-programs/decorations/title.folk:12	rule	when the pose library is /poseLib/ body with environment env	0
+builtin-programs/decorations/title.folk:12	rule	when the quad changer is /quadChange/ body with environment env	0
+builtin-programs/decorations/title.folk:12	rule	when display /disp/ has width /displayWidth/ height /displayHeight/ body with environment env	0
+builtin-programs/decorations/title.folk:12	rule	when display /disp/ has intrinsics /displayIntrinsics/ body with environment env	0
+builtin-programs/decorations/title.folk:12	rule	when /thing/ has a quad body with environment env	0
+builtin-programs/decorations/title.folk:27	rule	when the collected results for [list /someone/ wishes $thi... are /results/ body with environment env	1
+builtin-programs/decorations/title.folk:31	rule	when $thing has quad /q/ body with environment env	0
+builtin-programs/decorations/title.folk:101	wish	$this wishes to draw text onto $disp with position $dispPosition scale $scale radians $dispRadians anchor $textAnchor text $text	1
+builtin-programs/demos.folk:2	claim	$this claims 45000 has demo code {     Wish $this is labelled...}	1
+builtin-programs/demos.folk:6	claim	$this claims 45001 has demo code {     Wish $this is labelled...}	1
+builtin-programs/demos.folk:10	claim	$this claims 45002 has demo code {     When /actor/ is cool {...}	1
+builtin-programs/demos.folk:16	claim	$this claims 45003 has demo code {     Claim $this is actor  ...}	1
+builtin-programs/demos.folk:20	claim	$this claims 45004 has demo code {     When the clock time is...}	1
+builtin-programs/demos.folk:25	claim	$this claims 45005 has demo code {     When the clock time is...}	1
+builtin-programs/demos.folk:30	claim	$this claims 45006 has demo code {     Wish $this is outlined...}	1
+builtin-programs/demos.folk:37	claim	$this claims 45007 has demo code {     Wish $this is outlined...}	1
+builtin-programs/demos.folk:41	claim	$this claims 45008 has demo code {     When $this has camera ...}	1
+builtin-programs/display-saver.folk:1	rule	when the collected results for pattern are /__results/ body with environment env	1
+builtin-programs/display-saver.folk:1	rule	when the collected results for pattern are /__results/ body with environment env	1
+builtin-programs/display-saver.folk:1	rule	when display /disp/ has width /displayWidth/ height /displayHeight/ body with environment env	0
+builtin-programs/display-saver.folk:10	wish	$this wishes to draw text onto $disp with x $cx y $cy text $msg color green scale 80	1
+builtin-programs/display-saver.folk:24	wish	$this wishes to draw a line onto $disp with points $borderPoints width 6 color white	1
+builtin-programs/draw/apriltags.folk:1	wish	$this wishes the GPU compiles pipeline apriltag {     {vec2 viewport mat3 su...}	1
+builtin-programs/draw/apriltags.folk:22	rule	when the image library is /imageLib/ body with environment env	0
+builtin-programs/draw/apriltags.folk:22	rule	when the print library is /printLib/ body with environment env	0
+builtin-programs/draw/apriltags.folk:22	rule	when /p/ has canvas /writableTexture/ with /...wiOptions/ body with environment env	0
+builtin-programs/draw/apriltags.folk:22	rule	when /p/ has canvas projection /surfaceToClip/ body with environment env	0
+builtin-programs/draw/apriltags.folk:22	rule	when /someone/ wishes to draw an AprilTag onto /p/ with /...options/ body with environment env	0
+builtin-programs/draw/apriltags.folk:49	wish	$this wishes the GPU draws pipeline apriltag onto canvas $writableTexture with arguments [list $wiResolution $surfac... layer $layer	1
+builtin-programs/draw/arc.folk:1	wish	$this wishes the GPU compiles pipeline arc [list \     {vec2 viewport ...	1
+builtin-programs/draw/arc.folk:35	rule	when the color map is /colorMap/ body with environment env	0
+builtin-programs/draw/arc.folk:35	rule	when /p/ has canvas /id/ with /...wiOptions/ body with environment env	0
+builtin-programs/draw/arc.folk:35	rule	when /p/ has canvas projection /surfaceToClip/ body with environment env	0
+builtin-programs/draw/arc.folk:35	rule	when /someone/ wishes to draw an arc onto /p/ with /...options/ body with environment env	0
+builtin-programs/draw/arc.folk:49	wish	$this wishes the GPU draws pipeline arc onto canvas $id with arguments [list $wiResolution $surfac... layer $layer	1
+builtin-programs/draw/circle.folk:1	wish	$this wishes the GPU compiles pipeline circle {     {vec2 viewport mat3 su...}	1
+builtin-programs/draw/circle.folk:26	rule	when the color map is /colorMap/ body with environment env	0
+builtin-programs/draw/circle.folk:26	rule	when /p/ has canvas /id/ with /...wiOptions/ body with environment env	0
+builtin-programs/draw/circle.folk:26	rule	when /p/ has canvas projection /surfaceToClip/ body with environment env	0
+builtin-programs/draw/circle.folk:26	rule	when /someone/ wishes to draw a circle onto /p/ with /...options/ body with environment env	0
+builtin-programs/draw/circle.folk:51	wish	$this wishes the GPU draws pipeline circle onto canvas $id with arguments [list $wiResolution $surfac... layer $layer	1
+builtin-programs/draw/color-map.folk:165	claim	$this claims the color map is $colorMap	8
+builtin-programs/draw/contour.folk:1	rule	when /p/ has canvas /id/ with /...wiOptions/ body with environment env	0
+builtin-programs/draw/contour.folk:1	rule	when /p/ has canvas projection /surfaceToClip/ body with environment env	0
+builtin-programs/draw/contour.folk:1	rule	when the color map is /colorMap/ body with environment env	0
+builtin-programs/draw/contour.folk:1	rule	when /someone/ wishes /p/ draws contour /contour/ with /...options/ body with environment env	0
+builtin-programs/draw/contour.folk:26	wish	$this wishes the GPU draws pipeline line onto canvas $id with instances $instances layer $layer	1
+builtin-programs/draw/curve.folk:3	wish	$this wishes the GPU compiles function curveSegmentDistance {{vec2 p vec2 a vec2 b} floa...}	1
+builtin-programs/draw/curve.folk:11	wish	$this wishes the GPU compiles function curveBezierDistance {{vec2 p0 vec2 p1 vec2 p2 ve...}	1
+builtin-programs/draw/curve.folk:28	wish	$this wishes the GPU compiles pipeline curve {     {vec2 viewport mat3 su...}	1
+builtin-programs/draw/curve.folk:58	rule	when the color map is /colorMap/ body with environment env	0
+builtin-programs/draw/curve.folk:58	rule	when /p/ has canvas /id/ with /...wiOptions/ body with environment env	0
+builtin-programs/draw/curve.folk:58	rule	when /p/ has canvas projection /surfaceToClip/ body with environment env	0
+builtin-programs/draw/curve.folk:58	rule	when /someone/ wishes to draw a curve onto /p/ with /...options/ body with environment env	0
+builtin-programs/draw/curve.folk:75	wish	$this wishes the GPU draws pipeline curve onto canvas $id with arguments [list $wiResolution $surfac... layer $layer	1
+builtin-programs/draw/dashed-line.folk:1	wish	$this wishes the GPU compiles pipeline dashed-line {     {vec2 viewport mat3 su...}	1
+builtin-programs/draw/dashed-line.folk:39	rule	when the color map is /colorMap/ body with environment env	0
+builtin-programs/draw/dashed-line.folk:39	rule	when /p/ has canvas /id/ with /...wiOptions/ body with environment env	0
+builtin-programs/draw/dashed-line.folk:39	rule	when /p/ has canvas projection /surfaceToClip/ body with environment env	0
+builtin-programs/draw/dashed-line.folk:39	rule	when /someone/ wishes to draw a dashed line onto /p/ with /...options/ body with environment env	0
+builtin-programs/draw/dashed-line.folk:61	wish	$this wishes the GPU draws pipeline dashed-line onto canvas $id with instances $instances layer $layer	1
+builtin-programs/draw/fill.folk:1	wish	$this wishes the GPU compiles pipeline fillTriangle {     {mat3 surfaceToClip ve...}	1
+builtin-programs/draw/fill.folk:11	rule	when the color map is /colorMap/ body with environment env	0
+builtin-programs/draw/fill.folk:12	rule	when /someone/ wishes to draw a triangle onto /p/ with /...options/ body with environment env	0
+builtin-programs/draw/fill.folk:12	rule	when /p/ has canvas /id/ with /...wiOptions/ body with environment env	0
+builtin-programs/draw/fill.folk:12	rule	when /p/ has canvas projection /surfaceToClip/ body with environment env	0
+builtin-programs/draw/fill.folk:18	wish	$this wishes the GPU draws pipeline fillTriangle onto canvas $id with arguments [list $surfaceToClip $p0 $p... layer $layer	1
+builtin-programs/draw/fill.folk:23	rule	when /someone/ wishes to draw a quad onto /p/ with /...options/ body with environment env	0
+builtin-programs/draw/fill.folk:23	rule	when /p/ has canvas /id/ with /...wiOptions/ body with environment env	0
+builtin-programs/draw/fill.folk:23	rule	when /p/ has canvas projection /surfaceToClip/ body with environment env	0
+builtin-programs/draw/fill.folk:29	wish	$this wishes the GPU draws pipeline fillTriangle onto canvas $id with instances [list \                    ... layer $layer	1
+builtin-programs/draw/fill.folk:37	rule	when /someone/ wishes to draw a polygon onto /p/ with /...options/ body with environment env	0
+builtin-programs/draw/fill.folk:37	rule	when /p/ has canvas /id/ with /...wiOptions/ body with environment env	0
+builtin-programs/draw/fill.folk:37	rule	when /p/ has canvas projection /surfaceToClip/ body with environment env	0
+builtin-programs/draw/fill.folk:48	wish	$this wishes to draw a triangle onto $p with p0 [lindex $points 0] p1 [lindex $points 1] p2 [lindex $points 2] color $color layer $layer	1
+builtin-programs/draw/fill.folk:53	wish	$this wishes to draw a quad onto $p with p0 [lindex $points 0] p1 [lindex $points 1] p2 [lindex $points 2] p3 [lindex $points 3] color $color layer $layer	1
+builtin-programs/draw/fill.folk:71	wish	$this wishes the GPU draws pipeline fillTriangle onto canvas $id with instances $instances layer $layer	1
+builtin-programs/draw/fill.folk:75	rule	when /someone/ wishes /page/ is filled with /...options/ body with environment env	0
+builtin-programs/draw/fill.folk:75	rule	when /page/ has resolved geometry /geom/ body with environment env	0
+builtin-programs/draw/fill.folk:86	wish	$this wishes to draw a polygon onto $page with points $points {*}$fillOpts	1
+builtin-programs/draw/fill.folk:89	rule	when /someone/ wishes /thing/ is filled /color/ body with environment env	0
+builtin-programs/draw/fill.folk:90	wish	$this wishes $thing is filled with color $color	1
+builtin-programs/draw/fill.folk:93	rule	when /someone/ wishes /thing/ is filled /color/ with /...options/ body with environment env	0
+builtin-programs/draw/fill.folk:95	wish	$this wishes $thing is filled with color $color {*}$options	1
+builtin-programs/draw/gif.folk:1	rule	when the gif library is /gifLib/ body with environment env	0
+builtin-programs/draw/gif.folk:2	rule	when /someone/ wishes /p/ displays gif /gif/ with /...options/ body with environment env	0
+builtin-programs/draw/gif.folk:2	rule	when /p/ has resolved geometry /geom/ body with environment env	0
+builtin-programs/draw/gif.folk:19	wish	$this wishes $p displays image [lindex $frames 0] with {*}$options	1
+builtin-programs/draw/gif.folk:23	rule	when the clock time is /t/ body with environment env	0
+builtin-programs/draw/gif.folk:33	wish	$this wishes $p displays image $im with {*}$options	1
+builtin-programs/draw/image.folk:1	rule	when the jpeg library is /jpegLib/ body with environment env	0
+builtin-programs/draw/image.folk:7	claim	$this claims [fn jpegLoader] is an image loader	1
+builtin-programs/draw/image.folk:10	rule	when the png library is /pngLib/ body with environment env	0
+builtin-programs/draw/image.folk:16	claim	$this claims [fn pngLoader] is an image loader	1
+builtin-programs/draw/image.folk:19	rule	when the gif library is /gifLib/ body with environment env	0
+builtin-programs/draw/image.folk:33	claim	$this claims [fn gifLoader] is an image loader	1
+builtin-programs/draw/image.folk:37	rule	when the collected results for {/loader/ is an image loader} are /loaders/ body with environment env	1
+builtin-programs/draw/image.folk:63	hold	$this claims the image path $impath maps to cached image $result	1
+builtin-programs/draw/image.folk:70	claim	$this claims the image loader is [fn loadImage]	3
+builtin-programs/draw/image.folk:73	wish	$this wishes the GPU compiles pipeline image {     {vec2 viewport mat3 su...}	1
+builtin-programs/draw/image.folk:97	rule	when the image library is /imageLib/ body with environment env	0
+builtin-programs/draw/image.folk:97	rule	when /someone/ wishes to draw an image onto /p/ with /...options/ body with environment env	0
+builtin-programs/draw/image.folk:97	rule	when /p/ has canvas /id/ with /...wiOptions/ body with environment env	0
+builtin-programs/draw/image.folk:97	rule	when /p/ has canvas projection /surfaceToClip/ body with environment env	0
+builtin-programs/draw/image.folk:141	wish	$this wishes the GPU loads image $im as texture	1
+builtin-programs/draw/image.folk:142	rule	when the GPU has loaded image $im as texture /gim/ body with environment env	0
+builtin-programs/draw/image.folk:143	wish	$this wishes the GPU draws pipeline image onto canvas $id with arguments [list $wiResolution $surfac...	1
+builtin-programs/draw/image.folk:150	rule	when the image library is /imageLib/ body with environment env	0
+builtin-programs/draw/image.folk:150	rule	when the image loader is /loadImage/ body with environment env	0
+builtin-programs/draw/image.folk:150	rule	when /someone/ wishes /p/ displays image /impath/ with /...options/ body with environment env	0
+builtin-programs/draw/image.folk:150	rule	when /p/ has resolved geometry /geom/ body with environment env	0
+builtin-programs/draw/image.folk:162	say	$p has error $e with info $opts	3
+builtin-programs/draw/image.folk:166	wish	$this wishes $p displays gif $im with {*}$options	1
+builtin-programs/draw/image.folk:176	wish	$this wishes to draw an image onto $p with image $im position [dict getdef $options posit... anchor topleft width [dict getdef $options width...	1
+builtin-programs/draw/image.folk:183	rule	when /someone/ wishes /p/ displays image /im/ body with environment env	0
+builtin-programs/draw/image.folk:184	wish	$this wishes $p displays image $im with scale 1.0	1
+builtin-programs/draw/line.folk:1	wish	$this wishes the GPU compiles pipeline line {     {vec2 viewport mat3 su...}	1
+builtin-programs/draw/line.folk:62	rule	when the color map is /colorMap/ body with environment env	0
+builtin-programs/draw/line.folk:62	rule	when /p/ has canvas /id/ with /...wiOptions/ body with environment env	0
+builtin-programs/draw/line.folk:62	rule	when /p/ has canvas projection /surfaceToClip/ body with environment env	0
+builtin-programs/draw/line.folk:62	rule	when /someone/ wishes to draw a line onto /p/ with /...options/ body with environment env	0
+builtin-programs/draw/line.folk:88	wish	$this wishes the GPU draws pipeline line onto canvas $id with instances $instances layer $layer	1
+builtin-programs/draw/shapes.folk:170	rule	when /someone/ wishes /p/ draws a /shape/ with /...options/ body with environment env	0
+builtin-programs/draw/shapes.folk:170	rule	when /p/ has resolved geometry /geom/ body with environment env	0
+builtin-programs/draw/shapes.folk:186	wish	$this wishes to draw a circle onto $p with center $center radius $radius thickness $thickness color $color filled $filled layer $layer	1
+builtin-programs/draw/shapes.folk:216	wish	$this wishes to draw a polygon onto $p with points $points color $color layer $layer	1
+builtin-programs/draw/shapes.folk:219	wish	$this wishes to draw a line onto $p with points $points width $thickness color $color layer $layer	1
+builtin-programs/draw/shapes.folk:224	rule	when /someone/ wishes /p/ draws a /shape/ body with environment env	0
+builtin-programs/draw/shapes.folk:225	wish	$this wishes $p draws a $shape with color white filled true	1
+builtin-programs/draw/shapes.folk:228	rule	when /someone/ wishes /p/ draws text /text/ with /...options/ body with environment env	0
+builtin-programs/draw/shapes.folk:228	rule	when /p/ has resolved geometry /geom/ body with environment env	0
+builtin-programs/draw/shapes.folk:240	wish	$this wishes to draw text onto $p with position $position scale $scale text $text color $color radians $radians anchor $anchor font $font layer $layer	1
+builtin-programs/draw/shapes.folk:245	rule	when /someone/ wishes /p/ draws text /text/ body with environment env	0
+builtin-programs/draw/shapes.folk:246	wish	$this wishes $p draws text $text with color white	1
+builtin-programs/draw/shapes.folk:249	rule	when /someone/ wishes /p/ draws a polyline /points/ with /...options/ body with environment env	0
+builtin-programs/draw/shapes.folk:249	rule	when /p/ has resolved geometry /geom/ body with environment env	0
+builtin-programs/draw/shapes.folk:268	wish	$this wishes to draw a dashed line onto $p with points $points width $width color $color dashlength $dashlength dashoffset $dashoffset layer $layer	1
+builtin-programs/draw/shapes.folk:272	wish	$this wishes to draw a line onto $p with points $points width $width color $color layer $layer	1
+builtin-programs/draw/shapes.folk:277	rule	when /someone/ wishes /p/ draws a polyline /points/ body with environment env	0
+builtin-programs/draw/shapes.folk:278	wish	$this wishes $p draws a polyline $points with color white	2
+builtin-programs/draw/shapes.folk:281	rule	when /someone/ wishes /p/ draws a polygon /points/ with /...options/ body with environment env	0
+builtin-programs/draw/shapes.folk:281	rule	when /p/ has resolved geometry /geom/ body with environment env	0
+builtin-programs/draw/shapes.folk:287	wish	$this wishes to draw a polygon onto $p with points $parsedPoints color $color layer $layer	1
+builtin-programs/draw/shapes.folk:290	rule	when /someone/ wishes /p/ draws a polygon /points/ body with environment env	0
+builtin-programs/draw/shapes.folk:291	wish	$this wishes $p draws a polygon $points with color white	2
+builtin-programs/draw/shapes.folk:294	rule	when /someone/ wishes /p/ draws points /points/ with /...options/ body with environment env	0
+builtin-programs/draw/shapes.folk:294	rule	when /p/ has resolved geometry /geom/ body with environment env	0
+builtin-programs/draw/shapes.folk:308	wish	$this wishes to draw a circle onto $p with center $point radius $radius thickness $thickness color $color filled $filled layer $layer	1
+builtin-programs/draw/shapes.folk:314	rule	when /someone/ wishes /p/ draws points /points/ body with environment env	0
+builtin-programs/draw/shapes.folk:315	wish	$this wishes $p draws points $points with color white	1
+builtin-programs/draw/shapes.folk:318	rule	when /someone/ wishes /p/ draws a set of points /points/ with /...options/ body with environment env	0
+builtin-programs/draw/shapes.folk:320	wish	$this wishes $p draws points $points with {*}$options	1
+builtin-programs/draw/shapes.folk:323	rule	when /someone/ wishes /p/ draws a set of points /points/ body with environment env	0
+builtin-programs/draw/shapes.folk:324	wish	$this wishes $p draws points $points	1
+builtin-programs/draw/text.folk:1	rule	when the image library is /imageLib/ body with environment env	0
+builtin-programs/draw/text.folk:174	rule	when the image loader is /loadImage/ body with environment env	0
+builtin-programs/draw/text.folk:206	wish	$this wishes the GPU loads image $im as texture	1
+builtin-programs/draw/text.folk:207	rule	when the GPU has loaded image $im as texture /gim/ body with environment env	0
+builtin-programs/draw/text.folk:210	claim	$this claims the GPU has font $name with data $font	1
+builtin-programs/draw/text.folk:224	wish	$this wishes the GPU compiles function glyphMsd {     {sampler2D atlas vec4 ...}	1
+builtin-programs/draw/text.folk:230	wish	$this wishes the GPU compiles function median {     {float r float g float...}	1
+builtin-programs/draw/text.folk:238	wish	$this wishes the GPU compiles pipeline glyph {     {mat3 surfaceToClip   ...}	1
+builtin-programs/draw/text.folk:270	rule	when the color map is /colorMap/ body with environment env	0
+builtin-programs/draw/text.folk:270	rule	when /someone/ wishes to draw text onto /p/ with /...options/ body with environment env	0
+builtin-programs/draw/text.folk:307	rule	when $p has canvas /id/ with /...wiOptions/ body with environment env	0
+builtin-programs/draw/text.folk:307	rule	when $p has canvas projection /surfaceToClip/ body with environment env	0
+builtin-programs/draw/text.folk:307	rule	when the GPU has font $font with data /fontData/ body with environment env	0
+builtin-programs/draw/text.folk:319	wish	$this wishes the GPU draws pipeline glyph onto canvas $id with instances $instances layer $layer	1
+builtin-programs/editor/draw-editor.folk:1	rule	when the editor utils library is /utils/ body with environment env	0
+builtin-programs/editor/draw-editor.folk:4	rule	when /editor/ is an editor with /...anything/ body with environment env	0
+builtin-programs/editor/draw-editor.folk:4	rule	when editor /editor/ has margin /margin/ body with environment env	0
+builtin-programs/editor/draw-editor.folk:4	rule	when editor /editor/ has viewport position /vpPos/ body with environment env	0
+builtin-programs/editor/draw-editor.folk:4	rule	when editor /editor/ has viewport size /vpSize/ body with environment env	0
+builtin-programs/editor/draw-editor.folk:4	rule	when editor /editor/ has selected program /program/ body with environment env	0
+builtin-programs/editor/draw-editor.folk:4	rule	when editor /editor/ on program /program/ has font options with /...fontOptions/ body with environment env	0
+builtin-programs/editor/draw-editor.folk:14	rule	when $editor has canvas /editorCanvas/ with /...wiOpts/ body with environment env	0
+builtin-programs/editor/draw-editor.folk:16	wish	$this wishes the GPU draws pipeline fillTriangle onto canvas $editorCanvas with arguments [list {{1 0 0} {0 1 0} {0 0... layer -2	1
+builtin-programs/editor/draw-editor.folk:20	wish	$this wishes the GPU draws pipeline fillTriangle onto canvas $editorCanvas with arguments [list {{1 0 0} {0 1 0} {0 0... layer -2	1
+builtin-programs/editor/draw-editor.folk:27	rule	when $editor has resolved geometry /geom/ body with environment env	0
+builtin-programs/editor/draw-editor.folk:27	rule	when the clock time is /t/ body with environment env	0
+builtin-programs/editor/draw-editor.folk:29	wish	$this wishes to draw a dashed line onto $editor with points [list [list 0 0] \         ... color gold width 0.005 dashlength 0.008 dashoffset [expr {fmod($t, 1.6) * 0.01}]	1
+builtin-programs/editor/draw-editor.folk:42	rule	when editor $editor has selected program /program/ body with environment env	0
+builtin-programs/editor/draw-editor.folk:42	rule	when editor buffer for /program/ is /code/ body with environment env	0
+builtin-programs/editor/draw-editor.folk:42	rule	when editor $editor has cursor /cursor/ body with environment env	0
+builtin-programs/editor/draw-editor.folk:42	rule	when editor $editor has cursor position /cursorPos/ body with environment env	0
+builtin-programs/editor/draw-editor.folk:42	rule	when editor $editor has selection anchor /selAnchor/ body with environment env	0
+builtin-programs/editor/draw-editor.folk:52	wish	$this wishes to draw text onto $editor with position [list $lineNumbersRight [li... text $lineNumbers color gold scale $textScale anchor topright font NeomatrixCode	1
+builtin-programs/editor/draw-editor.folk:59	wish	$this wishes to draw text onto $editor with position $pos text $text scale $textScale anchor topleft font NeomatrixCode	1
+builtin-programs/editor/draw-editor.folk:104	wish	$this wishes to draw a quad onto $editor with p0 [list $x0 $y0] p1 [list $x1 $y0] p2 [list $x1 $y1] p3 [list $x0 $y1] color {0.2 0.4 0.8 0.7} layer -1	1
+builtin-programs/editor/draw-editor.folk:114	wish	$this wishes to draw a circle onto $editor with center $p1 radius $s thickness 0 color green filled true	1
+builtin-programs/editor/draw-editor.folk:115	wish	$this wishes to draw a line onto $editor with points [list $p1 $p2] width $s color green	1
+builtin-programs/editor/editor-utils.folk:1	claim	$this claims the editor utils library is [library create editorUtils...	2
+builtin-programs/editor/editor.folk:3	rule	when /k/ is a keyboard with /...opts/ body with environment env	0
+builtin-programs/editor/editor.folk:4	wish	$this wishes tag $k is stabilized	2
+builtin-programs/editor/editor.folk:6	wish	$this wishes $k points up with length 0.3	1
+builtin-programs/editor/editor.folk:7	rule	when the collected results for [list $k points up with len... are /results/ body with environment env	1
+builtin-programs/editor/editor.folk:19	rule	when $program handles keyboard input body with environment env	0
+builtin-programs/editor/editor.folk:20	claim	$this claims $k is typing into $program	2
+builtin-programs/editor/editor.folk:22	rule	when the collected results for pattern are /__results/ body with environment env	1
+builtin-programs/editor/editor.folk:23	rule	when the collected results for pattern are /__results/ body with environment env	1
+builtin-programs/editor/editor.folk:24	wish	$this wishes tag $program is stabilized	2
+builtin-programs/editor/editor.folk:28	claim	$this claims $editor is an editor	3
+builtin-programs/editor/editor.folk:29	claim	$this claims editor $editor has selected program $program	10
+builtin-programs/editor/editor.folk:30	wish	$this wishes $editor has a canvas with layer 98	1
+builtin-programs/editor/editor.folk:32	rule	when $program has resolved geometry /geom/ body with environment env	0
+builtin-programs/editor/editor.folk:33	claim	$this claims $editor has resolved geometry $geom	22
+builtin-programs/editor/editor.folk:35	rule	when $program has quad /q/ body with environment env	0
+builtin-programs/editor/editor.folk:35	claim	$this claims $editor has quad $q	15
+builtin-programs/editor/editor.folk:36	claim	$this claims $k has created editor $editor	1
+builtin-programs/editor/editor.folk:37	claim	$this claims $k is typing into $editor	2
+builtin-programs/editor/editor.folk:39	rule	when $program is an editor body with environment env	0
+builtin-programs/editor/editor.folk:40	claim	$this claims $k is typing into $program	2
+builtin-programs/editor/editor.folk:46	rule	when the program save directory is /programDir/ body with environment env	1
+builtin-programs/editor/editor.folk:46	rule	when the editor utils library is /utils/ body with environment env	0
+builtin-programs/editor/editor.folk:51	rule	when /someone/ claims /editor/ is an editor body with environment env	0
+builtin-programs/editor/editor.folk:52	claim	$this claims $editor is an editor with {*}$defaults	4
+builtin-programs/editor/editor.folk:53	rule	when the collected results for pattern are /__results/ body with environment env	1
+builtin-programs/editor/editor.folk:53	rule	when $editor points up with length 0.3 at /program/ body with environment env	1
+builtin-programs/editor/editor.folk:55	wish	$this wishes tag $editor is stabilized	2
+builtin-programs/editor/editor.folk:56	wish	$this wishes tag $program is stabilized	2
+builtin-programs/editor/editor.folk:57	claim	$this claims editor $editor has selected program $program	10
+builtin-programs/editor/editor.folk:61	rule	when /editor/ is an editor with /...options/ body with environment env	0
+builtin-programs/editor/editor.folk:70	rule	when $editor has resolved geometry /geom/ body with environment env	0
+builtin-programs/editor/editor.folk:72	claim	$this claims editor $editor has margin [list \                 [di...	3
+builtin-programs/editor/editor.folk:78	claim	$this claims editor $editor has margin [list 0.01 0.005 0.005 0.01]	3
+builtin-programs/editor/editor.folk:84	rule	when editor $editor has selected program /program/ body with environment env	0
+builtin-programs/editor/editor.folk:84	rule	when the collected results for pattern are /__results/ body with environment env	1
+builtin-programs/editor/editor.folk:84	rule	when the saved holds are loaded body with environment env	0
+builtin-programs/editor/editor.folk:100	hold	$this claims editor $editor on program $program has font options with scale $textScale	6
+builtin-programs/editor/editor.folk:107	rule	when $editor has resolved geometry /geom/ body with environment env	0
+builtin-programs/editor/editor.folk:107	rule	when editor $editor has margin /margin/ body with environment env	0
+builtin-programs/editor/editor.folk:107	rule	when editor $editor has selected program /program/ body with environment env	0
+builtin-programs/editor/editor.folk:107	rule	when editor $editor on program /program/ has font options with /...options/ body with environment env	0
+builtin-programs/editor/editor.folk:111	claim	$this claims editor $editor has viewport size [$utils editorSizeInCharact...	2
+builtin-programs/editor/editor.folk:118	claim	$this claims editor $editor has cursor 0	4
+builtin-programs/editor/editor.folk:119	claim	$this claims editor $editor has max cursor x 0	1
+builtin-programs/editor/editor.folk:120	claim	$this claims editor $editor has viewport position [list 0 0]	3
+builtin-programs/editor/editor.folk:121	claim	$this claims editor $editor has selection anchor {}	2
+builtin-programs/editor/editor.folk:122	claim	$this claims editor $editor has undo stack {}	1
+builtin-programs/editor/editor.folk:123	claim	$this claims editor $editor has redo stack {}	1
+builtin-programs/editor/editor.folk:124	claim	$this claims editor $editor has last edit type {}	1
+builtin-programs/editor/editor.folk:130	hold	$this claims editor $editor has clipboard {}	2
+builtin-programs/editor/editor.folk:135	rule	when editor $editor has selected program /program/ body with environment env	0
+builtin-programs/editor/editor.folk:135	rule	when /program/ has program code /programCode/ body with environment env	0
+builtin-programs/editor/editor.folk:135	rule	when the saved holds are loaded body with environment env	0
+builtin-programs/editor/editor.folk:141	hold	$this claims editor buffer for $program is $programCode	7
+builtin-programs/editor/editor.folk:151	rule	when /keyboard/ is a keyboard with path /kbPath/ /...anything/ body with environment env	0
+builtin-programs/editor/editor.folk:151	rule	when /keyboard/ is typing into /editor/ body with environment env	0
+builtin-programs/editor/editor.folk:151	rule	when /editor/ is an editor with /...anything/ body with environment env	0
+builtin-programs/editor/editor.folk:151	rule	when editor /editor/ has selected program /program/ body with environment env	0
+builtin-programs/editor/editor.folk:226	hold	$this claims editor $editor has clipboard $clipText	2
+builtin-programs/editor/editor.folk:232	hold	$this claims editor $editor has clipboard $clipText	2
+builtin-programs/editor/editor.folk:281	hold	$this wishes $editor is labelled Printing!	2
+builtin-programs/editor/editor.folk:291	hold	$this claims editor $editor on program $program has font options with scale $textScale	6
+builtin-programs/editor/editor.folk:300	hold	$this claims editor $editor on program $program has font options with scale $textScale	6
+builtin-programs/editor/editor.folk:347	rule	when $program has program code /originalCode/ body with environment env	0
+builtin-programs/editor/editor.folk:348	claim	$this claims editor buffer for $program is $originalCode	7
+builtin-programs/editor/editor.folk:352	hold	$this claims editor buffer for $program is $code	7
+builtin-programs/editor/editor.folk:371	claim	$this claims editor $editor has viewport position [list $vpX $vpY]	3
+builtin-programs/editor/editor.folk:372	claim	$this claims editor $editor has cursor $cursor	4
+builtin-programs/editor/editor.folk:373	claim	$this claims editor $editor has max cursor x $maxCursorX	1
+builtin-programs/editor/editor.folk:374	claim	$this claims editor $editor has selection anchor $selAnchor	2
+builtin-programs/editor/editor.folk:375	claim	$this claims editor $editor has undo stack $undoStack	1
+builtin-programs/editor/editor.folk:376	claim	$this claims editor $editor has redo stack $redoStack	1
+builtin-programs/editor/editor.folk:377	claim	$this claims editor $editor has last edit type $lastEditType	1
+builtin-programs/editor/editor.folk:386	hold	$this wishes program $program is replaced with code $programCode editedTime [clock seconds]	4
+builtin-programs/editor/editor.folk:398	hold	$this wishes $editor is labelled Saved!	2
+builtin-programs/editor/editor.folk:406	rule	when /editor/ is an editor with /...anything/ body with environment env	0
+builtin-programs/editor/editor.folk:406	rule	when editor /editor/ has cursor /cursor/ body with environment env	0
+builtin-programs/editor/editor.folk:406	rule	when editor /editor/ has selected program /program/ body with environment env	0
+builtin-programs/editor/editor.folk:406	rule	when editor buffer for /program/ is /code/ body with environment env	0
+builtin-programs/editor/editor.folk:406	rule	when editor /editor/ has viewport position /vpPos/ body with environment env	0
+builtin-programs/editor/editor.folk:406	rule	when editor /editor/ on program /program/ has font options with /...textOptions/ body with environment env	0
+builtin-programs/editor/editor.folk:422	claim	$this claims editor $editor has cursor position [list $offsetX $offsetY]	1
+builtin-programs/editor/print-editor.folk:33	rule	when the codeToPostScript is /codeToPostScript/ body with environment env	0
+builtin-programs/editor/print-editor.folk:33	rule	when /someone/ wishes editor /editor/ has a print preview body with environment env	0
+builtin-programs/editor/print-editor.folk:33	rule	when editor /editor/ has selected program /program/ body with environment env	0
+builtin-programs/editor/print-editor.folk:38	wish	$this wishes $preview has a canvas	1
+builtin-programs/editor/print-editor.folk:48	claim	$this claims $preview has resolved geometry $previewGeom	22
+builtin-programs/editor/print-editor.folk:49	rule	when the quad library is /quadLib/ body with environment env	0
+builtin-programs/editor/print-editor.folk:49	rule	when $editor has quad /q/ body with environment env	0
+builtin-programs/editor/print-editor.folk:50	claim	$this claims $preview has quad [$quadLib createFromGeometr...	15
+builtin-programs/editor/print-editor.folk:54	wish	$this wishes $preview is outlined white	2
+builtin-programs/editor/print-editor.folk:57	rule	when editor buffer for $program is /code/ body with environment env	0
+builtin-programs/editor/print-editor.folk:67	wish	$this wishes $preview displays image $pngFile with width $previewGeom(width)	1
+builtin-programs/editor-control.folk:1	rule	when /page/ has editor code /editorCode/ body with environment env	0
+builtin-programs/editor-control.folk:1	rule	when /page/ has program code /programCode/ body with environment env	0
+builtin-programs/editor-control.folk:2	claim	$this claims $page has base64 editor code [binary encode base64 $edit... program code [binary encode base64 $prog...	0
+builtin-programs/editor-control.folk:6	wish	$this wishes the web server handles route /editor-control with hidden true handler {     html { <!DOCTYPE html>...}	2
+builtin-programs/errors.folk:1	rule	when /p/ has error /err/ with info /info/ body with environment env	0
+builtin-programs/errors.folk:2	rule	when the clock time is /t/ body with environment env	0
+builtin-programs/errors.folk:4	wish	$this wishes $p is outlined white	2
+builtin-programs/errors.folk:6	wish	$this wishes $p is outlined red	2
+builtin-programs/errors.folk:9	wish	$this wishes $p is titled $err	1
+builtin-programs/errors.folk:12	rule	when /p/ has warning /w/ with info /info/ body with environment env	0
+builtin-programs/errors.folk:13	rule	when the clock time is /t/ body with environment env	0
+builtin-programs/errors.folk:15	wish	$this wishes $p is outlined yellow	2
+builtin-programs/errors.folk:18	wish	$this wishes $p is titled $w	1
+builtin-programs/esc-pos.folk:1	rule	when the print library is /printLib/ body with environment env	0
+builtin-programs/esc-pos.folk:1	rule	when the image library is /imageLib/ body with environment env	0
+builtin-programs/esc-pos.folk:1	rule	when the program save directory is /saveDir/ body with environment env	1
+builtin-programs/fswatch.folk:31	hold	$this claims $changedPath has program code $programCode	6
+builtin-programs/geometric/intersect.folk:2	rule	when /someone/ wishes /p/ has neighbors body with environment env	0
+builtin-programs/geometric/intersect.folk:2	rule	when /p/ has region /r/ body with environment env	0
+builtin-programs/geometric/intersect.folk:2	rule	when /p2/ has region /r2/ body with environment env	0
+builtin-programs/geometric/intersect.folk:16	claim	$this claims $p has neighbor $p2	0
+builtin-programs/geometric/intersect.folk:23	rule	when when /p/ has neighbor /n/ /lambda/ with environment /e/ body with environment env	0
+builtin-programs/geometric/intersect.folk:24	wish	$this wishes $p has neighbors	1
+builtin-programs/geometric/points-at.folk:1	rule	when when /rect/ points /direction/ with length /l/ at /someone/ /lambda/ with environment /e/ body with environment env	0
+builtin-programs/geometric/points-at.folk:3	wish	$this wishes $rect points $direction with length $l	1
+builtin-programs/geometric/points-at.folk:6	rule	when when /rect/ points /direction/ at /someone/ /lambda/ with environment /e/ body with environment env	0
+builtin-programs/geometric/points-at.folk:8	wish	$this wishes $rect points $direction with length 1	1
+builtin-programs/geometric/points-at.folk:11	rule	when the quad library is /quadLib/ body with environment env	0
+builtin-programs/geometric/points-at.folk:11	rule	when the pose library is /poseLib/ body with environment env	0
+builtin-programs/geometric/points-at.folk:11	rule	when the quad changer is /quadChange/ body with environment env	0
+builtin-programs/geometric/points-at.folk:11	rule	when display /disp/ has width /displayWidth/ height /displayHeight/ body with environment env	0
+builtin-programs/geometric/points-at.folk:11	rule	when display /disp/ has intrinsics /displayIntrinsics/ body with environment env	0
+builtin-programs/geometric/points-at.folk:11	rule	when /someone/ wishes /rect/ points /direction/ with length /l/ body with environment env	1
+builtin-programs/geometric/points-at.folk:18	rule	when $rect has quad /quad/ body with environment env	0
+builtin-programs/geometric/points-at.folk:84	rule	when /target/ has quad /q2/ body with environment env	0
+builtin-programs/geometric/points-at.folk:93	claim	$this claims $rect points $direction at $target	1
+builtin-programs/geometric/points-at.folk:94	claim	$this claims $rect points $direction with length $l at $target	2
+builtin-programs/geometric/points-at.folk:98	wish	$this wishes to draw a line onto $disp with points [list $from $to] width 4 color $color	1
+builtin-programs/geometric/points-at.folk:101	wish	$this wishes to draw a circle onto $disp with center $to radius 10 thickness 5 color $color filled true	1
+builtin-programs/geometric/points-at.folk:108	rule	when the collected results for pattern are /__results/ body with environment env	1
+builtin-programs/geometric/points-at.folk:110	wish	$this wishes to draw a line onto $disp with points [list $from $to] width 4 color $color	1
+builtin-programs/geometric/points-at.folk:113	wish	$this wishes to draw a circle onto $disp with center $to radius 10 thickness 5 color $color filled false	1
+builtin-programs/gpu/canvases.folk:1	rule	when the GPU library is /gpuLib/ body with environment env	0
+builtin-programs/gpu/canvases.folk:1	rule	when the image library is /imageLib/ body with environment env	0
+builtin-programs/gpu/canvases.folk:1	rule	when the GPU pipeline library is /pipelineLib/ body with environment env	0
+builtin-programs/gpu/canvases.folk:1	rule	when the GPU texture library is /gpuTextureLib/ body with environment env	0
+builtin-programs/gpu/canvases.folk:292	claim	$this claims the GPU canvas library is $gpuCanvasLib	0
+builtin-programs/gpu/canvases.folk:297	rule	when /someone/ wishes the GPU creates canvas /id/ with /...options/ body with environment env	0
+builtin-programs/gpu/canvases.folk:306	claim	$this claims the GPU has created canvas $id with {*}$options texture [$gpuCanvasLib gpuTexture $wi] writableInfo $wi	4
+builtin-programs/gpu/canvases.folk:312	wish	$this wishes to collect results for [list /wisher/ wishes the G... with settle $options(settle)	1
+builtin-programs/gpu/canvases.folk:318	wish	$this wishes the GPU runs frame prelude handler [list apply {{gpuCanvasLib ...	1
+builtin-programs/gpu/canvases.folk:470	rule	when /someone/ wishes /p/ has a canvas body with environment env	0
+builtin-programs/gpu/canvases.folk:471	wish	$this wishes $p has a canvas with width 1024 height 1024 settle 3ms	1
+builtin-programs/gpu/canvases.folk:473	rule	when /someone/ wishes /p/ has a canvas with /...options/ body with environment env	0
+builtin-programs/gpu/canvases.folk:481	wish	$this wishes the GPU creates canvas $pCanvas with {*}$options	1
+builtin-programs/gpu/canvases.folk:482	rule	when the GPU has created canvas $pCanvas with /...canvOpts/ body with environment env	0
+builtin-programs/gpu/canvases.folk:483	claim	$this claims $p has canvas $pCanvas with {*}$canvOpts	28
+builtin-programs/gpu/canvases.folk:485	rule	when $p has resolved geometry /geom/ body with environment env	0
+builtin-programs/gpu/canvases.folk:491	claim	$this claims $p has canvas projection $proj	12
+builtin-programs/gpu/canvases.folk:496	wish	$this wishes the GPU compiles pipeline composite-canvas {         {vec2 viewport mat...}	1
+builtin-programs/gpu/canvases.folk:522	rule	when display /disp/ has width /dispWidth/ height /dispHeight/ body with environment env	0
+builtin-programs/gpu/canvases.folk:526	wish	$this wishes the GPU creates canvas $dispCanvas with width $dispWidth height $dispHeight settle 0ms layer 100	1
+builtin-programs/gpu/canvases.folk:529	rule	when the GPU has created canvas $dispCanvas with /...canvOpts/ body with environment env	0
+builtin-programs/gpu/canvases.folk:530	claim	$this claims $disp has canvas $dispCanvas with {*}$canvOpts	28
+builtin-programs/gpu/canvases.folk:541	claim	$this claims $disp has canvas projection $surfaceToClip	12
+builtin-programs/gpu/canvases.folk:551	wish	$this wishes the GPU draws pipeline composite-canvas with arguments [list [list $dispWidth $dis... layer [dict getdef $canvOpts laye...	1
+builtin-programs/gpu/draw.folk:13	rule	when the GPU library is /gpuLib/ body with environment env	0
+builtin-programs/gpu/draw.folk:13	rule	when the GPU Vulkan handle type definer is /defineVulkanHandleType/ body with environment env	0
+builtin-programs/gpu/draw.folk:13	rule	when the GPU texture library is /gpuTextureLib/ body with environment env	0
+builtin-programs/gpu/draw.folk:13	rule	when the GPU pipeline library is /pipelineLib/ body with environment env	0
+builtin-programs/gpu/draw.folk:13	rule	when the GPU pipeline compiler library is /pipelineCompilerLib/ body with environment env	0
+builtin-programs/gpu/draw.folk:542	claim	$this claims the GPU draw library is $drawLib	1
+builtin-programs/gpu/draw.folk:571	claim	$this claims the GPU compiles function $name to $fn	3
+builtin-programs/gpu/draw.folk:575	rule	when the GPU compiles function $notFoundName to /anything/ body with environment env	0
+builtin-programs/gpu/draw.folk:581	claim	$this claims $wisher has error $e with info [errorInfo $e]	3
+builtin-programs/gpu/draw.folk:590	claim	$this claims the GPU compiles pipeline $name to $pipeline	1
+builtin-programs/gpu/draw.folk:594	rule	when the GPU compiles function $notFoundName to /anything/ body with environment env	0
+builtin-programs/gpu/draw.folk:600	claim	$this claims $wisher has error $e with info [errorInfo $e]	3
+builtin-programs/gpu/draw.folk:604	rule	when /wisher/ wishes the GPU compiles function /name/ /source/ body with environment env	0
+builtin-programs/gpu/draw.folk:607	rule	when /wisher/ wishes the GPU compiles pipeline /name/ /source/ body with environment env	0
+builtin-programs/gpu/draw.folk:653	say	$this claims [dict get $result wisher] has error $e with info [errorInfo $e]	3
+builtin-programs/gpu/draw.folk:673	say	display $display has width [$drawLib getDisplayWidth $ds] height [$drawLib getDisplayHeight ...	17
+builtin-programs/gpu/enumerate.folk:105	claim	$this claims $::thisNode has display glfw with info {name "GLFW (windowed)"}	1
+builtin-programs/gpu/enumerate.folk:110	claim	$this claims $::thisNode has display $display(name) with info $display	1
+builtin-programs/gpu/enumerate.folk:113	claim	$this claims $::thisNode has had displays enumerated	1
+builtin-programs/gpu/gpu-fns.folk:1	wish	$this wishes the GPU compiles function rotate {{vec2 v float a} vec2 {    ...}	1
+builtin-programs/gpu/gpu-fns.folk:8	wish	$this wishes the GPU compiles function wedge2d {{vec2 v vec2 w} float {    ...}	1
+builtin-programs/gpu/gpu-fns.folk:12	wish	$this wishes the GPU compiles function invBilinear {       {vec2 pos vec2 p2 ve...}	1
+builtin-programs/gpu/gpu.folk:32	claim	$this claims the GPU Vulkan handle type definer is [fn defineVulkanHandleType]	5
+builtin-programs/gpu/gpu.folk:366	claim	$this claims the GPU library is $gpuLib	5
+builtin-programs/gpu/gpu.folk:368	claim	$this claims the GPU physical device is [$gpuLib getPhysicalDevice]	0
+builtin-programs/gpu/gpu.folk:369	claim	$this claims the GPU device is [$gpuLib getDevice]	0
+builtin-programs/gpu/gpu.folk:377	rule	when $::thisNode has had displays enumerated body with environment env	0
+builtin-programs/gpu/gpu.folk:380	rule	when the collected results for pattern are /__results/ body with environment env	1
+builtin-programs/gpu/gpu.folk:383	rule	when /someone/ wishes $::thisNode uses display glfw with /...any/ body with environment env	0
+builtin-programs/gpu/pipelines.folk:7	rule	when the GPU Vulkan handle type definer is /defineVulkanHandleType/ body with environment env	0
+builtin-programs/gpu/pipelines.folk:7	rule	when the GPU library is /gpuLib/ body with environment env	0
+builtin-programs/gpu/pipelines.folk:7	rule	when the image library is /imageLib/ body with environment env	0
+builtin-programs/gpu/pipelines.folk:7	rule	when the GPU texture library is /gpuTextureLib/ body with environment env	0
+builtin-programs/gpu/pipelines.folk:296	claim	$this claims the GPU pipeline library is $pipelineLib	3
+builtin-programs/gpu/pipelines.folk:657	claim	$this claims the GPU pipeline compiler library is $pipelineCompilerLib	1
+builtin-programs/gpu/textures.folk:1	rule	when the GPU Vulkan handle type definer is /defineVulkanHandleType/ body with environment env	0
+builtin-programs/gpu/textures.folk:1	rule	when the GPU library is /gpuLib/ body with environment env	0
+builtin-programs/gpu/textures.folk:1	rule	when the GPU VMA DLL is /vmaDll/ body with environment env	0
+builtin-programs/gpu/textures.folk:1	rule	when the image library is /imageLib/ body with environment env	0
+builtin-programs/gpu/textures.folk:943	claim	$this claims the GPU texture library is $gpuTextureLib	4
+builtin-programs/gpu/textures.folk:945	rule	when /someone/ wishes the GPU loads image /im/ as texture body with environment env	0
+builtin-programs/gpu/textures.folk:947	claim	$this claims the GPU has loaded image $im as texture $gtex	2
+builtin-programs/gpu/toy-shader.folk:13	rule	when the GPU Vulkan handle type definer is /defineVulkanHandleType/ body with environment env	0
+builtin-programs/gpu/toy-shader.folk:13	rule	when the GPU pipeline library is /pipelineLib/ body with environment env	0
+builtin-programs/gpu/toy-shader.folk:84	rule	when /wisher/ wishes /p/ draws toy shader /shaderCode/ body with environment env	0
+builtin-programs/gpu/toy-shader.folk:139	claim	$this claims $wisher has error $e with info [errorInfo $e]	3
+builtin-programs/gpu/toy-shader.folk:146	claim	$this claims the GPU compiles pipeline $sha1 to $pipeline	1
+builtin-programs/gpu/toy-shader.folk:149	rule	when $p has canvas /id/ with /...wiOptions/ body with environment env	0
+builtin-programs/gpu/toy-shader.folk:149	rule	when the clock time is /t/ body with environment env	0
+builtin-programs/gpu/toy-shader.folk:152	wish	$this wishes the GPU draws pipeline $sha1 onto canvas $id with arguments [list $wiResolution [- $t $...	1
+builtin-programs/gpu/vma.folk:1	rule	when the GPU Vulkan handle type definer is /defineVulkanHandleType/ body with environment env	0
+builtin-programs/gpu/vma.folk:73	claim	$this claims the GPU VMA DLL is $vmaDll	2
+builtin-programs/image/gif-lib.folk:1	rule	when the image library is /imageLib/ body with environment env	0
+builtin-programs/image/gif-lib.folk:51	claim	$this claims the gif library is $gifLib	2
+builtin-programs/image/image-lib.folk:382	claim	$this claims the image library is $imageLib	23
+builtin-programs/image/image-lib.folk:436	claim	$this claims the image uvx argtype definer is [fn defineImageArgtype]	4
+builtin-programs/image/jpeg-lib.folk:1	rule	when the image library is /imageLib/ body with environment env	0
+builtin-programs/image/jpeg-lib.folk:302	claim	$this claims the jpeg library is $jpegLib	6
+builtin-programs/image/png-lib.folk:1	rule	when the image library is /imageLib/ body with environment env	0
+builtin-programs/image/png-lib.folk:107	claim	$this claims the png library is $pngLib	2
+builtin-programs/keyboard.folk:41	claim	$this claims $keyboard is a keyboard device	2
+builtin-programs/keyboard.folk:45	rule	when /page/ is a keyboard with path /keyboard/ body with environment env	0
+builtin-programs/keyboard.folk:46	claim	$this claims $page is a keyboard with path $keyboard locale us	4
+builtin-programs/keyboard.folk:49	rule	when /keyboard/ is a keyboard device body with environment env	0
+builtin-programs/keyboard.folk:86	hold	$this claims $keyboard has keymaps [dict create]	2
+builtin-programs/keyboard.folk:89	rule	when /page/ is a keyboard with path $keyboard locale /locale/ body with environment env	0
+builtin-programs/keyboard.folk:100	hold	$this claims $keyboard has keymaps $localKeymaps	2
+builtin-programs/laser.folk:1	rule	when the image library is /imageLib/ body with environment env	0
+builtin-programs/laser.folk:1	rule	when libapriltag has been built with config /configCcWithLibapriltag/ body with environment env	0
+builtin-programs/laser.folk:167	rule	when /someone/ wishes to detect laser blobs body with environment env	0
+builtin-programs/laser.folk:167	rule	when camera /any/ has gray frame /grayFrame/ at timestamp /timestamp/ body with environment env	0
+builtin-programs/laser.folk:174	claim	$this claims the blob detection time is $blobTime	0
+builtin-programs/laser.folk:176	claim	$this claims laser blob [dict get $blob id] has center [dict get $blob center] size [dict get $blob size]	3
+builtin-programs/mask-tags.folk:1	rule	when the quad library is /quadLib/ body with environment env	0
+builtin-programs/mask-tags.folk:1	rule	when the pose library is /poseLib/ body with environment env	0
+builtin-programs/mask-tags.folk:1	rule	when the quad changer is /quadChange/ body with environment env	0
+builtin-programs/mask-tags.folk:1	rule	when display /proj/ has width /projWidth/ height /projHeight/ body with environment env	0
+builtin-programs/mask-tags.folk:1	rule	when display /proj/ has intrinsics /projectorIntrinsics/ body with environment env	0
+builtin-programs/mask-tags.folk:9	rule	when tag /id/ has quad /q/ body with environment env	0
+builtin-programs/mask-tags.folk:10	rule	when body with environment env	0
+builtin-programs/mask-tags.folk:17	wish	$this wishes to draw a quad onto $proj with p0 $p0 p1 $p1 p2 $p2 p3 $p3 color black layer 100	1
+builtin-programs/points.folk:47	claim	$this claims the points library is $pointsLib	0
+builtin-programs/points.folk:49	rule	when when point /point/ corresponds to point /anything/ on /targetSurface/ /lambda/ with environment /anything/ body with environment env	0
+builtin-programs/points.folk:50	wish	$this wishes point $point is projected to surface $targetSurface	1
+builtin-programs/points.folk:53	rule	when the quad library is /quadLib/ body with environment env	0
+builtin-programs/points.folk:53	rule	when the quad changer is /quadChange/ body with environment env	0
+builtin-programs/points.folk:53	rule	when /someone/ wishes point /point/ is projected to surface /targetSurface/ body with environment env	0
+builtin-programs/points.folk:57	rule	when $pointSurface has quad /pointQuad/ body with environment env	0
+builtin-programs/points.folk:57	rule	when $targetSurface has quad /targetQuad/ body with environment env	0
+builtin-programs/points.folk:81	claim	$this claims point $point corresponds to $pointOnTargetSurface on $targetSurface	0
+builtin-programs/print/print.folk:13	claim	$this claims the paper formats are {     letter    {tagInnerSid...}	4
+builtin-programs/print/print.folk:19	rule	when libapriltag has been built with config /configCcWithLibapriltag/ body with environment env	0
+builtin-programs/print/print.folk:19	rule	when the image library is /imageLib/ body with environment env	0
+builtin-programs/print/print.folk:19	rule	when the program save directory is /saveDir/ body with environment env	1
+builtin-programs/print/print.folk:83	claim	$this claims the print library is $printLib	3
+builtin-programs/print/print.folk:193	claim	$this claims the codeToPostScript is [fn codeToPostScript]	1
+builtin-programs/print/print.folk:208	hold	the next program id is $id	1
+builtin-programs/print/print.folk:213	rule	when $::thisNode claims printer /name/ is a cups printer with /...options/ body with environment env	0
+builtin-programs/programs.folk:1	rule	when tag /tag/ has detection /any/ on camera /any/ at timestamp /any/ body with environment env	0
+builtin-programs/programs.folk:5	claim	$this claims tag $tag has a program	6
+builtin-programs/programs.folk:6	claim	$this claims tag $tag is a tag	0
+builtin-programs/programs.folk:9	rule	when the program save directory is /saveDir/ body with environment env	1
+builtin-programs/programs.folk:10	rule	when /type/ /obj/ has a program body with environment env	0
+builtin-programs/programs.folk:15	claim	$this claims $obj has program code $res(demoCode)	6
+builtin-programs/programs.folk:54	hold	$this wishes program $obj is replaced with code $editedCode editedTime $editedTime	4
+builtin-programs/programs.folk:59	claim	$this claims $obj has program code $code	6
+builtin-programs/programs.folk:61	rule	when /someone/ wishes program $obj is replaced with /...opts/ body with environment env	0
+builtin-programs/programs.folk:63	wish	$this wishes $obj is titled (edited [clock format $edit...	1
+builtin-programs/quad-lib.folk:286	claim	$this claims the quad library is $quadLib	9
+builtin-programs/recognition/contours.folk:1	rule	when the image library is /imageLib/ body with environment env	0
+builtin-programs/recognition/contours.folk:76	claim	$this claims the contour library is $contourLib	1
+builtin-programs/recognition/contours.folk:79	rule	when /someone/ wishes /p/ has contours body with environment env	0
+builtin-programs/recognition/contours.folk:80	wish	$this wishes $p has contours with _ {}	1
+builtin-programs/recognition/contours.folk:82	rule	when the contour library is /contourLib/ body with environment env	0
+builtin-programs/recognition/contours.folk:82	rule	when /someone/ wishes /p/ has contours with /...opts/ body with environment env	0
+builtin-programs/recognition/contours.folk:84	wish	$this wishes $p has camera slice	1
+builtin-programs/recognition/contours.folk:85	rule	when $p has resolved geometry /geom/ body with environment env	0
+builtin-programs/recognition/contours.folk:85	rule	when $p has camera slice /s/ body with environment env	1
+builtin-programs/recognition/contours.folk:92	claim	$this claims $p has contours [$contourLib findImageConto... with {*}$opts	0
+builtin-programs/recognition/craft.folk:1	rule	when when the CRAFT text detector is /any/ /any/ with environment /any/ body with environment env	0
+builtin-programs/recognition/craft.folk:2	wish	$this wishes to load the CRAFT text detector	1
+builtin-programs/recognition/craft.folk:5	rule	when /someone/ wishes to load the CRAFT text detector body with environment env	0
+builtin-programs/recognition/craft.folk:5	rule	when the image uvx argtype definer is /defineImageArgtype/ body with environment env	0
+builtin-programs/recognition/craft.folk:42	claim	$this claims the CRAFT text detector is [fn CRAFT]	0
+builtin-programs/recognition/dinov2.folk:1	rule	when when the DINOv2 image embedder is /any/ /any/ with environment /any/ body with environment env	0
+builtin-programs/recognition/dinov2.folk:2	wish	$this wishes to load the DINOv2 image embedder	1
+builtin-programs/recognition/dinov2.folk:5	rule	when /someone/ wishes to load the DINOv2 image embedder body with environment env	0
+builtin-programs/recognition/dinov2.folk:6	wish	$this wishes to really load the DINOv2 image embedder	1
+builtin-programs/recognition/dinov2.folk:9	rule	when /someone/ wishes to really load the DINOv2 image embedder body with environment env	0
+builtin-programs/recognition/dinov2.folk:9	rule	when the image uvx argtype definer is /defineImageArgtype/ body with environment env	0
+builtin-programs/recognition/dinov2.folk:629	claim	$this claims the DINOv2 image embedder is [fn DINOv2]	0
+builtin-programs/recognition/dinov2.folk:630	claim	$this claims the DINOv2 image heatmapper is [fn DINOv2Heatmaps]	0
+builtin-programs/recognition/dinov2.folk:631	claim	$this claims the DINOv2 object center localizer is [fn DINOv2LocalizeObjectCen...	0
+builtin-programs/recognition/sam2-contours.folk:54	claim	$this claims the SAM2 contours library is [$cc compile]	1
+builtin-programs/recognition/sam2-contours.folk:56	rule	when /someone/ wishes /obj/ has contours in /v/ body with environment env	0
+builtin-programs/recognition/sam2-contours.folk:56	rule	when /obj/ has mask /mask/ in /v/ with /...maskOpts/ body with environment env	0
+builtin-programs/recognition/sam2-contours.folk:56	rule	when /v/ has resolved geometry /geom/ body with environment env	0
+builtin-programs/recognition/sam2-contours.folk:56	rule	when the SAM2 contours library is /sam2ContoursLib/ body with environment env	0
+builtin-programs/recognition/sam2-contours.folk:67	claim	$this claims $obj has contours [$sam2ContoursLib findMaskC... in $v	0
+builtin-programs/recognition/sam2.folk:1	rule	when when the SAM2 segmenter is /any/ /any/ with environment /any/ body with environment env	0
+builtin-programs/recognition/sam2.folk:2	wish	$this wishes to load SAM2	1
+builtin-programs/recognition/sam2.folk:5	rule	when /someone/ wishes to load SAM2 body with environment env	0
+builtin-programs/recognition/sam2.folk:6	wish	$this wishes to really load SAM2	1
+builtin-programs/recognition/sam2.folk:9	rule	when /someone/ wishes to really load SAM2 body with environment env	0
+builtin-programs/recognition/sam2.folk:9	rule	when the image uvx argtype definer is /defineImageArgtype/ body with environment env	0
+builtin-programs/recognition/sam2.folk:308	claim	$this claims the SAM2 object tracker is [fn SAM2Track]	1
+builtin-programs/recognition/sam2.folk:309	claim	$this claims the SAM2 prompt adder is [fn SAM2AddPrompt]	1
+builtin-programs/recognition/sam2.folk:310	claim	$this claims the SAM2 segmenter is [fn SAM2Segment]	0
+builtin-programs/recognition/sam2.folk:311	claim	$this claims the SAM2 object saver is [fn SAM2SaveObject]	0
+builtin-programs/recognition/sam2.folk:312	claim	$this claims the SAM2 object loader is [fn SAM2LoadObject]	1
+builtin-programs/recognition/sam2.folk:314	rule	when the image library is /imageLib/ body with environment env	0
+builtin-programs/recognition/sam2.folk:349	claim	$this claims the SAM2 mask-to-image library is $maskToImageLib	2
+builtin-programs/recognition/sam2.folk:353	rule	when /anyone/ wishes /page/ tracks object /id/ /...any/ body with environment env	0
+builtin-programs/recognition/sam2.folk:354	wish	$this wishes $page has a SAM2 object tracker	1
+builtin-programs/recognition/sam2.folk:355	wish	$this wishes $page has camera slice	1
+builtin-programs/recognition/sam2.folk:356	wish	$this wishes to load SAM2	1
+builtin-programs/recognition/sam2.folk:359	rule	when the SAM2 object loader is /loadObject/ body with environment env	0
+builtin-programs/recognition/sam2.folk:359	rule	when /someone/ wishes /page/ tracks object /id/ from filename /filename/ body with environment env	0
+builtin-programs/recognition/sam2.folk:363	claim	$this claims $page tracks object $id from filename $filename	0
+builtin-programs/recognition/sam2.folk:366	rule	when the SAM2 mask-to-image library is /mtiLib/ body with environment env	0
+builtin-programs/recognition/sam2.folk:366	rule	when the image library is /imageLib/ body with environment env	0
+builtin-programs/recognition/sam2.folk:366	rule	when /someone/ wishes /page/ has a SAM2 object tracker body with environment env	0
+builtin-programs/recognition/sam2.folk:366	rule	when /page/ has resolved geometry /geom/ body with environment env	0
+builtin-programs/recognition/sam2.folk:366	rule	when the SAM2 object tracker is /sam2Track/ body with environment env	0
+builtin-programs/recognition/sam2.folk:366	rule	when the SAM2 prompt adder is /sam2AddPrompt/ body with environment env	0
+builtin-programs/recognition/sam2.folk:385	rule	when /someone/ wishes $page tracks object /id/ in frame /slice/ with /...promptSpecs/ body with environment env	0
+builtin-programs/recognition/sam2.folk:416	claim	$this claims $page tracks object $id in frame $slice with {*}$promptSpecs masked-slice $maskedSlice	0
+builtin-programs/recognition/sam2.folk:423	rule	when $page has camera slice /slice/ body with environment env	1
+builtin-programs/recognition/sam2.folk:447	hold	$this claims $id has mask $mask in $page with width $slice(width) height $slice(height)	1
+builtin-programs/recognition/sam2.folk:452	hold	$this claims $id has SAM2 masked image $maskedIm in $page	0
+builtin-programs/recognition/sam2.folk:458	rule	when the SAM2 mask-to-image library is /mtiLib/ body with environment env	0
+builtin-programs/recognition/sam2.folk:458	rule	when the png library is /pngLib/ body with environment env	0
+builtin-programs/recognition/sam2.folk:460	wish	$this wishes the web server handles route [format {/sam2/%s$} $page] with hidden true handler [list apply {{page pngLib} ...	2
+builtin-programs/recognition/trocr.folk:1	rule	when when the TrOCR text recognizer is /any/ /any/ with environment /any/ body with environment env	0
+builtin-programs/recognition/trocr.folk:2	wish	$this wishes to load the TrOCR text recognizer	1
+builtin-programs/recognition/trocr.folk:5	rule	when /someone/ wishes to load the TrOCR text recognizer body with environment env	0
+builtin-programs/recognition/trocr.folk:5	rule	when the image uvx argtype definer is /defineImageArgtype/ body with environment env	0
+builtin-programs/recognition/trocr.folk:61	claim	$this claims the TrOCR text recognizer is [fn TrOCR]	0
+builtin-programs/saving/migrate.folk:1	rule	when the hold save directory is /holdDirectory/ body with environment env	1
+builtin-programs/saving/migrate.folk:1	rule	when the program save directory is /programDirectory/ body with environment env	1
+builtin-programs/saving/migrate.folk:1	rule	when saving is ready body with environment env	0
+builtin-programs/saving/migrate.folk:13	claim	$this claims the migration is complete	1
+builtin-programs/saving/migrate.folk:19	claim	$this claims this is a first boot	1
+builtin-programs/saving/migrate.folk:20	claim	$this claims the migration is complete	1
+builtin-programs/saving/migrate.folk:50	hold	$this claims the default program geometry is $defaultGeom	3
+builtin-programs/saving/migrate.folk:58	hold	the next program id is [string trim $nextId]	1
+builtin-programs/saving/migrate.folk:67	hold	$this claims the calibration is $calibration	0
+builtin-programs/saving/migrate.folk:71	hold	$this claims the calibration poses are $calibrationPoses	0
+builtin-programs/saving/migrate.folk:82	claim	$this claims the migration is complete	1
+builtin-programs/saving/migrate.folk:87	rule	when /someone/ wishes to deserialize namespace hold with directory /directory/ body with environment env	0
+builtin-programs/saving/migrate.folk:87	rule	when the saved holds are loaded body with environment env	0
+builtin-programs/saving/migrate.folk:87	rule	when saving is ready body with environment env	0
+builtin-programs/saving/migrate.folk:120	hold	$this wishes camera $camera detects tags	2
+builtin-programs/saving/migrate.folk:125	hold	$this claims the AprilTag detection migration is complete	0
+builtin-programs/saving/save-holds.folk:147	rule	when /someone/ wishes to deserialize namespace hold with directory /directory/ body with environment env	0
+builtin-programs/saving/save-holds.folk:168	claim	$this claims the saved holds are loaded	3
+builtin-programs/saving/save-holds.folk:171	rule	when the hold save directory is /holdDirectory/ body with environment env	1
+builtin-programs/saving/save-holds.folk:191	claim	$this claims saving is ready	2
+builtin-programs/saving/save-programs.folk:1	rule	when this is a first boot body with environment env	0
+builtin-programs/saving/save-programs.folk:2	hold	the next program id is 0	1
+builtin-programs/saving/saving.folk:9	rule	when the migration is complete body with environment env	0
+builtin-programs/saving/saving.folk:14	wish	$this wishes to deserialize namespace $namespaceName with directory $namespace	2
+builtin-programs/saving/saving.folk:18	rule	when when the /fileType/ save directory is /anything/ /body/ with environment /e/ body with environment env	0
+builtin-programs/saving/saving.folk:25	claim	$this claims the $fileType save directory is $serdeDirectory	9
+builtin-programs/sprites.folk:10	rule	when the image library is /imageLib/ body with environment env	0
+builtin-programs/sprites.folk:10	rule	when the image loader is /loadImage/ body with environment env	0
+builtin-programs/sprites.folk:10	rule	when /anyone/ wishes /p/ draws sprite /path/ with /...options/ body with environment env	0
+builtin-programs/sprites.folk:27	rule	when the clock time is /t/ body with environment env	0
+builtin-programs/sprites.folk:33	wish	$this wishes $p displays image $subimage with {*}$options	1
+builtin-programs/sprites.folk:37	claim	$this claims $this has demo {   Wish $this draws sprite ...}	0
+builtin-programs/tags-geometry.folk:1	rule	when the default program geometry is /defaultGeom/ body with environment env	0
+builtin-programs/tags-geometry.folk:1	rule	when program /program/ is scaled by x /xScale/ y /yScale/ body with environment env	0
+builtin-programs/tags-geometry.folk:22	claim	$this claims tag $program has geometry $newGeom	1
+builtin-programs/tags-geometry.folk:25	rule	when the default program geometry is /defaultGeom/ body with environment env	0
+builtin-programs/tags-geometry.folk:25	rule	when /someone/ wishes /tag/ has resolved geometry body with environment env	0
+builtin-programs/tags-geometry.folk:31	rule	when the collected results for [list /someone/ claims tag ... are /results/ body with environment env	1
+builtin-programs/tags-geometry.folk:53	claim	$this claims $tag has resolved geometry $geom	22
+builtin-programs/tags-geometry.folk:61	claim	$this claims $tag has canvas projection $proj	12
+builtin-programs/tags-geometry.folk:66	wish	$this wishes the GPU creates canvas $writableTextureId with width 1024 height 1024	1
+builtin-programs/tags-geometry.folk:68	rule	when the GPU has created canvas $writableTextureId with /...opts/ body with environment env	0
+builtin-programs/tags-geometry.folk:69	claim	$this claims $tag has canvas $writableTextureId with {*}$opts	28
+builtin-programs/tags-to-quads.folk:1	rule	when the quad library is /quadLib/ body with environment env	0
+builtin-programs/tags-to-quads.folk:1	rule	when libapriltag has been built with config /configCcWithLibapriltag/ body with environment env	0
+builtin-programs/tags-to-quads.folk:360	claim	$this claims the pose library is $poseLib	5
+builtin-programs/tags-to-quads.folk:365	rule	when the collected results for [list the changer from spac... are /results/ body with environment env	1
+builtin-programs/tags-to-quads.folk:387	claim	$this claims the quad changer is [fn quadChange]	7
+builtin-programs/tags-to-quads.folk:390	rule	when camera /camera/ to display /display/ has extrinsics /extrinsics/ body with environment env	0
+builtin-programs/tags-to-quads.folk:395	claim	$this claims the changer from space $camera to space display $display is [list apply [list {R t v} {...	1
+builtin-programs/tags-to-quads.folk:400	claim	$this claims the changer from space display $display to space $camera is [list apply [list {Rt t v} ...	1
+builtin-programs/tags-to-quads.folk:407	rule	when tag /tag/ has detection /any/ on camera /any/ at timestamp /timestamp/ body with environment env	0
+builtin-programs/tags-to-quads.folk:411	wish	$this wishes $tag has resolved geometry	1
+builtin-programs/tags-to-quads.folk:414	rule	when camera /camera/ has width /cameraWidth/ height /cameraHeight/ body with environment env	0
+builtin-programs/tags-to-quads.folk:414	rule	when camera /camera/ has intrinsics /cameraIntrinsics/ body with environment env	0
+builtin-programs/tags-to-quads.folk:422	rule	when tag /tag/ has detection /det/ on camera $camera at timestamp /timestamp/ body with environment env	0
+builtin-programs/tags-to-quads.folk:422	rule	when /tag/ has resolved geometry /geom/ body with environment env	0
+builtin-programs/tags-to-quads.folk:488	hold	$this claims tag $tag is stabilized with state $state	1
+builtin-programs/tags-to-quads.folk:495	hold	$this claims tag $tag has pose $tagPose at timestamp $timestamp	1
+builtin-programs/tags-to-quads.folk:513	claim	$this claims tag $tag has quad $quad	2
+builtin-programs/tags-to-quads.folk:518	rule	when /tag/ has resolved geometry /geom/ body with environment env	0
+builtin-programs/tags-to-quads.folk:518	rule	when tag /tag/ has quad /q/ body with environment env	0
+builtin-programs/tags-to-quads.folk:526	claim	$this claims $tag has quad $pageQuad	15
+builtin-programs/tags-to-quads.folk:529	rule	when the quad changer is /quadChange/ body with environment env	0
+builtin-programs/tags-to-quads.folk:529	rule	when display /disp/ has width /displayWidth/ height /displayHeight/ body with environment env	0
+builtin-programs/tags-to-quads.folk:529	rule	when display /disp/ has intrinsics /displayIntrinsics/ body with environment env	0
+builtin-programs/tags-to-quads.folk:529	rule	when /tag/ has canvas /writableTextureId/ with /...wiOptions/ body with environment env	0
+builtin-programs/tags-to-quads.folk:543	rule	when $tag has quad /quad/ body with environment env	0
+builtin-programs/tags-to-quads.folk:549	wish	$this wishes the GPU draws pipeline composite-canvas with arguments [list [list $displayWidth $... layer [dict getdef $wiOptions lay... key $writableTextureId	1
+builtin-programs/terminal.folk:179	rule	when /anyone/ wishes /thing/ is a terminal body with environment env	0
+builtin-programs/terminal.folk:180	wish	$this wishes $thing is a terminal spawning bash	1
+builtin-programs/terminal.folk:183	rule	when /anyone/ wishes /thing/ is a terminal spawning /cmd/ body with environment env	0
+builtin-programs/terminal.folk:184	claim	$this claims $thing is a terminal spawning $cmd	1
+builtin-programs/terminal.folk:187	rule	when /thing/ is a terminal spawning /cmd/ body with environment env	0
+builtin-programs/terminal.folk:189	claim	$this claims $thing has terminal $term spawning $cmd	1
+builtin-programs/terminal.folk:193	rule	when /thing/ has terminal /term/ spawning /cmd/ body with environment env	0
+builtin-programs/terminal.folk:194	wish	$this wishes tag $thing is stabilized	2
+builtin-programs/terminal.folk:195	claim	$this claims $thing handles keyboard input	2
+builtin-programs/terminal.folk:197	rule	when the clock time is /t/ body with environment env	0
+builtin-programs/terminal.folk:199	rule	when $thing has terminal canvas /canvas/ body with environment env	0
+builtin-programs/terminal.folk:200	wish	$this wishes to draw text onto $canvas with text $text position {0.01 0.01} anchor topleft scale 0.005 font CourierPrimeCode	1
+builtin-programs/terminal.folk:203	rule	when the collected results for pattern are /__results/ body with environment env	1
+builtin-programs/terminal.folk:204	wish	$this wishes to draw text onto $thing with text $text position {0.01 0.01} anchor topleft scale 0.005 font CourierPrimeCode	1
+builtin-programs/terminal.folk:209	rule	when /keyboard/ is a keyboard with path /kbPath/ /...anything/ body with environment env	0
+builtin-programs/terminal.folk:209	rule	when /keyboard/ is typing into $thing body with environment env	0
+builtin-programs/unix-commands.folk:5	rule	when /someone/ wishes /p/ runs Unix command /command/ with arguments /args/ body with environment env	0
+builtin-programs/unix-commands.folk:32	hold	$this claims $p has Unix error output $e	0
+builtin-programs/unix-commands.folk:65	hold	$this claims $p has Unix output lines $accumulatedLines	0
+builtin-programs/unix-commands.folk:76	hold	$this claims $p has Unix output lines $accumulatedLines	0
+builtin-programs/unix-commands.folk:83	hold	$this claims $p has Unix error output $err	0
+builtin-programs/unix-commands.folk:96	rule	when /wisher/ wishes /p/ runs Unix command /command/ body with environment env	0
+builtin-programs/unix-commands.folk:97	say	$wisher wishes $p runs Unix command $command with arguments [list]	1
+builtin-programs/web/apriltag-frame.folk:1	rule	when the jpeg library is /jpegLib/ body with environment env	0
+builtin-programs/web/apriltag-frame.folk:2	wish	$this wishes the web server handles route /apriltag-frame with handler {         set camera [dict g...}	2
+builtin-programs/web/atomicallys.folk:1	rule	when the db library is /dbLib/ body with environment env	0
+builtin-programs/web/atomicallys.folk:3	wish	$this wishes the web server handles route /atomicallys with handler {     set atomicallys [$dbLi...}	2
+builtin-programs/web/block-stats.folk:1	wish	$this wishes the web server handles route /block-stats with handler {     set stats [lsort -comm...}	2
+builtin-programs/web/camera-frame.folk:1	rule	when the jpeg library is /jpegLib/ body with environment env	0
+builtin-programs/web/camera-frame.folk:2	wish	$this wishes the web server handles route /camera-frame with handler {         set camera [dict g...}	2
+builtin-programs/web/camera-slice.folk:1	rule	when the jpeg library is /jpegLib/ body with environment env	0
+builtin-programs/web/camera-slice.folk:2	wish	$this wishes the web server handles route /camera-slice/([^/]+)$ with handler {         set id [string map...}	2
+builtin-programs/web/camera-slice.folk:4	hold	$this wishes $id has camera slice	1
+builtin-programs/web/camera.folk:1	wish	$this wishes the web server handles route /camera with handler {     if {[dict exists $QUER...}	2
+builtin-programs/web/db-lib.folk:1	claim	$this claims the db library is [apply {{} {     set cc [C]...	6
+builtin-programs/web/dep-graph.folk:50	rule	when the db library is /dbLib/ body with environment env	0
+builtin-programs/web/dep-graph.folk:51	wish	$this wishes the web server handles route /dep-graph\.pdf with handler {         set dot [apply $db...}	2
+builtin-programs/web/holds.folk:1	rule	when the db library is /dbLib/ body with environment env	0
+builtin-programs/web/holds.folk:3	wish	$this wishes the web server handles route /holds with handler {     set holds [$dbLib hold...}	2
+builtin-programs/web/index.folk:1	wish	$this wishes the web server handles route / with handler {     fn readOutputFile {pat...}	2
+builtin-programs/web/keyboards.folk:1	wish	$this wishes the web server handles route /keyboards$ with handler {     set keyboards [lmap re...}	2
+builtin-programs/web/log.folk:1	wish	$this wishes the web server handles route /log/(.+)$ with hidden true handler {     set filename [string m...}	2
+builtin-programs/web/nav.folk:1	rule	when the collected results for [list /someone/ wishes the ... are /handlers/ body with environment env	1
+builtin-programs/web/nav.folk:39	claim	$this claims the web navigation HTML is [subst {       <nav>       ...	0
+builtin-programs/web/new.folk:1	wish	$this wishes the web server handles route /new with nav {<button>New program</button>} handler {     html { <html lang="en"...}	2
+builtin-programs/web/new.folk:113	wish	$this wishes $program has a canvas	1
+builtin-programs/web/new.folk:164	claim	$this claims $program has resolved geometry {width ${w / 2000} height ${...}	22
+builtin-programs/web/new.folk:237	claim	$this claims $program has quad [$quadLib create "display $...	15
+builtin-programs/web/new.folk:248	claim	$this claims $program has program code [binary decode base64 ${bto...	6
+builtin-programs/web/page.folk:1	wish	$this wishes the web server handles route /page/(.*)$ with handler {     Require! the program s...}	2
+builtin-programs/web/printed-programs.folk:1	wish	$this wishes the web server handles route /printed-programs/([^/]+)\.folk$ with handler {     Require! the program s...}	2
+builtin-programs/web/program.folk:1	wish	$this wishes the web server handles route /program/(.*)$ with handler {     set programName $1    ...}	2
+builtin-programs/web/quads.folk:1	wish	$this wishes the web server handles route /quads with handler {     html {         <!DOCTY...}	2
+builtin-programs/web/report.folk:1	rule	when the db library is /dbLib/ body with environment env	0
+builtin-programs/web/report.folk:3	wish	$this wishes the web server handles route /report with handler {     set aliveCount [$dbLib...}	2
+builtin-programs/web/setup.folk:1	wish	$this wishes the web server handles route /setup with nav <button>Setup</button> handler {     html [subst { <!DOCTYP...}	2
+builtin-programs/web/statements.folk:1	rule	when the db library is /dbLib/ body with environment env	0
+builtin-programs/web/statements.folk:3	wish	$this wishes the web server handles route /statements with handler {     set l [list]     # You...}	2
+builtin-programs/web/textures.folk:1	rule	when the GPU library is /gpuLib/ body with environment env	0
+builtin-programs/web/textures.folk:1	rule	when the image library is /imageLib/ body with environment env	0
+builtin-programs/web/textures.folk:1	rule	when the GPU draw library is /drawLib/ body with environment env	0
+builtin-programs/web/textures.folk:1	rule	when the GPU VMA DLL is /vmaDll/ body with environment env	0
+builtin-programs/web/textures.folk:1	rule	when the GPU texture library is /gpuTextureLib/ body with environment env	0
+builtin-programs/web/textures.folk:232	wish	$this wishes the web server handles route /textures with handler {         package require ba...}	2
+builtin-programs/web/threads.folk:112	wish	$this wishes the web server handles route /threads with handler {     set pid [pid]     try ...}	2
+builtin-programs/web/trie-graph.folk:160	wish	$this wishes the web server handles route /trie-graph\.pdf with handler {     set trie []     set do...}	2
+builtin-programs/web/web.folk:23	claim	$this claims the websocket library is $wsLib	0
+builtin-programs/web/web.folk:130	rule	when the collected results for $pattern are /results/ body with environment env	1
+builtin-programs/web/web.folk:295	say	websocket $chan is connected	0
+user-programs/folk-baltimore/display-saver.folk:78	rule	when the collected results for pattern are /__results/ body with environment env	1
+user-programs/folk-baltimore/display-saver.folk:78	rule	when display /disp/ has width /displayWidth/ height /displayHeight/ body with environment env	0
+user-programs/folk-baltimore/display-saver.folk:78	rule	when the clock time is /t/ body with environment env	0
+user-programs/folk-baltimore/display-saver.folk:91	wish	$this wishes to draw a circle onto $disp with center [list $x $y] radius $radius thickness 1 color green filled true	1
+user-programs/folk-baltimore/display-saver.folk:99	rule	when the collected results for pattern are /__results/ body with environment env	1
+user-programs/folk-baltimore/display-saver.folk:99	rule	when display /disp/ has width /displayWidth/ height /displayHeight/ body with environment env	0
+user-programs/folk-baltimore/display-saver.folk:107	wish	$this wishes to draw text onto $disp with x $cx y $cy text $msg color green scale 80	1
+user-programs/folk-baltimore/display-saver.folk:121	wish	$this wishes to draw a line onto $disp with points $borderPoints width 6 color white	1
+user-programs/folk-baltimore/display-saver.folk:124	claim	$this claims $this has a display saver	1
+user-programs/folk-baltimore/play_boot_sound.folk:2	say	$this wishes to play audio folk_boot_guitar.wav	1
+user-programs/folk-charles/tag-regions.folk:3	rule	when /tag/ has region /r/ body with environment env	0
+user-programs/folk-charles/tag-regions.folk:10	claim	$this claims tag $tag has region $t	0
+user-programs/folk-charles/web-image.folk:1	rule	when the camera frame is /im/ body with environment env	0
+user-programs/folk-charles/web-image.folk:2	wish	$this wishes the web server handles route /frame-image/?$ with handler [list apply {{im} {     # s...	2
+user-programs/folk-haip.local/spotify.folk:231	rule	when /someone/ wishes /uri/ would be played on spotify body with environment env	0
+user-programs/folk-haip.local/web-endpoints.folk:1	wish	$this wishes the web server handles route /static-html/$ with handler {   html "<h1>Hello World!</...}	2
+user-programs/folk-haip.local/web-endpoints.folk:5	wish	$this wishes the web server handles route /score/$ with handler {   json "{\"score\": 5}" }	2
+user-programs/folk-haip.local/web-endpoints.folk:9	rule	when the collected results for [list /regionName/ has regi... are /regionResults/ body with environment env	1
+user-programs/folk-haip.local/web-endpoints.folk:10	wish	$this wishes the web server handles route /regions/$ with handler [list Evaluator::tryRunInSe...	2
+user-programs/folk-haip.local/web-endpoints.folk:20	wish	$this wishes the web server handles route /redirect/$ with handler {   dict create statusAndHea...}	2
+user-programs/folk-haip.local/web-endpoints.folk:24	wish	$this wishes the web server handles route /pagee/(\d*)$ with handler {   if {[regexp -all {/pagee...}	2
+user-programs/folk-rooprob1/display-saver.folk:78	rule	when the collected results for pattern are /__results/ body with environment env	1
+user-programs/folk-rooprob1/display-saver.folk:78	rule	when display /disp/ has width /displayWidth/ height /displayHeight/ body with environment env	0
+user-programs/folk-rooprob1/display-saver.folk:78	rule	when the clock time is /t/ body with environment env	0
+user-programs/folk-rooprob1/display-saver.folk:92	wish	$this wishes to draw a circle onto $disp with center [list $x $y] radius $radius thickness 1 color blue filled true	1
+user-programs/folk-rooprob1/display-saver.folk:100	rule	when the collected results for pattern are /__results/ body with environment env	1
+user-programs/folk-rooprob1/display-saver.folk:100	rule	when display /disp/ has width /displayWidth/ height /displayHeight/ body with environment env	0
+user-programs/folk-rooprob1/display-saver.folk:110	wish	$this wishes to draw text onto $disp with x $cx y $cy text $msg color white scale 80	1
+user-programs/folk-rooprob1/display-saver.folk:124	wish	$this wishes to draw a line onto $disp with points $borderPoints width 6 color white	1
+user-programs/folk-rooprob1/display-saver.folk:127	claim	$this claims $this has a display saver	1
+user-programs/haippi7/highlight-laser-region.folk:3	rule	when /someone/ claims /something/ region /id/ data /regionData/ body with environment env	0
+user-programs/haippi7/highlight-laser-region.folk:3	rule	when laser blob /t/ has center /c/ size /s/ body with environment env	0
+user-programs/haippi7/highlight-laser-region.folk:9	claim	$this claims laser blob $t inside region $id	5
+user-programs/haippi7/highlight-laser-region.folk:13	rule	when laser blob /something/ inside region /id/ body with environment env	0
+user-programs/haippi7/highlight-laser-region.folk:13	rule	when /someone/ claims /something/ region /id/ data /regionData/ body with environment env	0
+user-programs/haippi7/highlight-laser-region.folk:25	rule	when laser blob /something/ inside region 1 body with environment env	0
+user-programs/haippi7/laser-region-manager.folk:1	rule	when the collected results for [list /someone/ claims /som... are /regionResults/ body with environment env	1
+user-programs/haippi7/laser-region-manager.folk:9	wish	$this wishes the web server handles route /laser-regions-test with handler [list apply {{jsArrayString...	2
+user-programs/haippi7/laser-web-debug.folk:1	rule	when the collected results for [list laser blob /t/ has ce... are /results/ body with environment env	1
+user-programs/haippi7/laser-web-debug.folk:2	wish	$this wishes the web server handles route /laser-web-debug with handler [list apply {{results} {   ...	2
+user-programs/haippi7/project-laser-dot.folk:1	rule	when laser blob /t/ has center /c/ size /s/ body with environment env	0
+user-programs/haippi7/region-play-spotify.folk:1	rule	when laser blob /something/ inside region 0 body with environment env	0
+user-programs/haippi7/region-play-spotify.folk:2	wish	$this wishes spotify:album:3l7JWewI3ZByxaT5BCgRx2 would be played on spotify	2
+user-programs/haippi7/region-play-spotify.folk:5	rule	when laser blob /something/ inside region 1 body with environment env	0
+user-programs/haippi7/region-play-spotify.folk:6	wish	$this wishes spotify:track:0ZAdCDeysyoh5BOpuSGKy3 would be played on spotify	2
+user-programs/haippi7/region-play-spotify.folk:9	rule	when laser blob /something/ inside region 2 body with environment env	0
+user-programs/haippi7/region-play-spotify.folk:10	wish	$this wishes spotify:artist:65dGLGjkw3UbddUg2GKQoZ would be played on spotify	2
+user-programs/haippi7/spotify.folk:231	rule	when /someone/ wishes /uri/ would be played on spotify body with environment env	0
+user-programs/haippi7/web-image.folk:1	rule	when the camera frame is /im/ body with environment env	0
+user-programs/haippi7/web-image.folk:2	wish	$this wishes the web server handles route /frame-image/$ with handler [list apply {{im} {     # s...	2
+sysmon.c	external	sysmon.c claims the internal time is t	1
+sysmon.c	external	sysmon.c claims the clock time is t	10
+sysmon.c	external	sysmon.c claims node has self RAM usage mb MB	0
+sysmon.c	external	sysmon.c claims node has available RAM mb MB of total MB	0
+collect.folk(C)	external	builtin-programs/collect.folk claims the collected results for pattern are results	13
+prelude.tcl	external	this has error err with info opts	3

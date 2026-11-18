@@ -1,0 +1,2786 @@
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" width="1200" height="758" onload="init(evt)" viewBox="0 0 1200 758" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<!-- Flame graph stack visualization. See https://github.com/brendangregg/FlameGraph for latest version, and http://www.brendangregg.com/flamegraphs.html for examples. -->
+<!-- NOTES:  -->
+<defs>
+	<linearGradient id="background" y1="0" y2="1" x1="0" x2="0" >
+		<stop stop-color="#eeeeee" offset="5%" />
+		<stop stop-color="#eeeeb0" offset="95%" />
+	</linearGradient>
+</defs>
+<style type="text/css">
+	text { font-family:Verdana; font-size:12px; fill:rgb(0,0,0); }
+	#search, #ignorecase { opacity:0.1; cursor:pointer; }
+	#search:hover, #search.show, #ignorecase:hover, #ignorecase.show { opacity:1; }
+	#subtitle { text-anchor:middle; font-color:rgb(160,160,160); }
+	#title { text-anchor:middle; font-size:17px}
+	#unzoom { cursor:pointer; }
+	#frames > *:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+	.hide { display:none; }
+	.parent { opacity:0.5; }
+</style>
+<script type="text/ecmascript">
+<![CDATA[
+	"use strict";
+	var details, searchbtn, unzoombtn, matchedtxt, svg, searching, currentSearchTerm, ignorecase, ignorecaseBtn;
+	function init(evt) {
+		details = document.getElementById("details").firstChild;
+		searchbtn = document.getElementById("search");
+		ignorecaseBtn = document.getElementById("ignorecase");
+		unzoombtn = document.getElementById("unzoom");
+		matchedtxt = document.getElementById("matched");
+		svg = document.getElementsByTagName("svg")[0];
+		searching = 0;
+		currentSearchTerm = null;
+
+		// use GET parameters to restore a flamegraphs state.
+		var params = get_params();
+		if (params.x && params.y)
+			zoom(find_group(document.querySelector('[x="' + params.x + '"][y="' + params.y + '"]')));
+                if (params.s) search(params.s);
+	}
+
+	// event listeners
+	window.addEventListener("click", function(e) {
+		var target = find_group(e.target);
+		if (target) {
+			if (target.nodeName == "a") {
+				if (e.ctrlKey === false) return;
+				e.preventDefault();
+			}
+			if (target.classList.contains("parent")) unzoom(true);
+			zoom(target);
+			if (!document.querySelector('.parent')) {
+				// we have basically done a clearzoom so clear the url
+				var params = get_params();
+				if (params.x) delete params.x;
+				if (params.y) delete params.y;
+				history.replaceState(null, null, parse_params(params));
+				unzoombtn.classList.add("hide");
+				return;
+			}
+
+			// set parameters for zoom state
+			var el = target.querySelector("rect");
+			if (el && el.attributes && el.attributes.y && el.attributes._orig_x) {
+				var params = get_params()
+				params.x = el.attributes._orig_x.value;
+				params.y = el.attributes.y.value;
+				history.replaceState(null, null, parse_params(params));
+			}
+		}
+		else if (e.target.id == "unzoom") clearzoom();
+		else if (e.target.id == "search") search_prompt();
+		else if (e.target.id == "ignorecase") toggle_ignorecase();
+	}, false)
+
+	// mouse-over for info
+	// show
+	window.addEventListener("mouseover", function(e) {
+		var target = find_group(e.target);
+		if (target) details.nodeValue = "Function: " + g_to_text(target);
+	}, false)
+
+	// clear
+	window.addEventListener("mouseout", function(e) {
+		var target = find_group(e.target);
+		if (target) details.nodeValue = ' ';
+	}, false)
+
+	// ctrl-F for search
+	// ctrl-I to toggle case-sensitive search
+	window.addEventListener("keydown",function (e) {
+		if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) {
+			e.preventDefault();
+			search_prompt();
+		}
+		else if (e.ctrlKey && e.keyCode === 73) {
+			e.preventDefault();
+			toggle_ignorecase();
+		}
+	}, false)
+
+	// functions
+	function get_params() {
+		var params = {};
+		var paramsarr = window.location.search.substr(1).split('&');
+		for (var i = 0; i < paramsarr.length; ++i) {
+			var tmp = paramsarr[i].split("=");
+			if (!tmp[0] || !tmp[1]) continue;
+			params[tmp[0]]  = decodeURIComponent(tmp[1]);
+		}
+		return params;
+	}
+	function parse_params(params) {
+		var uri = "?";
+		for (var key in params) {
+			uri += key + '=' + encodeURIComponent(params[key]) + '&';
+		}
+		if (uri.slice(-1) == "&")
+			uri = uri.substring(0, uri.length - 1);
+		if (uri == '?')
+			uri = window.location.href.split('?')[0];
+		return uri;
+	}
+	function find_child(node, selector) {
+		var children = node.querySelectorAll(selector);
+		if (children.length) return children[0];
+	}
+	function find_group(node) {
+		var parent = node.parentElement;
+		if (!parent) return;
+		if (parent.id == "frames") return node;
+		return find_group(parent);
+	}
+	function orig_save(e, attr, val) {
+		if (e.attributes["_orig_" + attr] != undefined) return;
+		if (e.attributes[attr] == undefined) return;
+		if (val == undefined) val = e.attributes[attr].value;
+		e.setAttribute("_orig_" + attr, val);
+	}
+	function orig_load(e, attr) {
+		if (e.attributes["_orig_"+attr] == undefined) return;
+		e.attributes[attr].value = e.attributes["_orig_" + attr].value;
+		e.removeAttribute("_orig_"+attr);
+	}
+	function g_to_text(e) {
+		var text = find_child(e, "title").firstChild.nodeValue;
+		return (text)
+	}
+	function g_to_func(e) {
+		var func = g_to_text(e);
+		// if there's any manipulation we want to do to the function
+		// name before it's searched, do it here before returning.
+		return (func);
+	}
+	function update_text(e) {
+		var r = find_child(e, "rect");
+		var t = find_child(e, "text");
+		var w = parseFloat(r.attributes.width.value) -3;
+		var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+		t.attributes.x.value = parseFloat(r.attributes.x.value) + 3;
+
+		// Smaller than this size won't fit anything
+		if (w < 2 * 12 * 0.59) {
+			t.textContent = "";
+			return;
+		}
+
+		t.textContent = txt;
+		var sl = t.getSubStringLength(0, txt.length);
+		// check if only whitespace or if we can fit the entire string into width w
+		if (/^ *$/.test(txt) || sl < w)
+			return;
+
+		// this isn't perfect, but gives a good starting point
+		// and avoids calling getSubStringLength too often
+		var start = Math.floor((w/sl) * txt.length);
+		for (var x = start; x > 0; x = x-2) {
+			if (t.getSubStringLength(0, x + 2) <= w) {
+				t.textContent = txt.substring(0, x) + "..";
+				return;
+			}
+		}
+		t.textContent = "";
+	}
+
+	// zoom
+	function zoom_reset(e) {
+		if (e.attributes != undefined) {
+			orig_load(e, "x");
+			orig_load(e, "width");
+		}
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_reset(c[i]);
+		}
+	}
+	function zoom_child(e, x, ratio) {
+		if (e.attributes != undefined) {
+			if (e.attributes.x != undefined) {
+				orig_save(e, "x");
+				e.attributes.x.value = (parseFloat(e.attributes.x.value) - x - 10) * ratio + 10;
+				if (e.tagName == "text")
+					e.attributes.x.value = find_child(e.parentNode, "rect[x]").attributes.x.value + 3;
+			}
+			if (e.attributes.width != undefined) {
+				orig_save(e, "width");
+				e.attributes.width.value = parseFloat(e.attributes.width.value) * ratio;
+			}
+		}
+
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_child(c[i], x - 10, ratio);
+		}
+	}
+	function zoom_parent(e) {
+		if (e.attributes) {
+			if (e.attributes.x != undefined) {
+				orig_save(e, "x");
+				e.attributes.x.value = 10;
+			}
+			if (e.attributes.width != undefined) {
+				orig_save(e, "width");
+				e.attributes.width.value = parseInt(svg.width.baseVal.value) - (10 * 2);
+			}
+		}
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_parent(c[i]);
+		}
+	}
+	function zoom(node) {
+		var attr = find_child(node, "rect").attributes;
+		var width = parseFloat(attr.width.value);
+		var xmin = parseFloat(attr.x.value);
+		var xmax = parseFloat(xmin + width);
+		var ymin = parseFloat(attr.y.value);
+		var ratio = (svg.width.baseVal.value - 2 * 10) / width;
+
+		// XXX: Workaround for JavaScript float issues (fix me)
+		var fudge = 0.0001;
+
+		unzoombtn.classList.remove("hide");
+
+		var el = document.getElementById("frames").children;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			var a = find_child(e, "rect").attributes;
+			var ex = parseFloat(a.x.value);
+			var ew = parseFloat(a.width.value);
+			var upstack;
+			// Is it an ancestor
+			if (0 == 0) {
+				upstack = parseFloat(a.y.value) > ymin;
+			} else {
+				upstack = parseFloat(a.y.value) < ymin;
+			}
+			if (upstack) {
+				// Direct ancestor
+				if (ex <= xmin && (ex+ew+fudge) >= xmax) {
+					e.classList.add("parent");
+					zoom_parent(e);
+					update_text(e);
+				}
+				// not in current path
+				else
+					e.classList.add("hide");
+			}
+			// Children maybe
+			else {
+				// no common path
+				if (ex < xmin || ex + fudge >= xmax) {
+					e.classList.add("hide");
+				}
+				else {
+					zoom_child(e, xmin, ratio);
+					update_text(e);
+				}
+			}
+		}
+		search();
+	}
+	function unzoom(dont_update_text) {
+		unzoombtn.classList.add("hide");
+		var el = document.getElementById("frames").children;
+		for(var i = 0; i < el.length; i++) {
+			el[i].classList.remove("parent");
+			el[i].classList.remove("hide");
+			zoom_reset(el[i]);
+			if(!dont_update_text) update_text(el[i]);
+		}
+		search();
+	}
+	function clearzoom() {
+		unzoom();
+
+		// remove zoom state
+		var params = get_params();
+		if (params.x) delete params.x;
+		if (params.y) delete params.y;
+		history.replaceState(null, null, parse_params(params));
+	}
+
+	// search
+	function toggle_ignorecase() {
+		ignorecase = !ignorecase;
+		if (ignorecase) {
+			ignorecaseBtn.classList.add("show");
+		} else {
+			ignorecaseBtn.classList.remove("show");
+		}
+		reset_search();
+		search();
+	}
+	function reset_search() {
+		var el = document.querySelectorAll("#frames rect");
+		for (var i = 0; i < el.length; i++) {
+			orig_load(el[i], "fill")
+		}
+		var params = get_params();
+		delete params.s;
+		history.replaceState(null, null, parse_params(params));
+	}
+	function search_prompt() {
+		if (!searching) {
+			var term = prompt("Enter a search term (regexp " +
+			    "allowed, eg: ^ext4_)"
+			    + (ignorecase ? ", ignoring case" : "")
+			    + "\nPress Ctrl-i to toggle case sensitivity", "");
+			if (term != null) search(term);
+		} else {
+			reset_search();
+			searching = 0;
+			currentSearchTerm = null;
+			searchbtn.classList.remove("show");
+			searchbtn.firstChild.nodeValue = "Search"
+			matchedtxt.classList.add("hide");
+			matchedtxt.firstChild.nodeValue = ""
+		}
+	}
+	function search(term) {
+		if (term) currentSearchTerm = term;
+		if (currentSearchTerm === null) return;
+
+		var re = new RegExp(currentSearchTerm, ignorecase ? 'i' : '');
+		var el = document.getElementById("frames").children;
+		var matches = new Object();
+		var maxwidth = 0;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			var func = g_to_func(e);
+			var rect = find_child(e, "rect");
+			if (func == null || rect == null)
+				continue;
+
+			// Save max width. Only works as we have a root frame
+			var w = parseFloat(rect.attributes.width.value);
+			if (w > maxwidth)
+				maxwidth = w;
+
+			if (func.match(re)) {
+				// highlight
+				var x = parseFloat(rect.attributes.x.value);
+				orig_save(rect, "fill");
+				rect.attributes.fill.value = "rgb(230,0,230)";
+
+				// remember matches
+				if (matches[x] == undefined) {
+					matches[x] = w;
+				} else {
+					if (w > matches[x]) {
+						// overwrite with parent
+						matches[x] = w;
+					}
+				}
+				searching = 1;
+			}
+		}
+		if (!searching)
+			return;
+		var params = get_params();
+		params.s = currentSearchTerm;
+		history.replaceState(null, null, parse_params(params));
+
+		searchbtn.classList.add("show");
+		searchbtn.firstChild.nodeValue = "Reset Search";
+
+		// calculate percent matched, excluding vertical overlap
+		var count = 0;
+		var lastx = -1;
+		var lastw = 0;
+		var keys = Array();
+		for (k in matches) {
+			if (matches.hasOwnProperty(k))
+				keys.push(k);
+		}
+		// sort the matched frames by their x location
+		// ascending, then width descending
+		keys.sort(function(a, b){
+			return a - b;
+		});
+		// Step through frames saving only the biggest bottom-up frames
+		// thanks to the sort order. This relies on the tree property
+		// where children are always smaller than their parents.
+		var fudge = 0.0001;	// JavaScript floating point
+		for (var k in keys) {
+			var x = parseFloat(keys[k]);
+			var w = matches[keys[k]];
+			if (x >= lastx + lastw - fudge) {
+				count += w;
+				lastx = x;
+				lastw = w;
+			}
+		}
+		// display matched percent
+		matchedtxt.classList.remove("hide");
+		var pct = 100 * count / maxwidth;
+		if (pct != 100) pct = pct.toFixed(1)
+		matchedtxt.firstChild.nodeValue = "Matched: " + pct + "%";
+	}
+]]>
+</script>
+<rect x="0.0" y="0" width="1200.0" height="758.0" fill="url(#background)"  />
+<text id="title" x="600.00" y="24" >pipeline-fns40</text>
+<text id="details" x="10.00" y="741" > </text>
+<text id="unzoom" x="10.00" y="24" class="hide">Reset Zoom</text>
+<text id="search" x="1090.00" y="24" >Search</text>
+<text id="ignorecase" x="1174.00" y="24" >ic</text>
+<text id="matched" x="1090.00" y="741" > </text>
+<g id="frames">
+<g >
+<title>Jim_FreeObj (18,054,162 samples, 0.10%)</title><rect x="915.7" y="277" width="1.1" height="15.0" fill="rgb(217,58,14)" rx="2" ry="2" />
+<text  x="918.68" y="287.5" ></text>
+</g>
+<g >
+<title>_int_free (35,105,315 samples, 0.19%)</title><rect x="870.5" y="213" width="2.3" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="873.53" y="223.5" ></text>
+</g>
+<g >
+<title>Jim_ForCoreCommand (54,162,486 samples, 0.30%)</title><rect x="1036.9" y="277" width="3.5" height="15.0" fill="rgb(253,224,53)" rx="2" ry="2" />
+<text  x="1039.91" y="287.5" ></text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (16,048,144 samples, 0.09%)</title><rect x="759.1" y="549" width="1.0" height="15.0" fill="rgb(218,63,15)" rx="2" ry="2" />
+<text  x="762.09" y="559.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (2,140,421,206 samples, 11.73%)</title><rect x="784.3" y="357" width="138.4" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="787.32" y="367.5" >Jim_EvalObj</text>
+</g>
+<g >
+<title>Jim_StringCoreCommand (39,117,351 samples, 0.21%)</title><rect x="263.0" y="245" width="2.5" height="15.0" fill="rgb(233,129,31)" rx="2" ry="2" />
+<text  x="265.98" y="255.5" ></text>
+</g>
+<g >
+<title>__handle_mm_fault (33,099,297 samples, 0.18%)</title><rect x="769.4" y="533" width="2.1" height="15.0" fill="rgb(207,9,2)" rx="2" ry="2" />
+<text  x="772.40" y="543.5" ></text>
+</g>
+<g >
+<title>Jim_ListAppendElement (27,081,243 samples, 0.15%)</title><rect x="872.9" y="261" width="1.7" height="15.0" fill="rgb(239,159,38)" rx="2" ry="2" />
+<text  x="875.86" y="271.5" ></text>
+</g>
+<g >
+<title>[x86_64-linux-gnu-as] (65,195,585 samples, 0.36%)</title><rect x="10.0" y="677" width="4.2" height="15.0" fill="rgb(249,206,49)" rx="2" ry="2" />
+<text  x="13.00" y="687.5" ></text>
+</g>
+<g >
+<title>Jim_ListAppendElement (29,087,261 samples, 0.16%)</title><rect x="275.9" y="357" width="1.9" height="15.0" fill="rgb(239,159,38)" rx="2" ry="2" />
+<text  x="278.89" y="367.5" ></text>
+</g>
+<g >
+<title>cfree@GLIBC_2.2.5 (24,072,216 samples, 0.13%)</title><rect x="912.4" y="261" width="1.5" height="15.0" fill="rgb(233,131,31)" rx="2" ry="2" />
+<text  x="915.37" y="271.5" ></text>
+</g>
+<g >
+<title>futex_wake (55,165,495 samples, 0.30%)</title><rect x="821.0" y="117" width="3.5" height="15.0" fill="rgb(219,65,15)" rx="2" ry="2" />
+<text  x="823.97" y="127.5" ></text>
+</g>
+<g >
+<title>ListInsertElements (22,066,198 samples, 0.12%)</title><rect x="276.0" y="341" width="1.4" height="15.0" fill="rgb(233,131,31)" rx="2" ry="2" />
+<text  x="278.96" y="351.5" ></text>
+</g>
+<g >
+<title>Jim_SetVariableStr (24,072,216 samples, 0.13%)</title><rect x="256.9" y="293" width="1.5" height="15.0" fill="rgb(222,82,19)" rx="2" ry="2" />
+<text  x="259.88" y="303.5" ></text>
+</g>
+<g >
+<title>_int_malloc (25,075,225 samples, 0.14%)</title><rect x="210.1" y="533" width="1.6" height="15.0" fill="rgb(215,47,11)" rx="2" ry="2" />
+<text  x="213.05" y="543.5" ></text>
+</g>
+<g >
+<title>malloc (31,093,279 samples, 0.17%)</title><rect x="1097.4" y="405" width="2.0" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="1100.43" y="415.5" ></text>
+</g>
+<g >
+<title>handle_mm_fault (33,099,297 samples, 0.18%)</title><rect x="769.4" y="549" width="2.1" height="15.0" fill="rgb(234,135,32)" rx="2" ry="2" />
+<text  x="772.40" y="559.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (25,075,225 samples, 0.14%)</title><rect x="997.3" y="309" width="1.6" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="1000.28" y="319.5" ></text>
+</g>
+<g >
+<title>__libc_start_call_main (3,665,997,895 samples, 20.09%)</title><rect x="99.3" y="645" width="237.0" height="15.0" fill="rgb(210,26,6)" rx="2" ry="2" />
+<text  x="102.26" y="655.5" >__libc_start_call_main</text>
+</g>
+<g >
+<title>Jim_EvalFile (42,126,378 samples, 0.23%)</title><rect x="348.9" y="613" width="2.7" height="15.0" fill="rgb(226,99,23)" rx="2" ry="2" />
+<text  x="351.87" y="623.5" ></text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (2,558,675,959 samples, 14.02%)</title><rect x="398.4" y="597" width="165.5" height="15.0" fill="rgb(218,63,15)" rx="2" ry="2" />
+<text  x="401.43" y="607.5" >entry_SYSCALL_64_afte..</text>
+</g>
+<g >
+<title>Jim_AddHashEntry (20,060,180 samples, 0.11%)</title><rect x="1032.0" y="309" width="1.3" height="15.0" fill="rgb(247,194,46)" rx="2" ry="2" />
+<text  x="1035.05" y="319.5" ></text>
+</g>
+<g >
+<title>Jim_ClearHashTable (17,051,153 samples, 0.09%)</title><rect x="278.9" y="389" width="1.1" height="15.0" fill="rgb(234,136,32)" rx="2" ry="2" />
+<text  x="281.94" y="399.5" ></text>
+</g>
+<g >
+<title>Jim_ClearHashTable (39,117,351 samples, 0.21%)</title><rect x="992.8" y="357" width="2.5" height="15.0" fill="rgb(234,136,32)" rx="2" ry="2" />
+<text  x="995.80" y="367.5" ></text>
+</g>
+<g >
+<title>JimLineColObj (267,803,403 samples, 1.47%)</title><rect x="797.6" y="245" width="17.3" height="15.0" fill="rgb(245,184,44)" rx="2" ry="2" />
+<text  x="800.62" y="255.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (2,497,492,410 samples, 13.69%)</title><rect x="781.4" y="389" width="161.5" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="784.40" y="399.5" >Jim_EvalObj</text>
+</g>
+<g >
+<title>Jim_SetDictKeysVector (17,051,153 samples, 0.09%)</title><rect x="947.2" y="405" width="1.1" height="15.0" fill="rgb(233,129,31)" rx="2" ry="2" />
+<text  x="950.20" y="415.5" ></text>
+</g>
+<g >
+<title>ListEnsureLength (51,153,459 samples, 0.28%)</title><rect x="973.8" y="341" width="3.3" height="15.0" fill="rgb(217,58,13)" rx="2" ry="2" />
+<text  x="976.80" y="351.5" ></text>
+</g>
+<g >
+<title>SetVariableFromAny (18,054,162 samples, 0.10%)</title><rect x="254.6" y="261" width="1.2" height="15.0" fill="rgb(246,193,46)" rx="2" ry="2" />
+<text  x="257.61" y="271.5" ></text>
+</g>
+<g >
+<title>ListInsertElements (106,318,954 samples, 0.58%)</title><rect x="226.3" y="213" width="6.9" height="15.0" fill="rgb(233,131,31)" rx="2" ry="2" />
+<text  x="229.33" y="223.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (1,597,793,337 samples, 8.76%)</title><rect x="213.4" y="453" width="103.3" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="216.36" y="463.5" >JimInvokeCom..</text>
+</g>
+<g >
+<title>ksys_read (16,048,144 samples, 0.09%)</title><rect x="340.3" y="501" width="1.0" height="15.0" fill="rgb(229,113,27)" rx="2" ry="2" />
+<text  x="343.30" y="511.5" ></text>
+</g>
+<g >
+<title>ListEnsureLength (16,048,144 samples, 0.09%)</title><rect x="276.3" y="325" width="1.1" height="15.0" fill="rgb(217,58,13)" rx="2" ry="2" />
+<text  x="279.34" y="335.5" ></text>
+</g>
+<g >
+<title>JimExprOpStrBin (34,102,306 samples, 0.19%)</title><rect x="1005.9" y="85" width="2.2" height="15.0" fill="rgb(251,212,50)" rx="2" ry="2" />
+<text  x="1008.91" y="95.5" ></text>
+</g>
+<g >
+<title>trieAddImpl (42,126,378 samples, 0.23%)</title><rect x="1049.6" y="357" width="2.8" height="15.0" fill="rgb(238,153,36)" rx="2" ry="2" />
+<text  x="1052.63" y="367.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (2,452,357,005 samples, 13.44%)</title><rect x="784.1" y="373" width="158.6" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="787.06" y="383.5" >JimInvokeCommand</text>
+</g>
+<g >
+<title>workQueueTake (203,610,827 samples, 1.12%)</title><rect x="158.3" y="597" width="13.2" height="15.0" fill="rgb(247,195,46)" rx="2" ry="2" />
+<text  x="161.29" y="607.5" ></text>
+</g>
+<g >
+<title>JimExprOpBin (18,054,162 samples, 0.10%)</title><rect x="1037.8" y="181" width="1.2" height="15.0" fill="rgb(223,83,19)" rx="2" ry="2" />
+<text  x="1040.82" y="191.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (41,123,369 samples, 0.23%)</title><rect x="295.4" y="341" width="2.6" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="298.35" y="351.5" ></text>
+</g>
+<g >
+<title>malloc (31,093,279 samples, 0.17%)</title><rect x="207.0" y="549" width="2.0" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="210.00" y="559.5" ></text>
+</g>
+<g >
+<title>__nanosleep (19,057,171 samples, 0.10%)</title><rect x="336.9" y="629" width="1.2" height="15.0" fill="rgb(252,217,52)" rx="2" ry="2" />
+<text  x="339.87" y="639.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (2,074,222,612 samples, 11.37%)</title><rect x="788.1" y="341" width="134.1" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="791.08" y="351.5" >JimInvokeCommand</text>
+</g>
+<g >
+<title>__memmove_avx512_unaligned_erms (17,051,153 samples, 0.09%)</title><rect x="807.2" y="181" width="1.1" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="810.15" y="191.5" ></text>
+</g>
+<g >
+<title>Jim_StringCoreCommand (85,255,765 samples, 0.47%)</title><rect x="932.3" y="261" width="5.5" height="15.0" fill="rgb(233,129,31)" rx="2" ry="2" />
+<text  x="935.28" y="271.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (54,162,486 samples, 0.30%)</title><rect x="900.9" y="277" width="3.5" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="903.89" y="287.5" ></text>
+</g>
+<g >
+<title>__libc_start_call_main (90,270,810 samples, 0.49%)</title><rect x="1183.6" y="645" width="5.9" height="15.0" fill="rgb(210,26,6)" rx="2" ry="2" />
+<text  x="1186.64" y="655.5" ></text>
+</g>
+<g >
+<title>futex_wake (16,048,144 samples, 0.09%)</title><rect x="759.1" y="485" width="1.0" height="15.0" fill="rgb(219,65,15)" rx="2" ry="2" />
+<text  x="762.09" y="495.5" ></text>
+</g>
+<g >
+<title>_int_realloc (21,063,189 samples, 0.12%)</title><rect x="954.7" y="325" width="1.4" height="15.0" fill="rgb(230,117,28)" rx="2" ry="2" />
+<text  x="957.73" y="335.5" ></text>
+</g>
+<g >
+<title>vfs_read (16,048,144 samples, 0.09%)</title><rect x="340.3" y="485" width="1.0" height="15.0" fill="rgb(224,88,21)" rx="2" ry="2" />
+<text  x="343.30" y="495.5" ></text>
+</g>
+<g >
+<title>malloc (93,279,837 samples, 0.51%)</title><rect x="760.1" y="565" width="6.1" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="763.12" y="575.5" ></text>
+</g>
+<g >
+<title>runBlock (1,627,883,607 samples, 8.92%)</title><rect x="213.0" y="581" width="105.3" height="15.0" fill="rgb(238,156,37)" rx="2" ry="2" />
+<text  x="216.03" y="591.5" >runBlock</text>
+</g>
+<g >
+<title>[x86_64-linux-gnu-ld.bfd] (50,150,450 samples, 0.27%)</title><rect x="1184.0" y="565" width="3.2" height="15.0" fill="rgb(240,163,39)" rx="2" ry="2" />
+<text  x="1186.97" y="575.5" ></text>
+</g>
+<g >
+<title>JimDefaultAllocator (17,051,153 samples, 0.09%)</title><rect x="862.7" y="181" width="1.1" height="15.0" fill="rgb(221,77,18)" rx="2" ry="2" />
+<text  x="865.74" y="191.5" ></text>
+</g>
+<g >
+<title>malloc (62,186,558 samples, 0.34%)</title><rect x="1093.2" y="373" width="4.0" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="1096.22" y="383.5" ></text>
+</g>
+<g >
+<title>JimCallProcedure (60,180,540 samples, 0.33%)</title><rect x="285.8" y="229" width="3.8" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="288.75" y="239.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (42,126,378 samples, 0.23%)</title><rect x="1072.1" y="389" width="2.7" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="1075.07" y="399.5" ></text>
+</g>
+<g >
+<title>SetListFromAny.isra.0 (16,048,144 samples, 0.09%)</title><rect x="274.5" y="309" width="1.1" height="15.0" fill="rgb(253,223,53)" rx="2" ry="2" />
+<text  x="277.53" y="319.5" ></text>
+</g>
+<g >
+<title>[x86_64-linux-gnu-ld.bfd] (79,237,711 samples, 0.43%)</title><rect x="1183.6" y="613" width="5.2" height="15.0" fill="rgb(240,163,39)" rx="2" ry="2" />
+<text  x="1186.64" y="623.5" ></text>
+</g>
+<g >
+<title>JimCallProcedure (182,547,638 samples, 1.00%)</title><rect x="1001.4" y="245" width="11.8" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="1004.37" y="255.5" ></text>
+</g>
+<g >
+<title>Jim_DictMatchTypes (31,093,279 samples, 0.17%)</title><rect x="275.8" y="373" width="2.0" height="15.0" fill="rgb(205,0,0)" rx="2" ry="2" />
+<text  x="278.83" y="383.5" ></text>
+</g>
+<g >
+<title>Jim_FreeObj (25,075,225 samples, 0.14%)</title><rect x="861.1" y="165" width="1.6" height="15.0" fill="rgb(217,58,14)" rx="2" ry="2" />
+<text  x="864.12" y="175.5" ></text>
+</g>
+<g >
+<title>JimMakeListStringRep (150,451,350 samples, 0.82%)</title><rect x="1052.9" y="341" width="9.7" height="15.0" fill="rgb(242,170,40)" rx="2" ry="2" />
+<text  x="1055.87" y="351.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (210,631,890 samples, 1.15%)</title><rect x="1000.0" y="325" width="13.6" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="1003.00" y="335.5" ></text>
+</g>
+<g >
+<title>JimDefaultAllocator (40,120,360 samples, 0.22%)</title><rect x="982.3" y="389" width="2.6" height="15.0" fill="rgb(221,77,18)" rx="2" ry="2" />
+<text  x="985.30" y="399.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (60,180,540 samples, 0.33%)</title><rect x="285.8" y="261" width="3.8" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="288.75" y="271.5" ></text>
+</g>
+<g >
+<title>Jim_SetVariableStr (87,261,783 samples, 0.48%)</title><rect x="914.4" y="309" width="5.6" height="15.0" fill="rgb(222,82,19)" rx="2" ry="2" />
+<text  x="917.38" y="319.5" ></text>
+</g>
+<g >
+<title>do_sched_yield (315,947,835 samples, 1.73%)</title><rect x="439.1" y="549" width="20.4" height="15.0" fill="rgb(214,43,10)" rx="2" ry="2" />
+<text  x="442.10" y="559.5" ></text>
+</g>
+<g >
+<title>JimExprOpStrBin (23,069,207 samples, 0.13%)</title><rect x="1021.9" y="245" width="1.5" height="15.0" fill="rgb(251,212,50)" rx="2" ry="2" />
+<text  x="1024.86" y="255.5" ></text>
+</g>
+<g >
+<title>SetListFromAny.isra.0 (154,463,386 samples, 0.85%)</title><rect x="1089.5" y="421" width="10.0" height="15.0" fill="rgb(253,223,53)" rx="2" ry="2" />
+<text  x="1092.52" y="431.5" ></text>
+</g>
+<g >
+<title>hrtimer_nanosleep (16,048,144 samples, 0.09%)</title><rect x="336.9" y="533" width="1.1" height="15.0" fill="rgb(237,147,35)" rx="2" ry="2" />
+<text  x="339.93" y="543.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (20,060,180 samples, 0.11%)</title><rect x="1011.3" y="165" width="1.3" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="1014.29" y="175.5" ></text>
+</g>
+<g >
+<title>JimExprOpStrBin (244,734,196 samples, 1.34%)</title><rect x="925.9" y="309" width="15.8" height="15.0" fill="rgb(251,212,50)" rx="2" ry="2" />
+<text  x="928.86" y="319.5" ></text>
+</g>
+<g >
+<title>malloc (38,114,342 samples, 0.21%)</title><rect x="1083.1" y="373" width="2.5" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="1086.10" y="383.5" ></text>
+</g>
+<g >
+<title>DictAddElement.isra.0 (29,087,261 samples, 0.16%)</title><rect x="268.6" y="341" width="1.8" height="15.0" fill="rgb(244,180,43)" rx="2" ry="2" />
+<text  x="271.56" y="351.5" ></text>
+</g>
+<g >
+<title>_int_malloc (26,078,234 samples, 0.14%)</title><rect x="1095.4" y="357" width="1.6" height="15.0" fill="rgb(215,47,11)" rx="2" ry="2" />
+<text  x="1098.36" y="367.5" ></text>
+</g>
+<g >
+<title>malloc_consolidate (22,066,198 samples, 0.12%)</title><rect x="755.5" y="533" width="1.4" height="15.0" fill="rgb(239,159,38)" rx="2" ry="2" />
+<text  x="758.45" y="543.5" ></text>
+</g>
+<g >
+<title>__printf_buffer (42,126,378 samples, 0.23%)</title><rect x="221.3" y="181" width="2.7" height="15.0" fill="rgb(219,68,16)" rx="2" ry="2" />
+<text  x="224.27" y="191.5" ></text>
+</g>
+<g >
+<title>Jim_UplevelCoreCommand (20,060,180 samples, 0.11%)</title><rect x="1011.3" y="181" width="1.3" height="15.0" fill="rgb(224,88,21)" rx="2" ry="2" />
+<text  x="1014.29" y="191.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (50,150,450 samples, 0.27%)</title><rect x="1072.0" y="405" width="3.2" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="1075.01" y="415.5" ></text>
+</g>
+<g >
+<title>_int_free (21,063,189 samples, 0.12%)</title><rect x="239.7" y="69" width="1.4" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="242.69" y="79.5" ></text>
+</g>
+<g >
+<title>__memmove_avx512_unaligned_erms (20,060,180 samples, 0.11%)</title><rect x="766.2" y="581" width="1.3" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="769.16" y="591.5" ></text>
+</g>
+<g >
+<title>__x64_sys_futex (27,081,243 samples, 0.15%)</title><rect x="819.1" y="149" width="1.7" height="15.0" fill="rgb(239,159,38)" rx="2" ry="2" />
+<text  x="822.09" y="159.5" ></text>
+</g>
+<g >
+<title>FreeListInternalRep (30,090,270 samples, 0.16%)</title><rect x="239.1" y="133" width="2.0" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="242.11" y="143.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (21,063,189 samples, 0.12%)</title><rect x="1011.2" y="197" width="1.4" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="1014.23" y="207.5" ></text>
+</g>
+<g >
+<title>do_syscall_64 (16,048,144 samples, 0.09%)</title><rect x="759.1" y="533" width="1.0" height="15.0" fill="rgb(209,20,4)" rx="2" ry="2" />
+<text  x="762.09" y="543.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (22,066,198 samples, 0.12%)</title><rect x="348.9" y="517" width="1.5" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="351.93" y="527.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (1,606,820,418 samples, 8.81%)</title><rect x="213.2" y="517" width="103.9" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="216.23" y="527.5" >Jim_EvalObj</text>
+</g>
+<g >
+<title>JimAddStackFrame (785,356,047 samples, 4.30%)</title><rect x="796.6" y="261" width="50.8" height="15.0" fill="rgb(226,99,23)" rx="2" ry="2" />
+<text  x="799.65" y="271.5" >JimAd..</text>
+</g>
+<g >
+<title>JimInvokeCommand (133,400,197 samples, 0.73%)</title><rect x="1036.1" y="341" width="8.7" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="1039.13" y="351.5" ></text>
+</g>
+<g >
+<title>JimDefaultAllocator (63,189,567 samples, 0.35%)</title><rect x="868.8" y="245" width="4.1" height="15.0" fill="rgb(221,77,18)" rx="2" ry="2" />
+<text  x="871.78" y="255.5" ></text>
+</g>
+<g >
+<title>Jim_UplevelCoreCommand (60,180,540 samples, 0.33%)</title><rect x="285.8" y="277" width="3.8" height="15.0" fill="rgb(224,88,21)" rx="2" ry="2" />
+<text  x="288.75" y="287.5" ></text>
+</g>
+<g >
+<title>workQueueSteal (774,322,948 samples, 4.24%)</title><rect x="1132.1" y="597" width="50.1" height="15.0" fill="rgb(248,198,47)" rx="2" ry="2" />
+<text  x="1135.14" y="607.5" >workQ..</text>
+</g>
+<g >
+<title>JimInvokeCommand (1,611,835,463 samples, 8.83%)</title><rect x="213.0" y="549" width="104.3" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="216.03" y="559.5" >JimInvokeCom..</text>
+</g>
+<g >
+<title>[x86_64-linux-gnu-as] (51,153,459 samples, 0.28%)</title><rect x="10.1" y="597" width="3.3" height="15.0" fill="rgb(249,206,49)" rx="2" ry="2" />
+<text  x="13.06" y="607.5" ></text>
+</g>
+<g >
+<title>realloc (212,637,908 samples, 1.17%)</title><rect x="825.4" y="197" width="13.7" height="15.0" fill="rgb(246,189,45)" rx="2" ry="2" />
+<text  x="828.38" y="207.5" ></text>
+</g>
+<g >
+<title>Jim_FreeObj (20,060,180 samples, 0.11%)</title><rect x="1076.4" y="389" width="1.3" height="15.0" fill="rgb(217,58,14)" rx="2" ry="2" />
+<text  x="1079.42" y="399.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (226,680,034 samples, 1.24%)</title><rect x="284.0" y="357" width="14.7" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="287.00" y="367.5" ></text>
+</g>
+<g >
+<title>Jim_GetBoolFromExpr (32,096,288 samples, 0.18%)</title><rect x="286.8" y="117" width="2.1" height="15.0" fill="rgb(230,115,27)" rx="2" ry="2" />
+<text  x="289.79" y="127.5" ></text>
+</g>
+<g >
+<title>Jim_GetVariableStr (61,183,549 samples, 0.34%)</title><rect x="906.6" y="309" width="4.0" height="15.0" fill="rgb(250,208,49)" rx="2" ry="2" />
+<text  x="909.60" y="319.5" ></text>
+</g>
+<g >
+<title>Jim_GetVariable.part.0 (35,105,315 samples, 0.19%)</title><rect x="907.8" y="293" width="2.2" height="15.0" fill="rgb(232,124,29)" rx="2" ry="2" />
+<text  x="910.76" y="303.5" ></text>
+</g>
+<g >
+<title>__sched_yield (3,203,610,746 samples, 17.56%)</title><rect x="356.7" y="613" width="207.2" height="15.0" fill="rgb(213,40,9)" rx="2" ry="2" />
+<text  x="359.72" y="623.5" >__sched_yield</text>
+</g>
+<g >
+<title>Jim_NewStringObj (19,057,171 samples, 0.10%)</title><rect x="1070.3" y="389" width="1.3" height="15.0" fill="rgb(210,23,5)" rx="2" ry="2" />
+<text  x="1073.32" y="399.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (1,265,797,358 samples, 6.94%)</title><rect x="986.1" y="405" width="81.9" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="989.12" y="415.5" >JimInvoke..</text>
+</g>
+<g >
+<title>JimCallProcedure (17,051,153 samples, 0.09%)</title><rect x="295.5" y="309" width="1.1" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="298.55" y="319.5" ></text>
+</g>
+<g >
+<title>Jim_FreeObj (142,427,278 samples, 0.78%)</title><rect x="854.8" y="197" width="9.2" height="15.0" fill="rgb(217,58,14)" rx="2" ry="2" />
+<text  x="857.83" y="207.5" ></text>
+</g>
+<g >
+<title>[x86_64-linux-gnu-ld.bfd] (72,216,648 samples, 0.40%)</title><rect x="1183.6" y="597" width="4.7" height="15.0" fill="rgb(240,163,39)" rx="2" ry="2" />
+<text  x="1186.64" y="607.5" ></text>
+</g>
+<g >
+<title>futex_do_wait (22,066,198 samples, 0.12%)</title><rect x="819.1" y="85" width="1.4" height="15.0" fill="rgb(208,15,3)" rx="2" ry="2" />
+<text  x="822.09" y="95.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (449,348,032 samples, 2.46%)</title><rect x="949.5" y="405" width="29.1" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="952.54" y="415.5" >Ji..</text>
+</g>
+<g >
+<title>workerSteal (273,821,457 samples, 1.50%)</title><rect x="318.3" y="597" width="17.7" height="15.0" fill="rgb(249,202,48)" rx="2" ry="2" />
+<text  x="321.31" y="607.5" ></text>
+</g>
+<g >
+<title>cfree@GLIBC_2.2.5 (26,078,234 samples, 0.14%)</title><rect x="239.4" y="85" width="1.7" height="15.0" fill="rgb(233,131,31)" rx="2" ry="2" />
+<text  x="242.37" y="95.5" ></text>
+</g>
+<g >
+<title>JimExprOpNumUnary (27,081,243 samples, 0.15%)</title><rect x="1004.2" y="85" width="1.7" height="15.0" fill="rgb(220,70,16)" rx="2" ry="2" />
+<text  x="1007.16" y="95.5" ></text>
+</g>
+<g >
+<title>asm_exc_page_fault (34,102,306 samples, 0.19%)</title><rect x="769.4" y="581" width="2.2" height="15.0" fill="rgb(225,93,22)" rx="2" ry="2" />
+<text  x="772.40" y="591.5" ></text>
+</g>
+<g >
+<title>Jim_EvalExpression (20,060,180 samples, 0.11%)</title><rect x="944.8" y="373" width="1.3" height="15.0" fill="rgb(232,124,29)" rx="2" ry="2" />
+<text  x="947.80" y="383.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (513,540,608 samples, 2.81%)</title><rect x="218.8" y="277" width="33.2" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="221.81" y="287.5" >Ji..</text>
+</g>
+<g >
+<title>schedule (418,254,753 samples, 2.29%)</title><rect x="126.6" y="533" width="27.0" height="15.0" fill="rgb(254,229,54)" rx="2" ry="2" />
+<text  x="129.57" y="543.5" >s..</text>
+</g>
+<g >
+<title>blockStatsUpdate (22,066,198 samples, 0.12%)</title><rect x="1105.4" y="581" width="1.4" height="15.0" fill="rgb(233,131,31)" rx="2" ry="2" />
+<text  x="1108.41" y="591.5" ></text>
+</g>
+<g >
+<title>FreeDictInternalRep (16,048,144 samples, 0.09%)</title><rect x="855.3" y="149" width="1.0" height="15.0" fill="rgb(252,219,52)" rx="2" ry="2" />
+<text  x="858.29" y="159.5" ></text>
+</g>
+<g >
+<title>HoldStatementGloballyAcquiring (36,108,324 samples, 0.20%)</title><rect x="280.4" y="357" width="2.3" height="15.0" fill="rgb(233,129,30)" rx="2" ry="2" />
+<text  x="283.37" y="367.5" ></text>
+</g>
+<g >
+<title>Jim_ClearHashTable (16,048,144 samples, 0.09%)</title><rect x="283.0" y="341" width="1.0" height="15.0" fill="rgb(234,136,32)" rx="2" ry="2" />
+<text  x="285.96" y="351.5" ></text>
+</g>
+<g >
+<title>SetListFromAny.isra.0 (206,619,854 samples, 1.13%)</title><rect x="743.8" y="581" width="13.3" height="15.0" fill="rgb(253,223,53)" rx="2" ry="2" />
+<text  x="746.78" y="591.5" ></text>
+</g>
+<g >
+<title>cc (22,066,198 samples, 0.12%)</title><rect x="97.3" y="693" width="1.4" height="15.0" fill="rgb(234,135,32)" rx="2" ry="2" />
+<text  x="100.31" y="703.5" ></text>
+</g>
+<g >
+<title>Jim_DictKeysVector (29,087,261 samples, 0.16%)</title><rect x="1040.6" y="309" width="1.9" height="15.0" fill="rgb(221,74,17)" rx="2" ry="2" />
+<text  x="1043.61" y="319.5" ></text>
+</g>
+<g >
+<title>Jim_GetVariableStr (20,060,180 samples, 0.11%)</title><rect x="254.6" y="293" width="1.3" height="15.0" fill="rgb(250,208,49)" rx="2" ry="2" />
+<text  x="257.61" y="303.5" ></text>
+</g>
+<g >
+<title>Jim_SetVariable (39,117,351 samples, 0.21%)</title><rect x="1032.0" y="325" width="2.6" height="15.0" fill="rgb(244,182,43)" rx="2" ry="2" />
+<text  x="1035.05" y="335.5" ></text>
+</g>
+<g >
+<title>sysmonMain (155,466,395 samples, 0.85%)</title><rect x="336.4" y="645" width="10.1" height="15.0" fill="rgb(251,213,51)" rx="2" ry="2" />
+<text  x="339.41" y="655.5" ></text>
+</g>
+<g >
+<title>sysmon (127,382,143 samples, 0.70%)</title><rect x="338.2" y="629" width="8.3" height="15.0" fill="rgb(214,43,10)" rx="2" ry="2" />
+<text  x="341.23" y="639.5" ></text>
+</g>
+<g >
+<title>JimInsertHashEntry (19,057,171 samples, 0.10%)</title><rect x="1032.1" y="293" width="1.2" height="15.0" fill="rgb(209,21,5)" rx="2" ry="2" />
+<text  x="1035.11" y="303.5" ></text>
+</g>
+<g >
+<title>JimSetScriptFromAny (41,123,369 samples, 0.23%)</title><rect x="1069.3" y="405" width="2.7" height="15.0" fill="rgb(229,114,27)" rx="2" ry="2" />
+<text  x="1072.35" y="415.5" ></text>
+</g>
+<g >
+<title>_int_free (38,114,342 samples, 0.21%)</title><rect x="858.1" y="85" width="2.4" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="861.07" y="95.5" ></text>
+</g>
+<g >
+<title>JimParseSubBrace (18,054,162 samples, 0.10%)</title><rect x="1068.2" y="405" width="1.1" height="15.0" fill="rgb(221,76,18)" rx="2" ry="2" />
+<text  x="1071.18" y="415.5" ></text>
+</g>
+<g >
+<title>interpBoot (42,126,378 samples, 0.23%)</title><rect x="348.9" y="629" width="2.7" height="15.0" fill="rgb(253,221,52)" rx="2" ry="2" />
+<text  x="351.87" y="639.5" ></text>
+</g>
+<g >
+<title>reactToNewStatement (67,201,603 samples, 0.37%)</title><rect x="1063.6" y="373" width="4.3" height="15.0" fill="rgb(244,179,42)" rx="2" ry="2" />
+<text  x="1066.57" y="383.5" ></text>
+</g>
+<g >
+<title>rand_r@plt (28,084,252 samples, 0.15%)</title><rect x="573.6" y="613" width="1.8" height="15.0" fill="rgb(209,22,5)" rx="2" ry="2" />
+<text  x="576.57" y="623.5" ></text>
+</g>
+<g >
+<title>Jim_FreeObj (50,150,450 samples, 0.27%)</title><rect x="238.9" y="181" width="3.2" height="15.0" fill="rgb(217,58,14)" rx="2" ry="2" />
+<text  x="241.85" y="191.5" ></text>
+</g>
+<g >
+<title>[cc1] (260,782,340 samples, 1.43%)</title><rect x="15.8" y="677" width="16.8" height="15.0" fill="rgb(229,111,26)" rx="2" ry="2" />
+<text  x="18.77" y="687.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (2,622,868,535 samples, 14.38%)</title><rect x="779.0" y="421" width="169.6" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="782.00" y="431.5" >JimInvokeCommand</text>
+</g>
+<g >
+<title>Jim_NewObj (16,048,144 samples, 0.09%)</title><rect x="747.3" y="565" width="1.0" height="15.0" fill="rgb(236,143,34)" rx="2" ry="2" />
+<text  x="750.28" y="575.5" ></text>
+</g>
+<g >
+<title>JimFreeCallFrame (20,060,180 samples, 0.11%)</title><rect x="278.7" y="405" width="1.3" height="15.0" fill="rgb(233,128,30)" rx="2" ry="2" />
+<text  x="281.74" y="415.5" ></text>
+</g>
+<g >
+<title>Jim_FreeObj (25,075,225 samples, 0.14%)</title><rect x="912.3" y="293" width="1.6" height="15.0" fill="rgb(217,58,14)" rx="2" ry="2" />
+<text  x="915.30" y="303.5" ></text>
+</g>
+<g >
+<title>_int_malloc (54,162,486 samples, 0.30%)</title><rect x="753.5" y="549" width="3.5" height="15.0" fill="rgb(215,47,11)" rx="2" ry="2" />
+<text  x="756.51" y="559.5" ></text>
+</g>
+<g >
+<title>HoldStatementGloballyFunc (101,303,909 samples, 0.56%)</title><rect x="986.1" y="389" width="6.6" height="15.0" fill="rgb(239,157,37)" rx="2" ry="2" />
+<text  x="989.12" y="399.5" ></text>
+</g>
+<g >
+<title>__lll_lock_wake_private (16,048,144 samples, 0.09%)</title><rect x="759.1" y="565" width="1.0" height="15.0" fill="rgb(238,155,37)" rx="2" ry="2" />
+<text  x="762.09" y="575.5" ></text>
+</g>
+<g >
+<title>JimCallProcedure (1,004,012,009 samples, 5.50%)</title><rect x="213.4" y="437" width="65.0" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="216.42" y="447.5" >JimCall..</text>
+</g>
+<g >
+<title>Jim_StringCoreCommand (43,129,387 samples, 0.24%)</title><rect x="901.5" y="261" width="2.8" height="15.0" fill="rgb(233,129,31)" rx="2" ry="2" />
+<text  x="904.47" y="271.5" ></text>
+</g>
+<g >
+<title>trieAddImpl (23,069,207 samples, 0.13%)</title><rect x="1050.9" y="277" width="1.5" height="15.0" fill="rgb(238,153,36)" rx="2" ry="2" />
+<text  x="1053.86" y="287.5" ></text>
+</g>
+<g >
+<title>HoldStatementGloballyAcquiring (16,048,144 samples, 0.09%)</title><rect x="338.6" y="597" width="1.1" height="15.0" fill="rgb(233,129,30)" rx="2" ry="2" />
+<text  x="341.62" y="607.5" ></text>
+</g>
+<g >
+<title>JimForeachMapHelper.part.0 (140,421,260 samples, 0.77%)</title><rect x="1001.6" y="197" width="9.0" height="15.0" fill="rgb(241,168,40)" rx="2" ry="2" />
+<text  x="1004.56" y="207.5" ></text>
+</g>
+<g >
+<title>_int_malloc (85,255,765 samples, 0.47%)</title><rect x="833.6" y="165" width="5.5" height="15.0" fill="rgb(215,47,11)" rx="2" ry="2" />
+<text  x="836.62" y="175.5" ></text>
+</g>
+<g >
+<title>cfree@GLIBC_2.2.5 (17,051,153 samples, 0.09%)</title><rect x="939.4" y="261" width="1.1" height="15.0" fill="rgb(233,131,31)" rx="2" ry="2" />
+<text  x="942.35" y="271.5" ></text>
+</g>
+<g >
+<title>Jim_FreeObj (39,117,351 samples, 0.21%)</title><rect x="238.9" y="149" width="2.5" height="15.0" fill="rgb(217,58,14)" rx="2" ry="2" />
+<text  x="241.92" y="159.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (810,431,272 samples, 4.44%)</title><rect x="214.5" y="373" width="52.4" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="217.46" y="383.5" >Jim_E..</text>
+</g>
+<g >
+<title>bfd_link_hash_lookup (19,057,171 samples, 0.10%)</title><rect x="1185.5" y="517" width="1.3" height="15.0" fill="rgb(241,167,39)" rx="2" ry="2" />
+<text  x="1188.52" y="527.5" ></text>
+</g>
+<g >
+<title>workerLoop (3,626,880,544 samples, 19.88%)</title><rect x="101.5" y="613" width="234.5" height="15.0" fill="rgb(212,35,8)" rx="2" ry="2" />
+<text  x="104.46" y="623.5" >workerLoop</text>
+</g>
+<g >
+<title>JimInvokeCommand (43,129,387 samples, 0.24%)</title><rect x="286.3" y="149" width="2.8" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="289.33" y="159.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (18,054,162 samples, 0.10%)</title><rect x="349.0" y="421" width="1.2" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="352.00" y="431.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (168,505,512 samples, 0.92%)</title><rect x="284.5" y="341" width="10.9" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="287.45" y="351.5" ></text>
+</g>
+<g >
+<title>JimExprOpOr (19,057,171 samples, 0.10%)</title><rect x="286.9" y="85" width="1.3" height="15.0" fill="rgb(241,168,40)" rx="2" ry="2" />
+<text  x="289.92" y="95.5" ></text>
+</g>
+<g >
+<title>do_sched_yield (88,264,792 samples, 0.48%)</title><rect x="120.9" y="533" width="5.7" height="15.0" fill="rgb(214,43,10)" rx="2" ry="2" />
+<text  x="123.86" y="543.5" ></text>
+</g>
+<g >
+<title>JimExprEvalTermNode (18,054,162 samples, 0.10%)</title><rect x="1022.1" y="229" width="1.2" height="15.0" fill="rgb(234,137,32)" rx="2" ry="2" />
+<text  x="1025.12" y="239.5" ></text>
+</g>
+<g >
+<title>realloc (29,087,261 samples, 0.16%)</title><rect x="954.2" y="341" width="1.9" height="15.0" fill="rgb(246,189,45)" rx="2" ry="2" />
+<text  x="957.21" y="351.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (795,386,137 samples, 4.36%)</title><rect x="215.3" y="357" width="51.4" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="218.30" y="367.5" >JimIn..</text>
+</g>
+<g >
+<title>Jim_EvalObj (122,367,098 samples, 0.67%)</title><rect x="897.7" y="293" width="7.9" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="900.71" y="303.5" ></text>
+</g>
+<g >
+<title>Jim_NewStringObj (20,060,180 samples, 0.11%)</title><rect x="902.0" y="245" width="1.3" height="15.0" fill="rgb(210,23,5)" rx="2" ry="2" />
+<text  x="904.99" y="255.5" ></text>
+</g>
+<g >
+<title>cfree@GLIBC_2.2.5 (38,114,342 samples, 0.21%)</title><rect x="982.4" y="373" width="2.5" height="15.0" fill="rgb(233,131,31)" rx="2" ry="2" />
+<text  x="985.42" y="383.5" ></text>
+</g>
+<g >
+<title>bfd_elf_link_add_symbols (29,087,261 samples, 0.16%)</title><rect x="1185.2" y="549" width="1.9" height="15.0" fill="rgb(246,189,45)" rx="2" ry="2" />
+<text  x="1188.20" y="559.5" ></text>
+</g>
+<g >
+<title>JimMakeListStringRep (25,075,225 samples, 0.14%)</title><rect x="1040.9" y="277" width="1.6" height="15.0" fill="rgb(242,170,40)" rx="2" ry="2" />
+<text  x="1043.87" y="287.5" ></text>
+</g>
+<g >
+<title>matchRemoveSelf (18,054,162 samples, 0.10%)</title><rect x="281.5" y="325" width="1.2" height="15.0" fill="rgb(208,17,4)" rx="2" ry="2" />
+<text  x="284.53" y="335.5" ></text>
+</g>
+<g >
+<title>__snprintf_chk (43,129,387 samples, 0.24%)</title><rect x="893.6" y="245" width="2.7" height="15.0" fill="rgb(209,20,4)" rx="2" ry="2" />
+<text  x="896.56" y="255.5" ></text>
+</g>
+<g >
+<title>JimCallProcedure (1,610,832,454 samples, 8.83%)</title><rect x="213.0" y="533" width="104.2" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="216.03" y="543.5" >JimCallProce..</text>
+</g>
+<g >
+<title>[unknown] (724,172,498 samples, 3.97%)</title><rect x="32.6" y="677" width="46.9" height="15.0" fill="rgb(210,24,5)" rx="2" ry="2" />
+<text  x="35.64" y="687.5" >[unk..</text>
+</g>
+<g >
+<title>Jim_DictMerge (335,005,006 samples, 1.84%)</title><rect x="949.8" y="373" width="21.7" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="952.80" y="383.5" >J..</text>
+</g>
+<g >
+<title>malloc (30,090,270 samples, 0.16%)</title><rect x="1064.2" y="341" width="2.0" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="1067.22" y="351.5" ></text>
+</g>
+<g >
+<title>JimExprOpOr (16,048,144 samples, 0.09%)</title><rect x="945.0" y="357" width="1.0" height="15.0" fill="rgb(241,168,40)" rx="2" ry="2" />
+<text  x="948.00" y="367.5" ></text>
+</g>
+<g >
+<title>exc_page_fault (34,102,306 samples, 0.19%)</title><rect x="769.4" y="565" width="2.2" height="15.0" fill="rgb(212,35,8)" rx="2" ry="2" />
+<text  x="772.40" y="575.5" ></text>
+</g>
+<g >
+<title>Jim_EvalExpression (21,063,189 samples, 0.12%)</title><rect x="1037.8" y="197" width="1.4" height="15.0" fill="rgb(232,124,29)" rx="2" ry="2" />
+<text  x="1040.82" y="207.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (37,111,333 samples, 0.20%)</title><rect x="295.5" y="325" width="2.4" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="298.55" y="335.5" ></text>
+</g>
+<g >
+<title>__schedule (1,554,663,950 samples, 8.52%)</title><rect x="461.7" y="533" width="100.5" height="15.0" fill="rgb(227,103,24)" rx="2" ry="2" />
+<text  x="464.67" y="543.5" >__schedule</text>
+</g>
+<g >
+<title>malloc (19,057,171 samples, 0.10%)</title><rect x="798.7" y="197" width="1.2" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="801.66" y="207.5" ></text>
+</g>
+<g >
+<title>JimParseSubBrace (1,616,850,508 samples, 8.86%)</title><rect x="639.1" y="581" width="104.6" height="15.0" fill="rgb(221,76,18)" rx="2" ry="2" />
+<text  x="642.15" y="591.5" >JimParseSubB..</text>
+</g>
+<g >
+<title>x64_sys_call (23,069,207 samples, 0.13%)</title><rect x="562.4" y="565" width="1.5" height="15.0" fill="rgb(247,194,46)" rx="2" ry="2" />
+<text  x="565.41" y="575.5" ></text>
+</g>
+<g >
+<title>[unknown] (268,806,412 samples, 1.47%)</title><rect x="46.9" y="661" width="17.4" height="15.0" fill="rgb(210,24,5)" rx="2" ry="2" />
+<text  x="49.91" y="671.5" ></text>
+</g>
+<g >
+<title>_int_malloc (24,072,216 samples, 0.13%)</title><rect x="231.7" y="149" width="1.5" height="15.0" fill="rgb(215,47,11)" rx="2" ry="2" />
+<text  x="234.65" y="159.5" ></text>
+</g>
+<g >
+<title>Jim_FreeObj (28,084,252 samples, 0.15%)</title><rect x="239.2" y="117" width="1.9" height="15.0" fill="rgb(217,58,14)" rx="2" ry="2" />
+<text  x="242.24" y="127.5" ></text>
+</g>
+<g >
+<title>__strchrnul_evex (28,084,252 samples, 0.15%)</title><rect x="810.7" y="197" width="1.8" height="15.0" fill="rgb(239,159,38)" rx="2" ry="2" />
+<text  x="813.66" y="207.5" ></text>
+</g>
+<g >
+<title>Jim_EvalExpression (25,075,225 samples, 0.14%)</title><rect x="1028.3" y="309" width="1.6" height="15.0" fill="rgb(232,124,29)" rx="2" ry="2" />
+<text  x="1031.29" y="319.5" ></text>
+</g>
+<g >
+<title>__vsnprintf_internal (65,195,585 samples, 0.36%)</title><rect x="221.3" y="197" width="4.2" height="15.0" fill="rgb(237,150,35)" rx="2" ry="2" />
+<text  x="224.27" y="207.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (39,117,351 samples, 0.21%)</title><rect x="348.9" y="533" width="2.6" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="351.93" y="543.5" ></text>
+</g>
+<g >
+<title>flush_tlb_mm_range (30,090,270 samples, 0.16%)</title><rect x="769.5" y="485" width="1.9" height="15.0" fill="rgb(215,48,11)" rx="2" ry="2" />
+<text  x="772.47" y="495.5" ></text>
+</g>
+<g >
+<title>FreeListInternalRep (30,090,270 samples, 0.16%)</title><rect x="1075.8" y="405" width="1.9" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="1078.77" y="415.5" ></text>
+</g>
+<g >
+<title>workerRun (7,262,788,169 samples, 39.81%)</title><rect x="638.8" y="613" width="469.7" height="15.0" fill="rgb(215,46,11)" rx="2" ry="2" />
+<text  x="641.76" y="623.5" >workerRun</text>
+</g>
+<g >
+<title>do_syscall_64 (29,087,261 samples, 0.16%)</title><rect x="819.0" y="165" width="1.8" height="15.0" fill="rgb(209,20,4)" rx="2" ry="2" />
+<text  x="821.96" y="175.5" ></text>
+</g>
+<g >
+<title>__x64_sys_clock_nanosleep (17,051,153 samples, 0.09%)</title><rect x="336.9" y="565" width="1.1" height="15.0" fill="rgb(248,202,48)" rx="2" ry="2" />
+<text  x="339.93" y="575.5" ></text>
+</g>
+<g >
+<title>Jim_EvalExpression (266,800,394 samples, 1.46%)</title><rect x="924.4" y="325" width="17.3" height="15.0" fill="rgb(232,124,29)" rx="2" ry="2" />
+<text  x="927.43" y="335.5" ></text>
+</g>
+<g >
+<title>Jim_IfCoreCommand (110,330,990 samples, 0.60%)</title><rect x="259.5" y="341" width="7.2" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="262.54" y="351.5" ></text>
+</g>
+<g >
+<title>cfree@GLIBC_2.2.5 (29,087,261 samples, 0.16%)</title><rect x="342.2" y="597" width="1.9" height="15.0" fill="rgb(233,131,31)" rx="2" ry="2" />
+<text  x="345.19" y="607.5" ></text>
+</g>
+<g >
+<title>globalWorkQueueTake (21,063,189 samples, 0.12%)</title><rect x="153.9" y="597" width="1.3" height="15.0" fill="rgb(216,54,12)" rx="2" ry="2" />
+<text  x="156.88" y="607.5" ></text>
+</g>
+<g >
+<title>_int_free (31,093,279 samples, 0.17%)</title><rect x="982.9" y="357" width="2.0" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="985.88" y="367.5" ></text>
+</g>
+<g >
+<title>Jim_SetVariable (45,135,405 samples, 0.25%)</title><rect x="911.5" y="309" width="2.9" height="15.0" fill="rgb(244,182,43)" rx="2" ry="2" />
+<text  x="914.46" y="319.5" ></text>
+</g>
+<g >
+<title>_int_malloc (18,054,162 samples, 0.10%)</title><rect x="954.9" y="309" width="1.2" height="15.0" fill="rgb(215,47,11)" rx="2" ry="2" />
+<text  x="957.92" y="319.5" ></text>
+</g>
+<g >
+<title>do_sys_openat2 (21,063,189 samples, 0.12%)</title><rect x="344.7" y="501" width="1.4" height="15.0" fill="rgb(253,221,52)" rx="2" ry="2" />
+<text  x="347.71" y="511.5" ></text>
+</g>
+<g >
+<title>ld (98,294,882 samples, 0.54%)</title><rect x="1183.6" y="693" width="6.4" height="15.0" fill="rgb(219,68,16)" rx="2" ry="2" />
+<text  x="1186.64" y="703.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (18,054,162 samples, 0.10%)</title><rect x="252.9" y="261" width="1.2" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="255.93" y="271.5" ></text>
+</g>
+<g >
+<title>JimInsertHashEntry (24,072,216 samples, 0.13%)</title><rect x="310.5" y="373" width="1.5" height="15.0" fill="rgb(209,21,5)" rx="2" ry="2" />
+<text  x="313.47" y="383.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (69,207,621 samples, 0.38%)</title><rect x="285.2" y="293" width="4.4" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="288.17" y="303.5" ></text>
+</g>
+<g >
+<title>_IO_file_open (23,069,207 samples, 0.13%)</title><rect x="344.7" y="581" width="1.4" height="15.0" fill="rgb(249,205,49)" rx="2" ry="2" />
+<text  x="347.65" y="591.5" ></text>
+</g>
+<g >
+<title>__memset_avx512_unaligned_erms (19,057,171 samples, 0.10%)</title><rect x="79.9" y="677" width="1.2" height="15.0" fill="rgb(214,43,10)" rx="2" ry="2" />
+<text  x="82.86" y="687.5" ></text>
+</g>
+<g >
+<title>do_syscall_64 (657,973,904 samples, 3.61%)</title><rect x="111.3" y="565" width="42.6" height="15.0" fill="rgb(209,20,4)" rx="2" ry="2" />
+<text  x="114.32" y="575.5" >do_s..</text>
+</g>
+<g >
+<title>Jim_StrDupLen (21,063,189 samples, 0.12%)</title><rect x="798.5" y="213" width="1.4" height="15.0" fill="rgb(244,183,43)" rx="2" ry="2" />
+<text  x="801.53" y="223.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (21,063,189 samples, 0.12%)</title><rect x="348.9" y="485" width="1.4" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="351.93" y="495.5" ></text>
+</g>
+<g >
+<title>_IO_file_fopen@@GLIBC_2.2.5 (24,072,216 samples, 0.13%)</title><rect x="344.7" y="597" width="1.5" height="15.0" fill="rgb(237,148,35)" rx="2" ry="2" />
+<text  x="347.65" y="607.5" ></text>
+</g>
+<g >
+<title>ListInsertElements (358,074,213 samples, 1.96%)</title><rect x="816.2" y="229" width="23.2" height="15.0" fill="rgb(233,131,31)" rx="2" ry="2" />
+<text  x="819.23" y="239.5" >L..</text>
+</g>
+<g >
+<title>ListEnsureLength (66,198,594 samples, 0.36%)</title><rect x="1093.0" y="389" width="4.2" height="15.0" fill="rgb(217,58,13)" rx="2" ry="2" />
+<text  x="1095.96" y="399.5" ></text>
+</g>
+<g >
+<title>JimFreeCallFrame (64,192,576 samples, 0.35%)</title><rect x="981.6" y="421" width="4.1" height="15.0" fill="rgb(233,128,30)" rx="2" ry="2" />
+<text  x="984.58" y="431.5" ></text>
+</g>
+<g >
+<title>ListInsertElements (23,069,207 samples, 0.13%)</title><rect x="234.2" y="229" width="1.5" height="15.0" fill="rgb(233,131,31)" rx="2" ry="2" />
+<text  x="237.18" y="239.5" ></text>
+</g>
+<g >
+<title>JimProcForEvalFrame.isra.0 (17,051,153 samples, 0.09%)</title><rect x="847.5" y="261" width="1.1" height="15.0" fill="rgb(244,183,43)" rx="2" ry="2" />
+<text  x="850.50" y="271.5" ></text>
+</g>
+<g >
+<title>Jim_IfCoreCommand (20,060,180 samples, 0.11%)</title><rect x="944.8" y="405" width="1.3" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="947.80" y="415.5" ></text>
+</g>
+<g >
+<title>JimCallProcedure (831,494,461 samples, 4.56%)</title><rect x="992.7" y="389" width="53.7" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="995.67" y="399.5" >JimCa..</text>
+</g>
+<g >
+<title>SetDictFromAny (80,240,720 samples, 0.44%)</title><rect x="270.4" y="325" width="5.2" height="15.0" fill="rgb(247,194,46)" rx="2" ry="2" />
+<text  x="273.44" y="335.5" ></text>
+</g>
+<g >
+<title>Jim_ListLength (1,855,566,650 samples, 10.17%)</title><rect x="639.1" y="597" width="120.0" height="15.0" fill="rgb(237,149,35)" rx="2" ry="2" />
+<text  x="642.08" y="607.5" >Jim_ListLength</text>
+</g>
+<g >
+<title>[cc1] (219,658,971 samples, 1.20%)</title><rect x="32.7" y="661" width="14.2" height="15.0" fill="rgb(229,111,26)" rx="2" ry="2" />
+<text  x="35.70" y="671.5" ></text>
+</g>
+<g >
+<title>_int_realloc (21,063,189 samples, 0.12%)</title><rect x="975.7" y="309" width="1.4" height="15.0" fill="rgb(230,117,28)" rx="2" ry="2" />
+<text  x="978.74" y="319.5" ></text>
+</g>
+<g >
+<title>FreeListInternalRep (87,261,783 samples, 0.48%)</title><rect x="855.2" y="181" width="5.7" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="858.22" y="191.5" ></text>
+</g>
+<g >
+<title>runBlock (5,177,532,458 samples, 28.38%)</title><rect x="773.4" y="597" width="334.8" height="15.0" fill="rgb(238,156,37)" rx="2" ry="2" />
+<text  x="776.36" y="607.5" >runBlock</text>
+</g>
+<g >
+<title>Jim_IfCoreCommand (106,318,954 samples, 0.58%)</title><rect x="1019.0" y="293" width="6.9" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="1022.01" y="303.5" ></text>
+</g>
+<g >
+<title>HoldStatementGloballyAcquiring (93,279,837 samples, 0.51%)</title><rect x="986.2" y="373" width="6.0" height="15.0" fill="rgb(233,129,30)" rx="2" ry="2" />
+<text  x="989.19" y="383.5" ></text>
+</g>
+<g >
+<title>Jim_DictPairs (80,240,720 samples, 0.44%)</title><rect x="270.4" y="341" width="5.2" height="15.0" fill="rgb(231,124,29)" rx="2" ry="2" />
+<text  x="273.44" y="351.5" ></text>
+</g>
+<g >
+<title>JimDefaultAllocator (63,189,567 samples, 0.35%)</title><rect x="864.0" y="213" width="4.1" height="15.0" fill="rgb(221,77,18)" rx="2" ry="2" />
+<text  x="867.04" y="223.5" ></text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (29,087,261 samples, 0.16%)</title><rect x="819.0" y="181" width="1.8" height="15.0" fill="rgb(218,63,15)" rx="2" ry="2" />
+<text  x="821.96" y="191.5" ></text>
+</g>
+<g >
+<title>JimLineColObj (88,264,792 samples, 0.48%)</title><rect x="220.0" y="229" width="5.7" height="15.0" fill="rgb(245,184,44)" rx="2" ry="2" />
+<text  x="222.98" y="239.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (180,541,620 samples, 0.99%)</title><rect x="927.4" y="293" width="11.6" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="930.35" y="303.5" ></text>
+</g>
+<g >
+<title>[x86_64-linux-gnu-ld.bfd] (90,270,810 samples, 0.49%)</title><rect x="1183.6" y="629" width="5.9" height="15.0" fill="rgb(240,163,39)" rx="2" ry="2" />
+<text  x="1186.64" y="639.5" ></text>
+</g>
+<g >
+<title>Jim_ForCoreCommand (68,204,612 samples, 0.37%)</title><rect x="289.6" y="325" width="4.5" height="15.0" fill="rgb(253,224,53)" rx="2" ry="2" />
+<text  x="292.64" y="335.5" ></text>
+</g>
+<g >
+<title>_int_realloc (38,114,342 samples, 0.21%)</title><rect x="230.7" y="165" width="2.5" height="15.0" fill="rgb(230,117,28)" rx="2" ry="2" />
+<text  x="233.74" y="175.5" ></text>
+</g>
+<g >
+<title>malloc_consolidate (18,054,162 samples, 0.10%)</title><rect x="210.4" y="517" width="1.2" height="15.0" fill="rgb(239,159,38)" rx="2" ry="2" />
+<text  x="213.44" y="527.5" ></text>
+</g>
+<g >
+<title>do_syscall_64 (16,048,144 samples, 0.09%)</title><rect x="340.3" y="517" width="1.0" height="15.0" fill="rgb(209,20,4)" rx="2" ry="2" />
+<text  x="343.30" y="527.5" ></text>
+</g>
+<g >
+<title>smp_call_function_many_cond (30,090,270 samples, 0.16%)</title><rect x="769.5" y="453" width="1.9" height="15.0" fill="rgb(220,71,17)" rx="2" ry="2" />
+<text  x="772.47" y="463.5" ></text>
+</g>
+<g >
+<title>Jim_StrDupLen (31,093,279 samples, 0.17%)</title><rect x="209.7" y="565" width="2.0" height="15.0" fill="rgb(244,183,43)" rx="2" ry="2" />
+<text  x="212.66" y="575.5" ></text>
+</g>
+<g >
+<title>Jim_IfCoreCommand (103,309,927 samples, 0.57%)</title><rect x="1003.1" y="149" width="6.6" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="1006.05" y="159.5" ></text>
+</g>
+<g >
+<title>Jim_GetBoolFromExpr (18,054,162 samples, 0.10%)</title><rect x="291.4" y="261" width="1.2" height="15.0" fill="rgb(230,115,27)" rx="2" ry="2" />
+<text  x="294.39" y="271.5" ></text>
+</g>
+<g >
+<title>JimVariablesHTValDestructor (22,066,198 samples, 0.12%)</title><rect x="993.9" y="341" width="1.4" height="15.0" fill="rgb(247,195,46)" rx="2" ry="2" />
+<text  x="996.91" y="351.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (5,081,243,594 samples, 27.85%)</title><rect x="775.0" y="517" width="328.7" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="778.04" y="527.5" >JimInvokeCommand</text>
+</g>
+<g >
+<title>trieAddImpl (23,069,207 samples, 0.13%)</title><rect x="1050.9" y="293" width="1.5" height="15.0" fill="rgb(238,153,36)" rx="2" ry="2" />
+<text  x="1053.86" y="303.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (5,064,192,441 samples, 27.76%)</title><rect x="775.2" y="485" width="327.5" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="778.17" y="495.5" >Jim_EvalObj</text>
+</g>
+<g >
+<title>rand_r (94,282,846 samples, 0.52%)</title><rect x="567.5" y="613" width="6.1" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="570.47" y="623.5" ></text>
+</g>
+<g >
+<title>Jim_NewStringObj (25,075,225 samples, 0.14%)</title><rect x="933.5" y="245" width="1.6" height="15.0" fill="rgb(210,23,5)" rx="2" ry="2" />
+<text  x="936.51" y="255.5" ></text>
+</g>
+<g >
+<title>Jim_SetVariable (17,051,153 samples, 0.09%)</title><rect x="946.1" y="389" width="1.1" height="15.0" fill="rgb(244,182,43)" rx="2" ry="2" />
+<text  x="949.10" y="399.5" ></text>
+</g>
+<g >
+<title>cfree@GLIBC_2.2.5 (19,057,171 samples, 0.10%)</title><rect x="1077.8" y="389" width="1.3" height="15.0" fill="rgb(233,131,31)" rx="2" ry="2" />
+<text  x="1080.84" y="399.5" ></text>
+</g>
+<g >
+<title>FreeListInternalRep (103,309,927 samples, 0.57%)</title><rect x="236.8" y="229" width="6.7" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="239.84" y="239.5" ></text>
+</g>
+<g >
+<title>workQueueSteal (50,150,450 samples, 0.27%)</title><rect x="577.4" y="613" width="3.2" height="15.0" fill="rgb(248,198,47)" rx="2" ry="2" />
+<text  x="580.39" y="623.5" ></text>
+</g>
+<g >
+<title>SetListFromAny.isra.0 (48,144,432 samples, 0.26%)</title><rect x="312.9" y="405" width="3.1" height="15.0" fill="rgb(253,223,53)" rx="2" ry="2" />
+<text  x="315.87" y="415.5" ></text>
+</g>
+<g >
+<title>JimCatchTryHelper (5,080,240,585 samples, 27.84%)</title><rect x="775.1" y="501" width="328.6" height="15.0" fill="rgb(244,182,43)" rx="2" ry="2" />
+<text  x="778.11" y="511.5" >JimCatchTryHelper</text>
+</g>
+<g >
+<title>Jim_NewStringObj (34,102,306 samples, 0.19%)</title><rect x="209.7" y="581" width="2.2" height="15.0" fill="rgb(210,23,5)" rx="2" ry="2" />
+<text  x="212.66" y="591.5" ></text>
+</g>
+<g >
+<title>Jim_ExpandHashTable (31,093,279 samples, 0.17%)</title><rect x="1080.8" y="373" width="2.0" height="15.0" fill="rgb(252,220,52)" rx="2" ry="2" />
+<text  x="1083.83" y="383.5" ></text>
+</g>
+<g >
+<title>_int_malloc (26,078,234 samples, 0.14%)</title><rect x="1083.9" y="357" width="1.7" height="15.0" fill="rgb(215,47,11)" rx="2" ry="2" />
+<text  x="1086.88" y="367.5" ></text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (16,048,144 samples, 0.09%)</title><rect x="340.3" y="533" width="1.0" height="15.0" fill="rgb(218,63,15)" rx="2" ry="2" />
+<text  x="343.30" y="543.5" ></text>
+</g>
+<g >
+<title>SetVariableFromAny (29,087,261 samples, 0.16%)</title><rect x="916.8" y="277" width="1.9" height="15.0" fill="rgb(246,193,46)" rx="2" ry="2" />
+<text  x="919.84" y="287.5" ></text>
+</g>
+<g >
+<title>JimInsertHashEntry (94,282,846 samples, 0.52%)</title><rect x="1079.5" y="389" width="6.1" height="15.0" fill="rgb(209,21,5)" rx="2" ry="2" />
+<text  x="1082.47" y="399.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (149,448,341 samples, 0.82%)</title><rect x="1001.4" y="213" width="9.7" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="1004.43" y="223.5" ></text>
+</g>
+<g >
+<title>[x86_64-linux-gnu-as] (56,168,504 samples, 0.31%)</title><rect x="10.0" y="613" width="3.6" height="15.0" fill="rgb(249,206,49)" rx="2" ry="2" />
+<text  x="13.00" y="623.5" ></text>
+</g>
+<g >
+<title>[libbfd-2.42-system.so] (19,057,171 samples, 0.10%)</title><rect x="1185.5" y="533" width="1.3" height="15.0" fill="rgb(237,147,35)" rx="2" ry="2" />
+<text  x="1188.52" y="543.5" ></text>
+</g>
+<g >
+<title>dbQuery (49,147,441 samples, 0.27%)</title><rect x="1063.9" y="357" width="3.2" height="15.0" fill="rgb(234,137,32)" rx="2" ry="2" />
+<text  x="1066.90" y="367.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (838,515,524 samples, 4.60%)</title><rect x="213.9" y="405" width="54.2" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="216.88" y="415.5" >JimIn..</text>
+</g>
+<g >
+<title>Jim_SourceCoreCommand (39,117,351 samples, 0.21%)</title><rect x="348.9" y="565" width="2.6" height="15.0" fill="rgb(221,77,18)" rx="2" ry="2" />
+<text  x="351.93" y="575.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (5,113,339,882 samples, 28.02%)</title><rect x="773.6" y="565" width="330.6" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="776.55" y="575.5" >JimInvokeCommand</text>
+</g>
+<g >
+<title>cfree@GLIBC_2.2.5 (53,159,477 samples, 0.29%)</title><rect x="857.1" y="101" width="3.4" height="15.0" fill="rgb(233,131,31)" rx="2" ry="2" />
+<text  x="860.10" y="111.5" ></text>
+</g>
+<g >
+<title>_int_free (23,069,207 samples, 0.13%)</title><rect x="342.6" y="581" width="1.5" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="345.57" y="591.5" ></text>
+</g>
+<g >
+<title>Jim_ApplyCoreCommand (1,859,578,686 samples, 10.19%)</title><rect x="980.9" y="453" width="120.2" height="15.0" fill="rgb(213,37,8)" rx="2" ry="2" />
+<text  x="983.87" y="463.5" >Jim_ApplyCoreC..</text>
+</g>
+<g >
+<title>schedule (1,587,763,247 samples, 8.70%)</title><rect x="459.5" y="549" width="102.7" height="15.0" fill="rgb(254,229,54)" rx="2" ry="2" />
+<text  x="462.53" y="559.5" >schedule</text>
+</g>
+<g >
+<title>JimCallProcedure (20,060,180 samples, 0.11%)</title><rect x="348.9" y="453" width="1.3" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="351.93" y="463.5" ></text>
+</g>
+<g >
+<title>clock_nanosleep@GLIBC_2.2.5 (19,057,171 samples, 0.10%)</title><rect x="336.9" y="613" width="1.2" height="15.0" fill="rgb(240,165,39)" rx="2" ry="2" />
+<text  x="339.87" y="623.5" ></text>
+</g>
+<g >
+<title>JimCatchTryHelper (1,605,817,409 samples, 8.80%)</title><rect x="213.2" y="485" width="103.9" height="15.0" fill="rgb(244,182,43)" rx="2" ry="2" />
+<text  x="216.23" y="495.5" >JimCatchTryH..</text>
+</g>
+<g >
+<title>SetVariableFromAny (29,087,261 samples, 0.16%)</title><rect x="1085.8" y="405" width="1.8" height="15.0" fill="rgb(246,193,46)" rx="2" ry="2" />
+<text  x="1088.76" y="415.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (661,985,940 samples, 3.63%)</title><rect x="216.5" y="325" width="42.8" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="219.54" y="335.5" >JimI..</text>
+</g>
+<g >
+<title>kvm_smp_send_call_func_ipi (16,048,144 samples, 0.09%)</title><rect x="770.4" y="437" width="1.0" height="15.0" fill="rgb(208,16,4)" rx="2" ry="2" />
+<text  x="773.37" y="447.5" ></text>
+</g>
+<g >
+<title>ListInsertElements (21,063,189 samples, 0.12%)</title><rect x="314.1" y="389" width="1.4" height="15.0" fill="rgb(233,131,31)" rx="2" ry="2" />
+<text  x="317.10" y="399.5" ></text>
+</g>
+<g >
+<title>Jim_FindHashEntry (20,060,180 samples, 0.11%)</title><rect x="1086.3" y="389" width="1.3" height="15.0" fill="rgb(222,79,18)" rx="2" ry="2" />
+<text  x="1089.34" y="399.5" ></text>
+</g>
+<g >
+<title>Jim_ListAppendElement (124,373,116 samples, 0.68%)</title><rect x="225.7" y="229" width="8.0" height="15.0" fill="rgb(239,159,38)" rx="2" ry="2" />
+<text  x="228.68" y="239.5" ></text>
+</g>
+<g >
+<title>_int_malloc (28,084,252 samples, 0.15%)</title><rect x="1064.4" y="325" width="1.8" height="15.0" fill="rgb(215,47,11)" rx="2" ry="2" />
+<text  x="1067.35" y="335.5" ></text>
+</g>
+<g >
+<title>JimParseSubBrace (507,522,554 samples, 2.78%)</title><rect x="171.6" y="565" width="32.9" height="15.0" fill="rgb(221,76,18)" rx="2" ry="2" />
+<text  x="174.65" y="575.5" >Ji..</text>
+</g>
+<g >
+<title>__send_ipi_mask (16,048,144 samples, 0.09%)</title><rect x="770.4" y="421" width="1.0" height="15.0" fill="rgb(211,32,7)" rx="2" ry="2" />
+<text  x="773.37" y="431.5" ></text>
+</g>
+<g >
+<title>Jim_GetBoolFromExpr (96,288,864 samples, 0.53%)</title><rect x="1003.3" y="133" width="6.2" height="15.0" fill="rgb(230,115,27)" rx="2" ry="2" />
+<text  x="1006.31" y="143.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (1,602,808,382 samples, 8.78%)</title><rect x="213.2" y="469" width="103.7" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="216.23" y="479.5" >Jim_EvalObj</text>
+</g>
+<g >
+<title>__x64_sys_sched_yield (1,906,720,109 samples, 10.45%)</title><rect x="438.9" y="565" width="123.3" height="15.0" fill="rgb(209,18,4)" rx="2" ry="2" />
+<text  x="441.90" y="575.5" >__x64_sys_sched..</text>
+</g>
+<g >
+<title>Jim_ListAppendElement (91,273,819 samples, 0.50%)</title><rect x="971.9" y="373" width="5.9" height="15.0" fill="rgb(239,159,38)" rx="2" ry="2" />
+<text  x="974.85" y="383.5" ></text>
+</g>
+<g >
+<title>Jim_FreeObj (19,057,171 samples, 0.10%)</title><rect x="1101.1" y="453" width="1.3" height="15.0" fill="rgb(217,58,14)" rx="2" ry="2" />
+<text  x="1104.13" y="463.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (204,613,836 samples, 1.12%)</title><rect x="1000.2" y="309" width="13.2" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="1003.20" y="319.5" ></text>
+</g>
+<g >
+<title>Jim_DeleteHashEntry (69,207,621 samples, 0.38%)</title><rect x="875.7" y="261" width="4.5" height="15.0" fill="rgb(215,48,11)" rx="2" ry="2" />
+<text  x="878.72" y="271.5" ></text>
+</g>
+<g >
+<title>__snprintf_chk (72,216,648 samples, 0.40%)</title><rect x="220.8" y="213" width="4.7" height="15.0" fill="rgb(209,20,4)" rx="2" ry="2" />
+<text  x="223.82" y="223.5" ></text>
+</g>
+<g >
+<title>malloc_consolidate (59,177,531 samples, 0.32%)</title><rect x="762.3" y="533" width="3.8" height="15.0" fill="rgb(239,159,38)" rx="2" ry="2" />
+<text  x="765.27" y="543.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (40,120,360 samples, 0.22%)</title><rect x="348.9" y="581" width="2.6" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="351.87" y="591.5" ></text>
+</g>
+<g >
+<title>FreeListInternalRep (60,180,540 samples, 0.33%)</title><rect x="238.2" y="197" width="3.9" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="241.20" y="207.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (30,090,270 samples, 0.16%)</title><rect x="1011.2" y="213" width="1.9" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="1014.16" y="223.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (153,460,377 samples, 0.84%)</title><rect x="268.1" y="405" width="9.9" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="271.11" y="415.5" ></text>
+</g>
+<g >
+<title>FreeListInternalRep (39,117,351 samples, 0.21%)</title><rect x="238.9" y="165" width="2.5" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="241.92" y="175.5" ></text>
+</g>
+<g >
+<title>Jim_SetResultFormatted (75,225,675 samples, 0.41%)</title><rect x="246.9" y="245" width="4.9" height="15.0" fill="rgb(240,161,38)" rx="2" ry="2" />
+<text  x="249.90" y="255.5" ></text>
+</g>
+<g >
+<title>ListEnsureLength (20,060,180 samples, 0.11%)</title><rect x="314.2" y="373" width="1.3" height="15.0" fill="rgb(217,58,13)" rx="2" ry="2" />
+<text  x="317.16" y="383.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (680,040,102 samples, 3.73%)</title><rect x="215.4" y="341" width="44.0" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="218.43" y="351.5" >Jim_..</text>
+</g>
+<g >
+<title>cfree@GLIBC_2.2.5 (55,165,495 samples, 0.30%)</title><rect x="869.3" y="229" width="3.6" height="15.0" fill="rgb(233,131,31)" rx="2" ry="2" />
+<text  x="872.30" y="239.5" ></text>
+</g>
+<g >
+<title>JimForeachMapHelper.part.0 (51,153,459 samples, 0.28%)</title><rect x="285.9" y="181" width="3.4" height="15.0" fill="rgb(241,168,40)" rx="2" ry="2" />
+<text  x="288.95" y="191.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (121,364,089 samples, 0.67%)</title><rect x="1002.4" y="165" width="7.9" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="1005.40" y="175.5" ></text>
+</g>
+<g >
+<title>Jim_EvalExpression (94,282,846 samples, 0.52%)</title><rect x="1003.4" y="117" width="6.1" height="15.0" fill="rgb(232,124,29)" rx="2" ry="2" />
+<text  x="1006.44" y="127.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (43,129,387 samples, 0.24%)</title><rect x="997.2" y="325" width="2.8" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="1000.21" y="335.5" ></text>
+</g>
+<g >
+<title>__x64_sys_sched_yield (507,522,554 samples, 2.78%)</title><rect x="120.8" y="549" width="32.8" height="15.0" fill="rgb(209,18,4)" rx="2" ry="2" />
+<text  x="123.79" y="559.5" >__..</text>
+</g>
+<g >
+<title>Jim_FreeObj (375,125,366 samples, 2.06%)</title><rect x="848.6" y="261" width="24.3" height="15.0" fill="rgb(217,58,14)" rx="2" ry="2" />
+<text  x="851.60" y="271.5" >J..</text>
+</g>
+<g >
+<title>read (17,051,153 samples, 0.09%)</title><rect x="340.2" y="549" width="1.1" height="15.0" fill="rgb(252,216,51)" rx="2" ry="2" />
+<text  x="343.24" y="559.5" ></text>
+</g>
+<g >
+<title>do_futex (56,168,504 samples, 0.31%)</title><rect x="820.9" y="133" width="3.6" height="15.0" fill="rgb(245,184,44)" rx="2" ry="2" />
+<text  x="823.91" y="143.5" ></text>
+</g>
+<g >
+<title>__futex_wait (27,081,243 samples, 0.15%)</title><rect x="819.1" y="101" width="1.7" height="15.0" fill="rgb(207,12,3)" rx="2" ry="2" />
+<text  x="822.09" y="111.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (1,606,820,418 samples, 8.81%)</title><rect x="213.2" y="501" width="103.9" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="216.23" y="511.5" >JimInvokeCom..</text>
+</g>
+<g >
+<title>FreeListInternalRep (172,517,548 samples, 0.95%)</title><rect x="852.9" y="213" width="11.1" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="855.88" y="223.5" ></text>
+</g>
+<g >
+<title>_IO_file_underflow@@GLIBC_2.2.5 (23,069,207 samples, 0.13%)</title><rect x="339.8" y="565" width="1.5" height="15.0" fill="rgb(206,5,1)" rx="2" ry="2" />
+<text  x="342.85" y="575.5" ></text>
+</g>
+<g >
+<title>as (72,216,648 samples, 0.40%)</title><rect x="10.0" y="693" width="4.7" height="15.0" fill="rgb(244,179,42)" rx="2" ry="2" />
+<text  x="13.00" y="703.5" ></text>
+</g>
+<g >
+<title>malloc (18,054,162 samples, 0.10%)</title><rect x="314.3" y="357" width="1.2" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="317.29" y="367.5" ></text>
+</g>
+<g >
+<title>__vsnprintf_internal (39,117,351 samples, 0.21%)</title><rect x="893.8" y="229" width="2.5" height="15.0" fill="rgb(237,150,35)" rx="2" ry="2" />
+<text  x="896.82" y="239.5" ></text>
+</g>
+<g >
+<title>__x64_sys_futex (56,168,504 samples, 0.31%)</title><rect x="820.9" y="149" width="3.6" height="15.0" fill="rgb(239,159,38)" rx="2" ry="2" />
+<text  x="823.91" y="159.5" ></text>
+</g>
+<g >
+<title>Jim_DictCoreCommand (29,087,261 samples, 0.16%)</title><rect x="1040.6" y="325" width="1.9" height="15.0" fill="rgb(252,220,52)" rx="2" ry="2" />
+<text  x="1043.61" y="335.5" ></text>
+</g>
+<g >
+<title>Jim_GetBoolFromExpr (106,318,954 samples, 0.58%)</title><rect x="259.7" y="325" width="6.9" height="15.0" fill="rgb(230,115,27)" rx="2" ry="2" />
+<text  x="262.74" y="335.5" ></text>
+</g>
+<g >
+<title>JimFreeCallFrame (40,120,360 samples, 0.22%)</title><rect x="992.7" y="373" width="2.6" height="15.0" fill="rgb(233,128,30)" rx="2" ry="2" />
+<text  x="995.74" y="383.5" ></text>
+</g>
+<g >
+<title>[x86_64-linux-gnu-ld.bfd] (90,270,810 samples, 0.49%)</title><rect x="1183.6" y="677" width="5.9" height="15.0" fill="rgb(240,163,39)" rx="2" ry="2" />
+<text  x="1186.64" y="687.5" ></text>
+</g>
+<g >
+<title>Jim_GetString (153,460,377 samples, 0.84%)</title><rect x="1052.9" y="357" width="9.9" height="15.0" fill="rgb(252,219,52)" rx="2" ry="2" />
+<text  x="1055.87" y="367.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (42,126,378 samples, 0.23%)</title><rect x="348.9" y="597" width="2.7" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="351.87" y="607.5" ></text>
+</g>
+<g >
+<title>JimParseSubBrace (61,183,549 samples, 0.34%)</title><rect x="270.6" y="309" width="3.9" height="15.0" fill="rgb(221,76,18)" rx="2" ry="2" />
+<text  x="273.57" y="319.5" ></text>
+</g>
+<g >
+<title>[x86_64-linux-gnu-as] (34,102,306 samples, 0.19%)</title><rect x="10.7" y="565" width="2.2" height="15.0" fill="rgb(249,206,49)" rx="2" ry="2" />
+<text  x="13.71" y="575.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (79,237,711 samples, 0.43%)</title><rect x="284.5" y="325" width="5.1" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="287.52" y="335.5" ></text>
+</g>
+<g >
+<title>_int_realloc (136,409,224 samples, 0.75%)</title><rect x="830.3" y="181" width="8.8" height="15.0" fill="rgb(230,117,28)" rx="2" ry="2" />
+<text  x="833.31" y="191.5" ></text>
+</g>
+<g >
+<title>path_openat (17,051,153 samples, 0.09%)</title><rect x="344.8" y="469" width="1.1" height="15.0" fill="rgb(249,202,48)" rx="2" ry="2" />
+<text  x="347.84" y="479.5" ></text>
+</g>
+<g >
+<title>Jim_DictMerge (111,333,999 samples, 0.61%)</title><rect x="268.6" y="357" width="7.2" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="271.56" y="367.5" ></text>
+</g>
+<g >
+<title>_int_malloc (20,060,180 samples, 0.11%)</title><rect x="207.7" y="533" width="1.3" height="15.0" fill="rgb(215,47,11)" rx="2" ry="2" />
+<text  x="210.72" y="543.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (131,394,179 samples, 0.72%)</title><rect x="1001.8" y="181" width="8.5" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="1004.82" y="191.5" ></text>
+</g>
+<g >
+<title>[x86_64-linux-gnu-as] (65,195,585 samples, 0.36%)</title><rect x="10.0" y="629" width="4.2" height="15.0" fill="rgb(249,206,49)" rx="2" ry="2" />
+<text  x="13.00" y="639.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (569,709,112 samples, 3.12%)</title><rect x="217.5" y="293" width="36.9" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="220.51" y="303.5" >Jim..</text>
+</g>
+<g >
+<title>__x64_sys_futex (16,048,144 samples, 0.09%)</title><rect x="759.1" y="517" width="1.0" height="15.0" fill="rgb(239,159,38)" rx="2" ry="2" />
+<text  x="762.09" y="527.5" ></text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (18,054,162 samples, 0.10%)</title><rect x="336.9" y="597" width="1.2" height="15.0" fill="rgb(218,63,15)" rx="2" ry="2" />
+<text  x="339.93" y="607.5" ></text>
+</g>
+<g >
+<title>Jim_FreeObj (123,370,107 samples, 0.68%)</title><rect x="236.8" y="245" width="8.0" height="15.0" fill="rgb(217,58,14)" rx="2" ry="2" />
+<text  x="239.84" y="255.5" ></text>
+</g>
+<g >
+<title>Jim_DeleteHashEntry (17,051,153 samples, 0.09%)</title><rect x="245.8" y="245" width="1.1" height="15.0" fill="rgb(215,48,11)" rx="2" ry="2" />
+<text  x="248.79" y="255.5" ></text>
+</g>
+<g >
+<title>Jim_StrDupLen (109,327,981 samples, 0.60%)</title><rect x="759.1" y="581" width="7.1" height="15.0" fill="rgb(244,183,43)" rx="2" ry="2" />
+<text  x="762.09" y="591.5" ></text>
+</g>
+<g >
+<title>JimCreateProcedureCmd (186,559,674 samples, 1.02%)</title><rect x="1088.7" y="437" width="12.1" height="15.0" fill="rgb(217,55,13)" rx="2" ry="2" />
+<text  x="1091.74" y="447.5" ></text>
+</g>
+<g >
+<title>reactToNewStatement (24,072,216 samples, 0.13%)</title><rect x="304.8" y="357" width="1.5" height="15.0" fill="rgb(244,179,42)" rx="2" ry="2" />
+<text  x="307.76" y="367.5" ></text>
+</g>
+<g >
+<title>__schedule (21,063,189 samples, 0.12%)</title><rect x="819.2" y="53" width="1.3" height="15.0" fill="rgb(227,103,24)" rx="2" ry="2" />
+<text  x="822.15" y="63.5" ></text>
+</g>
+<g >
+<title>JimFreeCallFrame (25,075,225 samples, 0.14%)</title><rect x="775.8" y="437" width="1.6" height="15.0" fill="rgb(233,128,30)" rx="2" ry="2" />
+<text  x="778.82" y="447.5" ></text>
+</g>
+<g >
+<title>Jim_IfCoreCommand (35,105,315 samples, 0.19%)</title><rect x="286.6" y="133" width="2.3" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="289.59" y="143.5" ></text>
+</g>
+<g >
+<title>Jim_FreeObj (61,183,549 samples, 0.34%)</title><rect x="856.8" y="133" width="3.9" height="15.0" fill="rgb(217,58,14)" rx="2" ry="2" />
+<text  x="859.78" y="143.5" ></text>
+</g>
+<g >
+<title>JimMakeListStringRep (66,198,594 samples, 0.36%)</title><rect x="300.3" y="325" width="4.3" height="15.0" fill="rgb(242,170,40)" rx="2" ry="2" />
+<text  x="303.35" y="335.5" ></text>
+</g>
+<g >
+<title>folk (16,768,304,462 samples, 91.90%)</title><rect x="99.2" y="693" width="1084.4" height="15.0" fill="rgb(248,201,48)" rx="2" ry="2" />
+<text  x="102.19" y="703.5" >folk</text>
+</g>
+<g >
+<title>Jim_EvalObj (50,150,450 samples, 0.27%)</title><rect x="1037.0" y="261" width="3.2" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="1039.98" y="271.5" ></text>
+</g>
+<g >
+<title>JimDefaultAllocator (21,063,189 samples, 0.12%)</title><rect x="1077.7" y="405" width="1.4" height="15.0" fill="rgb(221,77,18)" rx="2" ry="2" />
+<text  x="1080.71" y="415.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (783,350,029 samples, 4.29%)</title><rect x="995.4" y="373" width="50.7" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="998.40" y="383.5" >Jim_E..</text>
+</g>
+<g >
+<title>globalWorkQueueTake (55,165,495 samples, 0.30%)</title><rect x="563.9" y="613" width="3.6" height="15.0" fill="rgb(216,54,12)" rx="2" ry="2" />
+<text  x="566.90" y="623.5" ></text>
+</g>
+<g >
+<title>_int_free (26,078,234 samples, 0.14%)</title><rect x="866.4" y="181" width="1.7" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="869.44" y="191.5" ></text>
+</g>
+<g >
+<title>futex_wait (27,081,243 samples, 0.15%)</title><rect x="819.1" y="117" width="1.7" height="15.0" fill="rgb(235,138,33)" rx="2" ry="2" />
+<text  x="822.09" y="127.5" ></text>
+</g>
+<g >
+<title>Jim_EvalExpression (59,177,531 samples, 0.32%)</title><rect x="1020.5" y="261" width="3.8" height="15.0" fill="rgb(232,124,29)" rx="2" ry="2" />
+<text  x="1023.50" y="271.5" ></text>
+</g>
+<g >
+<title>fopen@@GLIBC_2.2.5 (25,075,225 samples, 0.14%)</title><rect x="344.7" y="613" width="1.6" height="15.0" fill="rgb(247,195,46)" rx="2" ry="2" />
+<text  x="347.65" y="623.5" ></text>
+</g>
+<g >
+<title>dbInsertOrReuseStatement (59,177,531 samples, 0.32%)</title><rect x="1048.5" y="373" width="3.9" height="15.0" fill="rgb(210,26,6)" rx="2" ry="2" />
+<text  x="1051.52" y="383.5" ></text>
+</g>
+<g >
+<title>JimCreateProcedureCmd (63,189,567 samples, 0.35%)</title><rect x="312.4" y="421" width="4.1" height="15.0" fill="rgb(217,55,13)" rx="2" ry="2" />
+<text  x="315.41" y="431.5" ></text>
+</g>
+<g >
+<title>JimCatchTryHelper (2,058,174,468 samples, 11.28%)</title><rect x="788.5" y="325" width="133.1" height="15.0" fill="rgb(244,182,43)" rx="2" ry="2" />
+<text  x="791.47" y="335.5" >JimCatchTryHelper</text>
+</g>
+<g >
+<title>Jim_SetVariable (200,601,800 samples, 1.10%)</title><rect x="1075.4" y="421" width="13.0" height="15.0" fill="rgb(244,182,43)" rx="2" ry="2" />
+<text  x="1078.44" y="431.5" ></text>
+</g>
+<g >
+<title>JimDefaultAllocator (24,072,216 samples, 0.13%)</title><rect x="912.4" y="277" width="1.5" height="15.0" fill="rgb(221,77,18)" rx="2" ry="2" />
+<text  x="915.37" y="287.5" ></text>
+</g>
+<g >
+<title>__vfscanf_internal (25,075,225 samples, 0.14%)</title><rect x="339.7" y="597" width="1.6" height="15.0" fill="rgb(210,26,6)" rx="2" ry="2" />
+<text  x="342.72" y="607.5" ></text>
+</g>
+<g >
+<title>SetListFromAny.isra.0 (17,051,153 samples, 0.09%)</title><rect x="943.4" y="389" width="1.1" height="15.0" fill="rgb(253,223,53)" rx="2" ry="2" />
+<text  x="946.44" y="399.5" ></text>
+</g>
+<g >
+<title>SetListFromAny.isra.0 (48,144,432 samples, 0.26%)</title><rect x="968.0" y="325" width="3.1" height="15.0" fill="rgb(253,223,53)" rx="2" ry="2" />
+<text  x="970.96" y="335.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (1,387,161,447 samples, 7.60%)</title><rect x="985.7" y="421" width="89.7" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="988.73" y="431.5" >Jim_EvalObj</text>
+</g>
+<g >
+<title>do_syscall_64 (18,054,162 samples, 0.10%)</title><rect x="336.9" y="581" width="1.2" height="15.0" fill="rgb(209,20,4)" rx="2" ry="2" />
+<text  x="339.93" y="591.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (184,553,656 samples, 1.01%)</title><rect x="1001.4" y="261" width="11.9" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="1004.37" y="271.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (591,775,310 samples, 3.24%)</title><rect x="996.8" y="357" width="38.2" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="999.76" y="367.5" >Jim..</text>
+</g>
+<g >
+<title>trieAddImpl (32,096,288 samples, 0.18%)</title><rect x="1050.3" y="341" width="2.1" height="15.0" fill="rgb(238,153,36)" rx="2" ry="2" />
+<text  x="1053.28" y="351.5" ></text>
+</g>
+<g >
+<title>Jim_GetBoolFromExpr (70,210,630 samples, 0.38%)</title><rect x="1019.8" y="277" width="4.5" height="15.0" fill="rgb(230,115,27)" rx="2" ry="2" />
+<text  x="1022.79" y="287.5" ></text>
+</g>
+<g >
+<title>[x86_64-linux-gnu-ld.bfd] (53,159,477 samples, 0.29%)</title><rect x="1183.8" y="581" width="3.4" height="15.0" fill="rgb(240,163,39)" rx="2" ry="2" />
+<text  x="1186.77" y="591.5" ></text>
+</g>
+<g >
+<title>workerRun (2,270,812,376 samples, 12.45%)</title><rect x="171.5" y="597" width="146.8" height="15.0" fill="rgb(215,46,11)" rx="2" ry="2" />
+<text  x="174.45" y="607.5" >workerRun</text>
+</g>
+<g >
+<title>trieAddImpl (28,084,252 samples, 0.15%)</title><rect x="1050.5" y="325" width="1.9" height="15.0" fill="rgb(238,153,36)" rx="2" ry="2" />
+<text  x="1053.54" y="335.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (184,553,656 samples, 1.01%)</title><rect x="1001.4" y="277" width="11.9" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="1004.37" y="287.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (60,180,540 samples, 0.33%)</title><rect x="285.8" y="245" width="3.8" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="288.75" y="255.5" ></text>
+</g>
+<g >
+<title>JimForeachMapHelper.part.0 (2,555,666,932 samples, 14.01%)</title><rect x="779.3" y="405" width="165.2" height="15.0" fill="rgb(241,168,40)" rx="2" ry="2" />
+<text  x="782.26" y="415.5" >JimForeachMapHelper.p..</text>
+</g>
+<g >
+<title>Jim_ClearHashTable (58,174,522 samples, 0.32%)</title><rect x="982.0" y="405" width="3.7" height="15.0" fill="rgb(234,136,32)" rx="2" ry="2" />
+<text  x="984.97" y="415.5" ></text>
+</g>
+<g >
+<title>all (18,245,736,719 samples, 100%)</title><rect x="10.0" y="709" width="1180.0" height="15.0" fill="rgb(213,39,9)" rx="2" ry="2" />
+<text  x="13.00" y="719.5" ></text>
+</g>
+<g >
+<title>malloc (99,297,891 samples, 0.54%)</title><rect x="750.6" y="565" width="6.4" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="753.59" y="575.5" ></text>
+</g>
+<g >
+<title>_itoa_word (28,084,252 samples, 0.15%)</title><rect x="812.8" y="197" width="1.8" height="15.0" fill="rgb(246,191,45)" rx="2" ry="2" />
+<text  x="815.80" y="207.5" ></text>
+</g>
+<g >
+<title>ptep_clear_flush (30,090,270 samples, 0.16%)</title><rect x="769.5" y="501" width="1.9" height="15.0" fill="rgb(207,11,2)" rx="2" ry="2" />
+<text  x="772.47" y="511.5" ></text>
+</g>
+<g >
+<title>dbHoldStatement (23,069,207 samples, 0.13%)</title><rect x="986.3" y="357" width="1.4" height="15.0" fill="rgb(228,106,25)" rx="2" ry="2" />
+<text  x="989.25" y="367.5" ></text>
+</g>
+<g >
+<title>_int_free (36,108,324 samples, 0.20%)</title><rect x="831.3" y="165" width="2.3" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="834.28" y="175.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (997,993,955 samples, 5.47%)</title><rect x="213.7" y="421" width="64.5" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="216.68" y="431.5" >Jim_Eva..</text>
+</g>
+<g >
+<title>Jim_EvalObj (257,773,313 samples, 1.41%)</title><rect x="997.0" y="341" width="16.6" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="999.96" y="351.5" ></text>
+</g>
+<g >
+<title>Jim_ForCoreCommand (251,755,259 samples, 1.38%)</title><rect x="1013.6" y="341" width="16.3" height="15.0" fill="rgb(253,224,53)" rx="2" ry="2" />
+<text  x="1016.63" y="351.5" ></text>
+</g>
+<g >
+<title>ListEnsureLength (25,075,225 samples, 0.14%)</title><rect x="845.2" y="229" width="1.6" height="15.0" fill="rgb(217,58,13)" rx="2" ry="2" />
+<text  x="848.17" y="239.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (448,345,023 samples, 2.46%)</title><rect x="280.1" y="405" width="29.0" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="283.11" y="415.5" >Ji..</text>
+</g>
+<g >
+<title>ListInsertElements (67,201,603 samples, 0.37%)</title><rect x="842.6" y="245" width="4.4" height="15.0" fill="rgb(233,131,31)" rx="2" ry="2" />
+<text  x="845.64" y="255.5" ></text>
+</g>
+<g >
+<title>do_syscall_64 (22,066,198 samples, 0.12%)</title><rect x="344.7" y="533" width="1.4" height="15.0" fill="rgb(209,20,4)" rx="2" ry="2" />
+<text  x="347.71" y="543.5" ></text>
+</g>
+<g >
+<title>JimExprOpBin (19,057,171 samples, 0.10%)</title><rect x="1028.5" y="293" width="1.3" height="15.0" fill="rgb(223,83,19)" rx="2" ry="2" />
+<text  x="1031.55" y="303.5" ></text>
+</g>
+<g >
+<title>trieAddImpl (18,054,162 samples, 0.10%)</title><rect x="1051.2" y="261" width="1.2" height="15.0" fill="rgb(238,153,36)" rx="2" ry="2" />
+<text  x="1054.18" y="271.5" ></text>
+</g>
+<g >
+<title>Jim_SetResultFormatted (255,767,295 samples, 1.40%)</title><rect x="880.3" y="261" width="16.5" height="15.0" fill="rgb(240,161,38)" rx="2" ry="2" />
+<text  x="883.26" y="271.5" ></text>
+</g>
+<g >
+<title>cc1 (1,277,833,466 samples, 7.00%)</title><rect x="14.7" y="693" width="82.6" height="15.0" fill="rgb(217,59,14)" rx="2" ry="2" />
+<text  x="17.67" y="703.5" >cc1</text>
+</g>
+<g >
+<title>Jim_UplevelCoreCommand (184,553,656 samples, 1.01%)</title><rect x="1001.4" y="293" width="11.9" height="15.0" fill="rgb(224,88,21)" rx="2" ry="2" />
+<text  x="1004.37" y="303.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObjVector (5,114,342,891 samples, 28.03%)</title><rect x="773.5" y="581" width="330.7" height="15.0" fill="rgb(228,108,25)" rx="2" ry="2" />
+<text  x="776.49" y="591.5" >Jim_EvalObjVector</text>
+</g>
+<g >
+<title>FreeListInternalRep (305,917,745 samples, 1.68%)</title><rect x="849.0" y="245" width="19.8" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="851.99" y="255.5" ></text>
+</g>
+<g >
+<title>JimDefaultAllocator (26,078,234 samples, 0.14%)</title><rect x="239.4" y="101" width="1.7" height="15.0" fill="rgb(221,77,18)" rx="2" ry="2" />
+<text  x="242.37" y="111.5" ></text>
+</g>
+<g >
+<title>Jim_NewStringObj (33,099,297 samples, 0.18%)</title><rect x="797.9" y="229" width="2.2" height="15.0" fill="rgb(210,23,5)" rx="2" ry="2" />
+<text  x="800.94" y="239.5" ></text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (22,066,198 samples, 0.12%)</title><rect x="344.7" y="549" width="1.4" height="15.0" fill="rgb(218,63,15)" rx="2" ry="2" />
+<text  x="347.71" y="559.5" ></text>
+</g>
+<g >
+<title>common_nsleep (16,048,144 samples, 0.09%)</title><rect x="336.9" y="549" width="1.1" height="15.0" fill="rgb(227,105,25)" rx="2" ry="2" />
+<text  x="339.93" y="559.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (474,423,257 samples, 2.60%)</title><rect x="948.6" y="421" width="30.7" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="951.63" y="431.5" >Ji..</text>
+</g>
+<g >
+<title>JimSetErrorStack.part.0 (410,230,681 samples, 2.25%)</title><rect x="219.2" y="261" width="26.5" height="15.0" fill="rgb(209,22,5)" rx="2" ry="2" />
+<text  x="222.20" y="271.5" >J..</text>
+</g>
+<g >
+<title>epochGlobalCollect (37,111,333 samples, 0.20%)</title><rect x="341.7" y="613" width="2.4" height="15.0" fill="rgb(241,169,40)" rx="2" ry="2" />
+<text  x="344.67" y="623.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (57,171,513 samples, 0.31%)</title><rect x="285.9" y="213" width="3.7" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="288.95" y="223.5" ></text>
+</g>
+<g >
+<title>__lll_lock_wait_private (30,090,270 samples, 0.16%)</title><rect x="818.9" y="197" width="1.9" height="15.0" fill="rgb(254,228,54)" rx="2" ry="2" />
+<text  x="821.89" y="207.5" ></text>
+</g>
+<g >
+<title>Jim_EvalExpression (31,093,279 samples, 0.17%)</title><rect x="286.9" y="101" width="2.0" height="15.0" fill="rgb(232,124,29)" rx="2" ry="2" />
+<text  x="289.85" y="111.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (33,099,297 samples, 0.18%)</title><rect x="252.1" y="277" width="2.1" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="255.08" y="287.5" ></text>
+</g>
+<g >
+<title>statementRemoveSelf (38,114,342 samples, 0.21%)</title><rect x="989.6" y="325" width="2.5" height="15.0" fill="rgb(213,37,8)" rx="2" ry="2" />
+<text  x="992.63" y="335.5" ></text>
+</g>
+<g >
+<title>Jim_Utf8Length (32,096,288 samples, 0.18%)</title><rect x="935.7" y="245" width="2.0" height="15.0" fill="rgb(229,113,27)" rx="2" ry="2" />
+<text  x="938.66" y="255.5" ></text>
+</g>
+<g >
+<title>Jim_IfCoreCommand (20,060,180 samples, 0.11%)</title><rect x="1030.1" y="341" width="1.3" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="1033.10" y="351.5" ></text>
+</g>
+<g >
+<title>matchRemoveSelf (47,141,423 samples, 0.26%)</title><rect x="989.0" y="341" width="3.1" height="15.0" fill="rgb(208,17,4)" rx="2" ry="2" />
+<text  x="992.04" y="351.5" ></text>
+</g>
+<g >
+<title>try_to_wake_up (42,126,378 samples, 0.23%)</title><rect x="821.8" y="85" width="2.7" height="15.0" fill="rgb(220,70,16)" rx="2" ry="2" />
+<text  x="824.81" y="95.5" ></text>
+</g>
+<g >
+<title>JimForeachMapHelper.part.0 (822,467,380 samples, 4.51%)</title><rect x="213.9" y="389" width="53.2" height="15.0" fill="rgb(241,168,40)" rx="2" ry="2" />
+<text  x="216.88" y="399.5" >JimFo..</text>
+</g>
+<g >
+<title>Jim_ApplyCoreCommand (591,775,310 samples, 3.24%)</title><rect x="278.4" y="437" width="38.2" height="15.0" fill="rgb(213,37,8)" rx="2" ry="2" />
+<text  x="281.36" y="447.5" >Jim..</text>
+</g>
+<g >
+<title>JimInvokeCommand (41,123,369 samples, 0.23%)</title><rect x="290.4" y="293" width="2.7" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="293.42" y="303.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (54,162,486 samples, 0.30%)</title><rect x="285.9" y="197" width="3.5" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="288.95" y="207.5" ></text>
+</g>
+<g >
+<title>ListEnsureLength (19,057,171 samples, 0.10%)</title><rect x="748.7" y="549" width="1.2" height="15.0" fill="rgb(217,58,13)" rx="2" ry="2" />
+<text  x="751.71" y="559.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (146,439,314 samples, 0.80%)</title><rect x="268.4" y="389" width="9.5" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="271.43" y="399.5" ></text>
+</g>
+<g >
+<title>__libc_start_main@@GLIBC_2.34 (65,195,585 samples, 0.36%)</title><rect x="10.0" y="661" width="4.2" height="15.0" fill="rgb(229,113,27)" rx="2" ry="2" />
+<text  x="13.00" y="671.5" ></text>
+</g>
+<g >
+<title>realloc (39,117,351 samples, 0.21%)</title><rect x="974.6" y="325" width="2.5" height="15.0" fill="rgb(246,189,45)" rx="2" ry="2" />
+<text  x="977.58" y="335.5" ></text>
+</g>
+<g >
+<title>Jim_SetVariable (50,150,450 samples, 0.27%)</title><rect x="309.1" y="405" width="3.2" height="15.0" fill="rgb(244,182,43)" rx="2" ry="2" />
+<text  x="312.10" y="415.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (157,472,413 samples, 0.86%)</title><rect x="1016.5" y="309" width="10.2" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="1019.48" y="319.5" ></text>
+</g>
+<g >
+<title>Jim_IfCoreCommand (303,911,727 samples, 1.67%)</title><rect x="923.0" y="357" width="19.7" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="926.01" y="367.5" ></text>
+</g>
+<g >
+<title>Jim_DictCoreCommand (113,340,017 samples, 0.62%)</title><rect x="268.5" y="373" width="7.3" height="15.0" fill="rgb(252,220,52)" rx="2" ry="2" />
+<text  x="271.50" y="383.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (1,601,805,373 samples, 8.78%)</title><rect x="793.9" y="293" width="103.6" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="796.92" y="303.5" >JimInvokeCom..</text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (657,973,904 samples, 3.61%)</title><rect x="111.3" y="581" width="42.6" height="15.0" fill="rgb(218,63,15)" rx="2" ry="2" />
+<text  x="114.32" y="591.5" >entr..</text>
+</g>
+<g >
+<title>JimParseSubBrace (173,520,557 samples, 0.95%)</title><rect x="956.7" y="325" width="11.3" height="15.0" fill="rgb(221,76,18)" rx="2" ry="2" />
+<text  x="959.74" y="335.5" ></text>
+</g>
+<g >
+<title>ListInsertElements (70,210,630 samples, 0.38%)</title><rect x="1092.7" y="405" width="4.5" height="15.0" fill="rgb(233,131,31)" rx="2" ry="2" />
+<text  x="1095.70" y="415.5" ></text>
+</g>
+<g >
+<title>_IO_default_uflow (23,069,207 samples, 0.13%)</title><rect x="339.8" y="581" width="1.5" height="15.0" fill="rgb(205,2,0)" rx="2" ry="2" />
+<text  x="342.85" y="591.5" ></text>
+</g>
+<g >
+<title>workerMain (12,944,834,154 samples, 70.95%)</title><rect x="346.5" y="645" width="837.1" height="15.0" fill="rgb(248,199,47)" rx="2" ry="2" />
+<text  x="349.47" y="655.5" >workerMain</text>
+</g>
+<g >
+<title>Jim_SetVariable (53,159,477 samples, 0.29%)</title><rect x="915.3" y="293" width="3.4" height="15.0" fill="rgb(244,182,43)" rx="2" ry="2" />
+<text  x="918.29" y="303.5" ></text>
+</g>
+<g >
+<title>ListInsertElements (72,216,648 samples, 0.40%)</title><rect x="972.4" y="357" width="4.7" height="15.0" fill="rgb(233,131,31)" rx="2" ry="2" />
+<text  x="975.44" y="367.5" ></text>
+</g>
+<g >
+<title>JimCallProcedure (3,171,514,458 samples, 17.38%)</title><rect x="775.6" y="453" width="205.1" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="778.63" y="463.5" >JimCallProcedure</text>
+</g>
+<g >
+<title>Jim_FreeObj (20,060,180 samples, 0.11%)</title><rect x="994.0" y="325" width="1.3" height="15.0" fill="rgb(217,58,14)" rx="2" ry="2" />
+<text  x="997.04" y="335.5" ></text>
+</g>
+<g >
+<title>DictAddElement.isra.0 (97,291,873 samples, 0.53%)</title><rect x="949.8" y="357" width="6.3" height="15.0" fill="rgb(244,180,43)" rx="2" ry="2" />
+<text  x="952.80" y="367.5" ></text>
+</g>
+<g >
+<title>matchRemoveSelf (19,057,171 samples, 0.10%)</title><rect x="989.9" y="309" width="1.2" height="15.0" fill="rgb(208,17,4)" rx="2" ry="2" />
+<text  x="992.88" y="319.5" ></text>
+</g>
+<g >
+<title>__libc_start_main@@GLIBC_2.34 (3,665,997,895 samples, 20.09%)</title><rect x="99.3" y="661" width="237.0" height="15.0" fill="rgb(229,113,27)" rx="2" ry="2" />
+<text  x="102.26" y="671.5" >__libc_start_main@@GLIBC_2.34</text>
+</g>
+<g >
+<title>__strcmp_evex (18,054,162 samples, 0.10%)</title><rect x="1024.3" y="277" width="1.2" height="15.0" fill="rgb(234,134,32)" rx="2" ry="2" />
+<text  x="1027.33" y="287.5" ></text>
+</g>
+<g >
+<title>do_futex (16,048,144 samples, 0.09%)</title><rect x="759.1" y="501" width="1.0" height="15.0" fill="rgb(245,184,44)" rx="2" ry="2" />
+<text  x="762.09" y="511.5" ></text>
+</g>
+<g >
+<title>_int_free (17,051,153 samples, 0.09%)</title><rect x="1078.0" y="373" width="1.1" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="1080.97" y="383.5" ></text>
+</g>
+<g >
+<title>malloc (20,060,180 samples, 0.11%)</title><rect x="969.7" y="309" width="1.3" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="972.71" y="319.5" ></text>
+</g>
+<g >
+<title>Jim_ListAppendElement (409,227,672 samples, 2.24%)</title><rect x="814.9" y="245" width="26.5" height="15.0" fill="rgb(239,159,38)" rx="2" ry="2" />
+<text  x="817.94" y="255.5" >J..</text>
+</g>
+<g >
+<title>__printf_buffer (26,078,234 samples, 0.14%)</title><rect x="893.8" y="213" width="1.7" height="15.0" fill="rgb(219,68,16)" rx="2" ry="2" />
+<text  x="896.82" y="223.5" ></text>
+</g>
+<g >
+<title>[cc1] (100,300,900 samples, 0.55%)</title><rect x="46.9" y="645" width="6.5" height="15.0" fill="rgb(229,111,26)" rx="2" ry="2" />
+<text  x="49.91" y="655.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (61,183,549 samples, 0.34%)</title><rect x="1036.5" y="293" width="4.0" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="1039.52" y="303.5" ></text>
+</g>
+<g >
+<title>JimCatchTryHelper (654,964,877 samples, 3.59%)</title><rect x="216.7" y="309" width="42.3" height="15.0" fill="rgb(244,182,43)" rx="2" ry="2" />
+<text  x="219.67" y="319.5" >Jim..</text>
+</g>
+<g >
+<title>on_each_cpu_cond_mask (30,090,270 samples, 0.16%)</title><rect x="769.5" y="469" width="1.9" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="772.47" y="479.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (58,174,522 samples, 0.32%)</title><rect x="289.6" y="309" width="3.8" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="292.64" y="319.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (48,144,432 samples, 0.26%)</title><rect x="286.0" y="165" width="3.1" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="289.01" y="175.5" ></text>
+</g>
+<g >
+<title>SayWithSourceFunc (110,330,990 samples, 0.60%)</title><rect x="299.3" y="373" width="7.1" height="15.0" fill="rgb(212,32,7)" rx="2" ry="2" />
+<text  x="302.31" y="383.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (220,661,980 samples, 1.21%)</title><rect x="1013.8" y="325" width="14.3" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="1016.82" y="335.5" ></text>
+</g>
+<g >
+<title>JimExprOpOr (69,207,621 samples, 0.38%)</title><rect x="1004.0" y="101" width="4.4" height="15.0" fill="rgb(241,168,40)" rx="2" ry="2" />
+<text  x="1006.96" y="111.5" ></text>
+</g>
+<g >
+<title>sched_yield@plt (30,090,270 samples, 0.16%)</title><rect x="575.4" y="613" width="1.9" height="15.0" fill="rgb(207,10,2)" rx="2" ry="2" />
+<text  x="578.38" y="623.5" ></text>
+</g>
+<g >
+<title>workerLoop (12,799,397,849 samples, 70.15%)</title><rect x="354.4" y="629" width="827.8" height="15.0" fill="rgb(212,35,8)" rx="2" ry="2" />
+<text  x="357.45" y="639.5" >workerLoop</text>
+</g>
+<g >
+<title>Jim_IfCoreCommand (27,081,243 samples, 0.15%)</title><rect x="291.1" y="277" width="1.8" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="294.13" y="287.5" ></text>
+</g>
+<g >
+<title>JimCallProcedure (5,106,318,819 samples, 27.99%)</title><rect x="773.7" y="549" width="330.2" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="776.68" y="559.5" >JimCallProcedure</text>
+</g>
+<g >
+<title>Jim_AddHashEntry (100,300,900 samples, 0.55%)</title><rect x="1079.3" y="405" width="6.5" height="15.0" fill="rgb(247,194,46)" rx="2" ry="2" />
+<text  x="1082.27" y="415.5" ></text>
+</g>
+<g >
+<title>__libc_start_main@@GLIBC_2.34 (90,270,810 samples, 0.49%)</title><rect x="1183.6" y="661" width="5.9" height="15.0" fill="rgb(229,113,27)" rx="2" ry="2" />
+<text  x="1186.64" y="671.5" ></text>
+</g>
+<g >
+<title>JimExprOpStrBin (93,279,837 samples, 0.51%)</title><rect x="260.5" y="293" width="6.0" height="15.0" fill="rgb(251,212,50)" rx="2" ry="2" />
+<text  x="263.52" y="303.5" ></text>
+</g>
+<g >
+<title>trieAddImpl (25,075,225 samples, 0.14%)</title><rect x="1050.7" y="309" width="1.7" height="15.0" fill="rgb(238,153,36)" rx="2" ry="2" />
+<text  x="1053.73" y="319.5" ></text>
+</g>
+<g >
+<title>JimSetScriptFromAny (19,057,171 samples, 0.10%)</title><rect x="307.0" y="389" width="1.2" height="15.0" fill="rgb(229,114,27)" rx="2" ry="2" />
+<text  x="309.96" y="399.5" ></text>
+</g>
+<g >
+<title>JimDefaultAllocator (20,060,180 samples, 0.11%)</title><rect x="242.1" y="197" width="1.3" height="15.0" fill="rgb(221,77,18)" rx="2" ry="2" />
+<text  x="245.09" y="207.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (72,216,648 samples, 0.40%)</title><rect x="261.2" y="277" width="4.7" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="264.23" y="287.5" ></text>
+</g>
+<g >
+<title>Jim_AddHashEntry (25,075,225 samples, 0.14%)</title><rect x="310.4" y="389" width="1.6" height="15.0" fill="rgb(247,194,46)" rx="2" ry="2" />
+<text  x="313.40" y="399.5" ></text>
+</g>
+<g >
+<title>JimDefaultAllocator (56,168,504 samples, 0.31%)</title><rect x="856.9" y="117" width="3.6" height="15.0" fill="rgb(221,77,18)" rx="2" ry="2" />
+<text  x="859.91" y="127.5" ></text>
+</g>
+<g >
+<title>SetListFromAny.isra.0 (17,051,153 samples, 0.09%)</title><rect x="839.4" y="229" width="1.1" height="15.0" fill="rgb(253,223,53)" rx="2" ry="2" />
+<text  x="842.39" y="239.5" ></text>
+</g>
+<g >
+<title>jimObjsToClause (165,496,485 samples, 0.91%)</title><rect x="1052.8" y="373" width="10.7" height="15.0" fill="rgb(207,11,2)" rx="2" ry="2" />
+<text  x="1055.81" y="383.5" ></text>
+</g>
+<g >
+<title>malloc (26,078,234 samples, 0.14%)</title><rect x="210.0" y="549" width="1.7" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="212.99" y="559.5" ></text>
+</g>
+<g >
+<title>realloc (63,189,567 samples, 0.35%)</title><rect x="229.1" y="181" width="4.1" height="15.0" fill="rgb(246,189,45)" rx="2" ry="2" />
+<text  x="232.12" y="191.5" ></text>
+</g>
+<g >
+<title>JimDictHashFind (28,084,252 samples, 0.15%)</title><rect x="951.8" y="341" width="1.8" height="15.0" fill="rgb(253,221,52)" rx="2" ry="2" />
+<text  x="954.81" y="351.5" ></text>
+</g>
+<g >
+<title>workQueueSteal (191,574,719 samples, 1.05%)</title><rect x="323.6" y="581" width="12.4" height="15.0" fill="rgb(248,198,47)" rx="2" ry="2" />
+<text  x="326.63" y="591.5" ></text>
+</g>
+<g >
+<title>ListEnsureLength (91,273,819 samples, 0.50%)</title><rect x="227.3" y="197" width="5.9" height="15.0" fill="rgb(217,58,13)" rx="2" ry="2" />
+<text  x="230.31" y="207.5" ></text>
+</g>
+<g >
+<title>Jim_FindHashEntry (24,072,216 samples, 0.13%)</title><rect x="917.2" y="261" width="1.5" height="15.0" fill="rgb(222,79,18)" rx="2" ry="2" />
+<text  x="920.17" y="271.5" ></text>
+</g>
+<g >
+<title>rand_r (16,048,144 samples, 0.09%)</title><rect x="155.2" y="597" width="1.1" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="158.24" y="607.5" ></text>
+</g>
+<g >
+<title>Jim_DeleteCommand (97,291,873 samples, 0.53%)</title><rect x="245.7" y="261" width="6.3" height="15.0" fill="rgb(254,227,54)" rx="2" ry="2" />
+<text  x="248.73" y="271.5" ></text>
+</g>
+<g >
+<title>Jim_FreeObj (267,803,403 samples, 1.47%)</title><rect x="851.5" y="229" width="17.3" height="15.0" fill="rgb(217,58,14)" rx="2" ry="2" />
+<text  x="854.46" y="239.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (71,213,639 samples, 0.39%)</title><rect x="285.0" y="309" width="4.6" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="288.04" y="319.5" ></text>
+</g>
+<g >
+<title>Jim_EvalExpression (103,309,927 samples, 0.57%)</title><rect x="259.9" y="309" width="6.7" height="15.0" fill="rgb(232,124,29)" rx="2" ry="2" />
+<text  x="262.93" y="319.5" ></text>
+</g>
+<g >
+<title>jimObjsToClause (67,201,603 samples, 0.37%)</title><rect x="300.3" y="357" width="4.4" height="15.0" fill="rgb(207,11,2)" rx="2" ry="2" />
+<text  x="303.35" y="367.5" ></text>
+</g>
+<g >
+<title>SetExprFromAny (27,081,243 samples, 0.15%)</title><rect x="1072.4" y="357" width="1.7" height="15.0" fill="rgb(222,81,19)" rx="2" ry="2" />
+<text  x="1075.40" y="367.5" ></text>
+</g>
+<g >
+<title>JimCallProcedure (247,743,223 samples, 1.36%)</title><rect x="282.8" y="373" width="16.0" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="285.77" y="383.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (181,544,629 samples, 0.99%)</title><rect x="1001.4" y="229" width="11.8" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="1004.43" y="239.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (5,057,171,378 samples, 27.72%)</title><rect x="775.6" y="469" width="327.0" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="778.56" y="479.5" >JimInvokeCommand</text>
+</g>
+<g >
+<title>JimDefaultAllocator (19,057,171 samples, 0.10%)</title><rect x="939.2" y="277" width="1.3" height="15.0" fill="rgb(221,77,18)" rx="2" ry="2" />
+<text  x="942.22" y="287.5" ></text>
+</g>
+<g >
+<title>SetListFromAny.isra.0 (68,204,612 samples, 0.37%)</title><rect x="204.6" y="565" width="4.4" height="15.0" fill="rgb(253,223,53)" rx="2" ry="2" />
+<text  x="207.60" y="575.5" ></text>
+</g>
+<g >
+<title>schedule (22,066,198 samples, 0.12%)</title><rect x="819.1" y="69" width="1.4" height="15.0" fill="rgb(254,229,54)" rx="2" ry="2" />
+<text  x="822.09" y="79.5" ></text>
+</g>
+<g >
+<title>__lll_lock_wake_private (57,171,513 samples, 0.31%)</title><rect x="820.8" y="197" width="3.7" height="15.0" fill="rgb(238,155,37)" rx="2" ry="2" />
+<text  x="823.84" y="207.5" ></text>
+</g>
+<g >
+<title>JimCallProcedure (21,063,189 samples, 0.12%)</title><rect x="348.9" y="501" width="1.4" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="351.93" y="511.5" ></text>
+</g>
+<g >
+<title>SayWithSourceFunc (303,911,727 samples, 1.67%)</title><rect x="1048.3" y="389" width="19.7" height="15.0" fill="rgb(212,32,7)" rx="2" ry="2" />
+<text  x="1051.33" y="399.5" ></text>
+</g>
+<g >
+<title>Jim_DictMatchTypes (103,309,927 samples, 0.57%)</title><rect x="971.5" y="389" width="6.7" height="15.0" fill="rgb(205,0,0)" rx="2" ry="2" />
+<text  x="974.53" y="399.5" ></text>
+</g>
+<g >
+<title>workerSteal (22,066,198 samples, 0.12%)</title><rect x="1182.2" y="629" width="1.4" height="15.0" fill="rgb(249,202,48)" rx="2" ry="2" />
+<text  x="1185.22" y="639.5" ></text>
+</g>
+<g >
+<title>SetDictFromAny (232,698,088 samples, 1.28%)</title><rect x="956.3" y="341" width="15.0" height="15.0" fill="rgb(247,194,46)" rx="2" ry="2" />
+<text  x="959.28" y="351.5" ></text>
+</g>
+<g >
+<title>Jim_FindHashEntry (25,075,225 samples, 0.14%)</title><rect x="908.4" y="261" width="1.6" height="15.0" fill="rgb(222,79,18)" rx="2" ry="2" />
+<text  x="911.41" y="271.5" ></text>
+</g>
+<g >
+<title>do_filp_open (19,057,171 samples, 0.10%)</title><rect x="344.7" y="485" width="1.2" height="15.0" fill="rgb(211,28,6)" rx="2" ry="2" />
+<text  x="347.71" y="495.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObjVector (1,611,835,463 samples, 8.83%)</title><rect x="213.0" y="565" width="104.3" height="15.0" fill="rgb(228,108,25)" rx="2" ry="2" />
+<text  x="216.03" y="575.5" >Jim_EvalObjV..</text>
+</g>
+<g >
+<title>statementRemoveSelf (18,054,162 samples, 0.10%)</title><rect x="281.5" y="341" width="1.2" height="15.0" fill="rgb(213,37,8)" rx="2" ry="2" />
+<text  x="284.53" y="351.5" ></text>
+</g>
+<g >
+<title>Jim_SetVariable (17,051,153 samples, 0.09%)</title><rect x="257.1" y="277" width="1.1" height="15.0" fill="rgb(244,182,43)" rx="2" ry="2" />
+<text  x="260.14" y="287.5" ></text>
+</g>
+<g >
+<title>__schedule (415,245,726 samples, 2.28%)</title><rect x="126.8" y="517" width="26.8" height="15.0" fill="rgb(227,103,24)" rx="2" ry="2" />
+<text  x="129.76" y="527.5" >_..</text>
+</g>
+<g >
+<title>do_syscall_64 (56,168,504 samples, 0.31%)</title><rect x="820.9" y="165" width="3.6" height="15.0" fill="rgb(209,20,4)" rx="2" ry="2" />
+<text  x="823.91" y="175.5" ></text>
+</g>
+<g >
+<title>__vsnprintf_internal (210,631,890 samples, 1.15%)</title><rect x="801.0" y="213" width="13.6" height="15.0" fill="rgb(237,150,35)" rx="2" ry="2" />
+<text  x="803.99" y="223.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (109,327,981 samples, 0.60%)</title><rect x="930.9" y="277" width="7.0" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="933.86" y="287.5" ></text>
+</g>
+<g >
+<title>Jim_DeleteCommand (335,005,006 samples, 1.84%)</title><rect x="875.4" y="277" width="21.7" height="15.0" fill="rgb(254,227,54)" rx="2" ry="2" />
+<text  x="878.39" y="287.5" >J..</text>
+</g>
+<g >
+<title>Jim_DictCoreCommand (339,017,042 samples, 1.86%)</title><rect x="949.6" y="389" width="21.9" height="15.0" fill="rgb(252,220,52)" rx="2" ry="2" />
+<text  x="952.60" y="399.5" >J..</text>
+</g>
+<g >
+<title>Jim_GetBoolFromExpr (275,827,475 samples, 1.51%)</title><rect x="923.8" y="341" width="17.9" height="15.0" fill="rgb(230,115,27)" rx="2" ry="2" />
+<text  x="926.85" y="351.5" ></text>
+</g>
+<g >
+<title>workerSteal (1,140,421,233 samples, 6.25%)</title><rect x="1108.5" y="613" width="73.7" height="15.0" fill="rgb(249,202,48)" rx="2" ry="2" />
+<text  x="1111.46" y="623.5" >workerSt..</text>
+</g>
+<g >
+<title>workQueueTake (898,696,064 samples, 4.93%)</title><rect x="580.6" y="613" width="58.2" height="15.0" fill="rgb(247,195,46)" rx="2" ry="2" />
+<text  x="583.64" y="623.5" >workQu..</text>
+</g>
+<g >
+<title>__printf_buffer (132,397,188 samples, 0.73%)</title><rect x="801.3" y="197" width="8.5" height="15.0" fill="rgb(219,68,16)" rx="2" ry="2" />
+<text  x="804.25" y="207.5" ></text>
+</g>
+<g >
+<title>[unknown] (54,162,486 samples, 0.30%)</title><rect x="53.4" y="645" width="3.5" height="15.0" fill="rgb(210,24,5)" rx="2" ry="2" />
+<text  x="56.40" y="655.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (21,063,189 samples, 0.12%)</title><rect x="348.9" y="469" width="1.4" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="351.93" y="479.5" ></text>
+</g>
+<g >
+<title>JimCallProcedure (526,579,725 samples, 2.89%)</title><rect x="278.4" y="421" width="34.0" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="281.36" y="431.5" >Ji..</text>
+</g>
+<g >
+<title>FreeListInternalRep (18,054,162 samples, 0.10%)</title><rect x="1101.1" y="437" width="1.2" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="1104.13" y="447.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (405,215,636 samples, 2.22%)</title><rect x="280.2" y="389" width="26.2" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="283.24" y="399.5" >J..</text>
+</g>
+<g >
+<title>Jim_EvalFile (39,117,351 samples, 0.21%)</title><rect x="348.9" y="549" width="2.6" height="15.0" fill="rgb(226,99,23)" rx="2" ry="2" />
+<text  x="351.93" y="559.5" ></text>
+</g>
+<g >
+<title>_raw_spin_unlock_irqrestore (41,123,369 samples, 0.23%)</title><rect x="821.9" y="69" width="2.6" height="15.0" fill="rgb(228,106,25)" rx="2" ry="2" />
+<text  x="824.88" y="79.5" ></text>
+</g>
+<g >
+<title>__libc_start_call_main (65,195,585 samples, 0.36%)</title><rect x="10.0" y="645" width="4.2" height="15.0" fill="rgb(210,26,6)" rx="2" ry="2" />
+<text  x="13.00" y="655.5" ></text>
+</g>
+<g >
+<title>JimFreeCallFrame (17,051,153 samples, 0.09%)</title><rect x="282.9" y="357" width="1.1" height="15.0" fill="rgb(233,128,30)" rx="2" ry="2" />
+<text  x="285.90" y="367.5" ></text>
+</g>
+<g >
+<title>__printf_buffer_write (23,069,207 samples, 0.13%)</title><rect x="808.3" y="181" width="1.4" height="15.0" fill="rgb(220,73,17)" rx="2" ry="2" />
+<text  x="811.26" y="191.5" ></text>
+</g>
+<g >
+<title>HoldStatementGloballyFunc (39,117,351 samples, 0.21%)</title><rect x="280.2" y="373" width="2.6" height="15.0" fill="rgb(239,157,37)" rx="2" ry="2" />
+<text  x="283.24" y="383.5" ></text>
+</g>
+<g >
+<title>JimInvokeCommand (46,138,414 samples, 0.25%)</title><rect x="262.6" y="261" width="3.0" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="265.59" y="271.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (19,057,171 samples, 0.10%)</title><rect x="349.0" y="437" width="1.2" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="352.00" y="447.5" ></text>
+</g>
+<g >
+<title>Jim_IfCoreCommand (24,072,216 samples, 0.13%)</title><rect x="1037.8" y="229" width="1.6" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="1040.82" y="239.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (17,051,153 samples, 0.09%)</title><rect x="349.1" y="405" width="1.1" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="352.06" y="415.5" ></text>
+</g>
+<g >
+<title>start_thread (13,101,303,558 samples, 71.80%)</title><rect x="336.3" y="661" width="847.3" height="15.0" fill="rgb(212,34,8)" rx="2" ry="2" />
+<text  x="339.35" y="671.5" >start_thread</text>
+</g>
+<g >
+<title>__x64_sys_openat (21,063,189 samples, 0.12%)</title><rect x="344.7" y="517" width="1.4" height="15.0" fill="rgb(251,215,51)" rx="2" ry="2" />
+<text  x="347.71" y="527.5" ></text>
+</g>
+<g >
+<title>Jim_FreeObj (86,258,774 samples, 0.47%)</title><rect x="855.3" y="165" width="5.6" height="15.0" fill="rgb(217,58,14)" rx="2" ry="2" />
+<text  x="858.29" y="175.5" ></text>
+</g>
+<g >
+<title>Jim_GetBoolFromExpr (28,084,252 samples, 0.15%)</title><rect x="1028.1" y="325" width="1.8" height="15.0" fill="rgb(230,115,27)" rx="2" ry="2" />
+<text  x="1031.09" y="335.5" ></text>
+</g>
+<g >
+<title>finish_task_switch.isra.0 (21,063,189 samples, 0.12%)</title><rect x="819.2" y="37" width="1.3" height="15.0" fill="rgb(246,189,45)" rx="2" ry="2" />
+<text  x="822.15" y="47.5" ></text>
+</g>
+<g >
+<title>Jim_ListLength (588,766,283 samples, 3.23%)</title><rect x="171.6" y="581" width="38.1" height="15.0" fill="rgb(237,149,35)" rx="2" ry="2" />
+<text  x="174.58" y="591.5" >Jim..</text>
+</g>
+<g >
+<title>do_wp_page (33,099,297 samples, 0.18%)</title><rect x="769.4" y="517" width="2.1" height="15.0" fill="rgb(212,36,8)" rx="2" ry="2" />
+<text  x="772.40" y="527.5" ></text>
+</g>
+<g >
+<title>JimCallProcedure (1,667,000,958 samples, 9.14%)</title><rect x="980.9" y="437" width="107.8" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="983.93" y="447.5" >JimCallProced..</text>
+</g>
+<g >
+<title>bitmap_set_bit (21,063,189 samples, 0.12%)</title><rect x="66.2" y="661" width="1.3" height="15.0" fill="rgb(215,49,11)" rx="2" ry="2" />
+<text  x="69.18" y="671.5" ></text>
+</g>
+<g >
+<title>workQueueTake (44,132,396 samples, 0.24%)</title><rect x="351.6" y="629" width="2.8" height="15.0" fill="rgb(247,195,46)" rx="2" ry="2" />
+<text  x="354.59" y="639.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (5,091,273,684 samples, 27.90%)</title><rect x="774.4" y="533" width="329.3" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="777.40" y="543.5" >Jim_EvalObj</text>
+</g>
+<g >
+<title>Jim_GetString (66,198,594 samples, 0.36%)</title><rect x="300.3" y="341" width="4.3" height="15.0" fill="rgb(252,219,52)" rx="2" ry="2" />
+<text  x="303.35" y="351.5" ></text>
+</g>
+<g >
+<title>Jim_FreeObj (24,072,216 samples, 0.13%)</title><rect x="939.0" y="293" width="1.6" height="15.0" fill="rgb(217,58,14)" rx="2" ry="2" />
+<text  x="942.03" y="303.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (23,069,207 samples, 0.13%)</title><rect x="1006.6" y="69" width="1.4" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="1009.56" y="79.5" ></text>
+</g>
+<g >
+<title>Jim_EvalExpression (37,111,333 samples, 0.20%)</title><rect x="1072.1" y="373" width="2.4" height="15.0" fill="rgb(232,124,29)" rx="2" ry="2" />
+<text  x="1075.07" y="383.5" ></text>
+</g>
+<g >
+<title>ListInsertElements (25,075,225 samples, 0.14%)</title><rect x="748.3" y="565" width="1.6" height="15.0" fill="rgb(233,131,31)" rx="2" ry="2" />
+<text  x="751.32" y="575.5" ></text>
+</g>
+<g >
+<title>[x86_64-linux-gnu-as] (44,132,396 samples, 0.24%)</title><rect x="10.1" y="581" width="2.9" height="15.0" fill="rgb(249,206,49)" rx="2" ry="2" />
+<text  x="13.13" y="591.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (61,183,549 samples, 0.34%)</title><rect x="1036.5" y="309" width="4.0" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="1039.52" y="319.5" ></text>
+</g>
+<g >
+<title>wake_up_q (43,129,387 samples, 0.24%)</title><rect x="821.7" y="101" width="2.8" height="15.0" fill="rgb(237,151,36)" rx="2" ry="2" />
+<text  x="824.75" y="111.5" ></text>
+</g>
+<g >
+<title>JimDefaultAllocator (16,048,144 samples, 0.09%)</title><rect x="861.7" y="149" width="1.0" height="15.0" fill="rgb(221,77,18)" rx="2" ry="2" />
+<text  x="864.71" y="159.5" ></text>
+</g>
+<g >
+<title>do_syscall_64 (2,558,675,959 samples, 14.02%)</title><rect x="398.4" y="581" width="165.5" height="15.0" fill="rgb(209,20,4)" rx="2" ry="2" />
+<text  x="401.43" y="591.5" >do_syscall_64</text>
+</g>
+<g >
+<title>Jim_SetCoreCommand (17,051,153 samples, 0.09%)</title><rect x="946.1" y="405" width="1.1" height="15.0" fill="rgb(221,75,18)" rx="2" ry="2" />
+<text  x="949.10" y="415.5" ></text>
+</g>
+<g >
+<title>dbInsertMatch (63,189,567 samples, 0.35%)</title><rect x="768.4" y="597" width="4.1" height="15.0" fill="rgb(236,144,34)" rx="2" ry="2" />
+<text  x="771.43" y="607.5" ></text>
+</g>
+<g >
+<title>JimAddStackFrame (253,761,277 samples, 1.39%)</title><rect x="219.7" y="245" width="16.4" height="15.0" fill="rgb(226,99,23)" rx="2" ry="2" />
+<text  x="222.65" y="255.5" ></text>
+</g>
+<g >
+<title>Jim_NewStringObj (129,388,161 samples, 0.71%)</title><rect x="759.1" y="597" width="8.4" height="15.0" fill="rgb(210,23,5)" rx="2" ry="2" />
+<text  x="762.09" y="607.5" ></text>
+</g>
+<g >
+<title>__isoc23_fscanf (25,075,225 samples, 0.14%)</title><rect x="339.7" y="613" width="1.6" height="15.0" fill="rgb(254,229,54)" rx="2" ry="2" />
+<text  x="342.72" y="623.5" ></text>
+</g>
+<g >
+<title>_start (3,665,997,895 samples, 20.09%)</title><rect x="99.3" y="677" width="237.0" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="102.26" y="687.5" >_start</text>
+</g>
+<g >
+<title>SetDictFromAny (28,084,252 samples, 0.15%)</title><rect x="1040.7" y="293" width="1.8" height="15.0" fill="rgb(247,194,46)" rx="2" ry="2" />
+<text  x="1043.68" y="303.5" ></text>
+</g>
+<g >
+<title>_int_malloc (18,054,162 samples, 0.10%)</title><rect x="1098.3" y="389" width="1.1" height="15.0" fill="rgb(215,47,11)" rx="2" ry="2" />
+<text  x="1101.28" y="399.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (1,771,313,894 samples, 9.71%)</title><rect x="791.3" y="309" width="114.5" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="794.26" y="319.5" >Jim_EvalObj</text>
+</g>
+<g >
+<title>__sched_yield (803,410,209 samples, 4.40%)</title><rect x="101.9" y="597" width="52.0" height="15.0" fill="rgb(213,40,9)" rx="2" ry="2" />
+<text  x="104.92" y="607.5" >__sch..</text>
+</g>
+<g >
+<title>HoldStatementGlobally (16,048,144 samples, 0.09%)</title><rect x="338.6" y="613" width="1.1" height="15.0" fill="rgb(247,194,46)" rx="2" ry="2" />
+<text  x="341.62" y="623.5" ></text>
+</g>
+<g >
+<title>statementRemoveSelf (51,153,459 samples, 0.28%)</title><rect x="988.9" y="357" width="3.3" height="15.0" fill="rgb(213,37,8)" rx="2" ry="2" />
+<text  x="991.91" y="367.5" ></text>
+</g>
+<g >
+<title>JimSetErrorStack.part.0 (1,246,740,187 samples, 6.83%)</title><rect x="794.8" y="277" width="80.6" height="15.0" fill="rgb(209,22,5)" rx="2" ry="2" />
+<text  x="797.76" y="287.5" >JimSetErr..</text>
+</g>
+<g >
+<title>Jim_FreeObj (92,276,828 samples, 0.51%)</title><rect x="237.6" y="213" width="5.9" height="15.0" fill="rgb(217,58,14)" rx="2" ry="2" />
+<text  x="240.55" y="223.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (16,048,144 samples, 0.09%)</title><rect x="1026.7" y="309" width="1.0" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="1029.66" y="319.5" ></text>
+</g>
+<g >
+<title>malloc (23,069,207 samples, 0.13%)</title><rect x="845.3" y="213" width="1.5" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="848.30" y="223.5" ></text>
+</g>
+<g >
+<title>clone3 (13,101,303,558 samples, 71.80%)</title><rect x="336.3" y="677" width="847.3" height="15.0" fill="rgb(216,54,12)" rx="2" ry="2" />
+<text  x="339.35" y="687.5" >clone3</text>
+</g>
+<g >
+<title>Jim_GetVariable.part.0 (18,054,162 samples, 0.10%)</title><rect x="254.6" y="277" width="1.2" height="15.0" fill="rgb(232,124,29)" rx="2" ry="2" />
+<text  x="257.61" y="287.5" ></text>
+</g>
+<g >
+<title>JimDefaultAllocator (16,048,144 samples, 0.09%)</title><rect x="243.5" y="229" width="1.1" height="15.0" fill="rgb(221,77,18)" rx="2" ry="2" />
+<text  x="246.52" y="239.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (3,130,391,089 samples, 17.16%)</title><rect x="777.4" y="437" width="202.5" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="780.44" y="447.5" >Jim_EvalObj</text>
+</g>
+<g >
+<title>JimInvokeCommand (42,126,378 samples, 0.23%)</title><rect x="1037.2" y="245" width="2.8" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="1040.24" y="255.5" ></text>
+</g>
+<g >
+<title>seq_read (16,048,144 samples, 0.09%)</title><rect x="340.3" y="469" width="1.0" height="15.0" fill="rgb(213,37,8)" rx="2" ry="2" />
+<text  x="343.30" y="479.5" ></text>
+</g>
+<g >
+<title>[x86_64-linux-gnu-as] (16,048,144 samples, 0.09%)</title><rect x="11.4" y="549" width="1.1" height="15.0" fill="rgb(249,206,49)" rx="2" ry="2" />
+<text  x="14.43" y="559.5" ></text>
+</g>
+<g >
+<title>seq_read_iter (16,048,144 samples, 0.09%)</title><rect x="340.3" y="453" width="1.0" height="15.0" fill="rgb(232,128,30)" rx="2" ry="2" />
+<text  x="343.30" y="463.5" ></text>
+</g>
+<g >
+<title>FreeListInternalRep (68,204,612 samples, 0.37%)</title><rect x="856.3" y="149" width="4.4" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="859.32" y="159.5" ></text>
+</g>
+<g >
+<title>Jim_DictPairs (234,704,106 samples, 1.29%)</title><rect x="956.2" y="357" width="15.1" height="15.0" fill="rgb(231,124,29)" rx="2" ry="2" />
+<text  x="959.15" y="367.5" ></text>
+</g>
+<g >
+<title>_int_malloc (91,273,819 samples, 0.50%)</title><rect x="760.3" y="549" width="5.9" height="15.0" fill="rgb(215,47,11)" rx="2" ry="2" />
+<text  x="763.25" y="559.5" ></text>
+</g>
+<g >
+<title>malloc_consolidate (16,048,144 samples, 0.09%)</title><rect x="1065.1" y="309" width="1.0" height="15.0" fill="rgb(239,159,38)" rx="2" ry="2" />
+<text  x="1068.07" y="319.5" ></text>
+</g>
+<g >
+<title>Jim_GetBoolFromExpr (21,063,189 samples, 0.12%)</title><rect x="1037.8" y="213" width="1.4" height="15.0" fill="rgb(230,115,27)" rx="2" ry="2" />
+<text  x="1040.82" y="223.5" ></text>
+</g>
+<g >
+<title>SetVariableFromAny (34,102,306 samples, 0.19%)</title><rect x="907.8" y="277" width="2.2" height="15.0" fill="rgb(246,193,46)" rx="2" ry="2" />
+<text  x="910.83" y="287.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (30,090,270 samples, 0.16%)</title><rect x="1016.8" y="293" width="2.0" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="1019.80" y="303.5" ></text>
+</g>
+<g >
+<title>do_futex (27,081,243 samples, 0.15%)</title><rect x="819.1" y="133" width="1.7" height="15.0" fill="rgb(245,184,44)" rx="2" ry="2" />
+<text  x="822.09" y="143.5" ></text>
+</g>
+<g >
+<title>JimCommandsHT_HashFunction (18,054,162 samples, 0.10%)</title><rect x="877.6" y="245" width="1.2" height="15.0" fill="rgb(227,104,24)" rx="2" ry="2" />
+<text  x="880.60" y="255.5" ></text>
+</g>
+<g >
+<title>JimCallProcedure (66,198,594 samples, 0.36%)</title><rect x="1036.3" y="325" width="4.3" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="1039.33" y="335.5" ></text>
+</g>
+<g >
+<title>__GI___libc_open (23,069,207 samples, 0.13%)</title><rect x="344.7" y="565" width="1.4" height="15.0" fill="rgb(249,202,48)" rx="2" ry="2" />
+<text  x="347.65" y="575.5" ></text>
+</g>
+<g >
+<title>FreeScriptInternalRep (29,087,261 samples, 0.16%)</title><rect x="860.9" y="181" width="1.8" height="15.0" fill="rgb(245,187,44)" rx="2" ry="2" />
+<text  x="863.86" y="191.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (154,463,386 samples, 0.85%)</title><rect x="1035.0" y="357" width="10.0" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="1038.03" y="367.5" ></text>
+</g>
+<g >
+<title>ListEnsureLength (315,947,835 samples, 1.73%)</title><rect x="818.7" y="213" width="20.4" height="15.0" fill="rgb(217,58,13)" rx="2" ry="2" />
+<text  x="821.70" y="223.5" ></text>
+</g>
+<g >
+<title>[cc1] (20,060,180 samples, 0.11%)</title><rect x="53.4" y="629" width="1.3" height="15.0" fill="rgb(229,111,26)" rx="2" ry="2" />
+<text  x="56.40" y="639.5" ></text>
+</g>
+<g >
+<title>cfree@GLIBC_2.2.5 (55,165,495 samples, 0.30%)</title><rect x="864.6" y="197" width="3.5" height="15.0" fill="rgb(233,131,31)" rx="2" ry="2" />
+<text  x="867.56" y="207.5" ></text>
+</g>
+<g >
+<title>__snprintf_chk (221,664,989 samples, 1.21%)</title><rect x="800.3" y="229" width="14.3" height="15.0" fill="rgb(209,20,4)" rx="2" ry="2" />
+<text  x="803.28" y="239.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (16,048,144 samples, 0.09%)</title><rect x="1008.5" y="101" width="1.0" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="1011.50" y="111.5" ></text>
+</g>
+<g >
+<title>main (3,665,997,895 samples, 20.09%)</title><rect x="99.3" y="629" width="237.0" height="15.0" fill="rgb(243,179,42)" rx="2" ry="2" />
+<text  x="102.26" y="639.5" >main</text>
+</g>
+<g >
+<title>Jim_SetCoreCommand (45,135,405 samples, 0.25%)</title><rect x="1031.9" y="341" width="2.9" height="15.0" fill="rgb(221,75,18)" rx="2" ry="2" />
+<text  x="1034.85" y="351.5" ></text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (56,168,504 samples, 0.31%)</title><rect x="820.9" y="181" width="3.6" height="15.0" fill="rgb(218,63,15)" rx="2" ry="2" />
+<text  x="823.91" y="191.5" ></text>
+</g>
+<g >
+<title>Jim_GetBoolFromExpr (20,060,180 samples, 0.11%)</title><rect x="944.8" y="389" width="1.3" height="15.0" fill="rgb(230,115,27)" rx="2" ry="2" />
+<text  x="947.80" y="399.5" ></text>
+</g>
+<g >
+<title>globalWorkQueueTake (37,111,333 samples, 0.20%)</title><rect x="346.5" y="629" width="2.4" height="15.0" fill="rgb(216,54,12)" rx="2" ry="2" />
+<text  x="349.47" y="639.5" ></text>
+</g>
+<g >
+<title>Jim_EvalObj (24,072,216 samples, 0.13%)</title><rect x="1004.3" y="69" width="1.6" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="1007.35" y="79.5" ></text>
+</g>
+<g >
+<title>Jim_ClearHashTable (23,069,207 samples, 0.13%)</title><rect x="776.0" y="421" width="1.4" height="15.0" fill="rgb(234,136,32)" rx="2" ry="2" />
+<text  x="778.95" y="431.5" ></text>
+</g>
+</g>
+</svg>

@@ -1,0 +1,10 @@
+== ./folk
+          39513.05 msec task-clock                       #    3.810 CPUs utilized             
+          13514680      context-switches                 #  342.031 K/sec                     
+      10.370566649 seconds time elapsed
+10 s: 33 threads
+== research/verify/build/whatif-idle-backoff/folk
+           2266.83 msec task-clock                       #    0.222 CPUs utilized             
+            176930      context-switches                 #   78.052 K/sec                     
+      10.210453062 seconds time elapsed
+10 s: 4 threads

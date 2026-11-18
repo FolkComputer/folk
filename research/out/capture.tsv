@@ -1,0 +1,344 @@
+where	kind	captured	used	unused	unused_names
+boot.folk:30	when	2	0	2	this programFilename
+boot.folk:40	when	4	2	2	this programFilename
+boot.folk:41	when	4	2	2	this programFilename
+boot.folk:45	when	4	1	3	programCode this programFilename
+builtin-programs/apriltags.folk:1	when	1	1	0	
+builtin-programs/apriltags.folk:120	when	6	3	3	imageLib currentId ^configCcWithLibapriltag
+builtin-programs/apriltags.folk:130	unmatch	11	2	9	width height entireFrameDetector incrementalDetector imageLib currentId ^configCcWithLibapriltag ^makeAprilTagDetector tagFamily
+builtin-programs/apriltags.folk:136	when	11	3	8	width height incrementalDetector imageLib currentId ^configCcWithLibapriltag ^makeAprilTagDetector tagFamily
+builtin-programs/apriltags.folk:154	when	11	3	8	width height entireFrameDetector imageLib currentId ^configCcWithLibapriltag ^makeAprilTagDetector tagFamily
+builtin-programs/apriltags.folk:223	when	11	2	9	width height entireFrameDetector incrementalDetector imageLib currentId ^configCcWithLibapriltag ^makeAprilTagDetector tagFamily
+builtin-programs/audio.folk:357	when	5	0	5	this cc audioLib success e
+builtin-programs/audio.folk:392	unmatch	8	3	5	sound this cc success e
+builtin-programs/calibrate/calibrate-page.folk:1	handler	1	1	0	
+builtin-programs/calibrate/calibrate-page.folk:400	when	1	1	0	
+builtin-programs/calibrate/calibrate-page.folk:436	when	5	4	1	calibrationPoses
+builtin-programs/calibrate/calibrate-page.folk:439	when	5	4	1	calibrationPoses
+builtin-programs/calibrate/calibrate-page.folk:459	handler	1	0	1	this
+builtin-programs/calibrate/calibrate.folk:17	when	1	1	0	
+builtin-programs/calibrate/calibrate.folk:31	unmatch	13	4	9	dbLib camera display measurements hold key version ref clause
+builtin-programs/calibrate/calibrate.folk:36	when	1	1	0	
+builtin-programs/calibrate/calibrate.folk:96	unmatch	26	1	25	camera cameraWidth cameraHeight display displayWidth displayHeight makeAprilTagDetector jpegLib modelLib matLib measurements printedSideLengthMm calibrationTagDetector calibrationId camResults camOpts tagSideLength tagOuterLength pad printedSideLengthM baseModel ROWS COLS SEEN_POSES_MAX ^HoldDefaultModel!
+builtin-programs/calibrate/calibrate.folk:113	when	26	2	24	camera cameraWidth cameraHeight displayWidth displayHeight makeAprilTagDetector jpegLib modelLib matLib measurements printedSideLengthMm calibrationTagDetector calibrationId camResults camOpts tagSideLength tagOuterLength pad printedSideLengthM baseModel ROWS COLS SEEN_POSES_MAX ^HoldDefaultModel!
+builtin-programs/calibrate/calibrate.folk:150	hold	33	3	30	scale tagSideLengthPixels projWidthPixels projHeightPixels xOffset yOffset camera cameraWidth cameraHeight display displayWidth displayHeight makeAprilTagDetector jpegLib modelLib matLib measurements printedSideLengthMm calibrationTagDetector calibrationId camResults camOpts tagSideLength tagOuterLength pad printedSideLengthM ROWS COLS SEEN_POSES_MAX ^HoldDefaultModel!
+builtin-programs/calibrate/calibrate.folk:161	unmatch	26	1	25	camera cameraWidth cameraHeight display displayWidth displayHeight makeAprilTagDetector jpegLib modelLib matLib measurements printedSideLengthMm calibrationTagDetector calibrationId camResults camOpts tagSideLength tagOuterLength pad printedSideLengthM baseModel ROWS COLS SEEN_POSES_MAX ^HoldDefaultModel!
+builtin-programs/calibrate/calibrate.folk:165	when	26	18	8	makeAprilTagDetector printedSideLengthMm camResults camOpts tagSideLength tagOuterLength pad ^HoldDefaultModel!
+builtin-programs/calibrate/calibration-board.folk:24	when	6	4	2	marginTop marginLeft
+builtin-programs/calibrate/calibration-board.folk:46	when	6	2	4	marginTop marginLeft measureTop measureLeft
+builtin-programs/calibrate/calibration-board.folk:228	handler	12	1	11	printLib modelLib matLib ^makeCalibrationBoardPs ^makeCalibrationBoardPng this marginTop marginLeft measureTop measureLeft tagInnerSideLength
+builtin-programs/calibrate/calibration-board.folk:237	handler	12	1	11	printLib modelLib matLib ^makeCalibrationBoardPs ^makeCalibrationBoardPdf this marginTop marginLeft measureTop measureLeft tagInnerSideLength
+builtin-programs/calibrate/draw-model.folk:1	when	1	1	0	
+builtin-programs/calibrate/draw-model.folk:41	when	26	3	23	display displayWidth displayHeight matLib modelLib model H_modelToDisplay calibrationMessage ^innerToOuter ROWS COLS topLeftTag topRightTag bottomRightTag bottomLeftTag boardBorderScale boardTopLeft boardTopRight boardBottomRight boardBottomLeft boardToClipSpaceCorners boardCanvasToClipSpace bgColor
+builtin-programs/calibrate/draw-model.folk:48	when	26	16	10	display ROWS COLS topLeftTag topRightTag bottomRightTag bottomLeftTag boardBorderScale boardToClipSpaceCorners boardCanvasToClipSpace
+builtin-programs/calibrate/load-calibration.folk:1	when	1	1	0	
+builtin-programs/calibrate/load-calibration.folk:16	when	1	1	0	
+builtin-programs/calibrate/load-calibration.folk:20	when	3	1	2	cam disp
+builtin-programs/calibrate/load-calibration.folk:27	when	3	1	2	cam disp
+builtin-programs/calibrate/load-calibration.folk:34	when	3	1	2	cam disp
+builtin-programs/calibrate/load-calibration.folk:42	when	1	1	0	
+builtin-programs/calibrate/load-calibration.folk:66	when	1	1	0	
+builtin-programs/calibrate/matlib.folk:1	when	1	1	0	
+builtin-programs/calibrate/refine.folk:8	when	1	1	0	
+builtin-programs/calibrate/session.folk:286	when	5	1	4	^processHomography ^zhangUnrefinedCalibrate ^setCameraToProjectorExtrinsics ^unrefinedCalibrateCameraAndProjector
+builtin-programs/calibrate/session.folk:289	hold	12	4	8	index camera display ^collectNextPair! ^processHomography ^zhangUnrefinedCalibrate ^setCameraToProjectorExtrinsics ^unrefinedCalibrateCameraAndProjector
+builtin-programs/calibrate/session.folk:291	when	12	4	8	index camera display ^collectNextPair! ^processHomography ^zhangUnrefinedCalibrate ^setCameraToProjectorExtrinsics ^unrefinedCalibrateCameraAndProjector
+builtin-programs/calibrate/session.folk:314	hold	12	8	4	^processHomography ^zhangUnrefinedCalibrate ^setCameraToProjectorExtrinsics ^unrefinedCalibrateCameraAndProjector
+builtin-programs/calibrate/session.folk:317	when	12	6	6	pairs measurements ^processHomography ^zhangUnrefinedCalibrate ^setCameraToProjectorExtrinsics ^unrefinedCalibrateCameraAndProjector
+builtin-programs/calibrate/session.folk:327	unmatch	9	2	7	measurements session ^collectNextPair! ^processHomography ^zhangUnrefinedCalibrate ^setCameraToProjectorExtrinsics ^unrefinedCalibrateCameraAndProjector
+builtin-programs/calibrate/session.folk:336	when	5	1	4	^processHomography ^zhangUnrefinedCalibrate ^setCameraToProjectorExtrinsics ^unrefinedCalibrateCameraAndProjector
+builtin-programs/camera/rpi.folk:216	when	2	2	0	
+builtin-programs/camera/slice.folk:5	when	1	1	0	
+builtin-programs/camera/slice.folk:54	when	6	2	4	imageLib quadLib poseLib quadChange
+builtin-programs/camera/slice.folk:60	when	15	2	13	cam cameraIntrinsics frame timestamp q vertices width aspect imageLib quadLib poseLib quadChange ^cameraSliceGeometry
+builtin-programs/camera/slice.folk:65	when	6	3	3	quadLib poseLib quadChange
+builtin-programs/camera/slice.folk:83	when	1	1	0	
+builtin-programs/camera/slice.folk:86	when	1	1	0	
+builtin-programs/camera/slice.folk:90	when	1	1	0	
+builtin-programs/camera/usb.folk:7	when	1	1	0	
+builtin-programs/camera/usb.folk:351	when	5	3	2	camc camLib
+builtin-programs/camera/usb.folk:352	when	8	6	2	camc camLib
+builtin-programs/camera/usb.folk:360	when	8	6	2	camc camLib
+builtin-programs/camera/usb.folk:370	when	5	3	2	imageLib camc
+builtin-programs/camera/usb.folk:412	when	27	3	24	camObjVar camObj_ gainRange gainMin gainMax i crop ms jpeg timestamp cropPath croppedJpeg options width height bufferCount crops ^runCamera e sig imageLib jpegLib camc this
+builtin-programs/camera/usb.folk:417	when	27	2	25	camObjVar camObj_ gainRange gainMin gainMax i crop ms jpeg timestamp cropPath croppedJpeg camera options width height bufferCount crops ^runCamera e sig imageLib jpegLib camc this
+builtin-programs/camera/usb.folk:420	when	27	3	24	camObjVar camObj_ gainRange gainMin gainMax i crop ms jpeg timestamp cropPath croppedJpeg options width height bufferCount crops ^runCamera e sig imageLib jpegLib camc this
+builtin-programs/collect.folk:1	when	3	1	2	cc collectLib
+builtin-programs/collect.folk:5	when	3	1	2	cc collectLib
+builtin-programs/collect.folk:283	when	3	1	2	this cc
+builtin-programs/collect.folk:288	when	7	3	4	settle settleMs this cc
+builtin-programs/collect.folk:296	when	3	1	2	this cc
+builtin-programs/connections.folk:14	when	1	1	0	
+builtin-programs/connections.folk:17	when	1	1	0	
+builtin-programs/connections.folk:21	when	1	1	0	
+builtin-programs/connections.folk:60	when	11	1	10	quadLib poseLib quadChange disp w h intr ^connectionsMid ^connectionsAnchor ^connectionsArrowHead
+builtin-programs/connections.folk:63	when	11	9	2	quadChange ^connectionsMid
+builtin-programs/connections.folk:88	when	11	1	10	quadLib poseLib quadChange disp w h intr ^connectionsMid ^connectionsAnchor ^connectionsArrowHead
+builtin-programs/connections.folk:91	when	11	9	2	quadChange ^connectionsMid
+builtin-programs/connections.folk:117	when	29	12	17	source sink options q1 q2 v1 v2 b width quadLib poseLib quadChange w h intr ^connectionsMid ^connectionsAnchor
+builtin-programs/decorations/label.folk:1	when	1	1	0	
+builtin-programs/decorations/label.folk:2	when	3	3	0	
+builtin-programs/decorations/label.folk:49	when	1	1	0	
+builtin-programs/decorations/outline.folk:1	when	1	1	0	
+builtin-programs/decorations/title.folk:8	when	1	1	0	
+builtin-programs/decorations/title.folk:12	when	1	1	0	
+builtin-programs/decorations/title.folk:27	when	12	11	1	quadChange
+builtin-programs/decorations/title.folk:31	when	15	9	6	results result text quadChange thing label
+builtin-programs/display-saver.folk:1	when	1	1	0	
+builtin-programs/draw/apriltags.folk:22	when	1	1	0	
+builtin-programs/draw/arc.folk:35	when	1	1	0	
+builtin-programs/draw/circle.folk:26	when	1	1	0	
+builtin-programs/draw/contour.folk:1	when	1	1	0	
+builtin-programs/draw/curve.folk:58	when	1	1	0	
+builtin-programs/draw/dashed-line.folk:39	when	1	1	0	
+builtin-programs/draw/fill.folk:11	when	1	1	0	
+builtin-programs/draw/fill.folk:12	when	2	2	0	
+builtin-programs/draw/fill.folk:23	when	2	2	0	
+builtin-programs/draw/fill.folk:37	when	2	2	0	
+builtin-programs/draw/fill.folk:75	when	2	1	1	colorMap
+builtin-programs/draw/fill.folk:89	when	2	1	1	colorMap
+builtin-programs/draw/fill.folk:93	when	2	1	1	colorMap
+builtin-programs/draw/gif.folk:1	when	1	1	0	
+builtin-programs/draw/gif.folk:2	when	2	1	1	gifLib
+builtin-programs/draw/gif.folk:23	when	11	6	5	gif geom delays d gifLib
+builtin-programs/draw/image.folk:1	when	1	1	0	
+builtin-programs/draw/image.folk:10	when	1	1	0	
+builtin-programs/draw/image.folk:19	when	1	1	0	
+builtin-programs/draw/image.folk:37	when	1	1	0	
+builtin-programs/draw/image.folk:97	when	1	1	0	
+builtin-programs/draw/image.folk:142	when	19	8	11	imageLib p options wiOptions im x0 y0 radians width height anchor
+builtin-programs/draw/image.folk:150	when	1	1	0	
+builtin-programs/draw/image.folk:183	when	1	1	0	
+builtin-programs/draw/line.folk:62	when	2	2	0	
+builtin-programs/draw/shapes.folk:170	when	14	9	5	^drawShapeScalar ^drawShapePageCenter ^drawShapePoint ^drawShapeOffset ^drawShapePathPoints
+builtin-programs/draw/shapes.folk:224	when	14	1	13	drawShapeSides ^drawShapeCanonical ^drawShapeScalar ^drawShapePageCenter ^drawShapePoint ^drawShapeOffset ^drawShapePosition ^drawShapeRadians ^drawShapeLengthOption ^drawShapeRadius ^drawShapeRegularPolygon ^drawShapeRectPoints ^drawShapePathPoints
+builtin-programs/draw/shapes.folk:228	when	14	4	10	drawShapeSides ^drawShapeCanonical ^drawShapeScalar ^drawShapePageCenter ^drawShapePoint ^drawShapeOffset ^drawShapeRadius ^drawShapeRegularPolygon ^drawShapeRectPoints ^drawShapePathPoints
+builtin-programs/draw/shapes.folk:245	when	14	1	13	drawShapeSides ^drawShapeCanonical ^drawShapeScalar ^drawShapePageCenter ^drawShapePoint ^drawShapeOffset ^drawShapePosition ^drawShapeRadians ^drawShapeLengthOption ^drawShapeRadius ^drawShapeRegularPolygon ^drawShapeRectPoints ^drawShapePathPoints
+builtin-programs/draw/shapes.folk:249	when	14	3	11	drawShapeSides ^drawShapeCanonical ^drawShapeScalar ^drawShapePageCenter ^drawShapePoint ^drawShapeOffset ^drawShapePosition ^drawShapeRadians ^drawShapeRadius ^drawShapeRegularPolygon ^drawShapeRectPoints
+builtin-programs/draw/shapes.folk:277	when	14	1	13	drawShapeSides ^drawShapeCanonical ^drawShapeScalar ^drawShapePageCenter ^drawShapePoint ^drawShapeOffset ^drawShapePosition ^drawShapeRadians ^drawShapeLengthOption ^drawShapeRadius ^drawShapeRegularPolygon ^drawShapeRectPoints ^drawShapePathPoints
+builtin-programs/draw/shapes.folk:281	when	14	2	12	drawShapeSides ^drawShapeCanonical ^drawShapeScalar ^drawShapePageCenter ^drawShapePoint ^drawShapeOffset ^drawShapePosition ^drawShapeRadians ^drawShapeLengthOption ^drawShapeRadius ^drawShapeRegularPolygon ^drawShapeRectPoints
+builtin-programs/draw/shapes.folk:290	when	14	1	13	drawShapeSides ^drawShapeCanonical ^drawShapeScalar ^drawShapePageCenter ^drawShapePoint ^drawShapeOffset ^drawShapePosition ^drawShapeRadians ^drawShapeLengthOption ^drawShapeRadius ^drawShapeRegularPolygon ^drawShapeRectPoints ^drawShapePathPoints
+builtin-programs/draw/shapes.folk:294	when	14	4	10	drawShapeSides ^drawShapeCanonical ^drawShapeScalar ^drawShapePageCenter ^drawShapePoint ^drawShapeOffset ^drawShapePosition ^drawShapeRadians ^drawShapeRegularPolygon ^drawShapeRectPoints
+builtin-programs/draw/shapes.folk:314	when	14	1	13	drawShapeSides ^drawShapeCanonical ^drawShapeScalar ^drawShapePageCenter ^drawShapePoint ^drawShapeOffset ^drawShapePosition ^drawShapeRadians ^drawShapeLengthOption ^drawShapeRadius ^drawShapeRegularPolygon ^drawShapeRectPoints ^drawShapePathPoints
+builtin-programs/draw/shapes.folk:318	when	14	1	13	drawShapeSides ^drawShapeCanonical ^drawShapeScalar ^drawShapePageCenter ^drawShapePoint ^drawShapeOffset ^drawShapePosition ^drawShapeRadians ^drawShapeLengthOption ^drawShapeRadius ^drawShapeRegularPolygon ^drawShapeRectPoints ^drawShapePathPoints
+builtin-programs/draw/shapes.folk:323	when	14	1	13	drawShapeSides ^drawShapeCanonical ^drawShapeScalar ^drawShapePageCenter ^drawShapePoint ^drawShapeOffset ^drawShapePosition ^drawShapeRadians ^drawShapeLengthOption ^drawShapeRadius ^drawShapeRegularPolygon ^drawShapeRectPoints ^drawShapePathPoints
+builtin-programs/draw/text.folk:1	when	1	1	0	
+builtin-programs/draw/text.folk:174	when	4	2	2	imageLib cc
+builtin-programs/draw/text.folk:207	when	28	5	23	csvFd csv fields i line glyphIdx values advance planeLeft planeBottom planeRight planeTop atlasLeft atlasBottom atlasRight atlasTop defaultGlyphInfo loadImage ^loadFont fontPath fontName imageLib cc
+builtin-programs/draw/text.folk:270	when	4	2	2	imageLib cc
+builtin-programs/draw/text.folk:307	when	16	10	6	colorMap p options font imageLib cc
+builtin-programs/editor/draw-editor.folk:1	when	1	1	0	
+builtin-programs/editor/draw-editor.folk:4	when	2	2	0	
+builtin-programs/editor/draw-editor.folk:14	when	15	1	14	editor anything margin vpPos vpSize program fontOptions vpX vpY vpWidth vpHeight textScale advance utils
+builtin-programs/editor/draw-editor.folk:27	when	15	2	13	anything margin vpPos vpSize program fontOptions vpX vpY vpWidth vpHeight textScale advance utils
+builtin-programs/editor/draw-editor.folk:42	when	15	10	5	anything vpPos vpSize program fontOptions
+builtin-programs/editor/editor.folk:3	when	1	1	0	
+builtin-programs/editor/editor.folk:7	when	3	2	1	opts
+builtin-programs/editor/editor.folk:19	when	11	3	8	results smallestArea result target geometry geom area opts
+builtin-programs/editor/editor.folk:22	when	11	3	8	results smallestArea result target geometry geom area opts
+builtin-programs/editor/editor.folk:23	when	11	3	8	results smallestArea result target geometry geom area opts
+builtin-programs/editor/editor.folk:32	when	12	2	10	results program smallestArea result target geometry geom area k opts
+builtin-programs/editor/editor.folk:35	when	12	2	10	results program smallestArea result target geometry geom area k opts
+builtin-programs/editor/editor.folk:39	when	11	3	8	results smallestArea result target geometry geom area opts
+builtin-programs/editor/editor.folk:46	when	1	1	0	
+builtin-programs/editor/editor.folk:51	when	4	2	2	programDir utils
+builtin-programs/editor/editor.folk:53	when	5	2	3	programDir utils defaults
+builtin-programs/editor/editor.folk:61	when	4	3	1	programDir
+builtin-programs/editor/editor.folk:70	when	8	2	6	options results clipResults programDir utils defaults
+builtin-programs/editor/editor.folk:84	when	8	3	5	results clipResults programDir utils defaults
+builtin-programs/editor/editor.folk:107	when	8	3	5	options results clipResults programDir defaults
+builtin-programs/editor/editor.folk:117	hold	8	2	6	options results clipResults programDir utils defaults
+builtin-programs/editor/editor.folk:135	when	8	1	7	editor options results clipResults programDir utils defaults
+builtin-programs/editor/editor.folk:147	subscribe	4	0	4	programDir utils defaults this
+builtin-programs/editor/editor.folk:151	when	4	3	1	defaults
+builtin-programs/editor/editor.folk:156	subscribe	9	5	4	keyboard kbPath anything defaults
+builtin-programs/editor/editor.folk:346	hold	43	2	41	key keyState options vpPos vpSize code maxCursorX cursor selAnchor clipboard undoStack redoStack lastEditType textOptions vpX vpY vpWidth vpHeight resetBuffer isUndo isRedo origCode origCursor origMaxCursorX hasShift isNavKey selectionHandled selStart selEnd clipText textScale editType cursorX cursorY keyboard kbPath anything editor programDir utils defaults
+builtin-programs/editor/editor.folk:347	when	43	2	41	key keyState options vpPos vpSize code maxCursorX cursor selAnchor clipboard undoStack redoStack lastEditType textOptions vpX vpY vpWidth vpHeight resetBuffer isUndo isRedo origCode origCursor origMaxCursorX hasShift isNavKey selectionHandled selStart selEnd clipText textScale editType cursorX cursorY keyboard kbPath anything editor programDir utils defaults
+builtin-programs/editor/editor.folk:370	hold	43	10	33	key keyState options vpPos vpSize code clipboard textOptions vpWidth vpHeight resetBuffer isUndo isRedo origCode origCursor origMaxCursorX hasShift isNavKey selectionHandled selStart selEnd clipText textScale editType cursorX cursorY keyboard kbPath anything program programDir utils defaults
+builtin-programs/editor/editor.folk:383	subscribe	4	2	2	utils defaults
+builtin-programs/editor/editor.folk:406	when	4	2	2	programDir defaults
+builtin-programs/editor/print-editor.folk:27	subscribe	2	1	1	this
+builtin-programs/editor/print-editor.folk:33	when	2	2	0	
+builtin-programs/editor/print-editor.folk:49	when	11	3	8	codeToPostScript editor program formats formatName fmt mToPt ^editorToPrintOptions
+builtin-programs/editor/print-editor.folk:57	when	11	5	6	codeToPostScript program formats formatName fmt mToPt
+builtin-programs/editor-control.folk:1	when	1	1	0	
+builtin-programs/editor-control.folk:6	handler	1	0	1	this
+builtin-programs/errors.folk:1	when	1	1	0	
+builtin-programs/errors.folk:2	when	4	2	2	err info
+builtin-programs/errors.folk:12	when	1	1	0	
+builtin-programs/errors.folk:13	when	4	2	2	w info
+builtin-programs/esc-pos.folk:1	when	1	0	1	this
+builtin-programs/esc-pos.folk:92	subscribe	14	1	13	printLib imageLib saveDir ^render ^writeFolkFile ^writeMetaFile ^cut ^feed ^init ^raw ^scaledAprilTag ^tag this
+builtin-programs/geometric/intersect.folk:2	when	1	1	0	
+builtin-programs/geometric/intersect.folk:23	when	1	1	0	
+builtin-programs/geometric/points-at.folk:1	when	1	1	0	
+builtin-programs/geometric/points-at.folk:6	when	1	1	0	
+builtin-programs/geometric/points-at.folk:11	when	1	1	0	
+builtin-programs/geometric/points-at.folk:18	when	11	10	1	quadChange
+builtin-programs/geometric/points-at.folk:84	when	28	12	16	quad scale topLeft topRight bottomRight bottomLeft topCenter bottomCenter up color leftCenter rightCenter left right down quadChange
+builtin-programs/geometric/points-at.folk:97	hold	32	5	27	target q2 v displayVertices quad scale topLeft topRight bottomRight bottomLeft topCenter bottomCenter up leftCenter rightCenter left right down quadLib poseLib quadChange displayWidth displayHeight displayIntrinsics rect direction l
+builtin-programs/geometric/points-at.folk:108	when	28	6	22	quad scale topLeft topRight bottomRight bottomLeft topCenter bottomCenter up leftCenter rightCenter left right down quadLib poseLib quadChange displayWidth displayHeight displayIntrinsics direction l
+builtin-programs/geometric/points-at.folk:109	hold	28	5	23	quad scale topLeft topRight bottomRight bottomLeft topCenter bottomCenter up leftCenter rightCenter left right down quadLib poseLib quadChange displayWidth displayHeight displayIntrinsics rect direction l
+builtin-programs/geometric/points-at.folk:120	unmatch	11	2	9	quadLib poseLib quadChange disp displayWidth displayHeight displayIntrinsics direction l
+builtin-programs/gpu/canvases.folk:1	when	1	1	0	
+builtin-programs/gpu/canvases.folk:297	when	7	2	5	gpuLib imageLib pipelineLib gpuTextureLib gpuc
+builtin-programs/gpu/canvases.folk:470	when	7	1	6	gpuLib imageLib pipelineLib gpuTextureLib gpuc gpuCanvasLib
+builtin-programs/gpu/canvases.folk:473	when	7	1	6	gpuLib imageLib pipelineLib gpuTextureLib gpuc gpuCanvasLib
+builtin-programs/gpu/canvases.folk:482	when	10	3	7	options gpuLib imageLib pipelineLib gpuTextureLib gpuc gpuCanvasLib
+builtin-programs/gpu/canvases.folk:485	when	11	2	9	canvOpts options pCanvas gpuLib imageLib pipelineLib gpuTextureLib gpuc gpuCanvasLib
+builtin-programs/gpu/canvases.folk:522	when	7	1	6	gpuLib imageLib pipelineLib gpuTextureLib gpuc gpuCanvasLib
+builtin-programs/gpu/canvases.folk:529	when	11	5	6	gpuLib imageLib pipelineLib gpuTextureLib gpuc gpuCanvasLib
+builtin-programs/gpu/draw.folk:13	when	1	1	0	
+builtin-programs/gpu/draw.folk:575	when	47	5	42	fns fn e gpuLib defineVulkanHandleType gpuTextureLib pipelineLib pipelineCompilerLib useDisplays useGlfw result cc drawLib gpu displays kGpu kLatency kQuadCount kRegionCount kDrawCount ^QueryAllFns! ^tryCompilePipeline missingPipelines hd results pipelines displayList pipeline options layer instances key instance display displayOpts ds displayName drawCount layerDisplayList entry displayCommand this
+builtin-programs/gpu/draw.folk:594	when	46	5	41	fns pipeline e gpuLib defineVulkanHandleType gpuTextureLib pipelineLib pipelineCompilerLib useDisplays useGlfw result cc drawLib gpu displays kGpu kLatency kQuadCount kRegionCount kDrawCount ^QueryAllFns! ^tryCompileFn missingPipelines hd results pipelines displayList options layer instances key instance display displayOpts ds displayName drawCount layerDisplayList entry displayCommand this
+builtin-programs/gpu/draw.folk:604	when	42	1	41	gpuLib defineVulkanHandleType gpuTextureLib pipelineLib pipelineCompilerLib useDisplays useGlfw result cc drawLib gpu displays kGpu kLatency kQuadCount kRegionCount kDrawCount ^QueryAllFns! ^tryCompilePipeline missingPipelines hd results pipelines displayList name pipeline options layer instances key instance e display displayOpts ds displayName drawCount layerDisplayList entry displayCommand this
+builtin-programs/gpu/draw.folk:607	when	42	1	41	gpuLib defineVulkanHandleType gpuTextureLib pipelineLib pipelineCompilerLib useDisplays useGlfw result cc drawLib gpu displays kGpu kLatency kQuadCount kRegionCount kDrawCount ^QueryAllFns! ^tryCompileFn missingPipelines hd results pipelines displayList name pipeline options layer instances key instance e display displayOpts ds displayName drawCount layerDisplayList entry displayCommand this
+builtin-programs/gpu/gpu.folk:377	when	3	1	2	this ^defineVulkanHandleType
+builtin-programs/gpu/gpu.folk:380	when	3	1	2	this ^defineVulkanHandleType
+builtin-programs/gpu/gpu.folk:383	when	3	1	2	this ^defineVulkanHandleType
+builtin-programs/gpu/pipelines.folk:7	when	1	1	0	
+builtin-programs/gpu/textures.folk:1	when	1	1	0	
+builtin-programs/gpu/textures.folk:945	when	7	2	5	defineVulkanHandleType gpuLib vmaDll imageLib gpuc
+builtin-programs/gpu/toy-shader.folk:13	when	3	2	1	cc
+builtin-programs/gpu/toy-shader.folk:84	when	10	6	4	defineVulkanHandleType cc toyEncoderLib toyPushConstantsBlock
+builtin-programs/gpu/toy-shader.folk:149	when	22	2	20	wisher p shaderCode vertGlsl wishFile wishLine fragGlsl vertShaderModule fragShaderModule e pipeline defineVulkanHandleType pipelineLib cc toyEncoderLib toyEncoder toyArgsSize ^toyGlslc toyPushConstantsBlock sha1Lib
+builtin-programs/gpu/vma.folk:1	when	1	1	0	
+builtin-programs/image/gif-lib.folk:1	when	1	1	0	
+builtin-programs/image/jpeg-lib.folk:1	when	1	1	0	
+builtin-programs/image/png-lib.folk:1	when	1	1	0	
+builtin-programs/keyboard-shortcuts.folk:12	subscribe	1	0	1	this
+builtin-programs/keyboard-shortcuts.folk:18	subscribe	1	0	1	this
+builtin-programs/keyboard.folk:45	when	3	1	2	keyboardDevices keyboard
+builtin-programs/keyboard.folk:49	when	3	1	2	keyboardDevices keyboard
+builtin-programs/keyboard.folk:89	when	24	2	22	defaultKeymap cc grabber KEY_STATES keyboardChannel keyboardFileno evtBytes evtFormat modifiers k localKeymaps activeKeymap mods key keychar keyState isDown weight now options modKeyNotHeld keyboardDevices
+builtin-programs/laser.folk:1	when	1	1	0	
+builtin-programs/laser.folk:167	when	5	2	3	imageLib configCcWithLibapriltag cc
+builtin-programs/laser.folk:173	hold	10	3	7	grayFrame timestamp threshold imageLib configCcWithLibapriltag cc blobdetectLib
+builtin-programs/mask-tags.folk:1	when	1	1	0	
+builtin-programs/mask-tags.folk:9	when	8	7	1	quadChange
+builtin-programs/mask-tags.folk:10	when	10	8	2	id quadChange
+builtin-programs/points.folk:49	when	2	1	1	pointsLib
+builtin-programs/points.folk:53	when	2	2	0	
+builtin-programs/points.folk:57	when	7	5	2	quadChange pointSurface
+builtin-programs/print/print.folk:19	when	1	1	0	
+builtin-programs/print/print.folk:213	when	8	0	8	configCcWithLibapriltag imageLib saveDir cc printLib ^codeToPostScript ^nextId this
+builtin-programs/print/print.folk:231	subscribe	8	0	8	configCcWithLibapriltag imageLib saveDir cc printLib ^codeToPostScript ^nextId this
+builtin-programs/print/print.folk:248	subscribe	8	0	8	configCcWithLibapriltag imageLib saveDir cc printLib ^codeToPostScript ^nextId this
+builtin-programs/print/print.folk:252	subscribe	8	1	7	configCcWithLibapriltag imageLib saveDir cc printLib ^codeToPostScript this
+builtin-programs/print/print.folk:264	subscribe	8	2	6	configCcWithLibapriltag imageLib cc printLib ^nextId this
+builtin-programs/print/print.folk:351	subscribe	1	0	1	this
+builtin-programs/programs.folk:1	when	1	1	0	
+builtin-programs/programs.folk:10	when	2	2	0	
+builtin-programs/programs.folk:12	unmatch	12	2	10	res fd err code editedCode editedTime mfd metacode saveDir this
+builtin-programs/programs.folk:61	when	12	2	10	type res fd err code editedCode editedTime mfd metacode saveDir
+builtin-programs/recognition/contours.folk:1	when	1	1	0	
+builtin-programs/recognition/contours.folk:79	when	1	1	0	
+builtin-programs/recognition/contours.folk:82	when	1	1	0	
+builtin-programs/recognition/contours.folk:85	when	4	4	0	
+builtin-programs/recognition/craft.folk:1	when	1	1	0	
+builtin-programs/recognition/craft.folk:5	when	1	1	0	
+builtin-programs/recognition/dinov2.folk:1	when	1	1	0	
+builtin-programs/recognition/dinov2.folk:5	when	1	1	0	
+builtin-programs/recognition/dinov2.folk:9	when	1	1	0	
+builtin-programs/recognition/sam2-contours.folk:56	when	2	1	1	cc
+builtin-programs/recognition/sam2.folk:1	when	1	1	0	
+builtin-programs/recognition/sam2.folk:5	when	1	1	0	
+builtin-programs/recognition/sam2.folk:9	when	1	1	0	
+builtin-programs/recognition/sam2.folk:314	when	10	1	9	defineImageArgtype py ^decodeSAM2Masks ^SAM2Track ^SAM2AddPrompt ^SAM2Segment ^sam2CheckpointObjectId ^SAM2SaveObject ^SAM2LoadObject
+builtin-programs/recognition/sam2.folk:353	when	1	1	0	
+builtin-programs/recognition/sam2.folk:359	when	1	1	0	
+builtin-programs/recognition/sam2.folk:366	when	1	1	0	
+builtin-programs/recognition/sam2.folk:385	when	8	6	2	sam2Track sam2AddPrompt
+builtin-programs/recognition/sam2.folk:423	when	8	5	3	geom sam2Track sam2AddPrompt
+builtin-programs/recognition/sam2.folk:458	when	8	2	6	mtiLib imageLib geom sam2Track sam2AddPrompt ^sam2ObjectId
+builtin-programs/recognition/trocr.folk:1	when	1	1	0	
+builtin-programs/recognition/trocr.folk:5	when	1	1	0	
+builtin-programs/saving/migrate.folk:1	when	1	1	0	
+builtin-programs/saving/migrate.folk:87	when	1	1	0	
+builtin-programs/saving/save-holds.folk:147	when	3	2	1	cc
+builtin-programs/saving/save-holds.folk:171	when	3	2	1	cc
+builtin-programs/saving/save-holds.folk:172	subscribe	4	2	2	this cc
+builtin-programs/saving/save-programs.folk:1	when	1	1	0	
+builtin-programs/saving/saving.folk:9	when	2	2	0	
+builtin-programs/saving/saving.folk:18	when	2	2	0	
+builtin-programs/sprites.folk:10	when	1	1	0	
+builtin-programs/sprites.folk:27	when	15	11	4	loadImage path sheetWidth sheetHeight
+builtin-programs/tags-geometry.folk:1	when	1	1	0	
+builtin-programs/tags-geometry.folk:25	when	1	1	0	
+builtin-programs/tags-geometry.folk:31	when	3	3	0	
+builtin-programs/tags-geometry.folk:68	when	11	3	8	results geom k v width height proj defaultGeom
+builtin-programs/tags-to-quads.folk:1	when	1	1	0	
+builtin-programs/tags-to-quads.folk:365	when	5	2	3	configCcWithLibapriltag cc poseLib
+builtin-programs/tags-to-quads.folk:390	when	5	1	4	quadLib configCcWithLibapriltag cc poseLib
+builtin-programs/tags-to-quads.folk:407	when	5	1	4	quadLib configCcWithLibapriltag cc poseLib
+builtin-programs/tags-to-quads.folk:414	when	5	3	2	configCcWithLibapriltag cc
+builtin-programs/tags-to-quads.folk:422	when	12	9	3	unfreezeThreshold configCcWithLibapriltag cc
+builtin-programs/tags-to-quads.folk:518	when	5	2	3	configCcWithLibapriltag cc poseLib
+builtin-programs/tags-to-quads.folk:529	when	5	3	2	configCcWithLibapriltag cc
+builtin-programs/tags-to-quads.folk:543	when	14	10	4	quadChange tag configCcWithLibapriltag cc
+builtin-programs/terminal.folk:179	when	10	1	9	ghosttyPrefix prefix lib ghosttyLibrary cc header terminalLib keymap i
+builtin-programs/terminal.folk:183	when	10	1	9	ghosttyPrefix prefix lib ghosttyLibrary cc header terminalLib keymap i
+builtin-programs/terminal.folk:187	when	10	2	8	ghosttyPrefix prefix lib ghosttyLibrary cc header keymap i
+builtin-programs/terminal.folk:193	when	10	3	7	ghosttyPrefix prefix lib ghosttyLibrary cc header i
+builtin-programs/terminal.folk:197	when	13	4	9	cmd ghosttyPrefix prefix lib ghosttyLibrary cc header keymap i
+builtin-programs/terminal.folk:199	when	15	2	13	t thing term cmd ghosttyPrefix prefix lib ghosttyLibrary cc header terminalLib keymap i
+builtin-programs/terminal.folk:203	when	15	3	12	t term cmd ghosttyPrefix prefix lib ghosttyLibrary cc header terminalLib keymap i
+builtin-programs/terminal.folk:209	when	13	3	10	thing cmd this ghosttyPrefix prefix lib ghosttyLibrary cc header i
+builtin-programs/terminal.folk:211	subscribe	16	3	13	keyboard kbPath anything thing cmd this ghosttyPrefix prefix lib ghosttyLibrary cc header i
+builtin-programs/unix-commands.folk:5	when	1	1	0	
+builtin-programs/unix-commands.folk:96	when	1	0	1	this
+builtin-programs/web/apriltag-frame.folk:1	when	1	1	0	
+builtin-programs/web/apriltag-frame.folk:2	handler	2	1	1	this
+builtin-programs/web/atomicallys.folk:1	when	1	1	0	
+builtin-programs/web/atomicallys.folk:3	handler	3	2	1	this
+builtin-programs/web/block-stats.folk:1	handler	1	0	1	this
+builtin-programs/web/camera-frame.folk:1	when	1	1	0	
+builtin-programs/web/camera-frame.folk:2	handler	2	1	1	this
+builtin-programs/web/camera-slice.folk:1	when	1	1	0	
+builtin-programs/web/camera-slice.folk:2	handler	2	2	0	
+builtin-programs/web/camera.folk:1	handler	1	0	1	this
+builtin-programs/web/dep-graph.folk:50	when	3	3	0	
+builtin-programs/web/dep-graph.folk:51	handler	4	3	1	this
+builtin-programs/web/holds.folk:1	when	1	1	0	
+builtin-programs/web/holds.folk:3	handler	3	2	1	this
+builtin-programs/web/index.folk:1	handler	1	0	1	this
+builtin-programs/web/keyboards.folk:1	handler	1	0	1	this
+builtin-programs/web/log.folk:1	handler	1	0	1	this
+builtin-programs/web/nav.folk:1	when	1	1	0	
+builtin-programs/web/new.folk:1	handler	1	1	0	
+builtin-programs/web/page.folk:1	handler	1	0	1	this
+builtin-programs/web/printed-programs.folk:1	handler	1	0	1	this
+builtin-programs/web/program.folk:1	handler	1	0	1	this
+builtin-programs/web/quads.folk:1	handler	1	0	1	this
+builtin-programs/web/report.folk:1	when	1	1	0	
+builtin-programs/web/report.folk:3	handler	3	2	1	this
+builtin-programs/web/setup.folk:1	handler	1	0	1	this
+builtin-programs/web/statements.folk:1	when	1	1	0	
+builtin-programs/web/statements.folk:3	handler	3	2	1	this
+builtin-programs/web/textures.folk:1	when	1	1	0	
+builtin-programs/web/textures.folk:232	handler	8	1	7	gpuLib imageLib drawLib vmaDll gpuTextureLib cc this
+builtin-programs/web/threads.folk:112	handler	2	1	1	this
+builtin-programs/web/trie-graph.folk:160	handler	4	3	1	this
+user-programs/folk-baltimore/display-saver.folk:78	when	4	3	1	cc
+user-programs/folk-baltimore/display-saver.folk:99	when	4	1	3	cc ballLib radius
+user-programs/folk-charles/tag-regions.folk:3	when	1	1	0	
+user-programs/folk-charles/web-image.folk:1	when	1	1	0	
+user-programs/folk-haip.local/spotify.folk:231	when	3	1	2	this ::serverSockSpotify
+user-programs/folk-haip.local/web-endpoints.folk:1	handler	1	0	1	this
+user-programs/folk-haip.local/web-endpoints.folk:5	handler	1	0	1	this
+user-programs/folk-haip.local/web-endpoints.folk:9	when	1	1	0	
+user-programs/folk-haip.local/web-endpoints.folk:20	handler	1	0	1	this
+user-programs/folk-haip.local/web-endpoints.folk:24	handler	1	0	1	this
+user-programs/folk-rooprob1/display-saver.folk:78	when	4	3	1	cc
+user-programs/folk-rooprob1/display-saver.folk:100	when	4	1	3	cc ballLib radius
+user-programs/haippi7/highlight-laser-region.folk:3	when	1	1	0	
+user-programs/haippi7/highlight-laser-region.folk:13	when	1	0	1	this
+user-programs/haippi7/highlight-laser-region.folk:25	when	1	0	1	this
+user-programs/haippi7/laser-region-manager.folk:1	when	1	1	0	
+user-programs/haippi7/laser-web-debug.folk:1	when	1	1	0	
+user-programs/haippi7/project-laser-dot.folk:1	when	1	0	1	this
+user-programs/haippi7/region-play-spotify.folk:1	when	1	1	0	
+user-programs/haippi7/region-play-spotify.folk:5	when	1	1	0	
+user-programs/haippi7/region-play-spotify.folk:9	when	1	1	0	
+user-programs/haippi7/spotify.folk:231	when	3	1	2	this ::serverSockSpotify
+user-programs/haippi7/web-image.folk:1	when	1	1	0	

@@ -1,0 +1,9 @@
+statement_at	statement	rule_at	rule_pattern
+builtin-programs/camera/slice.folk:91	$this wishes $p displays image $slice	builtin-programs/draw/image.folk:150	/someone/ wishes /p/ displays image /impath/ with /...options/
+builtin-programs/draw/shapes.folk:324	$this wishes $p draws points $points	builtin-programs/draw/shapes.folk:294	/someone/ wishes /p/ draws points /points/ with /...options/
+builtin-programs/editor/editor.folk:28	$this claims $editor is an editor	builtin-programs/editor/draw-editor.folk:4	/editor/ is an editor with /...anything/
+builtin-programs/editor/editor.folk:28	$this claims $editor is an editor	builtin-programs/editor/editor.folk:61	/editor/ is an editor with /...options/
+builtin-programs/editor/editor.folk:28	$this claims $editor is an editor	builtin-programs/editor/editor.folk:151	/editor/ is an editor with /...anything/
+builtin-programs/editor/editor.folk:28	$this claims $editor is an editor	builtin-programs/editor/editor.folk:406	/editor/ is an editor with /...anything/
+builtin-programs/editor/print-editor.folk:38	$this wishes $preview has a canvas	builtin-programs/gpu/canvases.folk:473	/someone/ wishes /p/ has a canvas with /...options/
+builtin-programs/web/new.folk:113	$this wishes $program has a canvas	builtin-programs/gpu/canvases.folk:473	/someone/ wishes /p/ has a canvas with /...options/

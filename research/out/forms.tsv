@@ -1,0 +1,1365 @@
+id	kind	cmd	file	line	parent	opts	clauses
+0	when	Assert!	boot.folk	30	-1		/_this/ has program code /programCode/
+1	when	When	boot.folk	40	0		/nobody/ wishes program $_this does not run
+2	when	When	boot.folk	41	1		/nobody/ wishes program $_this is replaced with /...anything/
+3	when	When	boot.folk	45	1		/someone/ wishes program $_this is replaced with /...replacedOpts/
+4	proc	proc	boot.folk	52	-1		
+5	hold	Hold!	boot.folk	64	4	-on boot.folk -key {[list $programFilename code]} -keep 100ms	$programFilename has program code $code
+6	proc	proc	boot.folk	84	-1		
+7	proc	proc	boot.folk	88	6		
+8	query	Query!	boot.folk	92	7		{*}$pattern
+9	when	When	builtin-programs/apriltags.folk	1	-1		the image library is /imageLib/
+10	fn	fn	builtin-programs/apriltags.folk	43	9		
+11	fn	fn	builtin-programs/apriltags.folk	48	9		
+12	claim	Claim	builtin-programs/apriltags.folk	48	9		libapriltag has been built with config [fn configCcWithLibapriltag]
+13	fn	fn	builtin-programs/apriltags.folk	50	9		
+14	fn	fn	builtin-programs/apriltags.folk	116	9		
+15	claim	Claim	builtin-programs/apriltags.folk	116	9		the AprilTag detector maker is [fn makeAprilTagDetector]
+16	when	When	builtin-programs/apriltags.folk	120	9		camera /camera/ has width /width/ height /height/ & /someone/ wishes camera /camera/ detects tags
+17	unmatch	On	builtin-programs/apriltags.folk	130	16		
+18	hold	Hold!	builtin-programs/apriltags.folk	131	17	-key {[list $this entire-frame $camera]}	
+19	hold	Hold!	builtin-programs/apriltags.folk	132	17	-key {[list $this incremental $camera]}	
+20	when	When	builtin-programs/apriltags.folk	136	16	-serially 1	camera $camera has gray frame /frame/ at timestamp /frameTs/
+21	hold	Hold!	builtin-programs/apriltags.folk	144	20	-key {[list $this entire-frame $camera]}	[list $this entire-frame] detects tags $tags on camera $camera at timestamp $frameTs in time $aprilTime
+22	when	When	builtin-programs/apriltags.folk	154	16	-serially 1	the image library is /imageLib/ & camera $camera has gray frame /frame/ at timestamp /frameTs/
+23	query	ForEach!	builtin-programs/apriltags.folk	166	22		tag /id/ has detection /det/ on camera $camera at timestamp /timestamp/
+24	hold	Hold!	builtin-programs/apriltags.folk	213	22	-key {[list $this incremental $camera]}	[list $this incremental] detects tags $tags on camera $camera at timestamp $frameTs in time $aprilTime
+25	when	When	builtin-programs/apriltags.folk	223	16		the collected results for [list /someone/ detects tag... are /results/
+26	claim	Claim	builtin-programs/apriltags.folk	249	25	-keep 8ms	tag $id has detection $det on camera [dict get $det camera] at timestamp [dict get $det timestamp]
+27	claim	Claim	builtin-programs/apriltags.folk	253	25		the AprilTag time is $aprilTime
+28	claim	Claim	builtin-programs/audio.folk	352	-1		the audio library is $audioLib
+29	when	When	builtin-programs/audio.folk	357	-1		the audio library is /audioLib/ & /someone/ wishes to play audio /sound/
+30	proc	proc	builtin-programs/audio.folk	363	29		
+31	unmatch	On	builtin-programs/audio.folk	392	29		
+32	wish	Wish	builtin-programs/calibrate/calibrate-page.folk	1	-1		the web server handles route /calibrate with hidden true handler {     set cameras [dict get ...}
+33	handler	Wish	builtin-programs/calibrate/calibrate-page.folk	1	-1		
+34	proc	csubst	builtin-programs/calibrate/calibrate-page.folk	6	33		
+35	unmatch	On	builtin-programs/calibrate/calibrate-page.folk	67	34		
+36	query	Query!	builtin-programs/calibrate/calibrate-page.folk	68	35		/someone/ wishes to collect calibration pairs /pairs/ using measurements /measurements/ in session /session/
+37	hold	Hold!	builtin-programs/calibrate/calibrate-page.folk	70	35	-on builtin-programs/calibrate/calibrate.folk -key {{start calibration}}	
+38	when	When	builtin-programs/calibrate/calibrate-page.folk	400	-1		the calibration poses from camera /camera/ to display /display/ are /calibrationPoses/
+39	when	When	builtin-programs/calibrate/calibrate-page.folk	436	38		/nobody/ claims a calibration from camera $camera to display $display is /anything/
+40	claim	Claim	builtin-programs/calibrate/calibrate-page.folk	437	39		the calibration report from camera $camera to display $display is $posesReport
+41	when	When	builtin-programs/calibrate/calibrate-page.folk	439	38		a calibration from camera $camera to display $display is /calibration/
+42	claim	Claim	builtin-programs/calibrate/calibrate-page.folk	455	41		the calibration report from camera $camera to display $display is $calibrationReport
+43	wish	Wish	builtin-programs/calibrate/calibrate-page.folk	459	-1		the web server handles route /calibration-poses/([^/]+)$ with handler {     set filename "$::env(H...}
+44	handler	Wish	builtin-programs/calibrate/calibrate-page.folk	459	-1		
+45	hold	Hold!	builtin-programs/calibrate/calibrate.folk	13	-1	-key {{calibration poses max}}	the calibration poses max is 10
+46	when	When	builtin-programs/calibrate/calibrate.folk	17	-1		the db library is /dbLib/ & /someone/ wishes to calibrate camera /camera/ to display /display/ using measurements /measurements/
+47	hold	Hold!	builtin-programs/calibrate/calibrate.folk	30	46	-on {$setup} -key {$detectTagsKey}	
+48	unmatch	On	builtin-programs/calibrate/calibrate.folk	31	46		
+49	hold	Hold!	builtin-programs/calibrate/calibrate.folk	32	48	-on {$setup} -key {$detectTagsKey}	
+50	when	When	builtin-programs/calibrate/calibrate.folk	36	-1		camera /camera/ has width /cameraWidth/ height /cameraHeight/ & display /display/ has width /displayWidth/ height /displayHeight/ & the AprilTag detector maker is /makeAprilTagDetector/ & the jpeg library is /jpegLib/ & the calibration model library is /modelLib/ & the calibration matrix library is /matLib/ & /someone/ wishes to calibrate camera /camera/ to display /display/ using measurements /measurements/
+51	fn	fn	builtin-programs/calibrate/calibrate.folk	47	50		
+52	hold	Hold!	builtin-programs/calibrate/calibrate.folk	55	50	-key collection-complete	
+53	query	Query!	builtin-programs/calibrate/calibrate.folk	61	50		/someone/ wishes $::thisNode uses camera $camera with /...camOpts/
+54	retract	Retract!	builtin-programs/calibrate/calibrate.folk	65	50		/someone/ wishes $::thisNode uses camera $camera with width $cameraWidth height $cameraHeight
+55	assert	Assert!	builtin-programs/calibrate/calibrate.folk	67	50		$this wishes $::thisNode uses camera $camera with width 1920 height 1080
+56	hold	Hold!	builtin-programs/calibrate/calibrate.folk	94	50	-key last-seen-poses	the calibration last-seen poses are [list]
+57	unmatch	On	builtin-programs/calibrate/calibrate.folk	96	50		
+58	hold	Hold!	builtin-programs/calibrate/calibrate.folk	96	57	-key last-seen-poses	
+59	hold	Hold!	builtin-programs/calibrate/calibrate.folk	101	50	-save 1 -on calibration -key poses	
+60	hold	Hold!	builtin-programs/calibrate/calibrate.folk	104	50	-on calibration -key {[list poses $camera $display]}	the calibration poses from camera $camera to display $display are [list]
+61	hold	Hold!	builtin-programs/calibrate/calibrate.folk	107	50	-key cycle-time	the calibration cycle time is 0
+62	when	When	builtin-programs/calibrate/calibrate.folk	113	50		the calibration poses from camera $camera to display $display are /poses/ & the calibration poses max is /posesMax/ & the calibration cycle time is /cycleTime/ & the calibration model-to-display homography is /H_modelToDisplay/ with /...modelToDisplayOpts/
+63	wish	Wish	builtin-programs/calibrate/calibrate.folk	119	62		to draw calibration model [dict get $modelToDisplayOp... using model-to-display homography $H_modelToDisplay with message $message on display $display
+64	fn	fn	builtin-programs/calibrate/calibrate.folk	126	50		
+65	hold	Hold!	builtin-programs/calibrate/calibrate.folk	150	64	-key H_modelToDisplay	
+66	claim	Claim	builtin-programs/calibrate/calibrate.folk	152	65		the calibration model-to-display homography is $H_modelToDisplay with model $baseModel version -1 frameTimestamp [expr {[clock milliseconds]... modelTimestamp [expr {[clock milliseconds]...
+67	fn	fn	builtin-programs/calibrate/calibrate.folk	158	50		
+68	claim	Claim	builtin-programs/calibrate/calibrate.folk	158	50		the calibration HoldDefaultModel! is [fn HoldDefaultModel!]
+69	unmatch	On	builtin-programs/calibrate/calibrate.folk	161	50		
+70	hold	Hold!	builtin-programs/calibrate/calibrate.folk	162	69	-key H_modelToDisplay	
+71	when	When	builtin-programs/calibrate/calibrate.folk	165	50	-serially 1	the calibration poses max is /calibrationPosesMax/ & camera $camera has gray frame /frame/ at timestamp /frameTimestamp/
+72	query	Query!	builtin-programs/calibrate/calibrate.folk	167	71		the calibration collection completed run $calibrationId with /poses/ at /timestamp/
+73	query	Query!	builtin-programs/calibrate/calibrate.folk	171	71		the calibration model-to-display homography is /H_modelToDisplay/ with /...modelToDisplayOpts/
+74	hold	Hold!	builtin-programs/calibrate/calibrate.folk	306	71	-key H_modelToDisplay -version {$nextModelFrameTimestamp}	the calibration model-to-display homography is $nextH_modelToDisplay with model $nextModel version $nextVersion frameTimestamp $nextModelFrameTimestamp modelTimestamp $nextModelTimestamp
+75	hold	Hold!	builtin-programs/calibrate/calibrate.folk	313	71	-key cycle-time	the calibration cycle time is $($nextModelTimestamp - $mo...
+76	query	Require!	builtin-programs/calibrate/calibrate.folk	360	71		the calibration last-seen poses are /seenPoses/
+77	hold	Hold!	builtin-programs/calibrate/calibrate.folk	365	71	-key last-seen-poses -version {$nextModelFrameTimestamp}	the calibration last-seen poses are $seenPoses
+78	query	Require!	builtin-programs/calibrate/calibrate.folk	390	71		the calibration poses from camera $camera to display $display are /calibrationPoses/
+79	hold	Hold!	builtin-programs/calibrate/calibrate.folk	408	71	-on calibration -key {[list poses $camera $display]} -version {$nextModelFrameTimestamp}	the calibration poses from camera $camera to display $display are $calibrationPoses
+80	hold	Hold!	builtin-programs/calibrate/calibrate.folk	420	71	-save 1 -on calibration -key calibration-measurements	the calibration measurements are $measurements
+81	hold	Hold!	builtin-programs/calibrate/calibrate.folk	425	71	-save 1 -on calibration -key poses	
+82	hold	Hold!	builtin-programs/calibrate/calibrate.folk	426	71	-save 1 -on calibration -key calibration	
+83	hold	Hold!	builtin-programs/calibrate/calibrate.folk	428	71	-save 1 -on calibration -key {[list poses $camera $display]}	the calibration poses from camera $camera to display $display are $calibrationPoses
+84	hold	Hold!	builtin-programs/calibrate/calibrate.folk	431	71	-save 1 -on calibration -key {[list calibration $camera $display]}	
+85	hold	Hold!	builtin-programs/calibrate/calibrate.folk	433	71	-save 1 -on calibration -key {[list collection $camera $display]}	calibration collected [llength $calibrationPoses] poses from camera $camera to display $display at [clock seconds]
+86	hold	Hold!	builtin-programs/calibrate/calibrate.folk	435	71	-key collection-complete	the calibration collection completed run $calibrationId with $calibrationPoses at [clock seconds]
+87	query	Query!	builtin-programs/calibrate/calibrate.folk	437	71		/someone/ wishes to collect calibration pairs /pairs/ using measurements /m/ in session /session/
+88	hold	Hold!	builtin-programs/calibrate/calibrate.folk	438	71	-key {{start calibration}}	
+89	when	When	builtin-programs/calibrate/calibration-board.folk	24	-1		the calibration measurements are /measurements/
+90	claim	Claim	builtin-programs/calibrate/calibration-board.folk	42	89		the calibrated print scale is $scale
+91	claim	Claim	builtin-programs/calibrate/calibration-board.folk	43	89		the calibrated print translation is [list $tx $ty]
+92	when	When	builtin-programs/calibrate/calibration-board.folk	46	-1		the print library is /printLib/ & the calibration model library is /modelLib/ & the calibration matrix library is /matLib/
+93	fn	fn	builtin-programs/calibrate/calibration-board.folk	50	92		
+94	query	Require!	builtin-programs/calibrate/calibration-board.folk	56	93		the paper formats are /formats/
+95	query	QueryOne!	builtin-programs/calibrate/calibration-board.folk	57	93	-default letter	paper format /./ is the default paper format
+96	fn	fn	builtin-programs/calibrate/calibration-board.folk	204	92		
+97	claim	Claim	builtin-programs/calibrate/calibration-board.folk	204	92		the makeCalibrationBoardPs is [fn makeCalibrationBoardPs]
+98	fn	fn	builtin-programs/calibrate/calibration-board.folk	206	92		
+99	fn	fn	builtin-programs/calibrate/calibration-board.folk	212	92		
+100	claim	Claim	builtin-programs/calibrate/calibration-board.folk	212	92		the makeCalibrationBoardPdf is [fn makeCalibrationBoardPdf]
+101	fn	fn	builtin-programs/calibrate/calibration-board.folk	214	92		
+102	fn	fn	builtin-programs/calibrate/calibration-board.folk	226	92		
+103	claim	Claim	builtin-programs/calibrate/calibration-board.folk	226	92		the makeCalibrationBoardPng is [fn makeCalibrationBoardPng]
+104	wish	Wish	builtin-programs/calibrate/calibration-board.folk	228	92		the web server handles route /calibrate/board.pdf with hidden true handler {     dict create statusAndH...}
+105	handler	Wish	builtin-programs/calibrate/calibration-board.folk	228	92		
+106	wish	Wish	builtin-programs/calibrate/calibration-board.folk	237	92		the web server handles route /calibrate/board.png with hidden true handler {     dict create statusAndH...}
+107	handler	Wish	builtin-programs/calibrate/calibration-board.folk	237	92		
+108	when	When	builtin-programs/calibrate/draw-model.folk	1	-1		display /display/ has width /displayWidth/ height /displayHeight/ & the calibration matrix library is /matLib/ & the calibration model library is /modelLib/ & /someone/ wishes to draw calibration model /model/ using model-to-display homography /H_modelToDisplay/ with message /calibrationMessage/ on display /display/
+109	fn	fn	builtin-programs/calibrate/draw-model.folk	12	108		
+110	wish	Wish	builtin-programs/calibrate/draw-model.folk	39	108		the GPU creates canvas $boardCanvas with width $displayWidth height $displayHeight
+111	when	When	builtin-programs/calibrate/draw-model.folk	41	108		the GPU has created canvas $boardCanvas with /...opts/
+112	claim	Claim	builtin-programs/calibrate/draw-model.folk	42	111		$board has canvas $boardCanvas with {*}$opts
+113	claim	Claim	builtin-programs/calibrate/draw-model.folk	44	108		$board has canvas projection $boardCanvasToClipSpace
+114	when	When	builtin-programs/calibrate/draw-model.folk	48	108		$board has canvas /any/ with /...wiOpts/
+115	wish	Wish	builtin-programs/calibrate/draw-model.folk	55	114		the GPU draws pipeline fillTriangle onto canvas $boardCanvas with arguments [list {{1 0 0} {0 1 0} {0 0... layer 99
+116	wish	Wish	builtin-programs/calibrate/draw-model.folk	59	114		the GPU draws pipeline fillTriangle onto canvas $boardCanvas with arguments [list {{1 0 0} {0 1 0} {0 0... layer 99
+117	wish	Wish	builtin-programs/calibrate/draw-model.folk	75	114		to draw an AprilTag onto $board with id $id corners $displayOuterCorners background $bgColor layer 100
+118	wish	Wish	builtin-programs/calibrate/draw-model.folk	87	114		the GPU draws pipeline fillTriangle with arguments [list $surfaceToClip $p1 $p... layer 99
+119	wish	Wish	builtin-programs/calibrate/draw-model.folk	89	114		the GPU draws pipeline fillTriangle with arguments [list $surfaceToClip $p0 $p... layer 99
+120	wish	Wish	builtin-programs/calibrate/draw-model.folk	118	114		to draw text onto $board with text $calibrationMessage radians $displayRadians position $displayCenter anchor top color black layer 100 scale $textScale
+121	wish	Wish	builtin-programs/calibrate/draw-model.folk	130	114		the GPU draws pipeline image with arguments [list [list $displayWidth $... layer 100
+122	when	When	builtin-programs/calibrate/load-calibration.folk	1	-1		display /disp/ has width /displayWidth/ height /displayHeight/ & /nobody/ claims a calibration from camera /cam/ to display /disp/ is /anything/
+123	wish	Wish	builtin-programs/calibrate/load-calibration.folk	8	122		to draw text onto $disp with x $cx y [* $displayHeight 0.1] text $warning color red scale 40
+124	wish	Wish	builtin-programs/calibrate/load-calibration.folk	11	122		to draw text onto $disp with x $cx y [* $displayHeight 0.7] radians 3.14159 text $warning color red scale 40
+125	when	When	builtin-programs/calibrate/load-calibration.folk	16	-1		/nobody/ claims a calibration from camera /cam/ to display /disp/ is /anything/
+126	when	When	builtin-programs/calibrate/load-calibration.folk	20	125		display /disp/ has width /displayWidth/ height /displayHeight/
+127	claim	Claim	builtin-programs/calibrate/load-calibration.folk	21	126		display $disp has intrinsics [dict create \             ...
+128	when	When	builtin-programs/calibrate/load-calibration.folk	27	125		camera /cam/ has width /cameraWidth/ height /cameraHeight/
+129	claim	Claim	builtin-programs/calibrate/load-calibration.folk	28	128		camera $cam has intrinsics [dict create \             ...
+130	when	When	builtin-programs/calibrate/load-calibration.folk	34	125		display /disp/ has width /any/ height /any/ & camera /cam/ has width /any/ height /any/
+131	claim	Claim	builtin-programs/calibrate/load-calibration.folk	36	130		camera $cam to display $disp has extrinsics [dict create \             ...
+132	when	When	builtin-programs/calibrate/load-calibration.folk	42	-1		a calibration from camera /camera/ to display /display/ is /calibration/
+133	claim	Claim	builtin-programs/calibrate/load-calibration.folk	55	132		camera $camera has intrinsics [dict get $calibration came...
+134	claim	Claim	builtin-programs/calibrate/load-calibration.folk	57	132		display $display has intrinsics [dict get $calibration proj...
+135	claim	Claim	builtin-programs/calibrate/load-calibration.folk	63	132		camera $camera to display $display has extrinsics $extrinsics
+136	when	When	builtin-programs/calibrate/load-calibration.folk	66	-1		the collected results for {/somebody/ claims the defau...} are /results/
+137	claim	Claim	builtin-programs/calibrate/load-calibration.folk	72	136		the default program geometry is $defaultGeometry
+138	when	When	builtin-programs/calibrate/matlib.folk	1	-1		libapriltag has been built with config /configCcWithLibapriltag/
+139	fn	fn	builtin-programs/calibrate/matlib.folk	2	138		
+140	claim	Claim	builtin-programs/calibrate/matlib.folk	252	138		the calibration matrix library is $matLib
+141	proc	library	builtin-programs/calibrate/model.folk	5	-1		
+142	proc	proc	builtin-programs/calibrate/model.folk	12	141		
+143	proc	proc	builtin-programs/calibrate/model.folk	13	141		
+144	proc	proc	builtin-programs/calibrate/model.folk	17	141		
+145	proc	proc	builtin-programs/calibrate/model.folk	55	141		
+146	proc	proc	builtin-programs/calibrate/model.folk	59	141		
+147	proc	proc	builtin-programs/calibrate/model.folk	69	141		
+148	proc	proc	builtin-programs/calibrate/model.folk	74	141		
+149	proc	proc	builtin-programs/calibrate/model.folk	85	141		
+150	proc	proc	builtin-programs/calibrate/model.folk	100	141		
+151	proc	proc	builtin-programs/calibrate/model.folk	108	141		
+152	proc	proc	builtin-programs/calibrate/model.folk	118	141		
+153	proc	proc	builtin-programs/calibrate/model.folk	129	141		
+154	proc	proc	builtin-programs/calibrate/model.folk	130	153		
+155	proc	proc	builtin-programs/calibrate/model.folk	171	141		
+156	claim	Claim	builtin-programs/calibrate/model.folk	5	-1		the calibration model library is [library create modelLib { ...
+157	when	When	builtin-programs/calibrate/refine.folk	8	-1		libapriltag has been built with config /configCcWithLibapriltag/
+158	fn	fn	builtin-programs/calibrate/refine.folk	9	157		
+159	fn	fn	builtin-programs/calibrate/refine.folk	12	157		
+160	fn	fn	builtin-programs/calibrate/refine.folk	48	157		
+161	fn	fn	builtin-programs/calibrate/refine.folk	573	157		
+162	fn	fn	builtin-programs/calibrate/refine.folk	628	157		
+163	fn	fn	builtin-programs/calibrate/refine.folk	630	162		
+164	fn	fn	builtin-programs/calibrate/refine.folk	792	157		
+165	claim	Claim	builtin-programs/calibrate/refine.folk	792	157		the calibration refiner is [fn refineCalibration]
+166	fn	fn	builtin-programs/calibrate/refine.folk	796	157		
+167	fn	fn	builtin-programs/calibrate/refine.folk	797	166		
+168	fn	fn	builtin-programs/calibrate/refine.folk	798	166		
+169	fn	fn	builtin-programs/calibrate/refine.folk	858	157		
+170	claim	Claim	builtin-programs/calibrate/refine.folk	858	157		the joint calibration refiner is [fn refineJointCalibration]
+171	fn	fn	builtin-programs/calibrate/session.folk	1	-1		
+172	fn	fn	builtin-programs/calibrate/session.folk	6	171		
+173	fn	fn	builtin-programs/calibrate/session.folk	8	171		
+174	fn	fn	builtin-programs/calibrate/session.folk	40	-1		
+175	fn	fn	builtin-programs/calibrate/session.folk	142	-1		
+176	fn	fn	builtin-programs/calibrate/session.folk	214	-1		
+177	fn	fn	builtin-programs/calibrate/session.folk	282	-1		
+178	fn	fn	builtin-programs/calibrate/session.folk	282	-1		
+179	claim	Claim	builtin-programs/calibrate/session.folk	282	-1		the calibration initializer is [fn unrefinedCalibrateCamer... with extrinsics setter [fn setCameraToProjectorExt...
+180	when	When	builtin-programs/calibrate/session.folk	286	-1		/someone/ wishes to collect calibration pairs /pairs/ using measurements /measurements/ in session /session/
+181	fn	fn	builtin-programs/calibrate/session.folk	287	180		
+182	hold	Hold!	builtin-programs/calibrate/session.folk	289	181	-key active-calibration	
+183	claim	Claim	builtin-programs/calibrate/session.folk	290	182		the calibration session $session is optimizing
+184	when	When	builtin-programs/calibrate/session.folk	291	182		the calibration model library is /modelLib/ & the calibration matrix library is /matLib/ & the joint calibration refiner is /refineJointCalibration/ & the calibration initializer is /initializer/ with extrinsics setter /setter/
+185	query	Require!	builtin-programs/calibrate/session.folk	297	184		the calibration session $session collected camera $camera to display $display poses /poses/ at /timestamp/
+186	query	Query!	builtin-programs/calibrate/session.folk	301	184		/someone/ wishes to collect calibration pairs $pairs using measurements $measurements in session $session
+187	hold	Hold!	builtin-programs/calibrate/session.folk	304	184	-save 1 -on calibration -key {[list calibration $camera $display]}	a calibration from camera $camera to display $display is $calibration
+188	hold	Hold!	builtin-programs/calibrate/session.folk	307	184	-key session-complete	the calibration session $session is complete
+189	hold	Hold!	builtin-programs/calibrate/session.folk	313	181	-on builtin-programs/calibrate/calibrate.folk -key collection-complete	
+190	hold	Hold!	builtin-programs/calibrate/session.folk	314	181	-key active-calibration	
+191	claim	Claim	builtin-programs/calibrate/session.folk	315	190		the calibration session $session is collecting camera $camera to display $display at index $index of [llength $pairs]
+192	wish	Wish	builtin-programs/calibrate/session.folk	316	190		to calibrate camera $camera to display $display using measurements $measurements
+193	when	When	builtin-programs/calibrate/session.folk	317	190		the calibration collection completed run /run/ with /poses/ at /timestamp/
+194	hold	Hold!	builtin-programs/calibrate/session.folk	319	193	-key {[list collected $camera $display]}	the calibration session $session collected camera $camera to display $display poses $poses at $timestamp
+195	hold	Hold!	builtin-programs/calibrate/session.folk	325	180	-key session-complete	
+196	unmatch	On	builtin-programs/calibrate/session.folk	327	180		
+197	hold	Hold!	builtin-programs/calibrate/session.folk	328	196	-key active-calibration	
+198	hold	Hold!	builtin-programs/calibrate/session.folk	329	196	-key session-complete	
+199	hold	Hold!	builtin-programs/calibrate/session.folk	330	196	-key {[list collected {*}$pair]}	
+200	when	When	builtin-programs/calibrate/session.folk	336	-1		the calibration model library is /modelLib/ & the calibration matrix library is /matLib/ & the calibration poses max is /calibrationPosesMax/ & the calibration poses from camera /camera/ to display /display/ are /calibrationPoses/ & /nobody/ claims a calibration from camera /camera/ to display /display/ is /anything/ & the calibration initializer is /initializer/ with extrinsics setter /setter/ & the calibration refiner is /refineCalibration/
+201	query	Query!	builtin-programs/calibrate/session.folk	349	200		/someone/ wishes to collect calibration pairs /pairs/ using measurements /m/ in session /session/
+202	hold	Hold!	builtin-programs/calibrate/session.folk	367	200	-save 1 -on calibration -key {[list calibration $camera $display]}	a calibration from camera $camera to display $display is $calibration
+203	claim	Claim	builtin-programs/camera/enumerate.folk	120	-1		$::thisNode has camera $camera with {*}$info
+204	when	When	builtin-programs/camera/rpi.folk	216	-1		the image library is /imageLib/ & /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/
+205	claim	Claim	builtin-programs/camera/rpi.folk	229	204		camera $cameraPath has width $width height $height
+206	hold	Hold!	builtin-programs/camera/rpi.folk	247	204	-key {[list camera $cameraPath gray-frame]}	camera $cameraPath has gray frame $frame at timestamp $timestamp
+207	hold	Hold!	builtin-programs/camera/rpi.folk	249	204	-key {[list camera $cameraPath frame]}	camera $cameraPath has frame $frame at timestamp $timestamp
+208	when	When	builtin-programs/camera/slice.folk	5	-1		the image library is /imageLib/ & the quad library is /quadLib/ & the pose library is /poseLib/ & the quad changer is /quadChange/
+209	fn	fn	builtin-programs/camera/slice.folk	9	208		
+210	fn	fn	builtin-programs/camera/slice.folk	10	209		
+211	when	When	builtin-programs/camera/slice.folk	54	208		/someone/ wishes /p/ has camera slice & camera /cam/ has intrinsics /cameraIntrinsics/ & camera /cam/ has frame /frame/ at timestamp /timestamp/ & /p/ has quad /q/
+212	wish	Wish	builtin-programs/camera/slice.folk	59	211		$p has camera slice with width $width
+213	when	When	builtin-programs/camera/slice.folk	60	211		$p has camera slice /slice/ with width $width
+214	claim	Claim	builtin-programs/camera/slice.folk	61	213		$p has camera slice $slice
+215	when	When	builtin-programs/camera/slice.folk	65	208		/someone/ wishes /p/ has camera slice with width /width/ & camera /cam/ has intrinsics /cameraIntrinsics/ & camera /cam/ has frame /frame/ at timestamp /timestamp/ & /p/ has quad /q/
+216	claim	Claim	builtin-programs/camera/slice.folk	78	215	-destructor {[list $imageLib imageFree $slice]}	$p has camera slice $slice with width $width
+217	when	When	builtin-programs/camera/slice.folk	83	-1		when /p/ has camera slice /slice/ /lambda/ with environment /e/
+218	wish	Wish	builtin-programs/camera/slice.folk	84	217	-nonatomically 1	$p has camera slice
+219	when	When	builtin-programs/camera/slice.folk	86	-1		when /p/ has camera slice /slice/ with width /width/ /lambda/ with environment /e/
+220	wish	Wish	builtin-programs/camera/slice.folk	87	219	-nonatomically 1	$p has camera slice with width $width
+221	when	When	builtin-programs/camera/slice.folk	90	-1		/someone/ wishes /p/ displays camera slice /slice/
+222	wish	Wish	builtin-programs/camera/slice.folk	91	221		$p displays image $slice
+223	when	When	builtin-programs/camera/usb.folk	7	-1		the image library is /imageLib/ & the jpeg library is /jpegLib/
+224	when	When	builtin-programs/camera/usb.folk	351	223		camera /cameraPath/ has width /decompWidth/ height /decompHeight/
+225	when	When	builtin-programs/camera/usb.folk	352	224		camera $cameraPath has jpeg frame /jpeg/ at timestamp /ts/
+226	hold	Hold!	builtin-programs/camera/usb.folk	356	225	-key {[list camera $cameraPath gray-frame]} -destructor {[list $imageLib imageFree $grayImage]}	camera $cameraPath has gray frame $grayImage at timestamp $ts
+227	when	When	builtin-programs/camera/usb.folk	360	224	-atomically 1	camera $cameraPath has jpeg frame /jpeg/ at timestamp /ts/
+228	hold	Hold!	builtin-programs/camera/usb.folk	364	227	-key {[list camera $cameraPath frame]} -destructor {[list $imageLib imageFree $frameImage]}	camera $cameraPath has frame $frameImage at timestamp $ts
+229	when	When	builtin-programs/camera/usb.folk	370	223		/someone/ wishes $::thisNode uses camera /camera/ with /...options/
+230	fn	fn	builtin-programs/camera/usb.folk	381	229		
+231	claim	Claim	builtin-programs/camera/usb.folk	395	230		camera $camera has gain range $gainMin to $gainMax
+232	claim	Claim	builtin-programs/camera/usb.folk	405	230		camera [list $camera $i] has width [dict get $crop width] height [dict get $crop height]
+233	claim	Claim	builtin-programs/camera/usb.folk	409	230		camera $camera has width $width height $height
+234	when	When	builtin-programs/camera/usb.folk	412	230		/someone/ wishes camera $camera uses exposure time /exposureTimeUs/ us
+235	query	Query!	builtin-programs/camera/usb.folk	413	234		/owner/ wishes camera $camera temporarily uses exposure time /us/ us
+236	when	When	builtin-programs/camera/usb.folk	417	230		/someone/ wishes camera $camera uses gain /gain/
+237	when	When	builtin-programs/camera/usb.folk	420	230		/someone/ wishes camera $camera temporarily uses exposure time /exposureTimeUs/ us
+238	hold	Hold!	builtin-programs/camera/usb.folk	451	230	-key {[list camera $cropPath jpeg]} -destructor {[list $camLib jpegFree $croppedJpeg]}	camera $cropPath has jpeg frame $croppedJpeg at timestamp $timestamp
+239	hold	Hold!	builtin-programs/camera/usb.folk	460	230	-key {[list camera $camera jpeg]} -destructor {[list $camLib jpegFree $jpeg]}	camera $camera has jpeg frame $jpeg at timestamp $timestamp
+240	when	When	builtin-programs/collect.folk	1	-1		when the collected results for /clause/ are /resultsVar/ /body/ with environment /e/
+241	wish	Wish	builtin-programs/collect.folk	3	240		to collect results for $clause with settle 0ms
+242	when	When	builtin-programs/collect.folk	5	-1		when the collected results for /clause/ with settle /settle/ are /resultsVar/ /body/ with environment /e/
+243	wish	Wish	builtin-programs/collect.folk	7	242		to collect results for $clause with settle $settle
+244	when	When	builtin-programs/collect.folk	283	-1		/someone/ wishes to collect results for /pattern/ with settle /settle/
+245	when	When	builtin-programs/collect.folk	288	244		{*}$pattern
+246	unmatch	On	builtin-programs/collect.folk	290	245		
+247	unmatch	On	builtin-programs/collect.folk	293	244		
+248	when	When	builtin-programs/collect.folk	296	-1		the internal time is /t/
+249	when	When	builtin-programs/connections.folk	14	-1		/anyone/ wishes /source/ is connected to /sink/
+250	wish	Wish	builtin-programs/connections.folk	15	249		$source is connected to $sink from centroid to centroid
+251	when	When	builtin-programs/connections.folk	17	-1		/anyone/ wishes /source/ is dynamically connected to /sink/
+252	wish	Wish	builtin-programs/connections.folk	18	251		$source is dynamically connected to $sink from centroid to centroid
+253	when	When	builtin-programs/connections.folk	21	-1		the quad library is /quadLib/ & the pose library is /poseLib/ & the quad changer is /quadChange/ & display /disp/ has width /w/ height /h/ & display /disp/ has intrinsics /intr/
+254	fn	fn	builtin-programs/connections.folk	27	253		
+255	fn	fn	builtin-programs/connections.folk	30	253		
+256	fn	fn	builtin-programs/connections.folk	33	253		
+257	fn	fn	builtin-programs/connections.folk	50	253		
+258	when	When	builtin-programs/connections.folk	60	253		/anyone/ wishes /source/ is connected to /sink/
+259	wish	Wish	builtin-programs/connections.folk	61	258		$source is connected to $sink with _ _
+260	when	When	builtin-programs/connections.folk	63	253		/anyone/ wishes /source/ is connected to /sink/ with /...options/ & /source/ has quad /q1/ & /sink/ has quad /q2/
+261	wish	Wish	builtin-programs/connections.folk	78	260		to draw a line onto $disp with points [list $a $b] width $width color $color layer $layer
+262	wish	Wish	builtin-programs/connections.folk	84	260		to draw a triangle onto $disp with p0 $p0 p1 $p1 p2 $p2 color $color layer $layer
+263	when	When	builtin-programs/connections.folk	88	253		/anyone/ wishes /source/ is dynamically connected to /sink/
+264	wish	Wish	builtin-programs/connections.folk	89	263		$source is dynamically connected to $sink with _ _
+265	when	When	builtin-programs/connections.folk	91	253		/anyone/ wishes /source/ is dynamically connected to /sink/ with /...options/ & /source/ has quad /q1/ & /sink/ has quad /q2/
+266	wish	Wish	builtin-programs/connections.folk	106	265		to draw a line onto $disp with points [list $a $b] width $width color $color layer $layer
+267	when	When	builtin-programs/connections.folk	117	265		the clock time is /t/
+268	wish	Wish	builtin-programs/connections.folk	126	267		to draw a triangle onto $disp with p0 $p0 p1 $p1 p2 $p2 color $color layer $layer
+269	when	When	builtin-programs/decorations/label.folk	1	-1		/thing/ has resolved geometry /geom/
+270	when	When	builtin-programs/decorations/label.folk	2	269		the collected results for [list /someone/ wishes $thi... are /results/
+271	wish	Wish	builtin-programs/decorations/label.folk	45	270		to draw text onto $thing with {*}$options
+272	when	When	builtin-programs/decorations/label.folk	49	-1		/someone/ wishes /thing/ is labelled /text/
+273	wish	Wish	builtin-programs/decorations/label.folk	50	272		$thing is labelled $text with font PTSans-Regular
+274	when	When	builtin-programs/decorations/outline.folk	1	-1		/someone/ wishes /thing/ is outlined /color/ & /thing/ has resolved geometry /geom/
+275	wish	Wish	builtin-programs/decorations/outline.folk	11	274		to draw a line onto $thing with points $points width 0.01 color $color
+276	when	When	builtin-programs/decorations/title.folk	8	-1		/thing/ has quad /quad/
+277	claim	Claim	builtin-programs/decorations/title.folk	9	276	-keep 50ms	$thing has a quad
+278	when	When	builtin-programs/decorations/title.folk	12	-1		the quad library is /quadLib/ & the pose library is /poseLib/ & the quad changer is /quadChange/ & display /disp/ has width /displayWidth/ height /displayHeight/ & display /disp/ has intrinsics /displayIntrinsics/ & /thing/ has a quad
+279	fn	fn	builtin-programs/decorations/title.folk	19	278		
+280	when	When	builtin-programs/decorations/title.folk	27	278		the collected results for [list /someone/ wishes $thi... are /results/
+281	when	When	builtin-programs/decorations/title.folk	31	280	-atomicallyWithKey {[list $thing quad $label]}	$thing has quad /q/
+282	wish	Wish	builtin-programs/decorations/title.folk	101	281		to draw text onto $disp with position $dispPosition scale $scale radians $dispRadians anchor $textAnchor text $text
+283	claim	Claim	builtin-programs/demos.folk	2	-1		45000 has demo code {     Wish $this is labelled...}
+284	claim	Claim	builtin-programs/demos.folk	6	-1		45001 has demo code {     Wish $this is labelled...}
+285	claim	Claim	builtin-programs/demos.folk	10	-1		45002 has demo code {     When /actor/ is cool {...}
+286	claim	Claim	builtin-programs/demos.folk	16	-1		45003 has demo code {     Claim $this is actor  ...}
+287	claim	Claim	builtin-programs/demos.folk	20	-1		45004 has demo code {     When the clock time is...}
+288	claim	Claim	builtin-programs/demos.folk	25	-1		45005 has demo code {     When the clock time is...}
+289	claim	Claim	builtin-programs/demos.folk	30	-1		45006 has demo code {     Wish $this is outlined...}
+290	claim	Claim	builtin-programs/demos.folk	37	-1		45007 has demo code {     Wish $this is outlined...}
+291	claim	Claim	builtin-programs/demos.folk	41	-1		45008 has demo code {     When $this has camera ...}
+292	when	When	builtin-programs/display-saver.folk	1	-1		tag /nobody/ has a program & /nobody/ has a display saver & display /disp/ has width /displayWidth/ height /displayHeight/
+293	wish	Wish	builtin-programs/display-saver.folk	10	292		to draw text onto $disp with x $cx y $cy text $msg color green scale 80
+294	wish	Wish	builtin-programs/display-saver.folk	24	292		to draw a line onto $disp with points $borderPoints width 6 color white
+295	wish	Wish	builtin-programs/draw/apriltags.folk	1	-1		the GPU compiles pipeline apriltag {     {vec2 viewport mat3 su...}
+296	when	When	builtin-programs/draw/apriltags.folk	22	-1		the image library is /imageLib/ & the print library is /printLib/ & /p/ has canvas /writableTexture/ with /...wiOptions/ & /p/ has canvas projection /surfaceToClip/ & /someone/ wishes to draw an AprilTag onto /p/ with /...options/
+297	wish	Wish	builtin-programs/draw/apriltags.folk	49	296		the GPU draws pipeline apriltag onto canvas $writableTexture with arguments [list $wiResolution $surfac... layer $layer
+298	wish	Wish	builtin-programs/draw/arc.folk	1	-1		the GPU compiles pipeline arc [list \     {vec2 viewport ...
+299	when	When	builtin-programs/draw/arc.folk	35	-1		the color map is /colorMap/ & /p/ has canvas /id/ with /...wiOptions/ & /p/ has canvas projection /surfaceToClip/ & /someone/ wishes to draw an arc onto /p/ with /...options/
+300	wish	Wish	builtin-programs/draw/arc.folk	49	299		the GPU draws pipeline arc onto canvas $id with arguments [list $wiResolution $surfac... layer $layer
+301	wish	Wish	builtin-programs/draw/circle.folk	1	-1		the GPU compiles pipeline circle {     {vec2 viewport mat3 su...}
+302	when	When	builtin-programs/draw/circle.folk	26	-1		the color map is /colorMap/ & /p/ has canvas /id/ with /...wiOptions/ & /p/ has canvas projection /surfaceToClip/ & /someone/ wishes to draw a circle onto /p/ with /...options/
+303	wish	Wish	builtin-programs/draw/circle.folk	51	302		the GPU draws pipeline circle onto canvas $id with arguments [list $wiResolution $surfac... layer $layer
+304	proc	proc	builtin-programs/draw/color-map.folk	1	-1		
+305	claim	Claim	builtin-programs/draw/color-map.folk	165	-1		the color map is $colorMap
+306	when	When	builtin-programs/draw/contour.folk	1	-1		/p/ has canvas /id/ with /...wiOptions/ & /p/ has canvas projection /surfaceToClip/ & the color map is /colorMap/ & /someone/ wishes /p/ draws contour /contour/ with /...options/
+307	wish	Wish	builtin-programs/draw/contour.folk	26	306		the GPU draws pipeline line onto canvas $id with instances $instances layer $layer
+308	wish	Wish	builtin-programs/draw/curve.folk	3	-1		the GPU compiles function curveSegmentDistance {{vec2 p vec2 a vec2 b} floa...}
+309	wish	Wish	builtin-programs/draw/curve.folk	11	-1		the GPU compiles function curveBezierDistance {{vec2 p0 vec2 p1 vec2 p2 ve...}
+310	wish	Wish	builtin-programs/draw/curve.folk	28	-1		the GPU compiles pipeline curve {     {vec2 viewport mat3 su...}
+311	when	When	builtin-programs/draw/curve.folk	58	-1		the color map is /colorMap/ & /p/ has canvas /id/ with /...wiOptions/ & /p/ has canvas projection /surfaceToClip/ & /someone/ wishes to draw a curve onto /p/ with /...options/
+312	wish	Wish	builtin-programs/draw/curve.folk	75	311		the GPU draws pipeline curve onto canvas $id with arguments [list $wiResolution $surfac... layer $layer
+313	wish	Wish	builtin-programs/draw/dashed-line.folk	1	-1		the GPU compiles pipeline dashed-line {     {vec2 viewport mat3 su...}
+314	when	When	builtin-programs/draw/dashed-line.folk	39	-1		the color map is /colorMap/ & /p/ has canvas /id/ with /...wiOptions/ & /p/ has canvas projection /surfaceToClip/ & /someone/ wishes to draw a dashed line onto /p/ with /...options/
+315	wish	Wish	builtin-programs/draw/dashed-line.folk	61	314		the GPU draws pipeline dashed-line onto canvas $id with instances $instances layer $layer
+316	wish	Wish	builtin-programs/draw/fill.folk	1	-1		the GPU compiles pipeline fillTriangle {     {mat3 surfaceToClip ve...}
+317	when	When	builtin-programs/draw/fill.folk	11	-1		the color map is /colorMap/
+318	when	When	builtin-programs/draw/fill.folk	12	317		/someone/ wishes to draw a triangle onto /p/ with /...options/ & /p/ has canvas /id/ with /...wiOptions/ & /p/ has canvas projection /surfaceToClip/
+319	wish	Wish	builtin-programs/draw/fill.folk	18	318		the GPU draws pipeline fillTriangle onto canvas $id with arguments [list $surfaceToClip $p0 $p... layer $layer
+320	when	When	builtin-programs/draw/fill.folk	23	317		/someone/ wishes to draw a quad onto /p/ with /...options/ & /p/ has canvas /id/ with /...wiOptions/ & /p/ has canvas projection /surfaceToClip/
+321	wish	Wish	builtin-programs/draw/fill.folk	29	320		the GPU draws pipeline fillTriangle onto canvas $id with instances [list \                    ... layer $layer
+322	when	When	builtin-programs/draw/fill.folk	37	317		/someone/ wishes to draw a polygon onto /p/ with /...options/ & /p/ has canvas /id/ with /...wiOptions/ & /p/ has canvas projection /surfaceToClip/
+323	wish	Wish	builtin-programs/draw/fill.folk	48	322		to draw a triangle onto $p with p0 [lindex $points 0] p1 [lindex $points 1] p2 [lindex $points 2] color $color layer $layer
+324	wish	Wish	builtin-programs/draw/fill.folk	53	322		to draw a quad onto $p with p0 [lindex $points 0] p1 [lindex $points 1] p2 [lindex $points 2] p3 [lindex $points 3] color $color layer $layer
+325	wish	Wish	builtin-programs/draw/fill.folk	71	322		the GPU draws pipeline fillTriangle onto canvas $id with instances $instances layer $layer
+326	when	When	builtin-programs/draw/fill.folk	75	317		/someone/ wishes /page/ is filled with /...options/ & /page/ has resolved geometry /geom/
+327	wish	Wish	builtin-programs/draw/fill.folk	86	326		to draw a polygon onto $page with points $points {*}$fillOpts
+328	when	When	builtin-programs/draw/fill.folk	89	317		/someone/ wishes /thing/ is filled /color/
+329	wish	Wish	builtin-programs/draw/fill.folk	90	328		$thing is filled with color $color
+330	when	When	builtin-programs/draw/fill.folk	93	317		/someone/ wishes /thing/ is filled /color/ with /...options/
+331	wish	Wish	builtin-programs/draw/fill.folk	95	330		$thing is filled with color $color {*}$options
+332	when	When	builtin-programs/draw/gif.folk	1	-1		the gif library is /gifLib/
+333	when	When	builtin-programs/draw/gif.folk	2	332		/someone/ wishes /p/ displays gif /gif/ with /...options/ & /p/ has resolved geometry /geom/
+334	wish	Wish	builtin-programs/draw/gif.folk	19	333		$p displays image [lindex $frames 0] with {*}$options
+335	when	When	builtin-programs/draw/gif.folk	23	333		the clock time is /t/
+336	wish	Wish	builtin-programs/draw/gif.folk	33	335		$p displays image $im with {*}$options
+337	when	When	builtin-programs/draw/image.folk	1	-1		the jpeg library is /jpegLib/
+338	fn	fn	builtin-programs/draw/image.folk	2	337		
+339	fn	fn	builtin-programs/draw/image.folk	7	337		
+340	claim	Claim	builtin-programs/draw/image.folk	7	337		[fn jpegLoader] is an image loader
+341	when	When	builtin-programs/draw/image.folk	10	-1		the png library is /pngLib/
+342	fn	fn	builtin-programs/draw/image.folk	11	341		
+343	fn	fn	builtin-programs/draw/image.folk	16	341		
+344	claim	Claim	builtin-programs/draw/image.folk	16	341		[fn pngLoader] is an image loader
+345	when	When	builtin-programs/draw/image.folk	19	-1		the gif library is /gifLib/
+346	fn	fn	builtin-programs/draw/image.folk	20	345		
+347	fn	fn	builtin-programs/draw/image.folk	33	345		
+348	claim	Claim	builtin-programs/draw/image.folk	33	345		[fn gifLoader] is an image loader
+349	when	When	builtin-programs/draw/image.folk	37	-1		the collected results for {/loader/ is an image loader} are /loaders/
+350	fn	fn	builtin-programs/draw/image.folk	40	349		
+351	query	Query!	builtin-programs/draw/image.folk	41	350		the image path $im maps to cached image /cachedIm/
+352	hold	Hold!	builtin-programs/draw/image.folk	63	350	-key {[list cache $impath]}	the image path $impath maps to cached image $result
+353	fn	fn	builtin-programs/draw/image.folk	70	349		
+354	claim	Claim	builtin-programs/draw/image.folk	70	349		the image loader is [fn loadImage]
+355	wish	Wish	builtin-programs/draw/image.folk	73	-1		the GPU compiles pipeline image {     {vec2 viewport mat3 su...}
+356	when	When	builtin-programs/draw/image.folk	97	-1		the image library is /imageLib/ & /someone/ wishes to draw an image onto /p/ with /...options/ & /p/ has canvas /id/ with /...wiOptions/ & /p/ has canvas projection /surfaceToClip/
+357	wish	Wish	builtin-programs/draw/image.folk	141	356		the GPU loads image $im as texture
+358	when	When	builtin-programs/draw/image.folk	142	356		the GPU has loaded image $im as texture /gim/
+359	wish	Wish	builtin-programs/draw/image.folk	143	358		the GPU draws pipeline image onto canvas $id with arguments [list $wiResolution $surfac...
+360	when	When	builtin-programs/draw/image.folk	150	-1		the image library is /imageLib/ & the image loader is /loadImage/ & /someone/ wishes /p/ displays image /impath/ with /...options/ & /p/ has resolved geometry /geom/
+361	fn	fn	builtin-programs/draw/image.folk	158	360		
+362	say	Say	builtin-programs/draw/image.folk	162	360		$p has error $e with info $opts
+363	wish	Wish	builtin-programs/draw/image.folk	166	360		$p displays gif $im with {*}$options
+364	wish	Wish	builtin-programs/draw/image.folk	176	360		to draw an image onto $p with image $im position [dict getdef $options posit... anchor topleft width [dict getdef $options width...
+365	when	When	builtin-programs/draw/image.folk	183	-1		/someone/ wishes /p/ displays image /im/
+366	wish	Wish	builtin-programs/draw/image.folk	184	365		$p displays image $im with scale 1.0
+367	wish	Wish	builtin-programs/draw/line.folk	1	-1		the GPU compiles pipeline line {     {vec2 viewport mat3 su...}
+368	fn	fn	builtin-programs/draw/line.folk	48	-1		
+369	when	When	builtin-programs/draw/line.folk	62	-1		the color map is /colorMap/ & /p/ has canvas /id/ with /...wiOptions/ & /p/ has canvas projection /surfaceToClip/ & /someone/ wishes to draw a line onto /p/ with /...options/
+370	wish	Wish	builtin-programs/draw/line.folk	88	369		the GPU draws pipeline line onto canvas $id with instances $instances layer $layer
+371	fn	fn	builtin-programs/draw/shapes.folk	4	-1		
+372	fn	fn	builtin-programs/draw/shapes.folk	17	-1		
+373	fn	fn	builtin-programs/draw/shapes.folk	21	-1		
+374	fn	fn	builtin-programs/draw/shapes.folk	26	-1		
+375	fn	fn	builtin-programs/draw/shapes.folk	39	-1		
+376	fn	fn	builtin-programs/draw/shapes.folk	84	-1		
+377	fn	fn	builtin-programs/draw/shapes.folk	106	-1		
+378	fn	fn	builtin-programs/draw/shapes.folk	110	-1		
+379	fn	fn	builtin-programs/draw/shapes.folk	117	-1		
+380	fn	fn	builtin-programs/draw/shapes.folk	124	-1		
+381	fn	fn	builtin-programs/draw/shapes.folk	135	-1		
+382	fn	fn	builtin-programs/draw/shapes.folk	148	-1		
+383	when	When	builtin-programs/draw/shapes.folk	170	-1		/someone/ wishes /p/ draws a /shape/ with /...options/ & /p/ has resolved geometry /geom/
+384	wish	Wish	builtin-programs/draw/shapes.folk	186	383		to draw a circle onto $p with center $center radius $radius thickness $thickness color $color filled $filled layer $layer
+385	wish	Wish	builtin-programs/draw/shapes.folk	216	383		to draw a polygon onto $p with points $points color $color layer $layer
+386	wish	Wish	builtin-programs/draw/shapes.folk	219	383		to draw a line onto $p with points $points width $thickness color $color layer $layer
+387	when	When	builtin-programs/draw/shapes.folk	224	-1		/someone/ wishes /p/ draws a /shape/
+388	wish	Wish	builtin-programs/draw/shapes.folk	225	387		$p draws a $shape with color white filled true
+389	when	When	builtin-programs/draw/shapes.folk	228	-1		/someone/ wishes /p/ draws text /text/ with /...options/ & /p/ has resolved geometry /geom/
+390	wish	Wish	builtin-programs/draw/shapes.folk	240	389		to draw text onto $p with position $position scale $scale text $text color $color radians $radians anchor $anchor font $font layer $layer
+391	when	When	builtin-programs/draw/shapes.folk	245	-1		/someone/ wishes /p/ draws text /text/
+392	wish	Wish	builtin-programs/draw/shapes.folk	246	391		$p draws text $text with color white
+393	when	When	builtin-programs/draw/shapes.folk	249	-1		/someone/ wishes /p/ draws a polyline /points/ with /...options/ & /p/ has resolved geometry /geom/
+394	wish	Wish	builtin-programs/draw/shapes.folk	268	393		to draw a dashed line onto $p with points $points width $width color $color dashlength $dashlength dashoffset $dashoffset layer $layer
+395	wish	Wish	builtin-programs/draw/shapes.folk	272	393		to draw a line onto $p with points $points width $width color $color layer $layer
+396	when	When	builtin-programs/draw/shapes.folk	277	-1		/someone/ wishes /p/ draws a polyline /points/
+397	wish	Wish	builtin-programs/draw/shapes.folk	278	396		$p draws a polyline $points with color white
+398	when	When	builtin-programs/draw/shapes.folk	281	-1		/someone/ wishes /p/ draws a polygon /points/ with /...options/ & /p/ has resolved geometry /geom/
+399	wish	Wish	builtin-programs/draw/shapes.folk	287	398		to draw a polygon onto $p with points $parsedPoints color $color layer $layer
+400	when	When	builtin-programs/draw/shapes.folk	290	-1		/someone/ wishes /p/ draws a polygon /points/
+401	wish	Wish	builtin-programs/draw/shapes.folk	291	400		$p draws a polygon $points with color white
+402	when	When	builtin-programs/draw/shapes.folk	294	-1		/someone/ wishes /p/ draws points /points/ with /...options/ & /p/ has resolved geometry /geom/
+403	wish	Wish	builtin-programs/draw/shapes.folk	308	402		to draw a circle onto $p with center $point radius $radius thickness $thickness color $color filled $filled layer $layer
+404	when	When	builtin-programs/draw/shapes.folk	314	-1		/someone/ wishes /p/ draws points /points/
+405	wish	Wish	builtin-programs/draw/shapes.folk	315	404		$p draws points $points with color white
+406	when	When	builtin-programs/draw/shapes.folk	318	-1		/someone/ wishes /p/ draws a set of points /points/ with /...options/
+407	wish	Wish	builtin-programs/draw/shapes.folk	320	406		$p draws points $points with {*}$options
+408	when	When	builtin-programs/draw/shapes.folk	323	-1		/someone/ wishes /p/ draws a set of points /points/
+409	wish	Wish	builtin-programs/draw/shapes.folk	324	408		$p draws points $points
+410	when	When	builtin-programs/draw/text.folk	1	-1		the image library is /imageLib/
+411	when	When	builtin-programs/draw/text.folk	174	410		the image loader is /loadImage/
+412	fn	fn	builtin-programs/draw/text.folk	175	411		
+413	fn	fn	builtin-programs/draw/text.folk	176	411		
+414	wish	Wish	builtin-programs/draw/text.folk	206	413		the GPU loads image $im as texture
+415	when	When	builtin-programs/draw/text.folk	207	413		the GPU has loaded image $im as texture /gim/
+416	claim	Claim	builtin-programs/draw/text.folk	210	415	-destructor {[list $fontLib fontFree $font]}	the GPU has font $name with data $font
+417	wish	Wish	builtin-programs/draw/text.folk	224	410		the GPU compiles function glyphMsd {     {sampler2D atlas vec4 ...}
+418	wish	Wish	builtin-programs/draw/text.folk	230	410		the GPU compiles function median {     {float r float g float...}
+419	wish	Wish	builtin-programs/draw/text.folk	238	410		the GPU compiles pipeline glyph {     {mat3 surfaceToClip   ...}
+420	when	When	builtin-programs/draw/text.folk	270	410		the color map is /colorMap/ & /someone/ wishes to draw text onto /p/ with /...options/
+421	when	When	builtin-programs/draw/text.folk	307	420		$p has canvas /id/ with /...wiOptions/ & $p has canvas projection /surfaceToClip/ & the GPU has font $font with data /fontData/
+422	wish	Wish	builtin-programs/draw/text.folk	319	421		the GPU draws pipeline glyph onto canvas $id with instances $instances layer $layer
+423	when	When	builtin-programs/editor/draw-editor.folk	1	-1		the editor utils library is /utils/
+424	when	When	builtin-programs/editor/draw-editor.folk	4	423		/editor/ is an editor with /...anything/ & editor /editor/ has margin /margin/ & editor /editor/ has viewport position /vpPos/ & editor /editor/ has viewport size /vpSize/ & editor /editor/ has selected program /program/ & editor /editor/ on program /program/ has font options with /...fontOptions/
+425	when	When	builtin-programs/editor/draw-editor.folk	14	424		$editor has canvas /editorCanvas/ with /...wiOpts/
+426	wish	Wish	builtin-programs/editor/draw-editor.folk	16	425		the GPU draws pipeline fillTriangle onto canvas $editorCanvas with arguments [list {{1 0 0} {0 1 0} {0 0... layer -2
+427	wish	Wish	builtin-programs/editor/draw-editor.folk	20	425		the GPU draws pipeline fillTriangle onto canvas $editorCanvas with arguments [list {{1 0 0} {0 1 0} {0 0... layer -2
+428	when	When	builtin-programs/editor/draw-editor.folk	27	424		$editor has resolved geometry /geom/ & the clock time is /t/
+429	wish	Wish	builtin-programs/editor/draw-editor.folk	29	428		to draw a dashed line onto $editor with points [list [list 0 0] \         ... color gold width 0.005 dashlength 0.008 dashoffset [expr {fmod($t, 1.6) * 0.01}]
+430	when	When	builtin-programs/editor/draw-editor.folk	42	424		editor $editor has selected program /program/ & editor buffer for /program/ is /code/ & editor $editor has cursor /cursor/ & editor $editor has cursor position /cursorPos/ & editor $editor has selection anchor /selAnchor/
+431	wish	Wish	builtin-programs/editor/draw-editor.folk	52	430		to draw text onto $editor with position [list $lineNumbersRight [li... text $lineNumbers color gold scale $textScale anchor topright font NeomatrixCode
+432	wish	Wish	builtin-programs/editor/draw-editor.folk	59	430		to draw text onto $editor with position $pos text $text scale $textScale anchor topleft font NeomatrixCode
+433	wish	Wish	builtin-programs/editor/draw-editor.folk	104	430		to draw a quad onto $editor with p0 [list $x0 $y0] p1 [list $x1 $y0] p2 [list $x1 $y1] p3 [list $x0 $y1] color {0.2 0.4 0.8 0.7} layer -1
+434	wish	Wish	builtin-programs/editor/draw-editor.folk	114	430		to draw a circle onto $editor with center $p1 radius $s thickness 0 color green filled true
+435	wish	Wish	builtin-programs/editor/draw-editor.folk	115	430		to draw a line onto $editor with points [list $p1 $p2] width $s color green
+436	proc	library	builtin-programs/editor/editor-utils.folk	1	-1		
+437	proc	proc	builtin-programs/editor/editor-utils.folk	2	436		
+438	proc	proc	builtin-programs/editor/editor-utils.folk	11	436		
+439	proc	proc	builtin-programs/editor/editor-utils.folk	22	436		
+440	proc	proc	builtin-programs/editor/editor-utils.folk	42	436		
+441	proc	proc	builtin-programs/editor/editor-utils.folk	54	436		
+442	proc	proc	builtin-programs/editor/editor-utils.folk	62	436		
+443	proc	proc	builtin-programs/editor/editor-utils.folk	72	436		
+444	proc	proc	builtin-programs/editor/editor-utils.folk	79	436		
+445	proc	proc	builtin-programs/editor/editor-utils.folk	86	436		
+446	proc	proc	builtin-programs/editor/editor-utils.folk	133	436		
+447	proc	proc	builtin-programs/editor/editor-utils.folk	166	436		
+448	proc	proc	builtin-programs/editor/editor-utils.folk	172	436		
+449	proc	proc	builtin-programs/editor/editor-utils.folk	186	436		
+450	proc	proc	builtin-programs/editor/editor-utils.folk	197	436		
+451	proc	proc	builtin-programs/editor/editor-utils.folk	202	436		
+452	proc	proc	builtin-programs/editor/editor-utils.folk	217	436		
+453	claim	Claim	builtin-programs/editor/editor-utils.folk	1	-1		the editor utils library is [library create editorUtils...
+454	when	When	builtin-programs/editor/editor.folk	3	-1		/k/ is a keyboard with /...opts/
+455	wish	Wish	builtin-programs/editor/editor.folk	4	454		tag $k is stabilized
+456	wish	Wish	builtin-programs/editor/editor.folk	6	454		$k points up with length 0.3
+457	when	When	builtin-programs/editor/editor.folk	7	454		the collected results for [list $k points up with len... are /results/
+458	query	Query!	builtin-programs/editor/editor.folk	12	457		$target has resolved geometry /geom/
+459	when	When	builtin-programs/editor/editor.folk	19	457		$program handles keyboard input
+460	claim	Claim	builtin-programs/editor/editor.folk	20	459		$k is typing into $program
+461	when	When	builtin-programs/editor/editor.folk	22	457		/nobody/ claims $program handles keyboard input
+462	when	When	builtin-programs/editor/editor.folk	23	461		/nobody/ claims $program is an editor
+463	wish	Wish	builtin-programs/editor/editor.folk	24	462		tag $program is stabilized
+464	claim	Claim	builtin-programs/editor/editor.folk	28	462		$editor is an editor
+465	claim	Claim	builtin-programs/editor/editor.folk	29	462		editor $editor has selected program $program
+466	wish	Wish	builtin-programs/editor/editor.folk	30	462		$editor has a canvas with layer 98
+467	when	When	builtin-programs/editor/editor.folk	32	462		$program has resolved geometry /geom/
+468	claim	Claim	builtin-programs/editor/editor.folk	33	467		$editor has resolved geometry $geom
+469	when	When	builtin-programs/editor/editor.folk	35	462		$program has quad /q/
+470	claim	Claim	builtin-programs/editor/editor.folk	35	469		$editor has quad $q
+471	claim	Claim	builtin-programs/editor/editor.folk	36	462		$k has created editor $editor
+472	claim	Claim	builtin-programs/editor/editor.folk	37	462		$k is typing into $editor
+473	when	When	builtin-programs/editor/editor.folk	39	461		$program is an editor
+474	claim	Claim	builtin-programs/editor/editor.folk	40	473		$k is typing into $program
+475	when	When	builtin-programs/editor/editor.folk	46	-1		the program save directory is /programDir/ & the editor utils library is /utils/
+476	when	When	builtin-programs/editor/editor.folk	51	475		/someone/ claims /editor/ is an editor
+477	claim	Claim	builtin-programs/editor/editor.folk	52	476		$editor is an editor with {*}$defaults
+478	when	When	builtin-programs/editor/editor.folk	53	476		/nobody/ has created editor $editor & $editor points up with length 0.3 at /program/
+479	wish	Wish	builtin-programs/editor/editor.folk	55	478		tag $editor is stabilized
+480	wish	Wish	builtin-programs/editor/editor.folk	56	478		tag $program is stabilized
+481	claim	Claim	builtin-programs/editor/editor.folk	57	478		editor $editor has selected program $program
+482	when	When	builtin-programs/editor/editor.folk	61	475		/editor/ is an editor with /...options/
+483	when	When	builtin-programs/editor/editor.folk	70	482		$editor has resolved geometry /geom/
+484	claim	Claim	builtin-programs/editor/editor.folk	72	483		editor $editor has margin [list \                 [di...
+485	claim	Claim	builtin-programs/editor/editor.folk	78	483		editor $editor has margin [list 0.01 0.005 0.005 0.01]
+486	when	When	builtin-programs/editor/editor.folk	84	482		editor $editor has selected program /program/ & /nobody/ claims editor $editor on program /program/ has font options /...anything/ & the saved holds are loaded
+487	query	Query!	builtin-programs/editor/editor.folk	93	486		$editor has resolved geometry /geom/
+488	hold	Hold!	builtin-programs/editor/editor.folk	100	486	-save 1 -key {font-options-of:$editor:$program}	editor $editor on program $program has font options with scale $textScale
+489	when	When	builtin-programs/editor/editor.folk	107	482		$editor has resolved geometry /geom/ & editor $editor has margin /margin/ & editor $editor has selected program /program/ & editor $editor on program /program/ has font options with /...options/
+490	claim	Claim	builtin-programs/editor/editor.folk	111	489		editor $editor has viewport size [$utils editorSizeInCharact...
+491	query	Query!	builtin-programs/editor/editor.folk	115	482		/somebody/ claims editor $editor has cursor /anything/
+492	hold	Hold!	builtin-programs/editor/editor.folk	117	482	-key {editor-state-of:$editor}	
+493	claim	Claim	builtin-programs/editor/editor.folk	118	492		editor $editor has cursor 0
+494	claim	Claim	builtin-programs/editor/editor.folk	119	492		editor $editor has max cursor x 0
+495	claim	Claim	builtin-programs/editor/editor.folk	120	492		editor $editor has viewport position [list 0 0]
+496	claim	Claim	builtin-programs/editor/editor.folk	121	492		editor $editor has selection anchor {}
+497	claim	Claim	builtin-programs/editor/editor.folk	122	492		editor $editor has undo stack {}
+498	claim	Claim	builtin-programs/editor/editor.folk	123	492		editor $editor has redo stack {}
+499	claim	Claim	builtin-programs/editor/editor.folk	124	492		editor $editor has last edit type {}
+500	query	Query!	builtin-programs/editor/editor.folk	128	482		/somebody/ claims editor $editor has clipboard /anything/
+501	hold	Hold!	builtin-programs/editor/editor.folk	130	482	-key {clipboard-of:$editor}	editor $editor has clipboard {}
+502	when	When	builtin-programs/editor/editor.folk	135	482		editor $editor has selected program /program/ & /program/ has program code /programCode/ & the saved holds are loaded
+503	query	Query!	builtin-programs/editor/editor.folk	139	502		editor buffer for $program is /anything/
+504	hold	Hold!	builtin-programs/editor/editor.folk	141	502	-save 1 -key {buffer-for:$program}	editor buffer for $program is $programCode
+505	subscribe	Subscribe:	builtin-programs/editor/editor.folk	147	475		keyboard /keyboard/ claims key Control_b is down with /...options/
+506	notify	Notify:	builtin-programs/editor/editor.folk	148	505		print code {# blank}
+507	when	When	builtin-programs/editor/editor.folk	151	475		/keyboard/ is a keyboard with path /kbPath/ /...anything/ & /keyboard/ is typing into /editor/ & /editor/ is an editor with /...anything/ & editor /editor/ has selected program /program/
+508	subscribe	Subscribe:	builtin-programs/editor/editor.folk	156	507		keyboard $kbPath claims key /key/ is /keyState/ with /...options/
+509	query	ForEach!	builtin-programs/editor/editor.folk	157	508		editor $editor has viewport position /vpPos/ & editor $editor has viewport size /vpSize/ & editor buffer for $program is /code/ & editor $editor has max cursor x /maxCursorX/ & editor $editor has cursor /cursor/ & editor $editor has selection anchor /selAnchor/ & editor $editor has clipboard /clipboard/ & editor $editor has undo stack /undoStack/ & editor $editor has redo stack /redoStack/ & editor $editor has last edit type /lastEditType/ & editor $editor on program $program has font options with /...textOptions/
+510	hold	Hold!	builtin-programs/editor/editor.folk	226	508	-key {clipboard-of:$editor}	editor $editor has clipboard $clipText
+511	hold	Hold!	builtin-programs/editor/editor.folk	232	508	-key {clipboard-of:$editor}	editor $editor has clipboard $clipText
+512	notify	Notify:	builtin-programs/editor/editor.folk	275	508		save code on editor $editor
+513	notify	Notify:	builtin-programs/editor/editor.folk	278	508		print program from editor $editor
+514	hold	Hold!	builtin-programs/editor/editor.folk	281	508	-key {printing-alert:$editor}	$editor is labelled Printing!
+515	hold	Hold!	builtin-programs/editor/editor.folk	284	508	-key {printing-alert:$editor}	
+516	hold	Hold!	builtin-programs/editor/editor.folk	291	508	-save 1 -key {font-options-of:$editor:$program}	editor $editor on program $program has font options with scale $textScale
+517	hold	Hold!	builtin-programs/editor/editor.folk	300	508	-save 1 -key {font-options-of:$editor:$program}	editor $editor on program $program has font options with scale $textScale
+518	hold	Hold!	builtin-programs/editor/editor.folk	343	508	-on builtin-programs/programs.folk -key {new-code-for:$program}	
+519	hold	Hold!	builtin-programs/editor/editor.folk	346	508	-save 1 -key {buffer-for:$program}	
+520	when	When	builtin-programs/editor/editor.folk	347	519		$program has program code /originalCode/
+521	claim	Claim	builtin-programs/editor/editor.folk	348	520		editor buffer for $program is $originalCode
+522	hold	Hold!	builtin-programs/editor/editor.folk	352	508	-save 1 -key {buffer-for:$program}	editor buffer for $program is $code
+523	hold	Hold!	builtin-programs/editor/editor.folk	370	508	-keep 12ms -key {editor-state-of:$editor}	
+524	claim	Claim	builtin-programs/editor/editor.folk	371	523		editor $editor has viewport position [list $vpX $vpY]
+525	claim	Claim	builtin-programs/editor/editor.folk	372	523		editor $editor has cursor $cursor
+526	claim	Claim	builtin-programs/editor/editor.folk	373	523		editor $editor has max cursor x $maxCursorX
+527	claim	Claim	builtin-programs/editor/editor.folk	374	523		editor $editor has selection anchor $selAnchor
+528	claim	Claim	builtin-programs/editor/editor.folk	375	523		editor $editor has undo stack $undoStack
+529	claim	Claim	builtin-programs/editor/editor.folk	376	523		editor $editor has redo stack $redoStack
+530	claim	Claim	builtin-programs/editor/editor.folk	377	523		editor $editor has last edit type $lastEditType
+531	subscribe	Subscribe:	builtin-programs/editor/editor.folk	383	475		save code on editor /editor/
+532	query	ForEach!	builtin-programs/editor/editor.folk	384	531		editor $editor has selected program /program/ & editor buffer for /program/ is /programCode/
+533	hold	Hold!	builtin-programs/editor/editor.folk	386	531	-on builtin-programs/programs.folk -key {new-code-for:$program}	program $program is replaced with code $programCode editedTime [clock seconds]
+534	hold	Hold!	builtin-programs/editor/editor.folk	398	531	-key {saved-alert:$editor}	$editor is labelled Saved!
+535	hold	Hold!	builtin-programs/editor/editor.folk	401	531	-key {saved-alert:$editor}	
+536	when	When	builtin-programs/editor/editor.folk	406	475		/editor/ is an editor with /...anything/ & editor /editor/ has cursor /cursor/ & editor /editor/ has selected program /program/ & editor buffer for /program/ is /code/ & editor /editor/ has viewport position /vpPos/ & editor /editor/ on program /program/ has font options with /...textOptions/
+537	claim	Claim	builtin-programs/editor/editor.folk	422	536		editor $editor has cursor position [list $offsetX $offsetY]
+538	fn	fn	builtin-programs/editor/print-editor.folk	1	-1		
+539	query	Require!	builtin-programs/editor/print-editor.folk	2	538		editor $editor has selected program /program/
+540	query	Require!	builtin-programs/editor/print-editor.folk	3	538		editor buffer for $program is /code/
+541	query	Require!	builtin-programs/editor/print-editor.folk	5	538		editor $editor on program $program has font options with /...fontOptions/
+542	query	Require!	builtin-programs/editor/print-editor.folk	7	538		editor $editor has margin /margin/
+543	query	Require!	builtin-programs/editor/print-editor.folk	9	538		the paper formats are /formats/
+544	query	QueryOne!	builtin-programs/editor/print-editor.folk	10	538	-default letter	paper format /./ is the default paper format
+545	query	Query!	builtin-programs/editor/print-editor.folk	15	538		/someone/ wishes $program prints with mixin /mixin/
+546	subscribe	Subscribe:	builtin-programs/editor/print-editor.folk	27	-1		print program from editor /editor/
+547	notify	Notify:	builtin-programs/editor/print-editor.folk	29	546		print a new program with {*}$options
+548	when	When	builtin-programs/editor/print-editor.folk	33	-1		the codeToPostScript is /codeToPostScript/ & /someone/ wishes editor /editor/ has a print preview & editor /editor/ has selected program /program/
+549	wish	Wish	builtin-programs/editor/print-editor.folk	38	548		$preview has a canvas
+550	query	Require!	builtin-programs/editor/print-editor.folk	40	548		the paper formats are /formats/
+551	query	QueryOne!	builtin-programs/editor/print-editor.folk	41	548	-default letter	paper format /./ is the default paper format
+552	claim	Claim	builtin-programs/editor/print-editor.folk	48	548		$preview has resolved geometry $previewGeom
+553	when	When	builtin-programs/editor/print-editor.folk	49	548		the quad library is /quadLib/ & $editor has quad /q/
+554	claim	Claim	builtin-programs/editor/print-editor.folk	50	553		$preview has quad [$quadLib createFromGeometr...
+555	wish	Wish	builtin-programs/editor/print-editor.folk	54	548		$preview is outlined white
+556	fn	fn	builtin-programs/editor/print-editor.folk	56	548		
+557	when	When	builtin-programs/editor/print-editor.folk	57	548		editor buffer for $program is /code/
+558	wish	Wish	builtin-programs/editor/print-editor.folk	67	557		$preview displays image $pngFile with width $previewGeom(width)
+559	when	When	builtin-programs/editor-control.folk	1	-1		/page/ has editor code /editorCode/ & /page/ has program code /programCode/
+560	claim	Claim	builtin-programs/editor-control.folk	2	559		$page has base64 editor code [binary encode base64 $edit... program code [binary encode base64 $prog...
+561	wish	Wish	builtin-programs/editor-control.folk	6	-1		the web server handles route /editor-control with hidden true handler {     html { <!DOCTYPE html>...}
+562	handler	Wish	builtin-programs/editor-control.folk	6	-1		
+563	when	When	builtin-programs/errors.folk	1	-1		/p/ has error /err/ with info /info/
+564	when	When	builtin-programs/errors.folk	2	563		the clock time is /t/
+565	wish	Wish	builtin-programs/errors.folk	4	564		$p is outlined white
+566	wish	Wish	builtin-programs/errors.folk	6	564		$p is outlined red
+567	wish	Wish	builtin-programs/errors.folk	9	563		$p is titled $err
+568	when	When	builtin-programs/errors.folk	12	-1		/p/ has warning /w/ with info /info/
+569	when	When	builtin-programs/errors.folk	13	568		the clock time is /t/
+570	wish	Wish	builtin-programs/errors.folk	15	569		$p is outlined yellow
+571	wish	Wish	builtin-programs/errors.folk	18	568		$p is titled $w
+572	when	When	builtin-programs/esc-pos.folk	1	-1		the print library is /printLib/ & the image library is /imageLib/ & the program save directory is /saveDir/
+573	fn	fn	builtin-programs/esc-pos.folk	5	572		
+574	query	Require!	builtin-programs/esc-pos.folk	12	573		$printer is at /address/
+575	fn	fn	builtin-programs/esc-pos.folk	30	572		
+576	fn	fn	builtin-programs/esc-pos.folk	36	572		
+577	fn	fn	builtin-programs/esc-pos.folk	42	572		
+578	query	Require!	builtin-programs/esc-pos.folk	43	577		$printer has tag geometry /geometry/
+579	fn	fn	builtin-programs/esc-pos.folk	49	572		
+580	fn	fn	builtin-programs/esc-pos.folk	53	572		
+581	fn	fn	builtin-programs/esc-pos.folk	57	572		
+582	fn	fn	builtin-programs/esc-pos.folk	61	572		
+583	fn	fn	builtin-programs/esc-pos.folk	65	572		
+584	fn	fn	builtin-programs/esc-pos.folk	81	572		
+585	subscribe	Subscribe:	builtin-programs/esc-pos.folk	92	572		print program /id/ on receipt printer /printer/ with code /code/
+586	hold	Hold!	builtin-programs/fswatch.folk	31	-1	-keep 100ms -on boot.folk -key {[list $changedPath code]}	$changedPath has program code $programCode
+587	when	When	builtin-programs/geometric/intersect.folk	2	-1		/someone/ wishes /p/ has neighbors & /p/ has region /r/ & /p2/ has region /r2/
+588	claim	Claim	builtin-programs/geometric/intersect.folk	16	587		$p has neighbor $p2
+589	when	When	builtin-programs/geometric/intersect.folk	23	-1		when /p/ has neighbor /n/ /lambda/ with environment /e/
+590	wish	Wish	builtin-programs/geometric/intersect.folk	24	589		$p has neighbors
+591	when	When	builtin-programs/geometric/points-at.folk	1	-1		when /rect/ points /direction/ with length /l/ at /someone/ /lambda/ with environment /e/
+592	wish	Wish	builtin-programs/geometric/points-at.folk	3	591		$rect points $direction with length $l
+593	when	When	builtin-programs/geometric/points-at.folk	6	-1		when /rect/ points /direction/ at /someone/ /lambda/ with environment /e/
+594	wish	Wish	builtin-programs/geometric/points-at.folk	8	593		$rect points $direction with length 1
+595	when	When	builtin-programs/geometric/points-at.folk	11	-1		the quad library is /quadLib/ & the pose library is /poseLib/ & the quad changer is /quadChange/ & display /disp/ has width /displayWidth/ height /displayHeight/ & display /disp/ has intrinsics /displayIntrinsics/ & /someone/ wishes /rect/ points /direction/ with length /l/
+596	when	When	builtin-programs/geometric/points-at.folk	18	595		$rect has quad /quad/
+597	fn	fn	builtin-programs/geometric/points-at.folk	26	596		
+598	when	When	builtin-programs/geometric/points-at.folk	84	596		/target/ has quad /q2/
+599	claim	Claim	builtin-programs/geometric/points-at.folk	93	598	-keep 50ms	$rect points $direction at $target
+600	claim	Claim	builtin-programs/geometric/points-at.folk	94	598	-keep 50ms	$rect points $direction with length $l at $target
+601	hold	Hold!	builtin-programs/geometric/points-at.folk	97	598	-keep 16ms -key {[list $rect pointer]}	
+602	wish	Wish	builtin-programs/geometric/points-at.folk	98	601		to draw a line onto $disp with points [list $from $to] width 4 color $color
+603	wish	Wish	builtin-programs/geometric/points-at.folk	101	601		to draw a circle onto $disp with center $to radius 10 thickness 5 color $color filled true
+604	when	When	builtin-programs/geometric/points-at.folk	108	596		/nobody/ claims $rect points /anything/ at /anything/
+605	hold	Hold!	builtin-programs/geometric/points-at.folk	109	604	-keep 16ms -key {[list $rect pointer]}	
+606	wish	Wish	builtin-programs/geometric/points-at.folk	110	605		to draw a line onto $disp with points [list $from $to] width 4 color $color
+607	wish	Wish	builtin-programs/geometric/points-at.folk	113	605		to draw a circle onto $disp with center $to radius 10 thickness 5 color $color filled false
+608	unmatch	On	builtin-programs/geometric/points-at.folk	120	595		
+609	hold	Hold!	builtin-programs/geometric/points-at.folk	121	608	-key {[list $rect pointer]}	
+610	when	When	builtin-programs/gpu/canvases.folk	1	-1		the GPU library is /gpuLib/ & the image library is /imageLib/ & the GPU pipeline library is /pipelineLib/ & the GPU texture library is /gpuTextureLib/
+611	proc	proc	builtin-programs/gpu/canvases.folk	22	610		
+612	claim	Claim	builtin-programs/gpu/canvases.folk	292	610		the GPU canvas library is $gpuCanvasLib
+613	when	When	builtin-programs/gpu/canvases.folk	297	610		/someone/ wishes the GPU creates canvas /id/ with /...options/
+614	claim	Claim	builtin-programs/gpu/canvases.folk	306	613	-destructor {[list $gpuCanvasLib destroy $wi]}	the GPU has created canvas $id with {*}$options texture [$gpuCanvasLib gpuTexture $wi] writableInfo $wi
+615	wish	Wish	builtin-programs/gpu/canvases.folk	312	613		to collect results for [list /wisher/ wishes the G... with settle $options(settle)
+616	wish	Wish	builtin-programs/gpu/canvases.folk	318	610		the GPU runs frame prelude handler [list apply {{gpuCanvasLib ...
+617	when	When	builtin-programs/gpu/canvases.folk	470	610		/someone/ wishes /p/ has a canvas
+618	wish	Wish	builtin-programs/gpu/canvases.folk	471	617		$p has a canvas with width 1024 height 1024 settle 3ms
+619	when	When	builtin-programs/gpu/canvases.folk	473	610		/someone/ wishes /p/ has a canvas with /...options/
+620	wish	Wish	builtin-programs/gpu/canvases.folk	481	619	-keep 100ms	the GPU creates canvas $pCanvas with {*}$options
+621	when	When	builtin-programs/gpu/canvases.folk	482	619		the GPU has created canvas $pCanvas with /...canvOpts/
+622	claim	Claim	builtin-programs/gpu/canvases.folk	483	621		$p has canvas $pCanvas with {*}$canvOpts
+623	when	When	builtin-programs/gpu/canvases.folk	485	621		$p has resolved geometry /geom/
+624	claim	Claim	builtin-programs/gpu/canvases.folk	491	623		$p has canvas projection $proj
+625	wish	Wish	builtin-programs/gpu/canvases.folk	496	610		the GPU compiles pipeline composite-canvas {         {vec2 viewport mat...}
+626	when	When	builtin-programs/gpu/canvases.folk	522	610		display /disp/ has width /dispWidth/ height /dispHeight/
+627	wish	Wish	builtin-programs/gpu/canvases.folk	526	626		the GPU creates canvas $dispCanvas with width $dispWidth height $dispHeight settle 0ms layer 100
+628	when	When	builtin-programs/gpu/canvases.folk	529	626		the GPU has created canvas $dispCanvas with /...canvOpts/
+629	claim	Claim	builtin-programs/gpu/canvases.folk	530	628		$disp has canvas $dispCanvas with {*}$canvOpts
+630	claim	Claim	builtin-programs/gpu/canvases.folk	541	628		$disp has canvas projection $surfaceToClip
+631	wish	Wish	builtin-programs/gpu/canvases.folk	551	628		the GPU draws pipeline composite-canvas with arguments [list [list $dispWidth $dis... layer [dict getdef $canvOpts laye...
+632	when	When	builtin-programs/gpu/draw.folk	13	-1		the GPU library is /gpuLib/ & the GPU Vulkan handle type definer is /defineVulkanHandleType/ & the GPU texture library is /gpuTextureLib/ & the GPU pipeline library is /pipelineLib/ & the GPU pipeline compiler library is /pipelineCompilerLib/
+633	query	Query!	builtin-programs/gpu/draw.folk	23	632		/someone/ wishes $::thisNode uses display /display/ with /...displayOpts/
+634	fn	fn	builtin-programs/gpu/draw.folk	25	632		
+635	proc	proc	builtin-programs/gpu/draw.folk	54	632		
+636	proc	proc	builtin-programs/gpu/draw.folk	523	632		
+637	proc	library	builtin-programs/gpu/draw.folk	523	636		
+638	proc	proc	builtin-programs/gpu/draw.folk	535	637		
+639	claim	Claim	builtin-programs/gpu/draw.folk	542	632		the GPU draw library is $drawLib
+640	fn	fn	builtin-programs/gpu/draw.folk	557	632		
+641	query	ForEach!	builtin-programs/gpu/draw.folk	559	640		/someone/ claims the GPU compiles function /name/ to /fn/
+642	fn	fn	builtin-programs/gpu/draw.folk	564	632		
+643	claim	Claim	builtin-programs/gpu/draw.folk	571	642		the GPU compiles function $name to $fn
+644	when	When	builtin-programs/gpu/draw.folk	575	642		the GPU compiles function $notFoundName to /anything/
+645	claim	Claim	builtin-programs/gpu/draw.folk	581	642		$wisher has error $e with info [errorInfo $e]
+646	fn	fn	builtin-programs/gpu/draw.folk	584	632		
+647	claim	Claim	builtin-programs/gpu/draw.folk	590	646		the GPU compiles pipeline $name to $pipeline
+648	when	When	builtin-programs/gpu/draw.folk	594	646		the GPU compiles function $notFoundName to /anything/
+649	claim	Claim	builtin-programs/gpu/draw.folk	600	646		$wisher has error $e with info [errorInfo $e]
+650	when	When	builtin-programs/gpu/draw.folk	604	632		/wisher/ wishes the GPU compiles function /name/ /source/
+651	when	When	builtin-programs/gpu/draw.folk	607	632		/wisher/ wishes the GPU compiles pipeline /name/ /source/
+652	query	ForEach!	builtin-programs/gpu/draw.folk	615	632		/someone/ wishes the GPU runs frame prelude handler /hd/
+653	query	Query!	builtin-programs/gpu/draw.folk	620	632		/someone/ claims the GPU compiles pipeline /name/ to /pipeline/
+654	query	Query!	builtin-programs/gpu/draw.folk	625	632		/wisher/ wishes the GPU draws pipeline /name/ with /...options/
+655	assert	Assert!	builtin-programs/gpu/draw.folk	653	632		$this claims [dict get $result wisher] has error $e with info [errorInfo $e]
+656	query	Query!	builtin-programs/gpu/draw.folk	664	632		$::thisNode has display $display with /...any/
+657	assert	Assert!	builtin-programs/gpu/draw.folk	673	632		display $display has width [$drawLib getDisplayWidth $ds] height [$drawLib getDisplayHeight ...
+658	claim	Claim	builtin-programs/gpu/enumerate.folk	105	-1		$::thisNode has display glfw with info {name "GLFW (windowed)"}
+659	claim	Claim	builtin-programs/gpu/enumerate.folk	110	-1		$::thisNode has display $display(name) with info $display
+660	claim	Claim	builtin-programs/gpu/enumerate.folk	113	-1		$::thisNode has had displays enumerated
+661	wish	Wish	builtin-programs/gpu/gpu-fns.folk	1	-1		the GPU compiles function rotate {{vec2 v float a} vec2 {    ...}
+662	wish	Wish	builtin-programs/gpu/gpu-fns.folk	8	-1		the GPU compiles function wedge2d {{vec2 v vec2 w} float {    ...}
+663	wish	Wish	builtin-programs/gpu/gpu-fns.folk	12	-1		the GPU compiles function invBilinear {       {vec2 pos vec2 p2 ve...}
+664	fn	fn	builtin-programs/gpu/gpu.folk	11	-1		
+665	fn	fn	builtin-programs/gpu/gpu.folk	32	-1		
+666	claim	Claim	builtin-programs/gpu/gpu.folk	32	-1		the GPU Vulkan handle type definer is [fn defineVulkanHandleType]
+667	fn	fn	builtin-programs/gpu/gpu.folk	34	-1		
+668	proc	proc	builtin-programs/gpu/gpu.folk	106	667		
+669	claim	Claim	builtin-programs/gpu/gpu.folk	366	667		the GPU library is $gpuLib
+670	claim	Claim	builtin-programs/gpu/gpu.folk	368	667		the GPU physical device is [$gpuLib getPhysicalDevice]
+671	claim	Claim	builtin-programs/gpu/gpu.folk	369	667		the GPU device is [$gpuLib getDevice]
+672	when	When	builtin-programs/gpu/gpu.folk	377	-1		$::thisNode has had displays enumerated
+673	when	When	builtin-programs/gpu/gpu.folk	380	672		/nobody/ wishes $::thisNode uses display glfw with /...any/
+674	when	When	builtin-programs/gpu/gpu.folk	383	672		/someone/ wishes $::thisNode uses display glfw with /...any/
+675	when	When	builtin-programs/gpu/pipelines.folk	7	-1		the GPU Vulkan handle type definer is /defineVulkanHandleType/ & the GPU library is /gpuLib/ & the image library is /imageLib/ & the GPU texture library is /gpuTextureLib/
+676	fn	fn	builtin-programs/gpu/pipelines.folk	12	675		
+677	proc	proc	builtin-programs/gpu/pipelines.folk	26	675		
+678	claim	Claim	builtin-programs/gpu/pipelines.folk	296	675		the GPU pipeline library is $pipelineLib
+679	proc	library	builtin-programs/gpu/pipelines.folk	301	675		
+680	proc	proc	builtin-programs/gpu/pipelines.folk	307	679		
+681	proc	proc	builtin-programs/gpu/pipelines.folk	332	679		
+682	proc	proc	builtin-programs/gpu/pipelines.folk	649	679		
+683	claim	Claim	builtin-programs/gpu/pipelines.folk	657	675		the GPU pipeline compiler library is $pipelineCompilerLib
+684	when	When	builtin-programs/gpu/textures.folk	1	-1		the GPU Vulkan handle type definer is /defineVulkanHandleType/ & the GPU library is /gpuLib/ & the GPU VMA DLL is /vmaDll/ & the image library is /imageLib/
+685	fn	fn	builtin-programs/gpu/textures.folk	6	684		
+686	proc	proc	builtin-programs/gpu/textures.folk	45	684		
+687	claim	Claim	builtin-programs/gpu/textures.folk	943	684		the GPU texture library is $gpuTextureLib
+688	when	When	builtin-programs/gpu/textures.folk	945	684		/someone/ wishes the GPU loads image /im/ as texture
+689	claim	Claim	builtin-programs/gpu/textures.folk	947	688	-destructor {[list $gpuTextureLib freeGpuTexture $gtex]}	the GPU has loaded image $im as texture $gtex
+690	when	When	builtin-programs/gpu/toy-shader.folk	13	-1		the GPU Vulkan handle type definer is /defineVulkanHandleType/ & the GPU pipeline library is /pipelineLib/
+691	fn	fn	builtin-programs/gpu/toy-shader.folk	71	690		
+692	when	When	builtin-programs/gpu/toy-shader.folk	84	690		/wisher/ wishes /p/ draws toy shader /shaderCode/
+693	claim	Claim	builtin-programs/gpu/toy-shader.folk	139	692		$wisher has error $e with info [errorInfo $e]
+694	claim	Claim	builtin-programs/gpu/toy-shader.folk	146	692		the GPU compiles pipeline $sha1 to $pipeline
+695	when	When	builtin-programs/gpu/toy-shader.folk	149	692	-atomically 1	$p has canvas /id/ with /...wiOptions/ & the clock time is /t/
+696	wish	Wish	builtin-programs/gpu/toy-shader.folk	152	695		the GPU draws pipeline $sha1 onto canvas $id with arguments [list $wiResolution [- $t $...
+697	when	When	builtin-programs/gpu/vma.folk	1	-1		the GPU Vulkan handle type definer is /defineVulkanHandleType/
+698	fn	fn	builtin-programs/gpu/vma.folk	3	697		
+699	claim	Claim	builtin-programs/gpu/vma.folk	73	697		the GPU VMA DLL is $vmaDll
+700	when	When	builtin-programs/image/gif-lib.folk	1	-1		the image library is /imageLib/
+701	claim	Claim	builtin-programs/image/gif-lib.folk	51	700		the gif library is $gifLib
+702	claim	Claim	builtin-programs/image/image-lib.folk	382	-1		the image library is $imageLib
+703	fn	fn	builtin-programs/image/image-lib.folk	384	-1		
+704	fn	fn	builtin-programs/image/image-lib.folk	436	-1		
+705	claim	Claim	builtin-programs/image/image-lib.folk	436	-1		the image uvx argtype definer is [fn defineImageArgtype]
+706	when	When	builtin-programs/image/jpeg-lib.folk	1	-1		the image library is /imageLib/
+707	claim	Claim	builtin-programs/image/jpeg-lib.folk	302	706		the jpeg library is $jpegLib
+708	when	When	builtin-programs/image/png-lib.folk	1	-1		the image library is /imageLib/
+709	claim	Claim	builtin-programs/image/png-lib.folk	107	708		the png library is $pngLib
+710	subscribe	Subscribe:	builtin-programs/keyboard-shortcuts.folk	12	-1		keyboard /k/ claims key Meta_Escape is down with /...options/
+711	subscribe	Subscribe:	builtin-programs/keyboard-shortcuts.folk	18	-1		keyboard /k/ claims key Console_1 is down with /...options/
+712	proc	proc	builtin-programs/keyboard.folk	2	-1		
+713	proc	proc	builtin-programs/keyboard.folk	19	-1		
+714	claim	Claim	builtin-programs/keyboard.folk	41	-1		$keyboard is a keyboard device
+715	when	When	builtin-programs/keyboard.folk	45	-1		/page/ is a keyboard with path /keyboard/
+716	claim	Claim	builtin-programs/keyboard.folk	46	715		$page is a keyboard with path $keyboard locale us
+717	when	When	builtin-programs/keyboard.folk	49	-1		/keyboard/ is a keyboard device
+718	hold	Hold!	builtin-programs/keyboard.folk	86	717	-key {[list local-keymaps $keyboard]}	$keyboard has keymaps [dict create]
+719	when	When	builtin-programs/keyboard.folk	89	717		/page/ is a keyboard with path $keyboard locale /locale/
+720	query	QueryOne!	builtin-programs/keyboard.folk	90	719	-default {{}}	$keyboard has keymaps /./
+721	hold	Hold!	builtin-programs/keyboard.folk	100	719	-key {[list local-keymaps $keyboard]}	$keyboard has keymaps $localKeymaps
+722	query	QueryOne!	builtin-programs/keyboard.folk	132	717	-default {{}}	$keyboard has keymaps /./
+723	notify	Notify:	builtin-programs/keyboard.folk	158	717		keyboard $keyboard claims key $key is $keyState with {*}$options
+724	when	When	builtin-programs/laser.folk	1	-1		the image library is /imageLib/ & libapriltag has been built with config /configCcWithLibapriltag/
+725	fn	fn	builtin-programs/laser.folk	3	724		
+726	when	When	builtin-programs/laser.folk	167	724		/someone/ wishes to detect laser blobs & camera /any/ has gray frame /grayFrame/ at timestamp /timestamp/
+727	hold	Hold!	builtin-programs/laser.folk	173	726		
+728	claim	Claim	builtin-programs/laser.folk	174	727		the blob detection time is $blobTime
+729	claim	Claim	builtin-programs/laser.folk	176	727		laser blob [dict get $blob id] has center [dict get $blob center] size [dict get $blob size]
+730	when	When	builtin-programs/mask-tags.folk	1	-1		the quad library is /quadLib/ & the pose library is /poseLib/ & the quad changer is /quadChange/ & display /proj/ has width /projWidth/ height /projHeight/ & display /proj/ has intrinsics /projectorIntrinsics/
+731	fn	fn	builtin-programs/mask-tags.folk	7	730		
+732	when	When	builtin-programs/mask-tags.folk	9	730		tag /id/ has quad /q/
+733	when	When	builtin-programs/mask-tags.folk	10	732	-atomicallyWithKey {[list $id quad]}	
+734	wish	Wish	builtin-programs/mask-tags.folk	17	733		to draw a quad onto $proj with p0 $p0 p1 $p1 p2 $p2 p3 $p3 color black layer 100
+735	fn	fn	builtin-programs/music.folk	143	-1		
+736	fn	fn	builtin-programs/music.folk	150	-1		
+737	proc	library	builtin-programs/points.folk	1	-1		
+738	proc	proc	builtin-programs/points.folk	2	737		
+739	proc	proc	builtin-programs/points.folk	7	737		
+740	proc	proc	builtin-programs/points.folk	12	737		
+741	proc	proc	builtin-programs/points.folk	17	737		
+742	proc	proc	builtin-programs/points.folk	22	737		
+743	proc	proc	builtin-programs/points.folk	26	737		
+744	proc	proc	builtin-programs/points.folk	31	737		
+745	proc	proc	builtin-programs/points.folk	36	737		
+746	proc	proc	builtin-programs/points.folk	42	737		
+747	claim	Claim	builtin-programs/points.folk	47	-1		the points library is $pointsLib
+748	when	When	builtin-programs/points.folk	49	-1		when point /point/ corresponds to point /anything/ on /targetSurface/ /lambda/ with environment /anything/
+749	wish	Wish	builtin-programs/points.folk	50	748		point $point is projected to surface $targetSurface
+750	when	When	builtin-programs/points.folk	53	-1		the quad library is /quadLib/ & the quad changer is /quadChange/ & /someone/ wishes point /point/ is projected to surface /targetSurface/
+751	when	When	builtin-programs/points.folk	57	750		$pointSurface has quad /pointQuad/ & $targetSurface has quad /targetQuad/
+752	fn	fn	builtin-programs/points.folk	69	751		
+753	claim	Claim	builtin-programs/points.folk	81	751		point $point corresponds to $pointOnTargetSurface on $targetSurface
+754	claim	Claim	builtin-programs/print/print.folk	13	-1		the paper formats are {     letter    {tagInnerSid...}
+755	when	When	builtin-programs/print/print.folk	19	-1		libapriltag has been built with config /configCcWithLibapriltag/ & the image library is /imageLib/ & the program save directory is /saveDir/
+756	fn	fn	builtin-programs/print/print.folk	22	755		
+757	claim	Claim	builtin-programs/print/print.folk	83	755		the print library is $printLib
+758	fn	fn	builtin-programs/print/print.folk	85	755		
+759	fn	fn	builtin-programs/print/print.folk	193	755		
+760	claim	Claim	builtin-programs/print/print.folk	193	755		the codeToPostScript is [fn codeToPostScript]
+761	fn	fn	builtin-programs/print/print.folk	195	755		
+762	query	Query!	builtin-programs/print/print.folk	196	761		the next program id is /id/
+763	hold	Hold!	builtin-programs/print/print.folk	208	761	-save 1 -on builtin-programs/print.folk -key next-id	the next program id is $id
+764	when	When	builtin-programs/print/print.folk	213	755		$::thisNode claims printer /name/ is a cups printer with /...options/
+765	subscribe	Subscribe:	builtin-programs/print/print.folk	231	755		print code /code/ with mixins /mixins/
+766	query	Require!	builtin-programs/print/print.folk	232	765		the paper formats are /formats/
+767	query	QueryOne!	builtin-programs/print/print.folk	233	765	-default letter	paper format /./ is the default paper format
+768	notify	Notify:	builtin-programs/print/print.folk	246	765		print a new program with {*}$options
+769	subscribe	Subscribe:	builtin-programs/print/print.folk	248	755		print code /code/
+770	notify	Notify:	builtin-programs/print/print.folk	249	769		print code $code with mixins {}
+771	subscribe	Subscribe:	builtin-programs/print/print.folk	252	755		print a new program with /...options/
+772	notify	Notify:	builtin-programs/print/print.folk	262	771		print program $id with {*}$options
+773	subscribe	Subscribe:	builtin-programs/print/print.folk	264	755		print program /id/ with /...options/
+774	query	ForEach!	builtin-programs/print/print.folk	267	773		printer /printer/ is a receipt printer & printer /printer/ is the default printer
+775	notify	Notify:	builtin-programs/print/print.folk	269	773		print program $id on receipt printer $printer with code $code
+776	query	Query!	builtin-programs/print/print.folk	273	773		the calibrated print scale is /scale/
+777	query	Query!	builtin-programs/print/print.folk	280	773		the calibrated print translation is /translation/
+778	notify	Notify:	builtin-programs/print/print.folk	346	773		print pdf $saveDir/$id.pdf with {*}$options
+779	subscribe	Subscribe:	builtin-programs/print/print.folk	351	-1		print pdf /pdfPath/ with /...options/
+780	query	QueryOne!	builtin-programs/print/print.folk	359	779		printer /./ is the default printer
+781	query	QueryOne!	builtin-programs/print/print.folk	369	779		paper format /./ is the default paper format
+782	when	When	builtin-programs/programs.folk	1	-1		tag /tag/ has detection /any/ on camera /any/ at timestamp /any/
+783	claim	Claim	builtin-programs/programs.folk	5	782	-keep 100ms	tag $tag has a program
+784	claim	Claim	builtin-programs/programs.folk	6	782	-keep 100ms	tag $tag is a tag
+785	when	When	builtin-programs/programs.folk	9	-1	-noncapturing 1	the program save directory is /saveDir/
+786	when	When	builtin-programs/programs.folk	10	785		/type/ /obj/ has a program
+787	unmatch	On	builtin-programs/programs.folk	12	786		
+788	query	QueryOne!	builtin-programs/programs.folk	14	786		$obj has demo code /demoCode/
+789	claim	Claim	builtin-programs/programs.folk	15	786		$obj has program code $res(demoCode)
+790	hold	Hold!	builtin-programs/programs.folk	54	786	-on builtin-programs/programs.folk -key {new-code-for:$obj}	program $obj is replaced with code $editedCode editedTime $editedTime
+791	claim	Claim	builtin-programs/programs.folk	59	786		$obj has program code $code
+792	when	When	builtin-programs/programs.folk	61	786		/someone/ wishes program $obj is replaced with /...opts/
+793	wish	Wish	builtin-programs/programs.folk	63	792		$obj is titled (edited [clock format $edit...
+794	proc	library	builtin-programs/quad-lib.folk	1	-1		
+795	proc	proc	builtin-programs/quad-lib.folk	14	794		
+796	proc	proc	builtin-programs/quad-lib.folk	15	794		
+797	proc	proc	builtin-programs/quad-lib.folk	16	794		
+798	proc	proc	builtin-programs/quad-lib.folk	19	794		
+799	proc	proc	builtin-programs/quad-lib.folk	30	794		
+800	proc	proc	builtin-programs/quad-lib.folk	95	794		
+801	proc	proc	builtin-programs/quad-lib.folk	150	794		
+802	proc	proc	builtin-programs/quad-lib.folk	224	794		
+803	proc	proc	builtin-programs/quad-lib.folk	234	794		
+804	proc	proc	builtin-programs/quad-lib.folk	249	794		
+805	proc	proc	builtin-programs/quad-lib.folk	262	794		
+806	claim	Claim	builtin-programs/quad-lib.folk	286	-1		the quad library is $quadLib
+807	when	When	builtin-programs/recognition/contours.folk	1	-1		the image library is /imageLib/
+808	claim	Claim	builtin-programs/recognition/contours.folk	76	807		the contour library is $contourLib
+809	when	When	builtin-programs/recognition/contours.folk	79	-1		/someone/ wishes /p/ has contours
+810	wish	Wish	builtin-programs/recognition/contours.folk	80	809		$p has contours with _ {}
+811	when	When	builtin-programs/recognition/contours.folk	82	-1		the contour library is /contourLib/ & /someone/ wishes /p/ has contours with /...opts/
+812	wish	Wish	builtin-programs/recognition/contours.folk	84	811		$p has camera slice
+813	when	When	builtin-programs/recognition/contours.folk	85	811		$p has resolved geometry /geom/ & $p has camera slice /s/
+814	claim	Claim	builtin-programs/recognition/contours.folk	92	813		$p has contours [$contourLib findImageConto... with {*}$opts
+815	when	When	builtin-programs/recognition/craft.folk	1	-1		when the CRAFT text detector is /any/ /any/ with environment /any/
+816	wish	Wish	builtin-programs/recognition/craft.folk	2	815	-keep 500ms	to load the CRAFT text detector
+817	when	When	builtin-programs/recognition/craft.folk	5	-1		/someone/ wishes to load the CRAFT text detector & the image uvx argtype definer is /defineImageArgtype/
+818	fn	fn	builtin-programs/recognition/craft.folk	7	817		
+819	fn	fn	builtin-programs/recognition/craft.folk	41	817		
+820	fn	fn	builtin-programs/recognition/craft.folk	42	817		
+821	claim	Claim	builtin-programs/recognition/craft.folk	42	817		the CRAFT text detector is [fn CRAFT]
+822	when	When	builtin-programs/recognition/dinov2.folk	1	-1		when the DINOv2 image embedder is /any/ /any/ with environment /any/
+823	wish	Wish	builtin-programs/recognition/dinov2.folk	2	822	-keep 500ms	to load the DINOv2 image embedder
+824	when	When	builtin-programs/recognition/dinov2.folk	5	-1		/someone/ wishes to load the DINOv2 image embedder
+825	wish	Wish	builtin-programs/recognition/dinov2.folk	6	824		to really load the DINOv2 image embedder
+826	when	When	builtin-programs/recognition/dinov2.folk	9	-1		/someone/ wishes to really load the DINOv2 image embedder & the image uvx argtype definer is /defineImageArgtype/
+827	fn	fn	builtin-programs/recognition/dinov2.folk	11	826		
+828	fn	fn	builtin-programs/recognition/dinov2.folk	617	826		
+829	fn	fn	builtin-programs/recognition/dinov2.folk	620	826		
+830	fn	fn	builtin-programs/recognition/dinov2.folk	628	826		
+831	fn	fn	builtin-programs/recognition/dinov2.folk	629	826		
+832	claim	Claim	builtin-programs/recognition/dinov2.folk	629	826		the DINOv2 image embedder is [fn DINOv2]
+833	fn	fn	builtin-programs/recognition/dinov2.folk	630	826		
+834	claim	Claim	builtin-programs/recognition/dinov2.folk	630	826		the DINOv2 image heatmapper is [fn DINOv2Heatmaps]
+835	fn	fn	builtin-programs/recognition/dinov2.folk	632	826		
+836	claim	Claim	builtin-programs/recognition/dinov2.folk	631	826		the DINOv2 object center localizer is [fn DINOv2LocalizeObjectCen...
+837	claim	Claim	builtin-programs/recognition/sam2-contours.folk	54	-1		the SAM2 contours library is [$cc compile]
+838	when	When	builtin-programs/recognition/sam2-contours.folk	56	-1		/someone/ wishes /obj/ has contours in /v/ & /obj/ has mask /mask/ in /v/ with /...maskOpts/ & /v/ has resolved geometry /geom/ & the SAM2 contours library is /sam2ContoursLib/
+839	claim	Claim	builtin-programs/recognition/sam2-contours.folk	67	838		$obj has contours [$sam2ContoursLib findMaskC... in $v
+840	when	When	builtin-programs/recognition/sam2.folk	1	-1		when the SAM2 segmenter is /any/ /any/ with environment /any/
+841	wish	Wish	builtin-programs/recognition/sam2.folk	2	840	-keep 500ms	to load SAM2
+842	when	When	builtin-programs/recognition/sam2.folk	5	-1		/someone/ wishes to load SAM2
+843	wish	Wish	builtin-programs/recognition/sam2.folk	6	842		to really load SAM2
+844	when	When	builtin-programs/recognition/sam2.folk	9	-1		/someone/ wishes to really load SAM2 & the image uvx argtype definer is /defineImageArgtype/
+845	fn	fn	builtin-programs/recognition/sam2.folk	11	844		
+846	fn	fn	builtin-programs/recognition/sam2.folk	234	844		
+847	fn	fn	builtin-programs/recognition/sam2.folk	283	844		
+848	fn	fn	builtin-programs/recognition/sam2.folk	285	844		
+849	fn	fn	builtin-programs/recognition/sam2.folk	288	844		
+850	fn	fn	builtin-programs/recognition/sam2.folk	291	844		
+851	fn	fn	builtin-programs/recognition/sam2.folk	294	844		
+852	fn	fn	builtin-programs/recognition/sam2.folk	302	844		
+853	fn	fn	builtin-programs/recognition/sam2.folk	305	844		
+854	fn	fn	builtin-programs/recognition/sam2.folk	308	844		
+855	claim	Claim	builtin-programs/recognition/sam2.folk	308	844		the SAM2 object tracker is [fn SAM2Track]
+856	fn	fn	builtin-programs/recognition/sam2.folk	309	844		
+857	claim	Claim	builtin-programs/recognition/sam2.folk	309	844		the SAM2 prompt adder is [fn SAM2AddPrompt]
+858	fn	fn	builtin-programs/recognition/sam2.folk	310	844		
+859	claim	Claim	builtin-programs/recognition/sam2.folk	310	844		the SAM2 segmenter is [fn SAM2Segment]
+860	fn	fn	builtin-programs/recognition/sam2.folk	311	844		
+861	claim	Claim	builtin-programs/recognition/sam2.folk	311	844		the SAM2 object saver is [fn SAM2SaveObject]
+862	fn	fn	builtin-programs/recognition/sam2.folk	312	844		
+863	claim	Claim	builtin-programs/recognition/sam2.folk	312	844		the SAM2 object loader is [fn SAM2LoadObject]
+864	when	When	builtin-programs/recognition/sam2.folk	314	844		the image library is /imageLib/
+865	claim	Claim	builtin-programs/recognition/sam2.folk	349	864		the SAM2 mask-to-image library is $maskToImageLib
+866	when	When	builtin-programs/recognition/sam2.folk	353	-1		/anyone/ wishes /page/ tracks object /id/ /...any/
+867	wish	Wish	builtin-programs/recognition/sam2.folk	354	866	-keep 400ms	$page has a SAM2 object tracker
+868	wish	Wish	builtin-programs/recognition/sam2.folk	355	866	-keep 400ms	$page has camera slice
+869	wish	Wish	builtin-programs/recognition/sam2.folk	356	866	-keep 400ms	to load SAM2
+870	when	When	builtin-programs/recognition/sam2.folk	359	-1		the SAM2 object loader is /loadObject/ & /someone/ wishes /page/ tracks object /id/ from filename /filename/
+871	fn	fn	builtin-programs/recognition/sam2.folk	361	870		
+872	claim	Claim	builtin-programs/recognition/sam2.folk	363	870		$page tracks object $id from filename $filename
+873	when	When	builtin-programs/recognition/sam2.folk	366	-1		the SAM2 mask-to-image library is /mtiLib/ & the image library is /imageLib/ & /someone/ wishes /page/ has a SAM2 object tracker & /page/ has resolved geometry /geom/ & the SAM2 object tracker is /sam2Track/ & the SAM2 prompt adder is /sam2AddPrompt/
+874	fn	fn	builtin-programs/recognition/sam2.folk	373	873		
+875	fn	fn	builtin-programs/recognition/sam2.folk	374	873		
+876	fn	fn	builtin-programs/recognition/sam2.folk	376	873		
+877	when	When	builtin-programs/recognition/sam2.folk	385	873		/someone/ wishes $page tracks object /id/ in frame /slice/ with /...promptSpecs/
+878	claim	Claim	builtin-programs/recognition/sam2.folk	416	877	-destructor {[list $imageLib imageFree $maskedSlice]}	$page tracks object $id in frame $slice with {*}$promptSpecs masked-slice $maskedSlice
+879	when	When	builtin-programs/recognition/sam2.folk	423	873	-serially 1	$page has camera slice /slice/
+880	query	Query!	builtin-programs/recognition/sam2.folk	425	879		/anyone/ wishes $page tracks object /id/ /...trackingSpec/
+881	hold	Hold!	builtin-programs/recognition/sam2.folk	447	879	-on {$page} -key {[list sam2 track mask $id]}	$id has mask $mask in $page with width $slice(width) height $slice(height)
+882	hold	Hold!	builtin-programs/recognition/sam2.folk	452	879	-on {$page} -key {[list sam2 track masked-image $id]} -destructor {[list $imageLib imageFree $maskedIm]}	$id has SAM2 masked image $maskedIm in $page
+883	when	When	builtin-programs/recognition/sam2.folk	458	873		the SAM2 mask-to-image library is /mtiLib/ & the png library is /pngLib/
+884	wish	Wish	builtin-programs/recognition/sam2.folk	460	883		the web server handles route [format {/sam2/%s$} $page] with hidden true handler [list apply {{page pngLib} ...
+885	handler	Wish	builtin-programs/recognition/sam2.folk	460	883		
+886	when	When	builtin-programs/recognition/trocr.folk	1	-1		when the TrOCR text recognizer is /any/ /any/ with environment /any/
+887	wish	Wish	builtin-programs/recognition/trocr.folk	2	886	-keep 500ms	to load the TrOCR text recognizer
+888	when	When	builtin-programs/recognition/trocr.folk	5	-1		/someone/ wishes to load the TrOCR text recognizer & the image uvx argtype definer is /defineImageArgtype/
+889	fn	fn	builtin-programs/recognition/trocr.folk	7	888		
+890	fn	fn	builtin-programs/recognition/trocr.folk	60	888		
+891	fn	fn	builtin-programs/recognition/trocr.folk	61	888		
+892	claim	Claim	builtin-programs/recognition/trocr.folk	61	888		the TrOCR text recognizer is [fn TrOCR]
+893	when	When	builtin-programs/saving/migrate.folk	1	-1		the hold save directory is /holdDirectory/ & the program save directory is /programDirectory/ & saving is ready
+894	claim	Claim	builtin-programs/saving/migrate.folk	13	893		the migration is complete
+895	claim	Claim	builtin-programs/saving/migrate.folk	19	893		this is a first boot
+896	claim	Claim	builtin-programs/saving/migrate.folk	20	893		the migration is complete
+897	proc	proc	builtin-programs/saving/migrate.folk	24	893		
+898	proc	proc	builtin-programs/saving/migrate.folk	36	893		
+899	hold	Hold!	builtin-programs/saving/migrate.folk	50	893	-save 1 -on calibration -key default-program-geometry	the default program geometry is $defaultGeom
+900	hold	Hold!	builtin-programs/saving/migrate.folk	58	893	-save 1 -on builtin-programs/print.folk -key next-id	the next program id is [string trim $nextId]
+901	hold	Hold!	builtin-programs/saving/migrate.folk	67	893	-save 1 -on calibration -key \[list\ calibration\ \\\n\ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \[dict\ get\ \$calibration\ camera\ name\]\ \\\n\ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \[dict\ get\ \$calibration\ projector\ name\]\]	the calibration is $calibration
+902	hold	Hold!	builtin-programs/saving/migrate.folk	71	893	-save 1 -on calibration -key \[list\ poses\ \\\n\ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \[dict\ get\ \$calibration\ camera\ name\]\ \\\n\ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \[dict\ get\ \$calibration\ projector\ name\]\]	the calibration poses are $calibrationPoses
+903	claim	Claim	builtin-programs/saving/migrate.folk	82	893		the migration is complete
+904	when	When	builtin-programs/saving/migrate.folk	87	-1		/someone/ wishes to deserialize namespace hold with directory /directory/ & the saved holds are loaded & saving is ready
+905	hold	Hold!	builtin-programs/saving/migrate.folk	120	904	-save 1 -on {$setup} -key {$detectTagsKey}	camera $camera detects tags
+906	hold	Hold!	builtin-programs/saving/migrate.folk	125	904	-save 1 -on {$setup} -key {$migrationKey}	the AprilTag detection migration is complete
+907	when	When	builtin-programs/saving/save-holds.folk	147	-1		/someone/ wishes to deserialize namespace hold with directory /directory/
+908	hold	Hold!	builtin-programs/saving/save-holds.folk	162	907	-on {$canonicalName} -key {$key}	
+909	claim	Claim	builtin-programs/saving/save-holds.folk	168	907		the saved holds are loaded
+910	when	When	builtin-programs/saving/save-holds.folk	171	-1		the hold save directory is /holdDirectory/
+911	subscribe	Subscribe:	builtin-programs/saving/save-holds.folk	172	910		save hold on /on/ with key /key/ clause /clause/
+912	claim	Claim	builtin-programs/saving/save-holds.folk	191	910		saving is ready
+913	when	When	builtin-programs/saving/save-programs.folk	1	-1		this is a first boot
+914	hold	Hold!	builtin-programs/saving/save-programs.folk	2	913	-save 1 -on builtin-programs/print.folk -key next-id	the next program id is 0
+915	when	When	builtin-programs/saving/saving.folk	9	-1		the migration is complete
+916	wish	Wish	builtin-programs/saving/saving.folk	14	915		to deserialize namespace $namespaceName with directory $namespace
+917	when	When	builtin-programs/saving/saving.folk	18	-1		when the /fileType/ save directory is /anything/ /body/ with environment /e/
+918	claim	Claim	builtin-programs/saving/saving.folk	25	917		the $fileType save directory is $serdeDirectory
+919	when	When	builtin-programs/sprites.folk	10	-1		the image library is /imageLib/ & the image loader is /loadImage/ & /anyone/ wishes /p/ draws sprite /path/ with /...options/
+920	fn	fn	builtin-programs/sprites.folk	18	919		
+921	when	When	builtin-programs/sprites.folk	27	919	-atomicallyWithKey {[list sprite $p $path]}	the clock time is /t/
+922	wish	Wish	builtin-programs/sprites.folk	33	921		$p displays image $subimage with {*}$options
+923	claim	Claim	builtin-programs/sprites.folk	37	-1		$this has demo {   Wish $this draws sprite ...}
+924	when	When	builtin-programs/tags-geometry.folk	1	-1		the default program geometry is /defaultGeom/ & program /program/ is scaled by x /xScale/ y /yScale/
+925	proc	proc	builtin-programs/tags-geometry.folk	3	924		
+926	claim	Claim	builtin-programs/tags-geometry.folk	22	924		tag $program has geometry $newGeom
+927	when	When	builtin-programs/tags-geometry.folk	25	-1		the default program geometry is /defaultGeom/ & /someone/ wishes /tag/ has resolved geometry
+928	when	When	builtin-programs/tags-geometry.folk	31	927		the collected results for [list /someone/ claims tag ... are /results/
+929	proc	proc	builtin-programs/tags-geometry.folk	42	928		
+930	claim	Claim	builtin-programs/tags-geometry.folk	53	928		$tag has resolved geometry $geom
+931	claim	Claim	builtin-programs/tags-geometry.folk	61	928		$tag has canvas projection $proj
+932	wish	Wish	builtin-programs/tags-geometry.folk	66	928	-keep 40ms	the GPU creates canvas $writableTextureId with width 1024 height 1024
+933	when	When	builtin-programs/tags-geometry.folk	68	928		the GPU has created canvas $writableTextureId with /...opts/
+934	claim	Claim	builtin-programs/tags-geometry.folk	69	933		$tag has canvas $writableTextureId with {*}$opts
+935	when	When	builtin-programs/tags-to-quads.folk	1	-1		the quad library is /quadLib/ & libapriltag has been built with config /configCcWithLibapriltag/
+936	fn	fn	builtin-programs/tags-to-quads.folk	3	935		
+937	claim	Claim	builtin-programs/tags-to-quads.folk	360	935		the pose library is $poseLib
+938	when	When	builtin-programs/tags-to-quads.folk	365	935		the collected results for [list the changer from spac... are /results/
+939	fn	fn	builtin-programs/tags-to-quads.folk	372	938		
+940	fn	fn	builtin-programs/tags-to-quads.folk	387	938		
+941	claim	Claim	builtin-programs/tags-to-quads.folk	387	938		the quad changer is [fn quadChange]
+942	when	When	builtin-programs/tags-to-quads.folk	390	935		camera /camera/ to display /display/ has extrinsics /extrinsics/
+943	claim	Claim	builtin-programs/tags-to-quads.folk	395	942		the changer from space $camera to space display $display is [list apply [list {R t v} {...
+944	claim	Claim	builtin-programs/tags-to-quads.folk	400	942		the changer from space display $display to space $camera is [list apply [list {Rt t v} ...
+945	when	When	builtin-programs/tags-to-quads.folk	407	935		tag /tag/ has detection /any/ on camera /any/ at timestamp /timestamp/
+946	wish	Wish	builtin-programs/tags-to-quads.folk	411	945	-keep 100ms	$tag has resolved geometry
+947	when	When	builtin-programs/tags-to-quads.folk	414	935		camera /camera/ has width /cameraWidth/ height /cameraHeight/ & camera /camera/ has intrinsics /cameraIntrinsics/
+948	when	When	builtin-programs/tags-to-quads.folk	422	947		tag /tag/ has detection /det/ on camera $camera at timestamp /timestamp/ & /tag/ has resolved geometry /geom/
+949	query	Query!	builtin-programs/tags-to-quads.folk	432	948		tag $tag has pose /tagPose/ at timestamp /timestamp/
+950	query	Query!	builtin-programs/tags-to-quads.folk	457	948		/someone/ wishes tag $tag is stabilized
+951	query	Query!	builtin-programs/tags-to-quads.folk	461	948		tag $tag is stabilized with state /state/
+952	hold	Hold!	builtin-programs/tags-to-quads.folk	488	948	-key {[list tag $tag stabilization]}	tag $tag is stabilized with state $state
+953	hold	Hold!	builtin-programs/tags-to-quads.folk	495	948	-key {[list tag pose $tag]}	tag $tag has pose $tagPose at timestamp $timestamp
+954	claim	Claim	builtin-programs/tags-to-quads.folk	513	948		tag $tag has quad $quad
+955	when	When	builtin-programs/tags-to-quads.folk	518	935		/tag/ has resolved geometry /geom/ & tag /tag/ has quad /q/
+956	claim	Claim	builtin-programs/tags-to-quads.folk	526	955		$tag has quad $pageQuad
+957	when	When	builtin-programs/tags-to-quads.folk	529	935		the quad changer is /quadChange/ & display /disp/ has width /displayWidth/ height /displayHeight/ & display /disp/ has intrinsics /displayIntrinsics/ & /tag/ has canvas /writableTextureId/ with /...wiOptions/
+958	fn	fn	builtin-programs/tags-to-quads.folk	534	957		
+959	when	When	builtin-programs/tags-to-quads.folk	543	957	-atomically 1	$tag has quad /quad/
+960	wish	Wish	builtin-programs/tags-to-quads.folk	549	959		the GPU draws pipeline composite-canvas with arguments [list [list $displayWidth $... layer [dict getdef $wiOptions lay... key $writableTextureId
+961	fn	fn	builtin-programs/terminal-ui.folk	21	-1		
+962	query	Query!	builtin-programs/terminal-ui.folk	35	-1		/program/ has program code /programCode/
+963	query	Query!	builtin-programs/terminal-ui.folk	43	-1		when $programCode with environment [list [list this $program]]
+964	query	Query!	builtin-programs/terminal-ui.folk	48	-1		$program has error /err/ with info /info/
+965	when	When	builtin-programs/terminal.folk	179	-1		/anyone/ wishes /thing/ is a terminal
+966	wish	Wish	builtin-programs/terminal.folk	180	965		$thing is a terminal spawning bash
+967	when	When	builtin-programs/terminal.folk	183	-1		/anyone/ wishes /thing/ is a terminal spawning /cmd/
+968	claim	Claim	builtin-programs/terminal.folk	184	967	-keep 600000ms	$thing is a terminal spawning $cmd
+969	when	When	builtin-programs/terminal.folk	187	-1		/thing/ is a terminal spawning /cmd/
+970	claim	Claim	builtin-programs/terminal.folk	189	969	-destructor {[list $terminalLib termDestroy $term]}	$thing has terminal $term spawning $cmd
+971	when	When	builtin-programs/terminal.folk	193	-1		/thing/ has terminal /term/ spawning /cmd/
+972	wish	Wish	builtin-programs/terminal.folk	194	971		tag $thing is stabilized
+973	claim	Claim	builtin-programs/terminal.folk	195	971		$thing handles keyboard input
+974	when	When	builtin-programs/terminal.folk	197	971	-serially 1	the clock time is /t/
+975	when	When	builtin-programs/terminal.folk	199	974		$thing has terminal canvas /canvas/
+976	wish	Wish	builtin-programs/terminal.folk	200	975		to draw text onto $canvas with text $text position {0.01 0.01} anchor topleft scale 0.005 font CourierPrimeCode
+977	when	When	builtin-programs/terminal.folk	203	974		/nobody/ claims $thing has terminal canvas /canvas/
+978	wish	Wish	builtin-programs/terminal.folk	204	977		to draw text onto $thing with text $text position {0.01 0.01} anchor topleft scale 0.005 font CourierPrimeCode
+979	when	When	builtin-programs/terminal.folk	209	971		/keyboard/ is a keyboard with path /kbPath/ /...anything/ & /keyboard/ is typing into $thing
+980	subscribe	Subscribe:	builtin-programs/terminal.folk	211	979		keyboard $kbPath claims key /key/ is /direction/ with /...options/
+981	when	When	builtin-programs/unix-commands.folk	5	-1		/someone/ wishes /p/ runs Unix command /command/ with arguments /args/
+982	hold	Hold!	builtin-programs/unix-commands.folk	32	981	-key {$errorKeyName}	$p has Unix error output $e
+983	unmatch	On	builtin-programs/unix-commands.folk	38	981		
+984	hold	Hold!	builtin-programs/unix-commands.folk	65	981	-key {$outputKeyName}	$p has Unix output lines $accumulatedLines
+985	hold	Hold!	builtin-programs/unix-commands.folk	76	981	-key {$outputKeyName}	$p has Unix output lines $accumulatedLines
+986	hold	Hold!	builtin-programs/unix-commands.folk	83	981	-key {$errorKeyName}	$p has Unix error output $err
+987	when	When	builtin-programs/unix-commands.folk	96	-1		/wisher/ wishes /p/ runs Unix command /command/
+988	say	Say	builtin-programs/unix-commands.folk	97	987		$wisher wishes $p runs Unix command $command with arguments [list]
+989	when	When	builtin-programs/web/apriltag-frame.folk	1	-1		the jpeg library is /jpegLib/
+990	wish	Wish	builtin-programs/web/apriltag-frame.folk	2	989		the web server handles route /apriltag-frame with handler {         set camera [dict g...}
+991	handler	Wish	builtin-programs/web/apriltag-frame.folk	2	989		
+992	query	Query!	builtin-programs/web/apriltag-frame.folk	4	991		camera $camera has frame /im/ at timestamp /ts/
+993	query	Query!	builtin-programs/web/apriltag-frame.folk	17	991		tag /id/ has detection /det/ on camera $camera at timestamp $ts
+994	when	When	builtin-programs/web/atomicallys.folk	1	-1		the db library is /dbLib/
+995	wish	Wish	builtin-programs/web/atomicallys.folk	3	994		the web server handles route /atomicallys with handler {     set atomicallys [$dbLi...}
+996	handler	Wish	builtin-programs/web/atomicallys.folk	3	994		
+997	wish	Wish	builtin-programs/web/block-stats.folk	1	-1		the web server handles route /block-stats with handler {     set stats [lsort -comm...}
+998	handler	Wish	builtin-programs/web/block-stats.folk	1	-1		
+999	when	When	builtin-programs/web/camera-frame.folk	1	-1		the jpeg library is /jpegLib/
+1000	wish	Wish	builtin-programs/web/camera-frame.folk	2	999		the web server handles route /camera-frame with handler {         set camera [dict g...}
+1001	handler	Wish	builtin-programs/web/camera-frame.folk	2	999		
+1002	query	ForEach!	builtin-programs/web/camera-frame.folk	4	1001		camera $camera has jpeg frame /jpeg/ at timestamp /any/
+1003	when	When	builtin-programs/web/camera-slice.folk	1	-1		the jpeg library is /jpegLib/
+1004	wish	Wish	builtin-programs/web/camera-slice.folk	2	1003		the web server handles route /camera-slice/([^/]+)$ with handler {         set id [string map...}
+1005	handler	Wish	builtin-programs/web/camera-slice.folk	2	1003		
+1006	hold	Hold!	builtin-programs/web/camera-slice.folk	4	1005	-key {[list camera-slice $id]}	$id has camera slice
+1007	query	ForEach!	builtin-programs/web/camera-slice.folk	9	1005		$id has camera slice /slice/
+1008	hold	Hold!	builtin-programs/web/camera-slice.folk	14	1005	-key {[list camera-slice $id]}	
+1009	wish	Wish	builtin-programs/web/camera.folk	1	-1		the web server handles route /camera with handler {     if {[dict exists $QUER...}
+1010	handler	Wish	builtin-programs/web/camera.folk	1	-1		
+1011	query	Query!	builtin-programs/web/camera.folk	5	1010		camera /camera/ has width /w/ height /h/
+1012	query	Query!	builtin-programs/web/camera.folk	26	1010		/someone/ wishes camera $baseCameraToControl uses exposure time /exposureTime/ us
+1013	query	Query!	builtin-programs/web/camera.folk	33	1010		/someone/ wishes camera $baseCameraToControl uses gain /gain/
+1014	query	Query!	builtin-programs/web/camera.folk	39	1010		camera $baseCameraToControl has gain range /min/ to /max/
+1015	claim	Claim	builtin-programs/web/db-lib.folk	1	-1		the db library is [apply {{} {     set cc [C]...
+1016	when	When	builtin-programs/web/dep-graph.folk	50	-1		the db library is /dbLib/
+1017	wish	Wish	builtin-programs/web/dep-graph.folk	51	1016		the web server handles route /dep-graph\.pdf with handler {         set dot [apply $db...}
+1018	handler	Wish	builtin-programs/web/dep-graph.folk	51	1016		
+1019	when	When	builtin-programs/web/holds.folk	1	-1		the db library is /dbLib/
+1020	wish	Wish	builtin-programs/web/holds.folk	3	1019		the web server handles route /holds with handler {     set holds [$dbLib hold...}
+1021	handler	Wish	builtin-programs/web/holds.folk	3	1019		
+1022	wish	Wish	builtin-programs/web/index.folk	1	-1		the web server handles route / with handler {     fn readOutputFile {pat...}
+1023	handler	Wish	builtin-programs/web/index.folk	1	-1		
+1024	fn	fn	builtin-programs/web/index.folk	2	1023		
+1025	fn	fn	builtin-programs/web/index.folk	21	1023		
+1026	query	Query!	builtin-programs/web/index.folk	47	1025		$item(programName) has error /err/ with info /info/
+1027	fn	fn	builtin-programs/web/index.folk	68	1023		
+1028	wish	Wish	builtin-programs/web/keyboards.folk	1	-1		the web server handles route /keyboards$ with handler {     set keyboards [lmap re...}
+1029	handler	Wish	builtin-programs/web/keyboards.folk	1	-1		
+1030	query	Query!	builtin-programs/web/keyboards.folk	2	1029		/someone/ claims /keyboard/ is a keyboard device
+1031	wish	Wish	builtin-programs/web/log.folk	1	-1		the web server handles route /log/(.+)$ with hidden true handler {     set filename [string m...}
+1032	handler	Wish	builtin-programs/web/log.folk	1	-1		
+1033	when	When	builtin-programs/web/nav.folk	1	-1		the collected results for [list /someone/ wishes the ... are /handlers/
+1034	claim	Claim	builtin-programs/web/nav.folk	39	1033		the web navigation HTML is [subst {       <nav>       ...
+1035	wish	Wish	builtin-programs/web/new.folk	1	-1		the web server handles route /new with nav {<button>New program</button>} handler {     html { <html lang="en"...}
+1036	handler	Wish	builtin-programs/web/new.folk	1	-1		
+1037	proc	html	builtin-programs/web/new.folk	2	1036		
+1038	unmatch	On	builtin-programs/web/new.folk	104	1037		
+1039	hold	Hold!	builtin-programs/web/new.folk	105	1038	-on {$this} -key canv	
+1040	hold	Hold!	builtin-programs/web/new.folk	106	1038	-on {$this} -key geom	
+1041	hold	Hold!	builtin-programs/web/new.folk	107	1038	-on {$this} -key quad	
+1042	hold	Hold!	builtin-programs/web/new.folk	108	1038	-on {$this} -key code	
+1043	wish	Wish	builtin-programs/web/new.folk	113	1037		$program has a canvas
+1044	proc	function	builtin-programs/web/new.folk	161	1037		
+1045	claim	Claim	builtin-programs/web/new.folk	164	1044		$program has resolved geometry {width ${w / 2000} height ${...}
+1046	query	Require!	builtin-programs/web/new.folk	173	1044		the quad library is /quadLib/
+1047	query	Require!	builtin-programs/web/new.folk	174	1044		display /disp/ has width /displayWidth/ height /displayHeight/
+1048	query	Require!	builtin-programs/web/new.folk	183	1044		display $disp has intrinsics /displayIntrinsics/
+1049	claim	Claim	builtin-programs/web/new.folk	237	1044		$program has quad [$quadLib create "display $...
+1050	proc	function	builtin-programs/web/new.folk	241	1037		
+1051	claim	Claim	builtin-programs/web/new.folk	248	1050		$program has program code [binary decode base64 ${bto...
+1052	proc	function	builtin-programs/web/new.folk	251	1037		
+1053	query	Query!	builtin-programs/web/new.folk	255	1052		/someone/ wishes $program prints with mixin /mixin/
+1054	notify	Notify:	builtin-programs/web/new.folk	257	1052		print code $code with mixins $mixins
+1055	wish	Wish	builtin-programs/web/page.folk	1	-1		the web server handles route /page/(.*)$ with handler {     Require! the program s...}
+1056	handler	Wish	builtin-programs/web/page.folk	1	-1		
+1057	query	Require!	builtin-programs/web/page.folk	2	1056		the program save directory is /programDir/
+1058	wish	Wish	builtin-programs/web/printed-programs.folk	1	-1		the web server handles route /printed-programs/([^/]+)\.folk$ with handler {     Require! the program s...}
+1059	handler	Wish	builtin-programs/web/printed-programs.folk	1	-1		
+1060	query	Require!	builtin-programs/web/printed-programs.folk	2	1059		the program save directory is /programDir/
+1061	wish	Wish	builtin-programs/web/program.folk	1	-1		the web server handles route /program/(.*)$ with handler {     set programName $1    ...}
+1062	handler	Wish	builtin-programs/web/program.folk	1	-1		
+1063	query	Require!	builtin-programs/web/program.folk	3	1062		$1 has program code /programCode/
+1064	query	Query!	builtin-programs/web/program.folk	5	1062		/someone/ wishes program $programName is replaced with /...replacedOpts/
+1065	wish	Wish	builtin-programs/web/quads.folk	1	-1		the web server handles route /quads with handler {     html {         <!DOCTY...}
+1066	handler	Wish	builtin-programs/web/quads.folk	1	-1		
+1067	when	When	builtin-programs/web/report.folk	1	-1		the db library is /dbLib/
+1068	wish	Wish	builtin-programs/web/report.folk	3	1067		the web server handles route /report with handler {     set aliveCount [$dbLib...}
+1069	handler	Wish	builtin-programs/web/report.folk	3	1067		
+1070	wish	Wish	builtin-programs/web/setup.folk	1	-1		the web server handles route /setup with nav <button>Setup</button> handler {     html [subst { <!DOCTYP...}
+1071	handler	Wish	builtin-programs/web/setup.folk	1	-1		
+1072	when	When	builtin-programs/web/statements.folk	1	-1		the db library is /dbLib/
+1073	wish	Wish	builtin-programs/web/statements.folk	3	1072		the web server handles route /statements with handler {     set l [list]     # You...}
+1074	handler	Wish	builtin-programs/web/statements.folk	3	1072		
+1075	query	QuerySimple!	builtin-programs/web/statements.folk	6	1074		/...terms/
+1076	when	When	builtin-programs/web/textures.folk	1	-1		the GPU library is /gpuLib/ & the image library is /imageLib/ & the GPU draw library is /drawLib/ & the GPU VMA DLL is /vmaDll/ & the GPU texture library is /gpuTextureLib/
+1077	wish	Wish	builtin-programs/web/textures.folk	232	1076		the web server handles route /textures with handler {         package require ba...}
+1078	handler	Wish	builtin-programs/web/textures.folk	232	1076		
+1079	wish	Wish	builtin-programs/web/threads.folk	112	-1		the web server handles route /threads with handler {     set pid [pid]     try ...}
+1080	handler	Wish	builtin-programs/web/threads.folk	112	-1		
+1081	wish	Wish	builtin-programs/web/trie-graph.folk	160	-1		the web server handles route /trie-graph\.pdf with handler {     set trie []     set do...}
+1082	handler	Wish	builtin-programs/web/trie-graph.folk	160	-1		
+1083	claim	Claim	builtin-programs/web/web.folk	23	-1		the websocket library is $wsLib
+1084	proc	proc	builtin-programs/web/web.folk	25	-1		
+1085	proc	proc	builtin-programs/web/web.folk	36	-1		
+1086	proc	proc	builtin-programs/web/web.folk	38	-1		
+1087	proc	proc	builtin-programs/web/web.folk	44	-1		
+1088	proc	proc	builtin-programs/web/web.folk	53	-1		
+1089	proc	proc	builtin-programs/web/web.folk	84	-1		
+1090	fn	fn	builtin-programs/web/web.folk	106	-1		
+1091	when	When	builtin-programs/web/web.folk	130	1090	-noncapturing 1	the collected results for $pattern are /results/
+1092	query	Query!	builtin-programs/web/web.folk	150	1090		{*}[lindex $pattern 4]
+1093	query	ForEach!	builtin-programs/web/web.folk	155	1090		{*}$pattern
+1094	proc	proc	builtin-programs/web/web.folk	185	-1		
+1095	query	ForEach!	builtin-programs/web/web.folk	209	1094		/someone/ wishes the web server handles route /route/ with /...options/
+1096	proc	proc	builtin-programs/web/web.folk	216	1094		
+1097	proc	proc	builtin-programs/web/web.folk	217	1094		
+1098	assert	Assert!	builtin-programs/web/web.folk	295	1094		websocket $chan is connected
+1099	when	When	user-programs/folk-baltimore/display-saver.folk	78	-1		tag /nobody/ has a program & display /disp/ has width /displayWidth/ height /displayHeight/ & the clock time is /t/
+1100	wish	Wish	user-programs/folk-baltimore/display-saver.folk	91	1099		to draw a circle onto $disp with center [list $x $y] radius $radius thickness 1 color green filled true
+1101	when	When	user-programs/folk-baltimore/display-saver.folk	99	-1		tag /nobody/ has a program & display /disp/ has width /displayWidth/ height /displayHeight/
+1102	wish	Wish	user-programs/folk-baltimore/display-saver.folk	107	1101		to draw text onto $disp with x $cx y $cy text $msg color green scale 80
+1103	wish	Wish	user-programs/folk-baltimore/display-saver.folk	121	1101		to draw a line onto $disp with points $borderPoints width 6 color white
+1104	claim	Claim	user-programs/folk-baltimore/display-saver.folk	124	-1		$this has a display saver
+1105	assert	Assert!	user-programs/folk-baltimore/play_boot_sound.folk	2	-1		$this wishes to play audio folk_boot_guitar.wav
+1106	when	When	user-programs/folk-charles/tag-regions.folk	3	-1		/tag/ has region /r/
+1107	claim	Claim	user-programs/folk-charles/tag-regions.folk	10	1106		tag $tag has region $t
+1108	when	When	user-programs/folk-charles/web-image.folk	1	-1		the camera frame is /im/
+1109	wish	Wish	user-programs/folk-charles/web-image.folk	2	1108		the web server handles route /frame-image/?$ with handler [list apply {{im} {     # s...
+1110	handler	Wish	user-programs/folk-charles/web-image.folk	2	1108		
+1111	proc	proc	user-programs/folk-haip.local/spotify.folk	19	-1		
+1112	proc	proc	user-programs/folk-haip.local/spotify.folk	23	-1		
+1113	proc	proc	user-programs/folk-haip.local/spotify.folk	150	-1		
+1114	proc	proc	user-programs/folk-haip.local/spotify.folk	159	-1		
+1115	when	When	user-programs/folk-haip.local/spotify.folk	231	-1		/someone/ wishes /uri/ would be played on spotify
+1116	proc	proc	user-programs/folk-haip.local/spotify.folk	251	-1		
+1117	wish	Wish	user-programs/folk-haip.local/web-endpoints.folk	1	-1		the web server handles route /static-html/$ with handler {   html "<h1>Hello World!</...}
+1118	handler	Wish	user-programs/folk-haip.local/web-endpoints.folk	1	-1		
+1119	wish	Wish	user-programs/folk-haip.local/web-endpoints.folk	5	-1		the web server handles route /score/$ with handler {   json "{\"score\": 5}" }
+1120	handler	Wish	user-programs/folk-haip.local/web-endpoints.folk	5	-1		
+1121	when	When	user-programs/folk-haip.local/web-endpoints.folk	9	-1		the collected results for [list /regionName/ has regi... are /regionResults/
+1122	wish	Wish	user-programs/folk-haip.local/web-endpoints.folk	10	1121		the web server handles route /regions/$ with handler [list Evaluator::tryRunInSe...
+1123	handler	Wish	user-programs/folk-haip.local/web-endpoints.folk	10	1121		
+1124	wish	Wish	user-programs/folk-haip.local/web-endpoints.folk	20	-1		the web server handles route /redirect/$ with handler {   dict create statusAndHea...}
+1125	handler	Wish	user-programs/folk-haip.local/web-endpoints.folk	20	-1		
+1126	wish	Wish	user-programs/folk-haip.local/web-endpoints.folk	24	-1		the web server handles route /pagee/(\d*)$ with handler {   if {[regexp -all {/pagee...}
+1127	handler	Wish	user-programs/folk-haip.local/web-endpoints.folk	24	-1		
+1128	when	When	user-programs/folk-rooprob1/display-saver.folk	78	-1		tag /nobody/ has a program & display /disp/ has width /displayWidth/ height /displayHeight/ & the clock time is /t/
+1129	wish	Wish	user-programs/folk-rooprob1/display-saver.folk	92	1128		to draw a circle onto $disp with center [list $x $y] radius $radius thickness 1 color blue filled true
+1130	when	When	user-programs/folk-rooprob1/display-saver.folk	100	-1		tag /nobody/ has a program & display /disp/ has width /displayWidth/ height /displayHeight/
+1131	wish	Wish	user-programs/folk-rooprob1/display-saver.folk	110	1130		to draw text onto $disp with x $cx y $cy text $msg color white scale 80
+1132	wish	Wish	user-programs/folk-rooprob1/display-saver.folk	124	1130		to draw a line onto $disp with points $borderPoints width 6 color white
+1133	claim	Claim	user-programs/folk-rooprob1/display-saver.folk	127	-1		$this has a display saver
+1134	when	When	user-programs/haippi7/highlight-laser-region.folk	3	-1		/someone/ claims /something/ region /id/ data /regionData/ & laser blob /t/ has center /c/ size /s/
+1135	claim	Claim	user-programs/haippi7/highlight-laser-region.folk	9	1134		laser blob $t inside region $id
+1136	when	When	user-programs/haippi7/highlight-laser-region.folk	13	-1		laser blob /something/ inside region /id/ & /someone/ claims /something/ region /id/ data /regionData/
+1137	when	When	user-programs/haippi7/highlight-laser-region.folk	25	-1		laser blob /something/ inside region 1
+1138	unmatch	On	user-programs/haippi7/laser-camera.folk	10	-1		
+1139	when	When	user-programs/haippi7/laser-region-manager.folk	1	-1		the collected results for [list /someone/ claims /som... are /regionResults/
+1140	wish	Wish	user-programs/haippi7/laser-region-manager.folk	9	1139		the web server handles route /laser-regions-test with handler [list apply {{jsArrayString...
+1141	handler	Wish	user-programs/haippi7/laser-region-manager.folk	9	1139		
+1142	when	When	user-programs/haippi7/laser-web-debug.folk	1	-1		the collected results for [list laser blob /t/ has ce... are /results/
+1143	wish	Wish	user-programs/haippi7/laser-web-debug.folk	2	1142		the web server handles route /laser-web-debug with handler [list apply {{results} {   ...
+1144	handler	Wish	user-programs/haippi7/laser-web-debug.folk	2	1142		
+1145	when	When	user-programs/haippi7/project-laser-dot.folk	1	-1		laser blob /t/ has center /c/ size /s/
+1146	when	When	user-programs/haippi7/region-play-spotify.folk	1	-1		laser blob /something/ inside region 0
+1147	wish	Wish	user-programs/haippi7/region-play-spotify.folk	2	1146		spotify:album:3l7JWewI3ZByxaT5BCgRx2 would be played on spotify
+1148	when	When	user-programs/haippi7/region-play-spotify.folk	5	-1		laser blob /something/ inside region 1
+1149	wish	Wish	user-programs/haippi7/region-play-spotify.folk	6	1148		spotify:track:0ZAdCDeysyoh5BOpuSGKy3 would be played on spotify
+1150	when	When	user-programs/haippi7/region-play-spotify.folk	9	-1		laser blob /something/ inside region 2
+1151	wish	Wish	user-programs/haippi7/region-play-spotify.folk	10	1150		spotify:artist:65dGLGjkw3UbddUg2GKQoZ would be played on spotify
+1152	proc	proc	user-programs/haippi7/spotify.folk	19	-1		
+1153	proc	proc	user-programs/haippi7/spotify.folk	23	-1		
+1154	proc	proc	user-programs/haippi7/spotify.folk	150	-1		
+1155	proc	proc	user-programs/haippi7/spotify.folk	159	-1		
+1156	when	When	user-programs/haippi7/spotify.folk	231	-1		/someone/ wishes /uri/ would be played on spotify
+1157	proc	proc	user-programs/haippi7/spotify.folk	251	-1		
+1158	when	When	user-programs/haippi7/web-image.folk	1	-1		the camera frame is /im/
+1159	wish	Wish	user-programs/haippi7/web-image.folk	2	1158		the web server handles route /frame-image/$ with handler [list apply {{im} {     # s...
+1160	handler	Wish	user-programs/haippi7/web-image.folk	2	1158		
+1161	when	When	test/atomically.folk	1	-1		stuff should run
+1162	claim	Claim	test/atomically.folk	2	1161		we started running
+1163	claim	Claim	test/atomically.folk	4	1161		we are done
+1164	when	When	test/atomically.folk	6	-1	-atomically 1	whatever
+1165	claim	Claim	test/atomically.folk	7	1164		stuff should run
+1166	claim	Claim	test/atomically.folk	9	-1		whatever
+1167	query	Query!	test/atomically.folk	13	-1	-atomically 1	stuff should run
+1168	query	Query!	test/atomically.folk	14	-1	-atomically 1	we started running
+1169	query	Query!	test/atomically.folk	18	-1		/someone/ claims /...xxx/
+1170	query	Query!	test/atomically.folk	21	-1	-atomically 1	stuff should run
+1171	query	Query!	test/atomically.folk	22	-1	-atomically 1	we started running
+1172	when	When	test/atomically2.folk	3	-1	-atomically 1	the version is /v/
+1173	claim	Claim	test/atomically2.folk	4	1172		the atomic version is $v
+1174	hold	Hold!	test/atomically2.folk	12	-1		the version is 1
+1175	when	When	test/atomically2.folk	13	-1	-nonatomically 1	the atomic version is 1
+1176	hold	Hold!	test/atomically2.folk	14	1175		the version is 2
+1177	claim	Claim	test/atomically2.folk	15	1175		blooper
+1178	query	QuerySimple!	test/atomically2.folk	25	1175		/someone/ claims the atomic version is /v/
+1179	when	When	test/atomically2.folk	29	-1	-nonatomically 1	the atomic version is 2
+1180	query	QuerySimple!	test/atomically2.folk	32	1179		/someone/ claims the atomic version is /v/
+1181	when	When	test/atomically3.folk	1	-1		the clock time is /t/
+1182	claim	Claim	test/atomically3.folk	3	1181		the derived clock time is $t
+1183	hold	Hold!	test/atomically3.folk	6	-1		the number of clock impulses is 0
+1184	when	When	test/atomically3.folk	7	-1		the derived clock time is /t/
+1185	query	QueryOne!	test/atomically3.folk	8	1184		the number of clock impulses is /n/
+1186	hold	Hold!	test/atomically3.folk	9	1184		the number of clock impulses is [+ $n 1]
+1187	query	QueryOne!	test/atomically3.folk	14	-1		the number of clock impulses is /n/
+1188	assert	Assert!	test/backtrace.folk	1	-1		we are on
+1189	fn	fn	test/backtrace.folk	3	-1		
+1190	when	When	test/backtrace.folk	7	-1		we are on
+1191	when	When	test/backtrace.folk	8	1190		the time is /t/
+1192	when	When	test/backtrace.folk	14	1190		/someone/ has error /err/ with info /info/
+1193	assert	Assert!	test/backtrace.folk	26	1190		the time is [incr t]
+1194	retract	Retract!	test/backtrace.folk	27	1190		the time is [- $t 1]
+1195	when	When	test/canvas.folk	1	-1		display /disp/ has width /w/ height /h/
+1196	when	When	test/canvas.folk	2	1195		the clock time is /t/
+1197	wish	Wish	test/canvas.folk	3	1196		to draw a dashed line with points [list [list 0 0] [list $w 0... color white width 10 dashlength 40 dashoffset [expr {fmod($t, 10)*-120}]
+1198	when	When	test/canvas.folk	7	-1		page /p/ is out
+1199	wish	Wish	test/canvas.folk	8	1198		the GPU creates writable texture [list im $p] with width 1024 height 1024
+1200	wish	Wish	test/canvas.folk	9	1198		the GPU draws pipeline fillTriangle onto canvas [list im $p] with arguments [list {             {1 0 0}...
+1201	wish	Wish	test/canvas.folk	16	1198		the GPU draws pipeline fillTriangle onto canvas [list im $p] with arguments [list {             {1 0 0}...
+1202	when	When	test/canvas.folk	24	-1		the GPU library is /gpuLib/ & the GPU writable texture library is /gpuDrawableLib/ & the GPU creates writable texture /imId/ as /surf/
+1203	wish	Wish	test/canvas.folk	45	1202		the GPU draws pipeline image with arguments [list [list [$gpuLib getWid...
+1204	assert	Assert!	test/canvas.folk	57	-1		page 3 is out
+1205	when	When	test/canvas.folk	58	-1		
+1206	retract	Retract!	test/canvas.folk	60	1205		page 3 is out
+1207	when	When	test/canvas.folk	71	-1		
+1208	when	Assert!	test/canvas.folk	76	-1		/__this/ has program code /__programCode/
+1209	proc	proc	test/canvas.folk	80	-1		
+1210	hold	Hold!	test/canvas.folk	82	1209	-keep 100ms -on boot.folk -key {[list $programFilename code]}	$programFilename has program code [read $fp]
+1211	when	When	test/collect-race.folk	1	-1		
+1212	claim	Claim	test/collect-race.folk	3	-1		an item is A
+1213	claim	Claim	test/collect-race.folk	4	-1		an item is B
+1214	claim	Claim	test/collect-race.folk	5	-1		an item is C
+1215	when	When	test/collect-race.folk	7	-1		we should collect
+1216	when	When	test/collect-race.folk	8	1215		the collected results for [list an item is /item/] are /results/
+1217	assert	Assert!	test/collect-race.folk	18	-1		we should collect
+1218	query	Query!	test/collect-race.folk	21	-1		the collected results for [list an item is /item/] are /results/
+1219	retract	Retract!	test/collect-race.folk	24	-1		we should collect
+1220	query	Query!	test/collect-race.folk	27	-1		the collected results for [list an item is /item/] are /results/
+1221	say	Say	test/dedupe.folk	1	-1		A claims P is an editor
+1222	say	Say	test/dedupe.folk	2	-1		B claims P is an editor
+1223	when	When	test/dedupe.folk	4	-1		/p/ is an editor
+1224	when	When	test/dedupe.folk	7	1223		this is a test
+1225	query	Query!	test/dedupe.folk	15	-1		when this is a test /body/ with /...anything/
+1226	when	When	test/destructors-churn.folk	1	-1		
+1227	hold	Hold!	test/destructors-churn.folk	5	1226	-key boop -destructor {[list apply {{n} {
+                Retract! the $n is present
+                if {$n > 200} {
+                    puts [Query! the /n/ is present]
+                    Exit! 0
+                }
+            }} $n]}	the n is [incr n]
+1228	assert	Assert!	test/destructors-churn.folk	14	1226		the $n is present
+1229	claim	Claim	test/destructors-churn.folk	18	-1		the resolved geometry is 4
+1230	when	When	test/destructors-churn.folk	19	-1		the n is /n/
+1231	wish	Wish	test/destructors-churn.folk	20	1230		the aug n is $n
+1232	when	When	test/destructors-churn.folk	23	-1		/someone/ wishes the aug n is /n/
+1233	when	When	test/destructors-churn.folk	24	1232		the resolved geometry is /geom/
+1234	when	When	test/destructors-churn.folk	28	-1		
+1235	query	Query!	test/destructors-churn.folk	31	1234		the n is /n/
+1236	assert	Assert!	test/destructors.folk	1	-1		cool
+1237	when	When	test/destructors.folk	2	-1		cool
+1238	unmatch	On	test/destructors.folk	4	1237		
+1239	assert	Assert!	test/destructors.folk	5	1238		test 1 passed
+1240	retract	Retract!	test/destructors.folk	8	1237		cool
+1241	when	When	test/destructors.folk	12	-1		
+1242	when	When	test/destructors.folk	14	-1		cool2
+1243	unmatch	On	test/destructors.folk	15	1242		
+1244	assert	Assert!	test/destructors.folk	17	1243		test 2 passed
+1245	when	When	test/destructors.folk	19	1242		the collected results for [list /x/ is a collectible ... are /results/
+1246	assert	Assert!	test/destructors.folk	23	-1		cool2
+1247	claim	Claim	test/destructors.folk	24	-1		1 is a collectible item
+1248	claim	Claim	test/destructors.folk	25	-1		2 is a collectible item
+1249	claim	Claim	test/destructors.folk	27	-1		3 is a collectible item
+1250	retract	Retract!	test/destructors.folk	29	-1		cool2
+1251	when	When	test/destructors.folk	32	-1		test 1 passed & test 2 passed
+1252	when	Assert!	test/dupe.folk	1	-1		
+1253	wish	Wish	test/dupe.folk	2	1252		to blah blah
+1254	when	When	test/dupe.folk	4	1252		
+1255	wish	Wish	test/dupe.folk	5	1254		to blah blah
+1256	when	When	test/dupe.folk	8	1252		
+1257	when	When	test/dupe.folk	11	1252		
+1258	when	When	test/dupe.folk	18	1252		/someone/ wishes to blah blah
+1259	fn	fn	test/env.folk	2	-1		
+1260	fn	fn	test/env.folk	5	-1		
+1261	fn	fn	test/env.folk	6	1260		
+1262	when	When	test/env.folk	12	-1		
+1263	when	When	test/env.folk	14	1262		
+1264	fn	fn	test/fn.folk	1	-1		
+1265	fn	fn	test/fn.folk	5	-1		
+1266	when	When	test/fn.folk	10	-1		we are awake
+1267	claim	Claim	test/fn.folk	22	-1		we are awake
+1268	when	Assert!	test/fn2.folk	1	-1		
+1269	assert	Assert!	test/fn2.folk	5	1268		we are active
+1270	when	When	test/fn2.folk	6	1268		we are active
+1271	fn	fn	test/fn2.folk	9	1270		
+1272	when	When	test/fn2.folk	13	1270		the clock time is /t/
+1273	fn	fn	test/fn2.folk	16	1272		
+1274	retract	Retract!	test/fn2.folk	22	1272		we are active
+1275	hold	Hold!	test/fn2.folk	23	1272		
+1276	when	When	test/fn2.folk	23	1275		
+1277	hold	Hold!	test/fn2.folk	24	1276		
+1278	fn	fn	test/fn3.folk	3	-1		
+1279	hold	Hold!	test/fn3.folk	6	1278	-key boom	
+1280	claim	Claim	test/foreach-join.folk	1	-1		the first step is A
+1281	claim	Claim	test/foreach-join.folk	2	-1		the second step is B
+1282	claim	Claim	test/foreach-join.folk	3	-1		the third step is C
+1283	query	ForEach!	test/foreach-join.folk	5	-1		the first step is /a/ & the second step is /b/ & the third step is /c/
+1284	fn	fn	test/foreach-join.folk	12	-1		
+1285	query	ForEach!	test/foreach-join.folk	13	1284		the first step is /a/
+1286	query	ForEach!	test/foreach-join.folk	14	1284		the second step is /b/
+1287	fn	fn	test/foreach-join.folk	27	-1		
+1288	query	ForEach!	test/foreach-join.folk	28	1287		the first step is /a/
+1289	query	ForEach!	test/foreach-join.folk	29	1287		the third step is /c/
+1290	assert	Assert!	test/join.folk	1	-1		Omar is a person
+1291	assert	Assert!	test/join.folk	2	-1		Omar is a name
+1292	query	QuerySimple!	test/join.folk	6	-1		Omar is a /x/
+1293	query	QuerySimple!	test/join.folk	7	-1		Omar is a /x/
+1294	query	Query!	test/join.folk	7	-1		Omar is a /x/
+1295	query	Query!	test/join.folk	9	-1		/x/ is a person & /x/ is a name
+1296	when	When	test/keep.folk	1	-1		the parent statement exists
+1297	claim	Claim	test/keep.folk	2	1296	-keep 1000ms	the child statement exists
+1298	assert	Assert!	test/keep.folk	4	-1		the parent statement exists
+1299	when	When	test/keep.folk	6	-1		the child statement exists
+1300	unmatch	On	test/keep.folk	9	1299		
+1301	claim	Claim	test/keep.folk	16	1299		the grandchild statement exists
+1302	when	When	test/keep.folk	19	-1		the grandchild statement exists
+1303	retract	Retract!	test/keep.folk	20	1302		the parent statement exists
+1304	proc	library	test/library.folk	2	-1		
+1305	proc	proc	test/library.folk	3	1304		
+1306	when	When	test/options.folk	1	-1		stuff is cool with /...opts/
+1307	claim	Claim	test/options.folk	8	-1		stuff is cool
+1308	claim	Claim	test/options.folk	10	-1		stuff is cool with number 2
+1309	assert	Assert!	test/patternless.folk	1	-1		we are on
+1310	when	Assert!	test/patternless.folk	2	-1		we are on
+1311	when	When	test/patternless.folk	5	1310		
+1312	when	When	test/python-image.folk	1	-1		
+1313	when	When	test/python-image.folk	2	-1		
+1314	when	When	test/python-image.folk	4	-1		the png library is /pngLib/ & the image uvx argtype definer is /defineImageArgtype/
+1315	fn	fn	test/python-image.folk	8	1314		
+1316	when	When	test/python-image.folk	19	1314		
+1317	fn	fn	test/scope-pileup.folk	1	-1		
+1318	fn	fn	test/scope-pileup.folk	2	-1		
+1319	fn	fn	test/scope-pileup.folk	4	-1		
+1320	fn	fn	test/scope-pileup.folk	15	-1		
+1321	fn	fn	test/scope-pileup.folk	33	-1		
+1322	fn	fn	test/scope-pileup.folk	59	-1		
+1323	fn	fn	test/scope-pileup.folk	68	-1		
+1324	fn	fn	test/scope-pileup.folk	81	-1		
+1325	fn	fn	test/scope-pileup.folk	88	-1		
+1326	assert	Assert!	test/system.folk	1	-1		we are on
+1327	when	Assert!	test/system.folk	2	-1		we are on
+1328	when	When	test/system.folk	3	1327		we are on
+1329	hold	Hold!	test/system.folk	6	1328		
+1330	when	When	test/system.folk	39	1327		we are on
+1331	query	Query!	test/system.folk	42	1330		the local tick is /tick/
+1332	when	When	test/texture-churn.folk	4	-1		the image library is /imageLib/
+1333	claim	Claim	test/texture-churn.folk	40	1332		the texture-churn library is $lib
+1334	wish	Wish	test/texture-churn.folk	43	-1		the GPU creates canvas TEST with width 1024 height 1024
+1335	claim	Claim	test/texture-churn.folk	44	-1		$this has canvas projection {     {1 0 0}     {0 1 0}   ...}
+1336	claim	Claim	test/texture-churn.folk	49	-1		$this has canvas TEST with width 1024 height 1024
+1337	claim	Claim	test/texture-churn.folk	50	-1		$this has resolved geometry {width 1 height 1 left 0.7}
+1338	when	When	test/texture-churn.folk	52	-1		the texture-churn library is /lib/ & the clock time is /t/
+1339	wish	Wish	test/texture-churn.folk	59	1338		$this displays image [$lib getImage]
+1340	when	When	test/texture-churn.folk	62	-1		the GPU library is /gpuLib/ & the GPU canvas library is /gpuWritableLib/ & the GPU creates canvas TEST as /surf/
+1341	wish	Wish	test/texture-churn.folk	73	1340		the GPU draws pipeline image with arguments [list [list [$gpuLib getWid...
+1342	when	When	test/texture-churn.folk	81	-1		
+1343	when	When	test/texture-churn.folk	82	-1		
+1344	when	When	test/texture-churn.folk	84	-1		
+1345	when	When	test/texture-churn.folk	85	-1		
+1346	when	When	test/texture-churn.folk	86	-1		
+1347	when	When	test/texture-churn.folk	87	-1		
+1348	when	When	test/texture-churn.folk	88	-1		
+1349	proc	proc	test/trie.folk	1	-1		
+1350	proc	proc	test/trie.folk	2	-1		
+1351	when	When	test/ws.folk	1	-1		
+1352	proc	proc	test/ws.folk	27	-1		
+1353	proc	wsSend	test/ws.folk	32	-1		
+1354	when	Assert!	test/ws.folk	34	1353		websocket $chan is connected
+1355	claim	Claim	test/ws.folk	35	1354		there is a sent statement
+1356	when	When	test/ws.folk	40	-1		there is a sent statement
+1357	unmatch	On	test/ws.folk	43	1356		

@@ -1,0 +1,18 @@
+code	where	form	message
+trailopt	builtin-programs/calibrate/calibration-board.folk:57	QueryOne! paper format /./ is the default paper format	option -default follows the clause
+trailopt	builtin-programs/camera/slice.folk:78	Claim $p has camera slice $slice with width $width	option -destructor follows the clause
+trailopt	builtin-programs/camera/usb.folk:356	Hold! camera $cameraPath has gray frame $grayImage at timestamp $ts	option -destructor follows the clause
+trailopt	builtin-programs/camera/usb.folk:364	Hold! camera $cameraPath has frame $frameImage at timestamp $ts	option -destructor follows the clause
+trailopt	builtin-programs/camera/usb.folk:451	Hold! camera $cropPath has jpeg frame $croppedJpeg at timestamp $timestamp	option -destructor follows the clause
+trailopt	builtin-programs/camera/usb.folk:460	Hold! camera $camera has jpeg frame $jpeg at timestamp $timestamp	option -destructor follows the clause
+trailopt	builtin-programs/draw/text.folk:210	Claim the GPU has font $name with data $font	option -destructor follows the clause
+trailopt	builtin-programs/editor/print-editor.folk:10	QueryOne! paper format /./ is the default paper format	option -default follows the clause
+trailopt	builtin-programs/editor/print-editor.folk:41	QueryOne! paper format /./ is the default paper format	option -default follows the clause
+trailopt	builtin-programs/gpu/canvases.folk:306	Claim the GPU has created canvas $id with {*}$options texture [$gpuCanvasLib gpuTexture $wi] writableInfo $wi	option -destructor follows the clause
+trailopt	builtin-programs/gpu/textures.folk:947	Claim the GPU has loaded image $im as texture $gtex	option -destructor follows the clause
+trailopt	builtin-programs/keyboard.folk:90	QueryOne! $keyboard has keymaps /./	option -default follows the clause
+trailopt	builtin-programs/keyboard.folk:132	QueryOne! $keyboard has keymaps /./	option -default follows the clause
+trailopt	builtin-programs/print/print.folk:233	QueryOne! paper format /./ is the default paper format	option -default follows the clause
+trailopt	builtin-programs/recognition/sam2.folk:416	Claim $page tracks object $id in frame $slice with {*}$promptSpecs masked-slice $maskedSlice	option -destructor follows the clause
+trailopt	builtin-programs/recognition/sam2.folk:452	Hold! $id has SAM2 masked image $maskedIm in $page	option -destructor follows the clause
+grammar	user-programs/haippi7/laser-camera.folk:10	On 	expected: On unmatch body

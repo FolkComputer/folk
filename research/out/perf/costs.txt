@@ -1,0 +1,48 @@
+helper fns in scope: 0; captured environment: 357 bytes
+  empty loop body                                       0.0 us
+  Claim (new statement)                                16.0 us
+  Claim (statement already present)                    12.0 us
+  Hold! (replace keyed statement)                      13.0 us
+  When (new rule, nothing matches)                     30.0 us
+  Query! (one clause, one result)                       8.8 us
+  QuerySimple! (one clause, one result)                 0.8 us
+  captureEnvStack                                       4.3 us
+  serialise captured environment to a string            0.6 us
+  evaluateBlock {} (enter an empty body)                4.6 us
+  dict merge of the environment stack                   0.3 us
+  the same, parsing it from its string form             3.0 us
+  rename-to-delete every fn in the environment          1.0 us
+  the same, skipping fns that have no proc              1.0 us
+  bind variables and apply an empty body                0.9 us
+helper fns in scope: 10; captured environment: 4667 bytes
+  empty loop body                                       0.0 us
+  Claim (new statement)                                16.0 us
+  Claim (statement already present)                    12.0 us
+  Hold! (replace keyed statement)                      13.0 us
+  When (new rule, nothing matches)                     44.0 us
+  Query! (one clause, one result)                       8.4 us
+  QuerySimple! (one clause, one result)                 0.8 us
+  captureEnvStack                                       8.6 us
+  serialise captured environment to a string            5.9 us
+  evaluateBlock {} (enter an empty body)               24.0 us
+  dict merge of the environment stack                   0.4 us
+  the same, parsing it from its string form            24.0 us
+  rename-to-delete every fn in the environment         13.0 us
+  the same, skipping fns that have no proc              4.2 us
+  bind variables and apply an empty body                1.5 us
+helper fns in scope: 40; captured environment: 17625 bytes
+  empty loop body                                       0.0 us
+  Claim (new statement)                                17.0 us
+  Claim (statement already present)                    12.0 us
+  Hold! (replace keyed statement)                      13.0 us
+  When (new rule, nothing matches)                     90.0 us
+  Query! (one clause, one result)                       7.9 us
+  QuerySimple! (one clause, one result)                 0.7 us
+  captureEnvStack                                      21.0 us
+  serialise captured environment to a string           23.0 us
+  evaluateBlock {} (enter an empty body)               83.0 us
+  dict merge of the environment stack                   1.3 us
+  the same, parsing it from its string form            97.0 us
+  rename-to-delete every fn in the environment         57.0 us
+  the same, skipping fns that have no proc             13.0 us
+  bind variables and apply an empty body                3.0 us

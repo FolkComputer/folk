@@ -1,0 +1,351 @@
+producers	readers	statement_shape	producer_files	reader_files
+1	20	_ claims the image library is _	image/image-lib	apriltags camera/rpi camera/slice camera/usb draw/apriltags draw/image draw/text esc-pos gpu/canvases gpu/pipelines gpu/textures image/gif-lib image/jpeg-lib image/png-lib laser print/print recognition/contours recognition/sam2 sprites web/textures
+3	14	_ claims _ has canvas _ with ...	calibrate/draw-model gpu/canvases tags-geometry	calibrate/draw-model draw/apriltags draw/arc draw/circle draw/contour draw/curve draw/dashed-line draw/fill draw/image draw/line draw/text editor/draw-editor gpu/toy-shader tags-to-quads
+4	13	_ claims _ has resolved geometry _	editor/editor editor/print-editor tags-geometry web/new	decorations/label decorations/outline draw/fill draw/gif draw/image draw/shapes editor/draw-editor editor/editor gpu/canvases recognition/contours recognition/sam2-contours recognition/sam2 tags-to-quads
+1	13	display _ has width _ height _	gpu/draw	calibrate/calibrate calibrate/draw-model calibrate/load-calibration connections decorations/title display-saver geometric/points-at gpu/canvases mask-tags tags-to-quads web/new user-programs/folk-baltimore/display-saver user-programs/folk-rooprob1/display-saver
+1	13	builtin-programs/collect.folk claims the collected results for _ are _	collect.folk(C)	apriltags calibrate/load-calibration decorations/label decorations/title draw/image editor/editor tags-geometry tags-to-quads web/nav web/web user-programs/folk-haip.local/web-endpoints user-programs/haippi7/laser-region-manager user-programs/haippi7/laser-web-debug
+3	10	_ claims _ has canvas projection _	calibrate/draw-model gpu/canvases tags-geometry	draw/apriltags draw/arc draw/circle draw/contour draw/curve draw/dashed-line draw/fill draw/image draw/line draw/text
+4	8	_ claims _ has quad _	editor/editor editor/print-editor tags-to-quads web/new	camera/slice connections decorations/title editor/editor editor/print-editor geometric/points-at points tags-to-quads
+1	9	_ claims the quad library is _	quad-lib	camera/slice connections decorations/title editor/print-editor geometric/points-at mask-tags points tags-to-quads web/new
+1	9	sysmon.c claims the clock time is _	sysmon.c	connections draw/gif editor/draw-editor errors gpu/toy-shader sprites terminal user-programs/folk-baltimore/display-saver user-programs/folk-rooprob1/display-saver
+4	5	_ claims _ has program code _	boot fswatch programs web/new	boot editor/editor editor-control terminal-ui web/program
+1	8	_ claims the color map is _	draw/color-map	draw/arc draw/circle draw/contour draw/curve draw/dashed-line draw/fill draw/line draw/text
+1	8	_ claims the _ save directory is _	saving/saving	editor/editor esc-pos print/print programs saving/migrate saving/save-holds web/page web/printed-programs
+2	6	_ claims camera _ has width _ height _	camera/rpi camera/usb	apriltags calibrate/calibrate calibrate/load-calibration camera/usb tags-to-quads web/camera
+1	7	_ claims the quad changer is _	tags-to-quads	camera/slice connections decorations/title geometric/points-at mask-tags points tags-to-quads
+1	6	_ claims display _ has intrinsics _	calibrate/load-calibration	connections decorations/title geometric/points-at mask-tags tags-to-quads web/new
+1	6	_ claims the jpeg library is _	image/jpeg-lib	calibrate/calibrate camera/usb draw/image web/apriltag-frame web/camera-frame web/camera-slice
+1	6	_ claims the db library is _	web/db-lib	calibrate/calibrate web/atomicallys web/dep-graph web/holds web/report web/statements
+1	5	_ claims libapriltag has been built with config _	apriltags	calibrate/matlib calibrate/refine laser print/print tags-to-quads
+1	5	_ claims the GPU Vulkan handle type definer is _	gpu/gpu	gpu/draw gpu/pipelines gpu/textures gpu/toy-shader gpu/vma
+1	5	_ claims the GPU library is _	gpu/gpu	gpu/canvases gpu/draw gpu/pipelines gpu/textures web/textures
+1	5	_ claims the pose library is _	tags-to-quads	camera/slice connections decorations/title geometric/points-at mask-tags
+1	4	_ claims tag _ has detection _ on camera _ at timestamp _	apriltags	apriltags programs tags-to-quads web/apriltag-frame
+1	4	_ claims the calibration matrix library is _	calibrate/matlib	calibrate/calibrate calibrate/calibration-board calibrate/draw-model calibrate/session
+1	4	_ claims the calibration model library is _	calibrate/model	calibrate/calibrate calibrate/calibration-board calibrate/draw-model calibrate/session
+1	4	_ claims _ has camera _ with ...	camera/enumerate	camera/slice recognition/contours recognition/sam2 web/camera-slice
+2	3	_ claims camera _ has gray frame _ at timestamp _	camera/rpi camera/usb	apriltags calibrate/calibrate laser
+4	1	_ wishes _ has camera slice	camera/slice recognition/contours recognition/sam2 web/camera-slice	camera/slice
+2	3	_ has error _ with info _	draw/image prelude.tcl	errors terminal-ui web/index
+2	3	_ wishes program _ is replaced with code _ editedTime _	editor/editor programs	boot programs web/program
+2	3	_ claims _ has error _ with info _	gpu/draw gpu/toy-shader	errors terminal-ui web/index
+1	4	_ claims the GPU texture library is _	gpu/textures	gpu/canvases gpu/draw gpu/pipelines web/textures
+1	4	_ claims the image uvx argtype definer is _	image/image-lib	recognition/craft recognition/dinov2 recognition/sam2 recognition/trocr
+1	4	_ claims tag _ has a program	programs	display-saver programs user-programs/folk-baltimore/display-saver user-programs/folk-rooprob1/display-saver
+1	3	_ wishes _ uses camera _ with width 1920 height 1080	calibrate/calibrate	calibrate/calibrate camera/rpi camera/usb
+1	3	_ claims the calibration poses from camera _ to display _ are _	calibrate/calibrate	calibrate/calibrate-page calibrate/calibrate calibrate/session
+2	2	_ claims the default program geometry is _	calibrate/load-calibration saving/migrate	calibrate/load-calibration tags-geometry
+1	3	_ claims a calibration from camera _ to display _ is _	calibrate/session	calibrate/calibrate-page calibrate/load-calibration calibrate/session
+2	2	_ claims camera _ has frame _ at timestamp _	camera/rpi camera/usb	camera/slice web/apriltag-frame
+1	3	_ claims _ has camera slice _	camera/slice	recognition/contours recognition/sam2 web/camera-slice
+3	1	_ wishes to draw a line onto _ with points _ width 6 color white	display-saver user-programs/folk-baltimore/display-saver user-programs/folk-rooprob1/display-saver	draw/line
+1	3	_ claims the image loader is _	draw/image	draw/image draw/text sprites
+2	2	_ wishes tag _ is stabilized	editor/editor terminal	decorations/title tags-to-quads
+1	3	_ claims editor _ has selected program _	editor/editor	editor/draw-editor editor/editor editor/print-editor
+1	3	_ claims editor _ has margin _	editor/editor	editor/draw-editor editor/editor editor/print-editor
+1	3	_ claims editor _ on program _ has font options with scale _	editor/editor	editor/draw-editor editor/editor editor/print-editor
+1	3	_ claims editor buffer for _ is _	editor/editor	editor/draw-editor editor/editor editor/print-editor
+2	2	_ wishes _ is outlined white	editor/print-editor errors	decorations/outline decorations/title
+1	3	_ claims the GPU has created canvas _ with ... texture _ writableInfo _	gpu/canvases	calibrate/draw-model gpu/canvases tags-geometry
+1	3	_ claims the GPU pipeline library is _	gpu/pipelines	gpu/canvases gpu/draw gpu/toy-shader
+1	3	_ claims _ is a keyboard with path _ locale us	keyboard	editor/editor keyboard terminal
+1	3	_ claims laser blob _ has center _ size _	laser	user-programs/haippi7/highlight-laser-region user-programs/haippi7/laser-web-debug user-programs/haippi7/project-laser-dot
+1	3	_ claims the paper formats are _	print/print	calibrate/calibration-board editor/print-editor print/print
+1	3	_ claims the print library is _	print/print	calibrate/calibration-board draw/apriltags esc-pos
+1	2	_ wishes the web server handles route /calibrate with hidden true handler _	calibrate/calibrate-page	web/nav web/web
+1	2	_ wishes the web server handles route /calibration-poses/([^/]+)$ with handler _	calibrate/calibrate-page	web/nav web/web
+1	2	_ claims the calibration poses max is 10	calibrate/calibrate	calibrate/calibrate calibrate/session
+1	2	_ claims the calibration collection completed run _ with _ at _	calibrate/calibrate	calibrate/calibrate calibrate/session
+1	2	_ wishes the web server handles route /calibrate/board.pdf with hidden true handler _	calibrate/calibration-board	web/nav web/web
+1	2	_ wishes the web server handles route /calibrate/board.png with hidden true handler _	calibrate/calibration-board	web/nav web/web
+1	2	_ claims camera _ has intrinsics _	calibrate/load-calibration	camera/slice tags-to-quads
+1	2	_ claims camera _ has jpeg frame _ at timestamp _	camera/usb	camera/usb web/camera-frame
+2	1	_ wishes to collect results for _ with settle _	collect gpu/canvases	collect
+2	1	_ wishes to draw a line onto _ with points _ width _ color _ layer _	connections draw/shapes	draw/line
+2	1	_ wishes to draw a triangle onto _ with p0 _ p1 _ p2 _ color _ layer _	connections draw/fill	draw/fill
+2	1	_ wishes to draw text onto _ with x _ y _ text _ color green scale 80	display-saver user-programs/folk-baltimore/display-saver	draw/text
+2	1	_ wishes the GPU draws pipeline line onto canvas _ with instances _ layer _	draw/contour draw/line	gpu/canvases
+2	1	_ wishes _ displays image _ with ...	draw/gif sprites	draw/image
+2	1	_ wishes the GPU loads image _ as texture	draw/image draw/text	gpu/textures
+1	2	_ claims the editor utils library is _	editor/editor-utils	editor/draw-editor editor/editor
+1	2	_ claims _ is typing into _	editor/editor	editor/editor terminal
+1	2	_ claims _ is an editor with ...	editor/editor	editor/draw-editor editor/editor
+1	2	_ claims editor _ has viewport size _	editor/editor	editor/draw-editor editor/editor
+1	2	_ claims editor _ has cursor 0	editor/editor	editor/draw-editor editor/editor
+1	2	_ claims editor _ has viewport position _	editor/editor	editor/draw-editor editor/editor
+1	2	_ claims editor _ has selection anchor _	editor/editor	editor/draw-editor editor/editor
+1	2	_ wishes _ is labelled Printing!	editor/editor	decorations/label decorations/title
+1	2	_ claims editor _ has cursor _	editor/editor	editor/draw-editor editor/editor
+1	2	_ wishes _ is labelled Saved!	editor/editor	decorations/label decorations/title
+2	1	_ wishes _ has a canvas	editor/print-editor web/new	gpu/canvases
+1	2	_ wishes the web server handles route /editor-control with hidden true handler _	editor-control	web/nav web/web
+1	2	_ wishes _ is outlined red	errors	decorations/outline decorations/title
+2	1	_ wishes _ is titled _	errors programs	decorations/title
+1	2	_ wishes _ is outlined yellow	errors	decorations/outline decorations/title
+2	1	_ claims the GPU compiles pipeline _ to _	gpu/draw gpu/toy-shader	gpu/draw
+1	2	_ claims the GPU has loaded image _ as texture _	gpu/textures	draw/image draw/text
+1	2	_ claims the GPU VMA DLL is _	gpu/vma	gpu/textures web/textures
+1	2	_ claims the gif library is _	image/gif-lib	draw/gif draw/image
+1	2	_ claims the png library is _	image/png-lib	draw/image recognition/sam2
+1	2	_ claims _ is a keyboard device	keyboard	keyboard web/keyboards
+2	1	the next program id is _	print/print saving/migrate	print/print
+1	2	_ wishes the web server handles route _ with hidden true handler _	recognition/sam2	web/nav web/web
+1	2	_ wishes camera _ detects tags	saving/migrate	apriltags decorations/title
+1	2	_ claims the saved holds are loaded	saving/save-holds	editor/editor saving/migrate
+1	2	_ wishes to deserialize namespace _ with directory _	saving/saving	saving/migrate saving/save-holds
+1	2	_ claims tag _ has quad _	tags-to-quads	mask-tags tags-to-quads
+1	2	_ wishes the web server handles route /apriltag-frame with handler _	web/apriltag-frame	web/nav web/web
+1	2	_ wishes the web server handles route /atomicallys with handler _	web/atomicallys	web/nav web/web
+1	2	_ wishes the web server handles route /block-stats with handler _	web/block-stats	web/nav web/web
+1	2	_ wishes the web server handles route /camera-frame with handler _	web/camera-frame	web/nav web/web
+1	2	_ wishes the web server handles route /camera-slice/([^/]+)$ with handler _	web/camera-slice	web/nav web/web
+1	2	_ wishes the web server handles route /camera with handler _	web/camera	web/nav web/web
+1	2	_ wishes the web server handles route /dep-graph\.pdf with handler _	web/dep-graph	web/nav web/web
+1	2	_ wishes the web server handles route /holds with handler _	web/holds	web/nav web/web
+1	2	_ wishes the web server handles route / with handler _	web/index	web/nav web/web
+1	2	_ wishes the web server handles route /keyboards$ with handler _	web/keyboards	web/nav web/web
+1	2	_ wishes the web server handles route /log/(.+)$ with hidden true handler _	web/log	web/nav web/web
+1	2	_ wishes the web server handles route /new with nav _ handler _	web/new	web/nav web/web
+1	2	_ wishes the web server handles route /page/(.*)$ with handler _	web/page	web/nav web/web
+1	2	_ wishes the web server handles route /printed-programs/([^/]+)\.folk$ with handler _	web/printed-programs	web/nav web/web
+1	2	_ wishes the web server handles route /program/(.*)$ with handler _	web/program	web/nav web/web
+1	2	_ wishes the web server handles route /quads with handler _	web/quads	web/nav web/web
+1	2	_ wishes the web server handles route /report with handler _	web/report	web/nav web/web
+1	2	_ wishes the web server handles route /setup with nav <button>Setup</button> handler _	web/setup	web/nav web/web
+1	2	_ wishes the web server handles route /statements with handler _	web/statements	web/nav web/web
+1	2	_ wishes the web server handles route /textures with handler _	web/textures	web/nav web/web
+1	2	_ wishes the web server handles route /threads with handler _	web/threads	web/nav web/web
+1	2	_ wishes the web server handles route /trie-graph\.pdf with handler _	web/trie-graph	web/nav web/web
+2	1	_ claims _ has a display saver	user-programs/folk-baltimore/display-saver user-programs/folk-rooprob1/display-saver	display-saver
+1	2	_ wishes the web server handles route /frame-image/?$ with handler _	user-programs/folk-charles/web-image	web/nav web/web
+1	2	_ wishes the web server handles route /static-html/$ with handler _	user-programs/folk-haip.local/web-endpoints	web/nav web/web
+1	2	_ wishes the web server handles route /score/$ with handler _	user-programs/folk-haip.local/web-endpoints	web/nav web/web
+1	2	_ wishes the web server handles route /regions/$ with handler _	user-programs/folk-haip.local/web-endpoints	web/nav web/web
+1	2	_ wishes the web server handles route /redirect/$ with handler _	user-programs/folk-haip.local/web-endpoints	web/nav web/web
+1	2	_ wishes the web server handles route /pagee/(\d*)$ with handler _	user-programs/folk-haip.local/web-endpoints	web/nav web/web
+1	2	_ claims laser blob _ inside region _	user-programs/haippi7/highlight-laser-region	user-programs/haippi7/highlight-laser-region user-programs/haippi7/region-play-spotify
+1	2	_ wishes the web server handles route /laser-regions-test with handler _	user-programs/haippi7/laser-region-manager	web/nav web/web
+1	2	_ wishes the web server handles route /laser-web-debug with handler _	user-programs/haippi7/laser-web-debug	web/nav web/web
+1	2	_ wishes spotify:album:3l7JWewI3ZByxaT5BCgRx2 would be played on spotify	user-programs/haippi7/region-play-spotify	user-programs/folk-haip.local/spotify user-programs/haippi7/spotify
+1	2	_ wishes spotify:track:0ZAdCDeysyoh5BOpuSGKy3 would be played on spotify	user-programs/haippi7/region-play-spotify	user-programs/folk-haip.local/spotify user-programs/haippi7/spotify
+1	2	_ wishes spotify:artist:65dGLGjkw3UbddUg2GKQoZ would be played on spotify	user-programs/haippi7/region-play-spotify	user-programs/folk-haip.local/spotify user-programs/haippi7/spotify
+1	2	_ wishes the web server handles route /frame-image/$ with handler _	user-programs/haippi7/web-image	web/nav web/web
+1	1	_ claims the AprilTag detector maker is _	apriltags	calibrate/calibrate
+1	1	_ claims _ detects tags _ on camera _ at timestamp _ in time _	apriltags	apriltags
+1	1	_ claims the audio library is _	audio	audio
+1	1	_ claims the calibration last-seen poses are _	calibrate/calibrate	calibrate/calibrate
+1	1	_ claims the calibration cycle time is 0	calibrate/calibrate	calibrate/calibrate
+1	1	_ wishes to draw calibration model _ using model-to-display homography _ with message _ on display _	calibrate/calibrate	calibrate/draw-model
+1	1	_ claims the calibration model-to-display homography is _ with model _ version -1 frameTimestamp _ modelTimestamp _	calibrate/calibrate	calibrate/calibrate
+1	1	_ claims the calibration model-to-display homography is _ with model _ version _ frameTimestamp _ modelTimestamp _	calibrate/calibrate	calibrate/calibrate
+1	1	_ claims the calibration cycle time is _	calibrate/calibrate	calibrate/calibrate
+1	1	_ claims the calibration measurements are _	calibrate/calibrate	calibrate/calibration-board
+1	1	_ claims the calibrated print scale is _	calibrate/calibration-board	print/print
+1	1	_ claims the calibrated print translation is _	calibrate/calibration-board	print/print
+1	1	_ wishes the GPU creates canvas _ with width _ height _	calibrate/draw-model	gpu/canvases
+1	1	_ wishes the GPU draws pipeline fillTriangle onto canvas _ with arguments _ layer 99	calibrate/draw-model	gpu/canvases
+1	1	_ wishes to draw an AprilTag onto _ with id _ corners _ background _ layer 100	calibrate/draw-model	draw/apriltags
+1	1	_ wishes the GPU draws pipeline fillTriangle with arguments _ layer 99	calibrate/draw-model	gpu/draw
+1	1	_ wishes to draw text onto _ with text _ radians _ position _ anchor top color black layer 100 scale _	calibrate/draw-model	draw/text
+1	1	_ wishes the GPU draws pipeline image with arguments _ layer 100	calibrate/draw-model	gpu/draw
+1	1	_ wishes to draw text onto _ with x _ y _ text _ color red scale 40	calibrate/load-calibration	draw/text
+1	1	_ wishes to draw text onto _ with x _ y _ radians 3.14159 text _ color red scale 40	calibrate/load-calibration	draw/text
+1	1	_ claims camera _ to display _ has extrinsics _	calibrate/load-calibration	tags-to-quads
+1	1	_ claims the calibration refiner is _	calibrate/refine	calibrate/session
+1	1	_ claims the joint calibration refiner is _	calibrate/refine	calibrate/session
+1	1	_ claims the calibration initializer is _ with extrinsics setter _	calibrate/session	calibrate/session
+1	1	_ wishes to calibrate camera _ to display _ using measurements _	calibrate/session	calibrate/calibrate
+1	1	_ claims the calibration session _ collected camera _ to display _ poses _ at _	calibrate/session	calibrate/session
+1	1	_ wishes _ has camera slice with width _	camera/slice	camera/slice
+1	1	_ claims _ has camera slice _ with width _	camera/slice	camera/slice
+1	1	_ wishes _ displays image _	camera/slice	draw/image
+1	1	_ claims camera _ has gain range _ to _	camera/usb	web/camera
+1	1	_ wishes to collect results for _ with settle 0ms	collect	collect
+1	1	_ wishes _ is connected to _ with _ _	connections	connections
+1	1	_ wishes _ is dynamically connected to _ with _ _	connections	connections
+1	1	_ wishes to draw text onto _ with ...	decorations/label	draw/text
+1	1	_ wishes _ is labelled _ with font PTSans-Regular	decorations/label	decorations/label
+1	1	_ wishes to draw a line onto _ with points _ width 0.01 color _	decorations/outline	draw/line
+1	1	_ claims _ has a quad	decorations/title	decorations/title
+1	1	_ wishes to draw text onto _ with position _ scale _ radians _ anchor _ text _	decorations/title	draw/text
+1	1	_ claims 45000 has demo code _	demos	programs
+1	1	_ claims 45001 has demo code _	demos	programs
+1	1	_ claims 45002 has demo code _	demos	programs
+1	1	_ claims 45003 has demo code _	demos	programs
+1	1	_ claims 45004 has demo code _	demos	programs
+1	1	_ claims 45005 has demo code _	demos	programs
+1	1	_ claims 45006 has demo code _	demos	programs
+1	1	_ claims 45007 has demo code _	demos	programs
+1	1	_ claims 45008 has demo code _	demos	programs
+1	1	_ wishes the GPU compiles pipeline apriltag _	draw/apriltags	gpu/draw
+1	1	_ wishes the GPU draws pipeline apriltag onto canvas _ with arguments _ layer _	draw/apriltags	gpu/canvases
+1	1	_ wishes the GPU compiles pipeline arc _	draw/arc	gpu/draw
+1	1	_ wishes the GPU draws pipeline arc onto canvas _ with arguments _ layer _	draw/arc	gpu/canvases
+1	1	_ wishes the GPU compiles pipeline circle _	draw/circle	gpu/draw
+1	1	_ wishes the GPU draws pipeline circle onto canvas _ with arguments _ layer _	draw/circle	gpu/canvases
+1	1	_ wishes the GPU compiles function curveSegmentDistance _	draw/curve	gpu/draw
+1	1	_ wishes the GPU compiles function curveBezierDistance _	draw/curve	gpu/draw
+1	1	_ wishes the GPU compiles pipeline curve _	draw/curve	gpu/draw
+1	1	_ wishes the GPU draws pipeline curve onto canvas _ with arguments _ layer _	draw/curve	gpu/canvases
+1	1	_ wishes the GPU compiles pipeline dashed-line _	draw/dashed-line	gpu/draw
+1	1	_ wishes the GPU draws pipeline dashed-line onto canvas _ with instances _ layer _	draw/dashed-line	gpu/canvases
+1	1	_ wishes the GPU compiles pipeline fillTriangle _	draw/fill	gpu/draw
+1	1	_ wishes the GPU draws pipeline fillTriangle onto canvas _ with arguments _ layer _	draw/fill	gpu/canvases
+1	1	_ wishes the GPU draws pipeline fillTriangle onto canvas _ with instances _ layer _	draw/fill	gpu/canvases
+1	1	_ wishes to draw a quad onto _ with p0 _ p1 _ p2 _ p3 _ color _ layer _	draw/fill	draw/fill
+1	1	_ wishes to draw a polygon onto _ with points _ ...	draw/fill	draw/fill
+1	1	_ wishes _ is filled with color _	draw/fill	draw/fill
+1	1	_ wishes _ is filled with color _ ...	draw/fill	draw/fill
+1	1	_ claims _ is an image loader	draw/image	draw/image
+1	1	_ claims the image path _ maps to cached image _	draw/image	draw/image
+1	1	_ wishes the GPU compiles pipeline image _	draw/image	gpu/draw
+1	1	_ wishes the GPU draws pipeline image onto canvas _ with arguments _	draw/image	gpu/canvases
+1	1	_ wishes _ displays gif _ with ...	draw/image	draw/gif
+1	1	_ wishes to draw an image onto _ with image _ position _ anchor topleft width _	draw/image	draw/image
+1	1	_ wishes _ displays image _ with scale 1.0	draw/image	draw/image
+1	1	_ wishes the GPU compiles pipeline line _	draw/line	gpu/draw
+1	1	_ wishes to draw a circle onto _ with center _ radius _ thickness _ color _ filled _ layer _	draw/shapes	draw/circle
+1	1	_ wishes to draw a polygon onto _ with points _ color _ layer _	draw/shapes	draw/fill
+1	1	_ wishes _ draws a _ with color white filled true	draw/shapes	draw/shapes
+1	1	_ wishes to draw text onto _ with position _ scale _ text _ color _ radians _ anchor _ font _ layer _	draw/shapes	draw/text
+1	1	_ wishes _ draws text _ with color white	draw/shapes	draw/shapes
+1	1	_ wishes to draw a dashed line onto _ with points _ width _ color _ dashlength _ dashoffset _ layer _	draw/shapes	draw/dashed-line
+1	1	_ wishes _ draws a polyline _ with color white	draw/shapes	draw/shapes
+1	1	_ wishes _ draws a polygon _ with color white	draw/shapes	draw/shapes
+1	1	_ wishes _ draws points _ with color white	draw/shapes	draw/shapes
+1	1	_ wishes _ draws points _ with ...	draw/shapes	draw/shapes
+1	1	_ wishes _ draws points _	draw/shapes	draw/shapes
+1	1	_ claims the GPU has font _ with data _	draw/text	draw/text
+1	1	_ wishes the GPU compiles function glyphMsd _	draw/text	gpu/draw
+1	1	_ wishes the GPU compiles function median _	draw/text	gpu/draw
+1	1	_ wishes the GPU compiles pipeline glyph _	draw/text	gpu/draw
+1	1	_ wishes the GPU draws pipeline glyph onto canvas _ with instances _ layer _	draw/text	gpu/canvases
+1	1	_ wishes the GPU draws pipeline fillTriangle onto canvas _ with arguments _ layer -2	editor/draw-editor	gpu/canvases
+1	1	_ wishes to draw a dashed line onto _ with points _ color gold width 0.005 dashlength 0.008 dashoffset _	editor/draw-editor	draw/dashed-line
+1	1	_ wishes to draw text onto _ with position _ text _ color gold scale _ anchor topright font NeomatrixCode	editor/draw-editor	draw/text
+1	1	_ wishes to draw text onto _ with position _ text _ scale _ anchor topleft font NeomatrixCode	editor/draw-editor	draw/text
+1	1	_ wishes to draw a quad onto _ with p0 _ p1 _ p2 _ p3 _ color _ layer -1	editor/draw-editor	draw/fill
+1	1	_ wishes to draw a circle onto _ with center _ radius _ thickness 0 color green filled true	editor/draw-editor	draw/circle
+1	1	_ wishes to draw a line onto _ with points _ width _ color green	editor/draw-editor	draw/line
+1	1	_ wishes _ points up with length 0.3	editor/editor	geometric/points-at
+1	1	_ claims _ is an editor	editor/editor	editor/editor
+1	1	_ wishes _ has a canvas with layer 98	editor/editor	gpu/canvases
+1	1	_ claims _ has created editor _	editor/editor	editor/editor
+1	1	_ claims editor _ has max cursor x 0	editor/editor	editor/editor
+1	1	_ claims editor _ has undo stack _	editor/editor	editor/editor
+1	1	_ claims editor _ has redo stack _	editor/editor	editor/editor
+1	1	_ claims editor _ has last edit type _	editor/editor	editor/editor
+1	1	_ claims editor _ has clipboard _	editor/editor	editor/editor
+1	1	_ claims editor _ has max cursor x _	editor/editor	editor/editor
+1	1	_ claims editor _ has cursor position _	editor/editor	editor/draw-editor
+1	1	_ wishes _ displays image _ with width _	editor/print-editor	draw/image
+1	1	_ wishes _ has neighbors	geometric/intersect	geometric/intersect
+1	1	_ wishes _ points _ with length _	geometric/points-at	geometric/points-at
+1	1	_ wishes _ points _ with length 1	geometric/points-at	geometric/points-at
+1	1	_ claims _ points _ at _	geometric/points-at	geometric/points-at
+1	1	_ claims _ points _ with length _ at _	geometric/points-at	editor/editor
+1	1	_ wishes to draw a line onto _ with points _ width 4 color _	geometric/points-at	draw/line
+1	1	_ wishes to draw a circle onto _ with center _ radius 10 thickness 5 color _ filled true	geometric/points-at	draw/circle
+1	1	_ wishes to draw a circle onto _ with center _ radius 10 thickness 5 color _ filled false	geometric/points-at	draw/circle
+1	1	_ wishes the GPU runs frame prelude handler _	gpu/canvases	gpu/draw
+1	1	_ wishes _ has a canvas with width 1024 height 1024 settle 3ms	gpu/canvases	gpu/canvases
+1	1	_ wishes the GPU creates canvas _ with ...	gpu/canvases	gpu/canvases
+1	1	_ wishes the GPU compiles pipeline composite-canvas _	gpu/canvases	gpu/draw
+1	1	_ wishes the GPU creates canvas _ with width _ height _ settle 0ms layer 100	gpu/canvases	gpu/canvases
+1	1	_ wishes the GPU draws pipeline composite-canvas with arguments _ layer _	gpu/canvases	gpu/draw
+1	1	_ claims the GPU draw library is _	gpu/draw	web/textures
+1	1	_ claims the GPU compiles function _ to _	gpu/draw	gpu/draw
+1	1	_ claims _ has display glfw with info _	gpu/enumerate	gpu/draw
+1	1	_ claims _ has display _ with info _	gpu/enumerate	gpu/draw
+1	1	_ claims _ has had displays enumerated	gpu/enumerate	gpu/gpu
+1	1	_ wishes the GPU compiles function rotate _	gpu/gpu-fns	gpu/draw
+1	1	_ wishes the GPU compiles function wedge2d _	gpu/gpu-fns	gpu/draw
+1	1	_ wishes the GPU compiles function invBilinear _	gpu/gpu-fns	gpu/draw
+1	1	_ claims the GPU pipeline compiler library is _	gpu/pipelines	gpu/draw
+1	1	_ wishes the GPU draws pipeline _ onto canvas _ with arguments _	gpu/toy-shader	gpu/canvases
+1	1	_ claims _ has keymaps _	keyboard	keyboard
+1	1	_ wishes to draw a quad onto _ with p0 _ p1 _ p2 _ p3 _ color black layer 100	mask-tags	draw/fill
+1	1	_ wishes point _ is projected to surface _	points	points
+1	1	_ claims the codeToPostScript is _	print/print	editor/print-editor
+1	1	_ claims the contour library is _	recognition/contours	recognition/contours
+1	1	_ wishes _ has contours with _ _	recognition/contours	recognition/contours
+1	1	_ wishes to load the CRAFT text detector	recognition/craft	recognition/craft
+1	1	_ wishes to load the DINOv2 image embedder	recognition/dinov2	recognition/dinov2
+1	1	_ wishes to really load the DINOv2 image embedder	recognition/dinov2	recognition/dinov2
+1	1	_ claims the SAM2 contours library is _	recognition/sam2-contours	recognition/sam2-contours
+1	1	_ wishes to load SAM2	recognition/sam2	recognition/sam2
+1	1	_ wishes to really load SAM2	recognition/sam2	recognition/sam2
+1	1	_ claims the SAM2 object tracker is _	recognition/sam2	recognition/sam2
+1	1	_ claims the SAM2 prompt adder is _	recognition/sam2	recognition/sam2
+1	1	_ claims the SAM2 object loader is _	recognition/sam2	recognition/sam2
+1	1	_ claims the SAM2 mask-to-image library is _	recognition/sam2	recognition/sam2
+1	1	_ wishes _ has a SAM2 object tracker	recognition/sam2	recognition/sam2
+1	1	_ claims _ has mask _ in _ with width _ height _	recognition/sam2	recognition/sam2-contours
+1	1	_ wishes to load the TrOCR text recognizer	recognition/trocr	recognition/trocr
+1	1	_ claims the migration is complete	saving/migrate	saving/saving
+1	1	_ claims this is a first boot	saving/migrate	saving/save-programs
+1	1	_ claims saving is ready	saving/save-holds	saving/migrate
+1	1	the next program id is 0	saving/save-programs	print/print
+1	1	_ claims tag _ has geometry _	tags-geometry	tags-geometry
+1	1	_ wishes the GPU creates canvas _ with width 1024 height 1024	tags-geometry	gpu/canvases
+1	1	_ claims the changer from space _ to space _ is _	tags-to-quads	tags-to-quads
+1	1	_ wishes _ has resolved geometry	tags-to-quads	tags-geometry
+1	1	_ claims tag _ is stabilized with state _	tags-to-quads	tags-to-quads
+1	1	_ claims tag _ has pose _ at timestamp _	tags-to-quads	tags-to-quads
+1	1	_ wishes the GPU draws pipeline composite-canvas with arguments _ layer _ key _	tags-to-quads	gpu/draw
+1	1	_ wishes _ is a terminal spawning bash	terminal	terminal
+1	1	_ claims _ is a terminal spawning _	terminal	terminal
+1	1	_ claims _ has terminal _ spawning _	terminal	terminal
+1	1	_ claims _ handles keyboard input	terminal	editor/editor
+1	1	_ wishes to draw text onto _ with text _ position _ anchor topleft scale 0.005 font CourierPrimeCode	terminal	draw/text
+1	1	_ wishes _ runs Unix command _ with arguments _	unix-commands	unix-commands
+1	1	_ wishes to draw a circle onto _ with center _ radius _ thickness 1 color green filled true	user-programs/folk-baltimore/display-saver	draw/circle
+1	1	_ wishes to play audio folk_boot_guitar.wav	user-programs/folk-baltimore/play_boot_sound	audio
+1	1	_ wishes to draw a circle onto _ with center _ radius _ thickness 1 color blue filled true	user-programs/folk-rooprob1/display-saver	draw/circle
+1	1	_ wishes to draw text onto _ with x _ y _ text _ color white scale 80	user-programs/folk-rooprob1/display-saver	draw/text
+1	1	sysmon.c claims the internal time is _	sysmon.c	collect
+1	0	_ claims the AprilTag time is _	apriltags	
+1	0	_ claims the calibration report from camera _ to display _ is _	calibrate/calibrate-page	
+1	0	_ claims the calibration HoldDefaultModel! is _	calibrate/calibrate	
+1	0	_ claims calibration collected _ poses from camera _ to display _ at _	calibrate/calibrate	
+1	0	_ claims the makeCalibrationBoardPs is _	calibrate/calibration-board	
+1	0	_ claims the makeCalibrationBoardPdf is _	calibrate/calibration-board	
+1	0	_ claims the makeCalibrationBoardPng is _	calibrate/calibration-board	
+1	0	_ claims the calibration session _ is optimizing	calibrate/session	
+1	0	_ claims the calibration session _ is complete	calibrate/session	
+1	0	_ claims the calibration session _ is collecting camera _ to display _ at index _ of _	calibrate/session	
+1	0	_ wishes _ is connected to _ from centroid to centroid	connections	
+1	0	_ wishes _ is dynamically connected to _ from centroid to centroid	connections	
+1	0	_ claims _ has base64 editor code _ program code _	editor-control	
+1	0	_ claims _ has neighbor _	geometric/intersect	
+1	0	_ claims the GPU canvas library is _	gpu/canvases	
+1	0	_ claims the GPU physical device is _	gpu/gpu	
+1	0	_ claims the GPU device is _	gpu/gpu	
+1	0	_ claims the blob detection time is _	laser	
+1	0	_ claims the points library is _	points	
+1	0	_ claims point _ corresponds to _ on _	points	
+1	0	_ claims tag _ is a tag	programs	
+1	0	_ claims _ has contours _ with ...	recognition/contours	
+1	0	_ claims the CRAFT text detector is _	recognition/craft	
+1	0	_ claims the DINOv2 image embedder is _	recognition/dinov2	
+1	0	_ claims the DINOv2 image heatmapper is _	recognition/dinov2	
+1	0	_ claims the DINOv2 object center localizer is _	recognition/dinov2	
+1	0	_ claims _ has contours _ in _	recognition/sam2-contours	
+1	0	_ claims the SAM2 segmenter is _	recognition/sam2	
+1	0	_ claims the SAM2 object saver is _	recognition/sam2	
+1	0	_ claims _ tracks object _ from filename _	recognition/sam2	
+1	0	_ claims _ tracks object _ in frame _ with ... masked-slice _	recognition/sam2	
+1	0	_ claims _ has SAM2 masked image _ in _	recognition/sam2	
+1	0	_ claims the TrOCR text recognizer is _	recognition/trocr	
+1	0	_ claims the calibration is _	saving/migrate	
+1	0	_ claims the calibration poses are _	saving/migrate	
+1	0	_ claims the AprilTag detection migration is complete	saving/migrate	
+1	0	_ claims _ has demo _	sprites	
+1	0	_ claims _ has Unix error output _	unix-commands	
+1	0	_ claims _ has Unix output lines _	unix-commands	
+1	0	_ claims the web navigation HTML is _	web/nav	
+1	0	_ claims the websocket library is _	web/web	
+1	0	websocket _ is connected	web/web	
+1	0	_ claims tag _ has region _	user-programs/folk-charles/tag-regions	
+1	0	sysmon.c claims _ has self RAM usage _ MB	sysmon.c	
+1	0	sysmon.c claims _ has available RAM _ MB of _ MB	sysmon.c	

@@ -1,0 +1,173 @@
+Corpus
+  system programs  125 files, 21634 lines
+    boot.folk + 109 builtin-programs + 15 user-programs (all hosts)
+  tests            35 files, 1123 lines
+  not loaded by boot.folk (too deep): user-programs/folk-haip.local/archive/web-cursor.folk
+  switched off by `return` at builtin-programs/group.folk:1 (3 commands not analysed)
+
+Forms in system programs (tests in brackets)
+  When             282  [64]
+  Wish             194  [11]
+  Claim            181  [27]
+  fn               143  [21]
+  Hold!             95  [10]
+  Query!            41  [12]
+  Require!          19  [0]
+  On                14  [4]
+  Subscribe:        14  [0]
+  Notify:           11  [0]
+  ForEach!          10  [5]
+  QueryOne!          9  [2]
+  Assert!            6  [21]
+  Say                2  [2]
+  Retract!           1  [7]
+  QuerySimple!       1  [4]
+
+Options
+  Hold! -key                      94
+  Hold! -on                       35
+  Hold! -save                     23
+  Wish -keep                      10
+  Claim -keep                      7
+  QueryOne! -default               6
+  Claim -destructor                6
+  Hold! -keep                      5
+  When -serially                   5
+  Hold! -destructor                5
+  Hold! -version                   3
+  When -atomically                 3
+  When -atomicallyWithKey          3
+  Wish -nonatomically              2
+  When -noncapturing               2
+
+When (and Assert! when) rules: 283
+  pattern fully literal                207
+  pattern has run-time values (holes)  75
+  pattern has a {*} expansion          1
+  empty pattern (runs immediately)     1
+  clauses with /nobody/ or /nothing/   19
+  clauses with a /...rest/ variable    71
+  body not a braced literal            1
+  clauses per rule (joins):
+    1 clause(s)    182
+    2 clause(s)     47
+    3 clause(s)     20
+    4 clause(s)     21
+    5 clause(s)      6
+    6 clause(s)      5
+    7 clause(s)      2
+  rules enclosing this rule (nesting depth):
+    depth 0        161
+    depth 1         78
+    depth 2         39
+    depth 3          3
+    depth 4          2
+
+Terms per clause
+   1 terms      5
+   3 terms      8
+   4 terms     71
+   5 terms    270
+   6 terms    238
+   7 terms    122
+   8 terms     80
+   9 terms     85
+  10 terms     45
+  11 terms     41
+  12 terms     10
+  13 terms     34
+  14 terms      3
+  15 terms     10
+  16 terms      9
+  17 terms      9
+  18 terms      3
+  19 terms      5
+  20 terms      2
+  22 terms      1
+
+Term kinds over all clauses
+  lit      5440
+  hole      961
+  var       820
+  wild      156
+  rest       90
+  splat      27
+  neg        19
+
+Statement vocabulary: 476 distinct clause skeletons
+(literal words kept, everything else shown as _; top 40)
+    24  the image library is _
+    24  _ has resolved geometry _
+    20  _ has canvas _ with ...
+    19  _ has quad _
+    17  display _ has width _ height _
+    16  _ has canvas projection _
+    13  the collected results for _ are _
+    10  the clock time is _
+    10  editor _ has selected program _
+     9  _ has program code _
+     9  camera _ has width _ height _
+     9  the quad library is _
+     9  the color map is _
+     8  the quad changer is _
+     7  the db library is _
+     7  the jpeg library is _
+     7  display _ has intrinsics _
+     6  libapriltag has been built with config _
+     6  camera _ has gray frame _ at timestamp _
+     6  the calibration poses from camera _ to display _ are _
+     6  the calibration model library is _
+     6  the calibration matrix library is _
+     6  the pose library is _
+     6  tag _ has a program
+     6  editor buffer for _ is _
+     6  the GPU library is _
+     6  the GPU Vulkan handle type definer is _
+     5  camera _ has intrinsics _
+     5  _ has error _ with info _
+     5  _ is an editor with ...
+     5  tag _ is stabilized
+     5  _ is typing into _
+     5  the program save directory is _
+     5  the GPU texture library is _
+     5  the image uvx argtype definer is _
+     4  tag _ has detection _ on camera _ at timestamp _
+     4  _ claims a calibration from camera _ to display _ is _
+     4  a calibration from camera _ to display _ is _
+     4  the print library is _
+     4  the GPU has created canvas _ with ...
+
+Diagnostics
+  trailopt          16
+  grammar            1
+
+Rule graph (system programs)
+  emitted statement shapes         940  (6 from C / prelude)
+  patterns matched against the db  600
+  patterns nothing can match       80   (unmatched.tsv)
+      wish-api+text            34
+      claim+text               18
+      wish-api                 11
+      rule-on-rules             8
+      claim                     8
+      rule-on-rules+text        1
+  wishes                           203
+  wishes only read by Query!       6   (polled, not reacted to)
+  wishes nothing reads             2   (unhandled.tsv)
+  rule-to-rule edges               940
+  program-to-program edges         499
+  rule cycles (2+ rules)           4   (cycles.txt)
+  rules that feed themselves       4
+  negate-then-Hold! (default idiom) 2
+  negate-then-Claim/Wish candidates 1
+  Notify: sites / Subscribe: sites 11 / 14
+  distinct statement shapes         350   (interfaces.tsv)
+  statement/rule pairs where a short statement fires a /...rest/ rule
+    without matching it            8 pairs, 7 rules   (prefix-fires.tsv)
+  command names with no definition 5   (undefined-commands.tsv, needs review)
+
+Environment capture (rule bodies outside procs, system programs)
+  capturing sites                  343
+  variables captured per site      6.7 mean  (2309 total)
+  of those, read by the body       2.2 mean  (742 total)
+  captured but never read          1567 (68%), of which 231 are fn bodies

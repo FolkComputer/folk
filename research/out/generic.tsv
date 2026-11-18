@@ -1,0 +1,6 @@
+where	role	form
+boot.folk:92	pattern (query)	{*}$pattern
+builtin-programs/collect.folk:288	pattern (when)	{*}$pattern
+builtin-programs/web/statements.folk:6	pattern (query)	/...terms/
+builtin-programs/web/web.folk:150	pattern (query)	{*}[lindex $pattern 4]
+builtin-programs/web/web.folk:155	pattern (query)	{*}$pattern

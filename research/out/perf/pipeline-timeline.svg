@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 362" width="980" height="362" role="img" aria-labelledby="title desc">
+<title id="title">Execution timeline of the pipeline benchmark</title>
+<desc id="desc">Which rule body ran when, and on which worker thread, over 4 milliseconds of a Tracy capture.</desc>
+<style>
+  svg { --surface: #fcfcfb; --ink: #0b0b0b; --ink2: #52514e; --muted: #898781;
+        --grid: #e1e0d9; --axis: #c3c2b7; --mark: #2a78d6;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  @media (prefers-color-scheme: dark) {
+    svg { --surface: #1a1a19; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
+          --grid: #2c2c2a; --axis: #383835; --mark: #3987e5; }
+  }
+  .surface { fill: var(--surface); }
+  .title { fill: var(--ink); font-size: 16px; font-weight: 600; }
+  .subtitle { fill: var(--ink2); font-size: 12px; }
+  .panel { fill: var(--ink2); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; }
+  .row { fill: var(--ink); font-size: 12px; }
+  .where { fill: var(--muted); font-size: 11px; }
+  .tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .summary { fill: var(--ink2); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .grid { stroke: var(--grid); stroke-width: 1; }
+  .axis { stroke: var(--axis); stroke-width: 1; }
+  .mark { fill: var(--mark); }
+  .mark:hover { opacity: 0.75; }
+</style>
+<rect class="surface" width="980" height="362"/>
+<text class="title" x="16" y="26">4 ms of the pipeline benchmark: which rule body ran when</text>
+<text class="subtitle" x="16" y="45">Tracy zones from the stock runtime. Each mark is one run of a rule body (top) or one work item on a worker thread (bottom).</text>
+<line class="grid" x1="300.0" x2="300.0" y1="70" y2="318"/>
+<text class="tick" x="300.0" y="334" text-anchor="middle">0 ms</text>
+<line class="grid" x1="366.2" x2="366.2" y1="70" y2="318"/>
+<line class="grid" x1="432.5" x2="432.5" y1="70" y2="318"/>
+<text class="tick" x="432.5" y="334" text-anchor="middle">1 ms</text>
+<line class="grid" x1="498.8" x2="498.8" y1="70" y2="318"/>
+<line class="grid" x1="565.0" x2="565.0" y1="70" y2="318"/>
+<text class="tick" x="565.0" y="334" text-anchor="middle">2 ms</text>
+<line class="grid" x1="631.2" x2="631.2" y1="70" y2="318"/>
+<line class="grid" x1="697.5" x2="697.5" y1="70" y2="318"/>
+<text class="tick" x="697.5" y="334" text-anchor="middle">3 ms</text>
+<line class="grid" x1="763.8" x2="763.8" y1="70" y2="318"/>
+<line class="grid" x1="830.0" x2="830.0" y1="70" y2="318"/>
+<text class="tick" x="830.0" y="334" text-anchor="middle">4 ms</text>
+<line class="axis" x1="300" x2="830" y1="318" y2="318"/>
+<text class="panel" x="16" y="66">RULE BODIES</text>
+<text class="row" x="16" y="90">When the tick is /t/</text>
+<text class="where" x="16" y="103">research/bench/pipeline.folk:52</text>
+<rect class="mark" x="327.6" y="84" width="7.0" height="14" rx="1"><title>research/bench/pipeline.folk:52: 68 us, starting at 0.201 ms, thread 4</title></rect>
+<rect class="mark" x="364.5" y="84" width="2.4" height="14" rx="1"><title>research/bench/pipeline.folk:52: 33 us, starting at 0.480 ms, thread 4</title></rect>
+<rect class="mark" x="399.5" y="84" width="5.2" height="14" rx="1"><title>research/bench/pipeline.folk:52: 54 us, starting at 0.743 ms, thread 4</title></rect>
+<rect class="mark" x="434.5" y="84" width="2.3" height="14" rx="1"><title>research/bench/pipeline.folk:52: 32 us, starting at 1.007 ms, thread 4</title></rect>
+<rect class="mark" x="656.9" y="84" width="10.6" height="14" rx="3"><title>research/bench/pipeline.folk:52: 95 us, starting at 2.686 ms, thread 6</title></rect>
+<rect class="mark" x="737.9" y="84" width="9.5" height="14" rx="3"><title>research/bench/pipeline.folk:52: 87 us, starting at 3.297 ms, thread 6</title></rect>
+<rect class="mark" x="804.5" y="84" width="8.4" height="14" rx="3"><title>research/bench/pipeline.folk:52: 79 us, starting at 3.800 ms, thread 6</title></rect>
+<text class="summary" x="842" y="95">7 runs, 64 us mean</text>
+<text class="row" x="16" y="120">When the doubled tick is /d/</text>
+<text class="where" x="16" y="133">research/bench/pipeline.folk:55</text>
+<rect class="mark" x="305.3" y="114" width="4.3" height="14" rx="1"><title>research/bench/pipeline.folk:55: 47 us, starting at 0.032 ms, thread 4</title></rect>
+<rect class="mark" x="342.5" y="114" width="1.5" height="14" rx="1"><title>research/bench/pipeline.folk:55: 26 us, starting at 0.313 ms, thread 4</title></rect>
+<rect class="mark" x="373.1" y="114" width="5.8" height="14" rx="1"><title>research/bench/pipeline.folk:55: 59 us, starting at 0.545 ms, thread 4</title></rect>
+<rect class="mark" x="411.2" y="114" width="4.2" height="14" rx="1"><title>research/bench/pipeline.folk:55: 47 us, starting at 0.832 ms, thread 4</title></rect>
+<rect class="mark" x="588.1" y="114" width="23.4" height="14" rx="3"><title>research/bench/pipeline.folk:55: 191 us, starting at 2.167 ms, thread 6</title></rect>
+<rect class="mark" x="682.3" y="114" width="8.2" height="14" rx="3"><title>research/bench/pipeline.folk:55: 77 us, starting at 2.878 ms, thread 6</title></rect>
+<rect class="mark" x="761.6" y="114" width="8.4" height="14" rx="3"><title>research/bench/pipeline.folk:55: 78 us, starting at 3.476 ms, thread 6</title></rect>
+<rect class="mark" x="827.0" y="114" width="2.0" height="14" rx="1"><title>research/bench/pipeline.folk:55: 73 us, starting at 3.970 ms, thread 6</title></rect>
+<text class="summary" x="842" y="125">8 runs, 75 us mean</text>
+<text class="row" x="16" y="150">When the tick is /t/ &amp; the doubled tick is ...</text>
+<text class="where" x="16" y="163">research/bench/pipeline.folk:58</text>
+<rect class="mark" x="301.0" y="144" width="2.0" height="14" rx="1"><title>research/bench/pipeline.folk:58: 31 us, starting at -0.001 ms, thread 4</title></rect>
+<rect class="mark" x="318.4" y="144" width="6.8" height="14" rx="1"><title>research/bench/pipeline.folk:58: 66 us, starting at 0.131 ms, thread 4</title></rect>
+<rect class="mark" x="336.9" y="144" width="3.0" height="14" rx="1"><title>research/bench/pipeline.folk:58: 38 us, starting at 0.271 ms, thread 4</title></rect>
+<rect class="mark" x="355.4" y="144" width="6.8" height="14" rx="1"><title>research/bench/pipeline.folk:58: 66 us, starting at 0.410 ms, thread 4</title></rect>
+<rect class="mark" x="369.2" y="144" width="1.6" height="14" rx="1"><title>research/bench/pipeline.folk:58: 27 us, starting at 0.515 ms, thread 4</title></rect>
+<rect class="mark" x="392.6" y="144" width="4.6" height="14" rx="1"><title>research/bench/pipeline.folk:58: 50 us, starting at 0.691 ms, thread 4</title></rect>
+<rect class="mark" x="407.0" y="144" width="1.9" height="14" rx="1"><title>research/bench/pipeline.folk:58: 29 us, starting at 0.800 ms, thread 4</title></rect>
+<rect class="mark" x="424.6" y="144" width="7.4" height="14" rx="1"><title>research/bench/pipeline.folk:58: 71 us, starting at 0.933 ms, thread 4</title></rect>
+<rect class="mark" x="439.2" y="144" width="389.8" height="14" rx="3"><title>research/bench/pipeline.folk:58: 8976 us, starting at 1.043 ms, thread 4</title></rect>
+<rect class="mark" x="637.3" y="144" width="16.8" height="14" rx="3"><title>research/bench/pipeline.folk:58: 142 us, starting at 2.538 ms, thread 6</title></rect>
+<rect class="mark" x="670.1" y="144" width="9.5" height="14" rx="3"><title>research/bench/pipeline.folk:58: 87 us, starting at 2.786 ms, thread 6</title></rect>
+<rect class="mark" x="711.7" y="144" width="20.1" height="14" rx="3"><title>research/bench/pipeline.folk:58: 167 us, starting at 3.100 ms, thread 6</title></rect>
+<rect class="mark" x="750.0" y="144" width="8.9" height="14" rx="3"><title>research/bench/pipeline.folk:58: 83 us, starting at 3.388 ms, thread 6</title></rect>
+<rect class="mark" x="788.2" y="144" width="13.6" height="14" rx="3"><title>research/bench/pipeline.folk:58: 118 us, starting at 3.677 ms, thread 6</title></rect>
+<rect class="mark" x="815.4" y="144" width="8.9" height="14" rx="3"><title>research/bench/pipeline.folk:58: 83 us, starting at 3.882 ms, thread 6</title></rect>
+<text class="summary" x="842" y="155">15 runs, 669 us mean</text>
+<text class="row" x="16" y="180">When the result is /r/</text>
+<text class="where" x="16" y="193">research/bench/pipeline.folk:61</text>
+<rect class="mark" x="312.0" y="174" width="4.1" height="14" rx="1"><title>research/bench/pipeline.folk:61: 46 us, starting at 0.083 ms, thread 4</title></rect>
+<rect class="mark" x="346.3" y="174" width="6.6" height="14" rx="1"><title>research/bench/pipeline.folk:61: 65 us, starting at 0.342 ms, thread 4</title></rect>
+<rect class="mark" x="381.4" y="174" width="8.7" height="14" rx="3"><title>research/bench/pipeline.folk:61: 81 us, starting at 0.606 ms, thread 4</title></rect>
+<rect class="mark" x="417.9" y="174" width="4.3" height="14" rx="1"><title>research/bench/pipeline.folk:61: 48 us, starting at 0.882 ms, thread 4</title></rect>
+<rect class="mark" x="614.5" y="174" width="19.9" height="14" rx="3"><title>research/bench/pipeline.folk:61: 165 us, starting at 2.366 ms, thread 6</title></rect>
+<rect class="mark" x="693.7" y="174" width="15.3" height="14" rx="3"><title>research/bench/pipeline.folk:61: 131 us, starting at 2.964 ms, thread 6</title></rect>
+<rect class="mark" x="772.6" y="174" width="12.9" height="14" rx="3"><title>research/bench/pipeline.folk:61: 113 us, starting at 3.560 ms, thread 6</title></rect>
+<text class="summary" x="842" y="185">7 runs, 93 us mean</text>
+<text class="panel" x="16" y="240">WORKER THREADS (work items of kind RUN_WHEN)</text>
+<text class="row" x="16" y="269">thread 4</text>
+<rect class="mark" x="301.0" y="258" width="2.0" height="14" rx="1"><title>thread 4: 33 us, starting at -0.003 ms</title></rect>
+<rect class="mark" x="305.0" y="258" width="4.6" height="14" rx="1"><title>thread 4: 50 us, starting at 0.030 ms</title></rect>
+<rect class="mark" x="311.6" y="258" width="4.5" height="14" rx="1"><title>thread 4: 49 us, starting at 0.080 ms</title></rect>
+<rect class="mark" x="318.1" y="258" width="7.1" height="14" rx="1"><title>thread 4: 69 us, starting at 0.129 ms</title></rect>
+<rect class="mark" x="327.2" y="258" width="7.4" height="14" rx="1"><title>thread 4: 71 us, starting at 0.198 ms</title></rect>
+<rect class="mark" x="336.7" y="258" width="3.4" height="14" rx="1"><title>thread 4: 41 us, starting at 0.269 ms</title></rect>
+<rect class="mark" x="342.0" y="258" width="2.0" height="14" rx="1"><title>thread 4: 30 us, starting at 0.310 ms</title></rect>
+<rect class="mark" x="346.1" y="258" width="6.9" height="14" rx="1"><title>thread 4: 67 us, starting at 0.340 ms</title></rect>
+<rect class="mark" x="355.0" y="258" width="7.2" height="14" rx="1"><title>thread 4: 69 us, starting at 0.408 ms</title></rect>
+<rect class="mark" x="364.2" y="258" width="2.8" height="14" rx="1"><title>thread 4: 36 us, starting at 0.477 ms</title></rect>
+<rect class="mark" x="369.0" y="258" width="1.9" height="14" rx="1"><title>thread 4: 29 us, starting at 0.513 ms</title></rect>
+<rect class="mark" x="372.9" y="258" width="6.1" height="14" rx="1"><title>thread 4: 61 us, starting at 0.543 ms</title></rect>
+<rect class="mark" x="381.0" y="258" width="9.2" height="14" rx="3"><title>thread 4: 84 us, starting at 0.604 ms</title></rect>
+<rect class="mark" x="392.2" y="258" width="5.0" height="14" rx="1"><title>thread 4: 53 us, starting at 0.688 ms</title></rect>
+<rect class="mark" x="399.2" y="258" width="5.5" height="14" rx="1"><title>thread 4: 56 us, starting at 0.741 ms</title></rect>
+<rect class="mark" x="406.7" y="258" width="2.2" height="14" rx="1"><title>thread 4: 32 us, starting at 0.798 ms</title></rect>
+<rect class="mark" x="411.0" y="258" width="4.5" height="14" rx="1"><title>thread 4: 49 us, starting at 0.830 ms</title></rect>
+<rect class="mark" x="417.5" y="258" width="4.8" height="14" rx="1"><title>thread 4: 51 us, starting at 0.879 ms</title></rect>
+<rect class="mark" x="424.3" y="258" width="7.7" height="14" rx="1"><title>thread 4: 73 us, starting at 0.931 ms</title></rect>
+<rect class="mark" x="434.0" y="258" width="2.7" height="14" rx="1"><title>thread 4: 36 us, starting at 1.004 ms</title></rect>
+<rect class="mark" x="438.8" y="258" width="390.2" height="14" rx="3"><title>thread 4: 8997 us, starting at 1.040 ms</title></rect>
+<text class="summary" x="842" y="269">busy 100% of the window</text>
+<text class="row" x="16" y="299">thread 6</text>
+<rect class="mark" x="586.0" y="288" width="25.7" height="14" rx="3"><title>thread 6: 209 us, starting at 2.151 ms</title></rect>
+<rect class="mark" x="613.7" y="288" width="20.9" height="14" rx="3"><title>thread 6: 173 us, starting at 2.360 ms</title></rect>
+<rect class="mark" x="636.7" y="288" width="17.6" height="14" rx="3"><title>thread 6: 148 us, starting at 2.533 ms</title></rect>
+<rect class="mark" x="656.3" y="288" width="11.4" height="14" rx="3"><title>thread 6: 101 us, starting at 2.681 ms</title></rect>
+<rect class="mark" x="669.6" y="288" width="10.1" height="14" rx="3"><title>thread 6: 91 us, starting at 2.782 ms</title></rect>
+<rect class="mark" x="681.7" y="288" width="8.8" height="14" rx="3"><title>thread 6: 82 us, starting at 2.873 ms</title></rect>
+<rect class="mark" x="693.1" y="288" width="16.1" height="14" rx="3"><title>thread 6: 137 us, starting at 2.959 ms</title></rect>
+<rect class="mark" x="711.2" y="288" width="20.8" height="14" rx="3"><title>thread 6: 172 us, starting at 3.096 ms</title></rect>
+<rect class="mark" x="734.0" y="288" width="13.5" height="14" rx="3"><title>thread 6: 117 us, starting at 3.268 ms</title></rect>
+<rect class="mark" x="749.6" y="288" width="9.4" height="14" rx="3"><title>thread 6: 86 us, starting at 3.386 ms</title></rect>
+<rect class="mark" x="761.0" y="288" width="9.0" height="14" rx="3"><title>thread 6: 83 us, starting at 3.472 ms</title></rect>
+<rect class="mark" x="772.1" y="288" width="13.6" height="14" rx="3"><title>thread 6: 118 us, starting at 3.555 ms</title></rect>
+<rect class="mark" x="787.7" y="288" width="14.2" height="14" rx="3"><title>thread 6: 122 us, starting at 3.673 ms</title></rect>
+<rect class="mark" x="804.0" y="288" width="9.0" height="14" rx="3"><title>thread 6: 83 us, starting at 3.796 ms</title></rect>
+<rect class="mark" x="815.0" y="288" width="9.5" height="14" rx="3"><title>thread 6: 87 us, starting at 3.879 ms</title></rect>
+<rect class="mark" x="826.5" y="288" width="2.5" height="14" rx="1"><title>thread 6: 78 us, starting at 3.966 ms</title></rect>
+<text class="summary" x="842" y="299">busy 46% of the window</text>
+</svg>

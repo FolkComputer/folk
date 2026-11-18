@@ -1,0 +1,3 @@
+where	wish
+builtin-programs/connections.folk:15	$source is connected to $sink from centroid to centroid
+builtin-programs/connections.folk:18	$source is dynamically connected to $sink from centroid to centroid

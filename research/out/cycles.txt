@@ -1,0 +1,81 @@
+# Rule cycles: sets of rules whose emitted statements can match each
+# other's patterns. Each is a candidate for self-supporting statements
+# (a derived statement that keeps itself alive). Holes match anything,
+# so check the values before concluding a cycle is real.
+
+cycle of 23 rules:
+  builtin-programs/tags-geometry.folk:68  When the GPU has created canvas $writableTextureId with /...opts/
+  builtin-programs/gpu/canvases.folk:529  When the GPU has created canvas $dispCanvas with /...canvOpts/
+  builtin-programs/gpu/canvases.folk:482  When the GPU has created canvas $pCanvas with /...canvOpts/
+  builtin-programs/gpu/toy-shader.folk:149  When $p has canvas /id/ with /...wiOptions/ & the clock time is /t/
+  builtin-programs/editor/draw-editor.folk:14  When $editor has canvas /editorCanvas/ with /...wiOpts/
+  builtin-programs/draw/line.folk:62  When the color map is /colorMap/ & /p/ has canvas /id/ with /...wiOptions/ & /p/ has canvas projection /surfaceToClip/ & /someone/ wishes to draw a line onto /p/ with /...options/
+  builtin-programs/draw/text.folk:307  When $p has canvas /id/ with /...wiOptions/ & $p has canvas projection /surfaceToClip/ & the GPU has font $font with data /fontData/
+  builtin-programs/draw/text.folk:207  When the GPU has loaded image $im as texture /gim/
+  builtin-programs/draw/image.folk:142  When the GPU has loaded image $im as texture /gim/
+  builtin-programs/gpu/textures.folk:945  When /someone/ wishes the GPU loads image /im/ as texture
+  builtin-programs/draw/image.folk:97  When the image library is /imageLib/ & /someone/ wishes to draw an image onto /p/ with /...options/ & /p/ has canvas /id/ with /...wiOptions/ & /p/ has canvas projection /surfaceToClip/
+  builtin-programs/draw/fill.folk:37  When /someone/ wishes to draw a polygon onto /p/ with /...options/ & /p/ has canvas /id/ with /...wiOptions/ & /p/ has canvas projection /surfaceToClip/
+  builtin-programs/draw/fill.folk:12  When /someone/ wishes to draw a triangle onto /p/ with /...options/ & /p/ has canvas /id/ with /...wiOptions/ & /p/ has canvas projection /surfaceToClip/
+  builtin-programs/draw/dashed-line.folk:39  When the color map is /colorMap/ & /p/ has canvas /id/ with /...wiOptions/ & /p/ has canvas projection /surfaceToClip/ & /someone/ wishes to draw a dashed line onto /p/ with /...options/
+  builtin-programs/draw/curve.folk:58  When the color map is /colorMap/ & /p/ has canvas /id/ with /...wiOptions/ & /p/ has canvas projection /surfaceToClip/ & /someone/ wishes to draw a curve onto /p/ with /...options/
+  builtin-programs/draw/contour.folk:1  When /p/ has canvas /id/ with /...wiOptions/ & /p/ has canvas projection /surfaceToClip/ & the color map is /colorMap/ & /someone/ wishes /p/ draws contour /contour/ with /...options/
+  builtin-programs/draw/circle.folk:26  When the color map is /colorMap/ & /p/ has canvas /id/ with /...wiOptions/ & /p/ has canvas projection /surfaceToClip/ & /someone/ wishes to draw a circle onto /p/ with /...options/
+  builtin-programs/draw/arc.folk:35  When the color map is /colorMap/ & /p/ has canvas /id/ with /...wiOptions/ & /p/ has canvas projection /surfaceToClip/ & /someone/ wishes to draw an arc onto /p/ with /...options/
+  builtin-programs/draw/apriltags.folk:22  When the image library is /imageLib/ & the print library is /printLib/ & /p/ has canvas /writableTexture/ with /...wiOptions/ & /p/ has canvas projection /surfaceToClip/ & /someone/ wishes to draw an AprilTag onto /p/ with /...options/
+  builtin-programs/calibrate/draw-model.folk:48  When $board has canvas /any/ with /...wiOpts/
+  builtin-programs/calibrate/draw-model.folk:41  When the GPU has created canvas $boardCanvas with /...opts/
+  builtin-programs/gpu/canvases.folk:297  When /someone/ wishes the GPU creates canvas /id/ with /...options/
+  builtin-programs/draw/fill.folk:23  When /someone/ wishes to draw a quad onto /p/ with /...options/ & /p/ has canvas /id/ with /...wiOptions/ & /p/ has canvas projection /surfaceToClip/
+
+cycle of 2 rules:
+  builtin-programs/draw/gif.folk:2  When /someone/ wishes /p/ displays gif /gif/ with /...options/ & /p/ has resolved geometry /geom/
+  builtin-programs/draw/image.folk:150  When the image library is /imageLib/ & the image loader is /loadImage/ & /someone/ wishes /p/ displays image /impath/ with /...options/ & /p/ has resolved geometry /geom/
+
+self-loop:
+  builtin-programs/editor/editor.folk:84  When editor $editor has selected program /program/ & /nobody/ claims editor $editor on program /program/ has font options /...anything/ & the saved holds are loaded
+    via  _ claims editor _ on program _ has font options with scale _
+
+cycle of 8 rules:
+  builtin-programs/editor/editor.folk:32  When $program has resolved geometry /geom/
+  builtin-programs/editor/print-editor.folk:33  When the codeToPostScript is /codeToPostScript/ & /someone/ wishes editor /editor/ has a print preview & editor /editor/ has selected program /program/
+  builtin-programs/editor/editor.folk:53  When /nobody/ has created editor $editor & $editor points up with length 0.3 at /program/
+  builtin-programs/geometric/points-at.folk:84  When /target/ has quad /q2/
+  builtin-programs/editor/print-editor.folk:49  When the quad library is /quadLib/ & $editor has quad /q/
+  builtin-programs/editor/editor.folk:35  When $program has quad /q/
+  builtin-programs/tags-to-quads.folk:518  When /tag/ has resolved geometry /geom/ & tag /tag/ has quad /q/
+  builtin-programs/tags-to-quads.folk:422  When tag /tag/ has detection /det/ on camera $camera at timestamp /timestamp/ & /tag/ has resolved geometry /geom/
+
+self-loop:
+  builtin-programs/calibrate/session.folk:336  When the calibration model library is /modelLib/ & the calibration matrix library is /matLib/ & the calibration poses max is /calibrationPosesMax/ & the calibration poses from camera /camera/ to display /display/ are /calibrationPoses/ & /nobody/ claims a calibration from camera /camera/ to display /display/ is /anything/ & the calibration initializer is /initializer/ with extrinsics setter /setter/ & the calibration refiner is /refineCalibration/
+    via  _ claims a calibration from camera _ to display _ is _
+
+cycle of 3 rules:
+  builtin-programs/camera/usb.folk:370  When /someone/ wishes $::thisNode uses camera /camera/ with /...options/
+  builtin-programs/camera/rpi.folk:216  When the image library is /imageLib/ & /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/
+  builtin-programs/calibrate/calibrate.folk:36  When camera /camera/ has width /cameraWidth/ height /cameraHeight/ & display /display/ has width /displayWidth/ height /displayHeight/ & the AprilTag detector maker is /makeAprilTagDetector/ & the jpeg library is /jpegLib/ & the calibration model library is /modelLib/ & the calibration matrix library is /matLib/ & /someone/ wishes to calibrate camera /camera/ to display /display/ using measurements /measurements/
+
+self-loop:
+  builtin-programs/calibrate/load-calibration.folk:66  When the collected results for {/somebody/ claims the defau...} are /results/
+    via  _ claims the default program geometry is _
+
+self-loop:
+  builtin-programs/editor/editor.folk:23  When /nobody/ claims $program is an editor
+    via  _ claims _ is an editor
+
+# Rules that can emit what they negate:
+#   Hold!        -> settles (the default-value idiom)
+#   Claim / Wish -> oscillates if the values really coincide
+
+settles (Hold!)
+  builtin-programs/calibrate/session.folk:336  When the calibration model library is /modelLib/ & the calibration matrix library is /matLib/ & the calibration poses max is /calibrationPosesMax/ & the calibration poses from camera /camera/ to display /display/ are /calibrationPoses/ & /nobody/ claims a calibration from camera /camera/ to display /display/ is /anything/ & the calibration initializer is /initializer/ with extrinsics setter /setter/ & the calibration refiner is /refineCalibration/
+  emits at builtin-programs/calibrate/session.folk:367:  $this claims a calibration from camera $camera to display $display is $calibration
+
+oscillation candidate (Claim)
+  builtin-programs/editor/editor.folk:23  When /nobody/ claims $program is an editor
+  emits at builtin-programs/editor/editor.folk:28:  $this claims $editor is an editor
+
+settles (Hold!)
+  builtin-programs/editor/editor.folk:84  When editor $editor has selected program /program/ & /nobody/ claims editor $editor on program /program/ has font options /...anything/ & the saved holds are loaded
+  emits at builtin-programs/editor/editor.folk:100:  $this claims editor $editor on program $program has font options with scale $textScale
+

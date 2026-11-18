@@ -1,0 +1,6 @@
+command	calls	first_sites
+Assert	4	user-programs/folk-haip.local/spotify.folk:266 user-programs/folk-haip.local/spotify.folk:277 user-programs/haippi7/spotify.folk:266 user-programs/haippi7/spotify.folk:277
+Retract	4	user-programs/folk-haip.local/spotify.folk:265 user-programs/folk-haip.local/spotify.folk:276 user-programs/haippi7/spotify.folk:265 user-programs/haippi7/spotify.folk:276
+chan	6	user-programs/folk-haip.local/spotify.folk:160 user-programs/folk-haip.local/spotify.folk:181 user-programs/folk-haip.local/spotify.folk:219 user-programs/haippi7/spotify.folk:160
+region	4	user-programs/folk-charles/tag-regions.folk:4 user-programs/folk-charles/tag-regions.folk:5 user-programs/folk-charles/tag-regions.folk:8 user-programs/folk-charles/tag-regions.folk:9
+regionToBbox	2	builtin-programs/geometric/intersect.folk:4 builtin-programs/geometric/intersect.folk:5

@@ -1,0 +1,32 @@
+== ./folk
+ticks=10000 fns=0 blocked=0  1.59 s  6280 ticks/s  159 us/tick  threads=6  tick interval us: p50=147 p90=216 p99=349 p99.9=554 max=5582
+ticks=10000 fns=0 blocked=0  1.53 s  6524 ticks/s  153 us/tick  threads=6  tick interval us: p50=142 p90=204 p99=347 p99.9=451 max=4305
+ticks=10000 fns=0 blocked=0  1.68 s  5944 ticks/s  168 us/tick  threads=6  tick interval us: p50=156 p90=228 p99=357 p99.9=1101 max=2850
+ticks=10000 fns=10 blocked=0  3.50 s  2861 ticks/s  350 us/tick  threads=7  tick interval us: p50=336 p90=441 p99=693 p99.9=1003 max=2221
+ticks=10000 fns=10 blocked=0  3.36 s  2978 ticks/s  336 us/tick  threads=8  tick interval us: p50=322 p90=423 p99=604 p99.9=1058 max=3077
+ticks=10000 fns=10 blocked=0  3.35 s  2981 ticks/s  335 us/tick  threads=6  tick interval us: p50=321 p90=417 p99=543 p99.9=1757 max=7522
+ticks=10000 fns=40 blocked=0  7.36 s  1358 ticks/s  736 us/tick  threads=6  tick interval us: p50=709 p90=914 p99=1139 p99.9=2692 max=6046
+ticks=10000 fns=40 blocked=0  6.92 s  1445 ticks/s  692 us/tick  threads=5  tick interval us: p50=659 p90=857 p99=1073 p99.9=2113 max=10541
+ticks=10000 fns=40 blocked=0  7.53 s  1328 ticks/s  753 us/tick  threads=5  tick interval us: p50=733 p90=937 p99=1166 p99.9=2364 max=6116
+ticks=10000 fns=0 blocked=1  2.68 s  3736 ticks/s  268 us/tick  threads=27  tick interval us: p50=163 p90=231 p99=566 p99.9=20973 max=27288
+ticks=10000 fns=0 blocked=1  2.61 s  3824 ticks/s  261 us/tick  threads=31  tick interval us: p50=146 p90=228 p99=1029 p99.9=20900 max=43443
+ticks=10000 fns=0 blocked=1  2.74 s  3644 ticks/s  274 us/tick  threads=33  tick interval us: p50=142 p90=265 p99=710 p99.9=24529 max=28706
+ticks=10000 fns=0 blocked=3  5.09 s  1966 ticks/s  509 us/tick  threads=66  tick interval us: p50=171 p90=307 p99=4323 p99.9=60642 max=77742
+ticks=10000 fns=0 blocked=3  4.89 s  2043 ticks/s  489 us/tick  threads=67  tick interval us: p50=169 p90=293 p99=3569 p99.9=60300 max=96498
+ticks=10000 fns=0 blocked=3  4.44 s  2255 ticks/s  444 us/tick  threads=59  tick interval us: p50=174 p90=307 p99=6058 p99.9=52468 max=80533
+== research/verify/build/whatif-idle-backoff/folk
+ticks=10000 fns=0 blocked=0  2.23 s  4490 ticks/s  223 us/tick  threads=4  tick interval us: p50=200 p90=330 p99=465 p99.9=684 max=3468
+ticks=10000 fns=0 blocked=0  2.16 s  4624 ticks/s  216 us/tick  threads=5  tick interval us: p50=200 p90=304 p99=420 p99.9=832 max=5683
+ticks=10000 fns=0 blocked=0  1.95 s  5138 ticks/s  195 us/tick  threads=5  tick interval us: p50=183 p90=272 p99=376 p99.9=820 max=2557
+ticks=10000 fns=10 blocked=0  4.34 s  2306 ticks/s  434 us/tick  threads=5  tick interval us: p50=416 p90=580 p99=745 p99.9=1186 max=3615
+ticks=10000 fns=10 blocked=0  4.55 s  2197 ticks/s  455 us/tick  threads=5  tick interval us: p50=429 p90=617 p99=783 p99.9=1433 max=12943
+ticks=10000 fns=10 blocked=0  4.23 s  2365 ticks/s  423 us/tick  threads=5  tick interval us: p50=404 p90=568 p99=731 p99.9=938 max=5578
+ticks=10000 fns=40 blocked=0  9.40 s  1064 ticks/s  940 us/tick  threads=5  tick interval us: p50=920 p90=1240 p99=1543 p99.9=1840 max=4202
+ticks=10000 fns=40 blocked=0  9.74 s  1027 ticks/s  974 us/tick  threads=5  tick interval us: p50=945 p90=1284 p99=1628 p99.9=2473 max=6660
+ticks=10000 fns=40 blocked=0  9.93 s  1007 ticks/s  993 us/tick  threads=5  tick interval us: p50=955 p90=1299 p99=1726 p99.9=4049 max=35192
+ticks=10000 fns=0 blocked=1  2.26 s  4424 ticks/s  226 us/tick  threads=6  tick interval us: p50=204 p90=323 p99=459 p99.9=728 max=1221
+ticks=10000 fns=0 blocked=1  2.34 s  4270 ticks/s  234 us/tick  threads=5  tick interval us: p50=210 p90=339 p99=446 p99.9=963 max=4444
+ticks=10000 fns=0 blocked=1  2.08 s  4810 ticks/s  208 us/tick  threads=5  tick interval us: p50=190 p90=290 p99=394 p99.9=627 max=1806
+ticks=10000 fns=0 blocked=3  2.19 s  4559 ticks/s  219 us/tick  threads=8  tick interval us: p50=191 p90=320 p99=465 p99.9=719 max=3740
+ticks=10000 fns=0 blocked=3  2.41 s  4148 ticks/s  241 us/tick  threads=7  tick interval us: p50=217 p90=353 p99=463 p99.9=876 max=1667
+ticks=10000 fns=0 blocked=3  2.39 s  4178 ticks/s  239 us/tick  threads=8  tick interval us: p50=216 p90=352 p99=453 p99.9=547 max=1473
