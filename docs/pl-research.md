@@ -10,6 +10,13 @@ Constraint honoured throughout: tooling should be written in what Folk already
 uses (Tcl/Jim, C, Graphviz). The only new languages proposed are the input
 languages of formal tools.
 
+**Later addition.** These notes were written before any of the proposed tools
+existed. They have since been built and run; the results are in
+[`research/FINDINGS.md`](../research/FINDINGS.md), which supersedes sections
+3.4, 4 and 5 where the two differ. Three statements below turned out to be
+wrong and are corrected in place: S5, the extractor design in 4.1, and the
+GenMC caveat in 4.4.
+
 ## 1. What Folk is, formally
 
 Folk is two languages stacked:
@@ -220,7 +227,7 @@ flowchart TD
 | S2 | Insert-vs-insert race: a new `when` and a new matching statement can each discover the other, running the body twice. Acknowledged in a FIXME. Children deduplicate, but body side effects do not. | `folk.c:1244` |
 | S3 | `matchRemoveSelf` is flagged not thread-safe against concurrent removers. | `db.c:940` |
 | S4 | Bodies are preemptible: a match removed while its body has run over 100ms gets its worker thread signalled. A semantics must treat bodies as interruptible. | `db.c:990-1006` |
-| S5 | Errors are asymmetric: an error in a `When` body is logged; in a `Subscribe:` body it exits the process. | `folk.c:998` vs `1045-1053` |
+| S5 | ~~Errors are asymmetric: an error in a `When` body is logged; in a `Subscribe:` body it exits the process.~~ Not so: `evaluateBlock` in `prelude.tcl` catches the error in both cases, and a test confirms the process carries on. The fatal branch is reached only if the error handler itself fails. | `folk.c:998` vs `1045-1053` |
 | S6 | Negation and aggregation are not stratified: `/nobody/` is a `collect` re-run on a timer tick (`collect.folk:296`), so rules that negate their own consequences oscillate rather than being rejected. | `prelude.tcl:487-492` |
 | S7 | Hard limits that a model should include or abstract: 65,536 statements and matches, 256 atomically keys, 50 bindings per match, 99-char variable names, 500 results per `Retract!`. | `db.c:384-403`, `folk.c:824`, `db.c:1600` |
 
@@ -233,7 +240,7 @@ places where Folk diverges from Datalog's fixpoint semantics.
 
 | Candidate | Fit | Verdict |
 |---|---|---|
-| **Shadow-evaluation extractor in Jim** | Redefine `When`/`Claim`/`Wish`/`Hold!` as recording procs and `source` each `.folk` file under the vendored `jimsh`. Word boundaries come from the real parser, so there is no second Tcl parser to maintain. `boot.folk:74-104` already does this trick (`fake`) for macOS. | **Primary.** ~200 lines of Tcl. |
+| ~~Shadow-evaluation extractor in Jim~~ | Redefining `When`/`Claim`/`Wish`/`Hold!` as recording procs and sourcing each program does not work: top-level code compiles C and opens devices, and rule bodies cannot run without values for their variables. What was built instead (`research/extract`) is a word-level Tcl parser in Tcl that evaluates nothing, checked against Jim's own tokenizer on every file in the tree. | Replaced. |
 | Grammar recogniser in Tcl | Check each recorded form against section 2.2; report anything that does not parse. Turns the BNF into a tested artefact. | **Primary**, same script. |
 | Nagelfar 1.3.5 | Pure-Tcl linter with a syntax database (`##nagelfar syntax When x* c`) and plugin hooks. Targets Tcl 8, so Jim-isms (`$(...)`, `local`, `info source`, `dict getdef`) will be false positives. | Secondary, for host-layer lint. |
 | tclint 0.7 | Active, has an LSP, but is Python. | Only if Python counts as already present (`lib/python.tcl`). |
@@ -326,9 +333,9 @@ first:
 4. Atomically reaping (`db.c:1139-1205`, `944-962`): exactly one of reaper and
    remover claims the match.
 
-Caveats: the public GenMC mirror lists LLVM support only up to 16, and
-`GenRc` is a bit-field struct inside an `_Atomic`, which may need rewriting as
-a plain `uint32_t` for the harness.
+Caveats, as it turned out: GenMC 0.20 needs LLVM 19 to 22 (not "up to 16" as
+first written here), which Ubuntu 24.04 has as `llvm-19-dev`; and the
+bit-field `GenRc` inside an `_Atomic` needed no rewriting.
 
 For sequential C: **CBMC** to bound-check the fixed buffers (`results[100]`,
 `[10]`, `[500]`, `char name[100]` with `memcpy` at `folk.c:172`) and to check
