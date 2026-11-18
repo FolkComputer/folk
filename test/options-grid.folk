@@ -1,0 +1,76 @@
+# Paints a fake camera slice of a printed page (warm-tinted paper, a
+# tag's black & white rings, and two covered boxes) and checks that
+# the options grid reads it correctly.
+
+source builtin-programs/image/image-lib.folk
+source builtin-programs/options-grid.folk
+
+set cc [C]
+$cc extend $imageLib
+$cc proc fillRect {Image im int x0 int y0 int x1 int y1 int r int g int b} void {
+    for (int y = y0; y < y1; y++) {
+        for (int x = x0; x < x1; x++) {
+            uint8_t *pixel = im.data + y * im.bytesPerRow + x * im.components;
+            pixel[0] = r; pixel[1] = g; pixel[2] = b;
+        }
+    }
+}
+set paintLib [$cc compile]
+
+# A letter page at 2 pixels per mm.
+set pxPerM 2000.0
+set geom {tagSize 0.0246 left 0.1750 top 0.0200 right 0.0163 bottom 0.2348
+          width 0.2159 height 0.2794}
+set slice [$imageLib imageNew 432 559 3 0]
+
+# Fill a rectangle given in page meters.
+proc paint {x0 y0 x1 y1 color} {paintLib slice pxPerM} {
+    $paintLib fillRect $slice \
+        [expr {round($x0 * $pxPerM)}] [expr {round($y0 * $pxPerM)}] \
+        [expr {round($x1 * $pxPerM)}] [expr {round($y1 * $pxPerM)}] {*}$color
+}
+set paper {205 190 165}
+set ink {35 35 40}
+paint 0 0 0.2159 0.2794 $paper
+
+set u [expr {0.0246 / 6}]
+set l 0.1750; set t 0.0200
+# Outermost ring (data bits; just make them all ink), white ring,
+# then the black ring and interior.
+paint [expr {$l - 2*$u}] [expr {$t - 2*$u}] [expr {$l + 8*$u}] [expr {$t + 8*$u}] $ink
+paint [expr {$l - $u}] [expr {$t - $u}] [expr {$l + 7*$u}] [expr {$t + 7*$u}] $paper
+paint $l $t [expr {$l + 6*$u}] [expr {$t + 6*$u}] $ink
+
+# Default grid is 2x4, 8mm boxes, 3mm gaps, starting 8mm under the
+# tag's outer bottom edge and right-aligned with its outer right edge.
+set tagRight [expr {$l + 8*$u}]
+set tagBottom [expr {$t + 8*$u}]
+proc paintCell {row col color} {tagRight tagBottom} {
+    set x [expr {$tagRight - (4 - $col) * 0.008 - (3 - $col) * 0.003}]
+    set y [expr {$tagBottom + 0.008 + $row * 0.011}]
+    paint $x $y [expr {$x + 0.008}] [expr {$y + 0.008}] $color
+}
+paintCell 0 1 {200 60 50} ;# a red token
+paintCell 1 2 $ink ;# scribbled in
+paintCell 1 3 {185 172 150} ;# a light shadow: should still count as paper
+
+set p fake-page
+Claim $p has camera slice $slice
+Claim $p has resolved geometry $geom
+Wish $p has options grid
+
+When $p has options grid /grid/ & $p has options grid readings /readings/ {
+    puts "grid: $grid"
+    puts "readings: $readings"
+    assert {[dict get $grid cells] eq {0 1 0 0 0 0 1 0}}
+    assert {[dict get $grid count] == 2}
+    assert {[dict get $grid rows] == 2 && [dict get $grid columns] == 4}
+    Exit! 0
+}
+When /someone/ wishes $p prints with mixin /mixin/ {
+    puts "mixin:\n$mixin"
+}
+
+after 10000
+puts $::realStderr "options-grid test: timed out"
+Exit! 1

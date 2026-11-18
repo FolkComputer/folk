@@ -182,6 +182,12 @@ fn codeToPostScript {id code opts {marginsVar {}}} {
                 [expr {$PageWidth-$effMargins(right)-$tagWidth-$tagInset}] [expr {$PageHeight-$effMargins(top)-$tagHeight-14-$tagInset}] moveto
                 ($id ([clock format [clock seconds] -format "%a, %d %b %Y, %r"])) show
 
+                % Mixins can use these to position themselves relative
+                % to the (outer edge of the) tag.
+                /FolkTagLeft [expr {$PageWidth-$effMargins(right)-$tagWidth-$tagInset}] def
+                /FolkTagBottom [expr {$PageHeight-$effMargins(top)-$tagHeight-$tagInset}] def
+                /FolkTagSide $tagWidth def
+
                 [join $mixins \n]
             }] }]
 

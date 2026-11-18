@@ -1,0 +1,229 @@
+# Options grid (prototype)
+#
+# Prints a grid of empty boxes on a program's page (right below its
+# tag), then watches those boxes through the camera. A box that still
+# looks like bare paper is "free"; a box with something on it (a
+# token, a finger, pen ink) is "covered".
+#
+#     Wish $this has options grid
+#     Wish $this has options grid with rows 1 columns 3
+#     When $this has options grid /grid/ {
+#         Wish $this is titled "$grid(count) covered"
+#     }
+#
+# /grid/ is a dict:
+#     rows, columns   grid dimensions
+#     cells           row-major list of 0 (paper) / 1 (covered)
+#     count           how many cells are covered
+#
+# The wish needs to be in the program's code _when it is printed_,
+# because that is when the boxes get drawn onto the page (as a print
+# mixin).
+#
+# Options (all optional): rows, columns, size (box side, meters), gap
+# (between boxes, meters), threshold (0..1; lower is more sensitive).
+#
+# "Paper colored" is judged relative to the page's own AprilTag: the
+# tag always has a solid white ring with a solid black ring just
+# inside it, so those give us, in the same camera frame and under the
+# same lighting, what blank paper and full ink look like.
+#
+# For tuning the threshold, each cell's distance from paper color
+# (0 = paper, 1 = as different from paper as tag-black is) is also
+# claimed: `$this has options grid readings /readings/`.
+
+set optionsGridDefaults {rows 2 columns 4 size 0.008 gap 0.003 threshold 0.35}
+
+# Returns one {fromRight fromBottom size} per cell (row-major), in
+# meters: the cell's top-left corner is `fromRight` to the left of the
+# tag's outer right edge and `fromBottom` below the tag's outer bottom
+# edge. Both the printing side and the camera side use this, so they
+# agree about where the boxes are.
+fn optionsGridLayout {opts} {
+    set size [dict get $opts size]
+    set gap [dict get $opts gap]
+    set rows [dict get $opts rows]
+    set columns [dict get $opts columns]
+    # Leave room for the id/date caption that is printed under the tag.
+    set captionGap 0.008
+
+    set cells [list]
+    for {set r 0} {$r < $rows} {incr r} {
+        for {set c 0} {$c < $columns} {incr c} {
+            lappend cells [list \
+                [expr {($columns - $c) * $size + ($columns - 1 - $c) * $gap}] \
+                [expr {$captionGap + $r * ($size + $gap)}] \
+                $size]
+        }
+    }
+    return $cells
+}
+
+When /someone/ wishes /p/ has options grid {
+    Wish $p has options grid with {*}$optionsGridDefaults
+}
+
+# Printing: draw the boxes.
+When /someone/ wishes /p/ has options grid with /...opts/ {
+    # Depending on timing, the bare `Wish $p has options grid` can
+    # match this pattern as well (with no opts); the When above
+    # already takes care of it.
+    if {![info exists opts]} { return }
+    set opts [dict merge $optionsGridDefaults $opts]
+    set mToPt 2834.646
+
+    # FolkTagLeft, FolkTagBottom, FolkTagSide are defined by print.folk.
+    set ps [list gsave "0.75 setlinewidth"]
+    foreach cell [optionsGridLayout $opts] {
+        lassign [lmap v $cell {expr {$v * $mToPt}}] fromRight fromBottom size
+        # (x, y) is the bottom-left corner of the box. The box is
+        # filled white first so that any code text underneath doesn't
+        # show up as a covered box.
+        lappend ps [format \
+            {FolkTagLeft FolkTagSide add %.3f sub FolkTagBottom %.3f sub %.3f %.3f 4 copy 1 setgray rectfill 0 setgray rectstroke} \
+            $fromRight [expr {$fromBottom + $size}] $size $size]
+    }
+    lappend ps grestore
+    Wish $p prints with mixin [join $ps "\n"]
+}
+
+# Watching: sample the boxes in the page's camera slice.
+When the image library is /imageLib/ {
+    set cc [C]
+    $cc extend $imageLib
+    # Mean color (as "r g b", 0-255) of the rectangle from (x0, y0) to
+    # (x1, y1) in image pixels. Returns an empty string if the
+    # rectangle is entirely outside the image.
+    $cc proc regionMean {Image im double x0 double y0 double x1 double y1} Jim_Obj* {
+        int ix0 = (int)floor(x0), iy0 = (int)floor(y0);
+        int ix1 = (int)ceil(x1), iy1 = (int)ceil(y1);
+        if (ix0 < 0) ix0 = 0;
+        if (iy0 < 0) iy0 = 0;
+        if (ix1 > (int)im.width) ix1 = im.width;
+        if (iy1 > (int)im.height) iy1 = im.height;
+        if (ix1 <= ix0 || iy1 <= iy0) return Jim_NewEmptyStringObj(interp);
+
+        double sum[3] = {0, 0, 0};
+        for (int y = iy0; y < iy1; y++) {
+            uint8_t *pixel = im.data + (size_t)y * im.bytesPerRow +
+                (size_t)ix0 * im.components;
+            for (int x = ix0; x < ix1; x++, pixel += im.components) {
+                for (int c = 0; c < 3; c++) {
+                    // Grayscale images just repeat their one channel.
+                    sum[c] += pixel[c < im.components ? c : 0];
+                }
+            }
+        }
+        double n = (double)(ix1 - ix0) * (iy1 - iy0);
+        return Jim_ObjPrintf("%g %g %g", sum[0] / n, sum[1] / n, sum[2] / n);
+    }
+    set gridLib [$cc compile]
+
+    When /someone/ wishes /p/ has options grid with /...opts/ {
+        if {![info exists opts]} { return }
+        set opts [dict merge $optionsGridDefaults $opts]
+        Wish $p has camera slice
+
+        When $p has camera slice /slice/ &\
+             $p has resolved geometry /geom/ {
+            # Virtual programs (web editor, etc) have no tag on them.
+            if {![dict exists $geom tagSize] ||
+                ![dict exists $geom left] ||
+                ![dict exists $geom top]} { return }
+
+            # Slice pixels per page meter.
+            set sx [expr {[dict get $slice width] / [dict get $geom width]}]
+            set sy [expr {[dict get $slice height] / [dict get $geom height]}]
+            # Mean color of a rectangle given in page meters (from the
+            # page's top-left corner).
+            local proc sample {x0 y0 x1 y1} {gridLib slice sx sy} {
+                $gridLib regionMean $slice \
+                    [expr {$x0 * $sx}] [expr {$y0 * $sy}] \
+                    [expr {$x1 * $sx}] [expr {$y1 * $sy}]
+            }
+            # Per-channel mean of a list of colors.
+            local proc meanColor {colors} {
+                set n [llength $colors]
+                lmap i {0 1 2} {
+                    set sum 0.0
+                    foreach color $colors { set sum [expr {$sum + [lindex $color $i]}] }
+                    expr {$sum / $n}
+                }
+            }
+            local proc colorDistance {a b} {
+                set sum 0.0
+                foreach x $a y $b { set sum [expr {$sum + ($x - $y) * ($x - $y)}] }
+                expr {sqrt($sum)}
+            }
+
+            # The tag is 10x10 units. `left`/`top`/`tagSize` describe
+            # its inner 6x6: the ring at the edge of that inner square
+            # is solid black, and the ring just outside it is solid
+            # white. Sample the 4 sides of each ring, inset a bit so
+            # that we don't bleed into the neighboring ring.
+            set tagSize [dict get $geom tagSize]
+            set u [expr {$tagSize / 6.0}]
+            set inset [expr {$u * 0.25}]
+            set x0 [dict get $geom left]
+            set y0 [dict get $geom top]
+            set x1 [expr {$x0 + $tagSize}]
+            set y1 [expr {$y0 + $tagSize}]
+
+            set refs [dict create]
+            # `d` is how far out from the inner square's edge the ring
+            # starts: the black ring is 1 unit inward, the white ring
+            # is flush against it on the outside.
+            foreach {ref d} [list black [expr {-$u}] white 0.0] {
+                set l [expr {$x0 - $d - $u + $inset}]
+                set r [expr {$x1 + $d + $u - $inset}]
+                set t [expr {$y0 - $d - $u + $inset}]
+                set b [expr {$y1 + $d + $u - $inset}]
+                set thick [expr {$u - 2 * $inset}]
+                set strips [list \
+                    [sample $l $t $r [expr {$t + $thick}]] \
+                    [sample $l [expr {$b - $thick}] $r $b] \
+                    [sample $l $t [expr {$l + $thick}] $b] \
+                    [sample [expr {$r - $thick}] $t $r $b]]
+                if {"" in $strips} { return }
+                dict set refs $ref [meanColor $strips]
+            }
+            set paper [dict get $refs white]
+            set contrast [colorDistance $paper [dict get $refs black]]
+            # If we can't even tell the tag's white from its black
+            # (tag half-covered, glare, ...), don't guess.
+            if {$contrast < 30} { return }
+
+            # Outer edges of the tag, which the layout is relative to.
+            set border [expr {$tagSize / 3.0}]
+            set tagRight [expr {$x1 + $border}]
+            set tagBottom [expr {$y1 + $border}]
+
+            set threshold [dict get $opts threshold]
+            set cells [list]
+            set readings [list]
+            set count 0
+            foreach cell [optionsGridLayout $opts] {
+                lassign $cell fromRight fromBottom size
+                # Only look at the middle half of the box, to stay
+                # clear of its printed outline and tolerate the quad
+                # being a little off.
+                set cx [expr {$tagRight - $fromRight + $size * 0.25}]
+                set cy [expr {$tagBottom + $fromBottom + $size * 0.25}]
+                set color [sample $cx $cy \
+                               [expr {$cx + $size * 0.5}] [expr {$cy + $size * 0.5}]]
+                if {$color eq ""} { return }
+
+                set reading [expr {[colorDistance $color $paper] / $contrast}]
+                set covered [expr {$reading > $threshold}]
+                lappend readings [format %.2f $reading]
+                lappend cells $covered
+                incr count $covered
+            }
+
+            Claim $p has options grid [dict create \
+                rows [dict get $opts rows] columns [dict get $opts columns] \
+                cells $cells count $count]
+            Claim $p has options grid readings $readings
+        }
+    }
+}
