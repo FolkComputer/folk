@@ -1,0 +1,62 @@
+Error: Invariant AgreesWithDatalog is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ held = (k1 :> None)
+/\ present = <<>>
+/\ rules = {r1, r2, r3}
+/\ matches = {}
+/\ queue = {}
+/\ toReact = {}
+
+State 2: <Hold(k1,a) line 119, col 5 to line 124, col 37 of module Folk>
+/\ held = (k1 :> a)
+/\ present = (a :> 1)
+/\ rules = {r1, r2, r3}
+/\ matches = {}
+/\ queue = {<<r1, a, 1, "current">>}
+/\ toReact = {}
+
+State 3: <RunWhen(<<r1, a, 1>>) line 174, col 9 to line 186, col 47 of module Folk>
+/\ held = (k1 :> a)
+/\ present = (a :> 1 @@ b :> 1)
+/\ rules = {r1, r2, r3}
+/\ matches = {<<1, r1, a, {b}, "live">>}
+/\ queue = {<<r2, b, 1, "current">>}
+/\ toReact = {}
+
+State 4: <Unhold(k1) line 128, col 5 to line 131, col 37 of module Folk>
+/\ held = (k1 :> None)
+/\ present = (b :> 1)
+/\ rules = {r1, r2, r3}
+/\ matches = {<<1, r1, a, {b}, "dying">>}
+/\ queue = {<<r2, b, 1, "current">>}
+/\ toReact = {}
+
+State 5: <RunWhen(<<r2, b, 1>>) line 174, col 9 to line 186, col 47 of module Folk>
+/\ held = (k1 :> None)
+/\ present = (b :> 1 @@ c :> 1)
+/\ rules = {r1, r2, r3}
+/\ matches = {<<1, r1, a, {b}, "dying">>, <<2, r2, b, {c}, "live">>}
+/\ queue = {<<r3, c, 1, "current">>}
+/\ toReact = {}
+
+State 6: <RunWhen(<<r3, c, 1>>) line 174, col 9 to line 186, col 47 of module Folk>
+/\ held = (k1 :> None)
+/\ present = (b :> 2 @@ c :> 1)
+/\ rules = {r1, r2, r3}
+/\ matches = { <<1, r1, a, {b}, "dying">>,
+  <<2, r2, b, {c}, "live">>,
+  <<3, r3, c, {b}, "live">> }
+/\ queue = {}
+/\ toReact = {}
+
+State 7: <Next line 200, col 8 to line 200, col 39 of module Folk>
+/\ held = (k1 :> None)
+/\ present = (b :> 1 @@ c :> 1)
+/\ rules = {r1, r2, r3}
+/\ matches = {<<2, r2, b, {c}, "live">>, <<3, r3, c, {b}, "live">>}
+/\ queue = {}
+/\ toReact = {}
+
+59 states generated, 45 distinct states found, 19 states left on queue.
+The depth of the complete state graph search is 7.

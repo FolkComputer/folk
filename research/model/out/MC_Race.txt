@@ -1,0 +1,60 @@
+Error: Invariant AtMostOnce is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ held = (k1 :> None)
+/\ present = <<>>
+/\ rules = {}
+/\ matches = {}
+/\ queue = {}
+/\ toReact = {}
+
+State 2: <Hold(k1,a) line 119, col 5 to line 124, col 37 of module Folk>
+/\ held = (k1 :> a)
+/\ present = (a :> 1)
+/\ rules = {}
+/\ matches = {}
+/\ queue = {}
+/\ toReact = {<<"stmt", a>>}
+
+State 3: <AddRule(r1) line 135, col 5 to line 144, col 64 of module Folk>
+/\ held = (k1 :> a)
+/\ present = (a :> 1)
+/\ rules = {r1}
+/\ matches = {}
+/\ queue = {}
+/\ toReact = {<<"rule", r1>>, <<"stmt", a>>}
+
+State 4: <Next line 198, col 8 to line 198, col 34 of module Folk>
+/\ held = (k1 :> a)
+/\ present = (a :> 1)
+/\ rules = {r1}
+/\ matches = {}
+/\ queue = {<<r1, a, 1, "current">>}
+/\ toReact = {<<"stmt", a>>}
+
+State 5: <Next line 198, col 8 to line 198, col 34 of module Folk>
+/\ held = (k1 :> a)
+/\ present = (a :> 1)
+/\ rules = {r1}
+/\ matches = {}
+/\ queue = {<<r1, a, 2, "current">>}
+/\ toReact = {}
+
+State 6: <RunWhen(<<r1, a, 1>>) line 174, col 9 to line 186, col 47 of module Folk>
+/\ held = (k1 :> a)
+/\ present = (a :> 1 @@ b :> 1)
+/\ rules = {r1}
+/\ matches = {<<1, r1, a, {b}, "live">>}
+/\ queue = {<<r1, a, 1, "current">>}
+/\ toReact = {<<"stmt", b>>}
+
+State 7: <RunWhen(<<r1, a, 1>>) line 174, col 9 to line 186, col 47 of module Folk>
+/\ held = (k1 :> a)
+/\ present = (a :> 1 @@ b :> 2)
+/\ rules = {r1}
+/\ matches = {<<1, r1, a, {b}, "live">>, <<2, r1, a, {b}, "live">>}
+/\ queue = {}
+/\ toReact = {<<"stmt", b>>}
+
+86 states generated, 56 distinct states found, 19 states left on queue.
+The depth of the complete state graph search is 7.

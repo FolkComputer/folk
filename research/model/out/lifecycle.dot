@@ -1,0 +1,22 @@
+strict digraph DiskGraph {
+node [shape=box,style=rounded]
+nodesep=0.35;
+subgraph cluster_graph {
+color="white";
+-3108369400768600385 [label="held: nothing\nin db: nothing",style = filled];
+-3108369400768600385 -> -3308377528923025603 [label="Hold! a",color="black",fontcolor="black"];
+-3308377528923025603 [label="held: a\nin db: a (parents: 1)\nqueued: run r1 on a"];
+-3308377528923025603 -> 5621598744909138431 [label="clear hold",color="black",fontcolor="black"];
+5621598744909138431 [label="held: nothing\nin db: nothing\nqueued: run r1 on a (stale)"];
+-3308377528923025603 -> 170927129111491888 [label="run r1 on a",color="black",fontcolor="black"];
+170927129111491888 [label="held: a\nin db: a (parents: 1), b (parents: 1)\nmatch r1 on a: live"];
+5621598744909138431 -> -3108369400768600385 [label="run r1 on a",color="black",fontcolor="black"];
+170927129111491888 -> 6035925888081417853 [label="clear hold",color="black",fontcolor="black"];
+6035925888081417853 [label="held: nothing\nin db: b (parents: 1)\nmatch r1 on a: parent gone"];
+6035925888081417853 -> -3108369400768600385 [label="release match",color="black",fontcolor="black"];
+{rank = same; -3108369400768600385;}
+{rank = same; -3308377528923025603;}
+{rank = same; 170927129111491888;5621598744909138431;}
+{rank = same; 6035925888081417853;}
+}
+}
