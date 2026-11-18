@@ -158,8 +158,14 @@ When the collected results for {camera /camera/ has CNC bed corners /points/ wit
 # XY toolpaths in meters. Position supplies the initial point for modal/relative
 # moves; absolute coordinates stay anchored at the first saved bed corner.
 fn cncGcodePaths {gcode pos} {
-    lassign $pos x y
-    set x [expr {$x*.0254}];set y [expr {$y*.0254}]
+    set xy {}
+    foreach value [lrange $pos 0 1] {
+        if {![regexp {^(.+)(mm|in)$} $value -> amount suffix] || ![string is double -strict $amount]} {
+            error "CNC position component must have an mm or in suffix: $value"
+        }
+        lappend xy [expr {double($amount)*($suffix eq "in" ? .0254 : .001)}]
+    }
+    lassign $xy x y
     set unit .0254;set absolute 1;set motion 0;set paths {};set points {};set lastRapid -1
     foreach line [split $gcode \n] {
         regsub -all {\([^)]*\)} $line {} line
