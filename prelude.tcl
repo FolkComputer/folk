@@ -197,6 +197,57 @@ proc evaluateBlock {whenBody envStack} {
     }
 }
 
+# Each attempt runs as a held child When, with a snapshot of the caller's
+# environment. Only errors in the body itself are retried, not child errors.
+proc Supervise {body} {
+    if {[__currentMatchRef] eq "" || [__isInSubscription]} {
+        error "Supervise requires a match outside a subscription"
+    }
+    set source [info source $body]
+    set key [list __supervise [__currentMatchRef] $source]
+    set environment [uplevel captureEnvStack]
+    set attempt 0
+    # Unlike the held attempt, this marker belongs to the enclosing match.
+    # Polling it also handles cancellation before the runtime sends a signal.
+    Say __supervise $key is active
+    set wrapper {
+        set __superviseBody [info source $__superviseBody {*}$__superviseSource]
+        set __superviseCode [catch $__superviseBody __superviseResult __superviseOptions]
+        Say -nonatomically __supervise $__superviseKey attempt $__superviseAttempt \
+            finished $__superviseCode $__superviseResult $__superviseOptions
+    }
+    set clear [list HoldStatementGlobally! $key -1 {} 0 {} {*}$source 0]
+    try -signal {
+        while {[llength [Query! __supervise $key is active]]} {
+            incr attempt
+            set env [list {*}$environment [dict create \
+                __superviseKey $key __superviseAttempt $attempt \
+                __superviseBody $body __superviseSource $source]]
+            HoldStatementGlobally! $key -1 \
+                [list when $wrapper with environment $env] 0 {} {*}$source 1
+            while {![llength [set finished [Query! __supervise $key attempt $attempt finished /code/ /result/ /options/]]]} {
+                if {![llength [Query! __supervise $key is active]]} { return }
+                sleep 0.01
+            }
+            {*}$clear
+            set finished [lindex $finished 0]
+            switch $finished(code) {
+                0 - 4 { # Normal completion and continue start another attempt.
+                }
+                1 {
+                    puts stderr "Supervise: $finished(result); retrying in one second"
+                    sleep 1
+                }
+                2 { return {*}$finished(options) $finished(result) }
+                3 { return }
+                default { return -code $finished(code) $finished(result) }
+            }
+        }
+    } finally {
+        {*}$clear
+    }
+}
+
 proc fn {args} {
     if {[llength $args] == 1} {
         set fnName [lindex $args 0]

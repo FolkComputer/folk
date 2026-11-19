@@ -73,32 +73,23 @@ $camc proc cameraOpen {char* device int width int height} Camera* {
     return camera;
 }
 $camc proc cameraClose {Camera* camera} void {
+    // Also handles partially initialized cameras after a failed attempt.
     enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    if (xioctl(camera->fd, VIDIOC_STREAMOFF, &type) == -1) {
-        // if ENODEV, we're already done; just return to caller.
-        if (errno == ENODEV) {
-            fprintf(stderr, "cameraClose (%p): ENODEV, returning.\n",
-                    camera);
-            close(camera->fd);
-            free(camera);
-            return;
-        } else {
-            // stop, something weird happened.
-            quit("VIDIOC_STREAMOFF");
+    if (xioctl(camera->fd, VIDIOC_STREAMOFF, &type) == -1 &&
+        errno != ENODEV && errno != EINVAL) {
+        fprintf(stderr, "camera/usb: VIDIOC_STREAMOFF: %s\n", strerror(errno));
+    }
+    for (size_t i = 0; i < camera->buffer_count; i++) {
+        CameraBuffer buffer = camera->buffers[i];
+        if (buffer.start != NULL && buffer.start != MAP_FAILED) {
+            munmap(buffer.start, buffer.length);
         }
     }
-
-    struct v4l2_requestbuffers req = {0};
-    // A count value of zero frees all buffers, after aborting or
-    // finishing any DMA in progress, an implicit VIDIOC_STREAMOFF.
-    req.count = 0;
-    req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    req.memory = V4L2_MEMORY_MMAP;
-    if (xioctl(camera->fd, VIDIOC_REQBUFS, &req) == -1) {
-        quit("VIDIOC_REQBUFS");
-    }
+    free(camera->buffers);
+    free(camera->head.start);
+    // Closing the fd releases the driver's capture buffers too.
     if (close(camera->fd) != 0) {
-        quit("close");
+        fprintf(stderr, "camera/usb: close: %s\n", strerror(errno));
     }
     free(camera);
 }
@@ -378,12 +369,9 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
         set crops [dict get $options crops]
     }
 
-    fn runCamera {camObjVar} {
-        puts "camera/usb: Will try to open $camera"
-
-        upvar $camObjVar camObj_
-        set camObj_ [$camLib cameraOpen $camera $width $height]
-        set camObj $camObj_ ;# HACK: we don't capture upvars yet.
+    Supervise {
+        set camObj [$camLib cameraOpen $camera $width $height]
+        Destructor [list $camLib cameraClose $camObj]
         puts "camera/usb: Loaded $camera -> $camObj"
 
         $camLib cameraInit $camObj $bufferCount
@@ -396,7 +384,7 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
         }
         # skip 5 frames for booting a cam
         for {set i 0} {$i < 5} {incr i} {
-            $camLib cameraFrameJpeg $camObj
+            $camLib jpegFree [$camLib cameraFrameJpeg $camObj]
         }
 
         if {[info exists crops]} {
@@ -409,8 +397,18 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
             Claim camera $camera has width $width height $height
         }
 
-        When /someone/ wishes camera $camera uses exposure time /exposureTimeUs/ us {
-            if {![llength [Query! /owner/ wishes camera $camera temporarily uses exposure time /us/ us]]} {
+        set initialExposure {}
+        if {![catch {$camLib getExposure $camObj} exposure]} {
+            lassign $exposure mode initialExposure
+            if {$mode != 1} {set initialExposure 0}
+        }
+        # Removing an override recreates the normal exposure rule. No cleanup
+        # callback needs to touch a camera that may already have closed.
+        When /nobody/ wishes camera $camera temporarily uses exposure time /any/ us {
+            When /nobody/ wishes camera $camera uses exposure time /any/ us {
+                if {$initialExposure ne {}} {$camLib setExposure $camObj $initialExposure}
+            }
+            When /someone/ wishes camera $camera uses exposure time /exposureTimeUs/ us {
                 $camLib setExposure $camObj [expr {int($exposureTimeUs / 100)}]
             }
         }
@@ -418,19 +416,10 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
             $camLib setGain $camObj $gain
         }
         When /someone/ wishes camera $camera temporarily uses exposure time /exposureTimeUs/ us {
-            set savedExposure [$camLib getExposure $camObj]
-            Destructor [list apply {{camLib camObj camera savedExposure} {
-                lassign $savedExposure mode exposure
-                if {$mode != 1} {set exposure 0}
-                foreach row [Query! /owner/ wishes camera $camera uses exposure time /us/ us] {
-                    set exposure [expr {int($row(us)/100)}]
-                }
-                $camLib setExposure $camObj $exposure
-            }} $camLib $camObj $camera $savedExposure]
-            $camLib setExposure $camObj [expr {int($exposureTimeUs/100)}]
+            $camLib setExposure $camObj [expr {int($exposureTimeUs / 100)}]
         }
 
-        # Inner, frame loop.
+        # Capture frames until Supervise restarts this attempt.
         while true {
             tracy zoneBegin
 
@@ -463,29 +452,6 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
 
             tracy zoneEnd
         }
-    }
-
-    # Outer, retry loop.
-    while true {
-        set camObj {}
-        try -signal {
-            runCamera camObj
-        } on error e {
-            puts stderr "camera/usb: Error $e"
-        } on signal sig {
-            puts stderr "camera/usb: Signal $sig"
-            # This is actually a termination condition.
-            break
-        } finally {
-            if {$camObj ne {}} {
-                puts "camera/usb: Close $camObj"
-                $camLib cameraClose $camObj
-            }
-        }
-
-        # We only get down here if something goes wrong. Wait before
-        # trying to restart the camera.
-        sleep 1
     }
 }
 
