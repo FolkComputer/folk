@@ -395,7 +395,11 @@ $cc proc drawStart {DisplayState* ds} bool {
     currentDisplay = ds;
     VkCommandBuffer commandBuffer = getCommandBuffer();
 
-    VkResult acquireResult = vkAcquireNextImageKHR(device, ds->swapchain, 10000000,
+    // Mesa's KHR_display backend can misreport an expired acquire wait as
+    // SURFACE_LOST instead of TIMEOUT (thrd_timedout vs ETIMEDOUT). A short
+    // wait then tears down healthy displays during calibration redraws.
+    // Keep the wait bounded, but allow time for a frame under load.
+    VkResult acquireResult = vkAcquireNextImageKHR(device, ds->swapchain, 1000000000,
                                                    ds->imageAvailableSemaphore, VK_NULL_HANDLE,
                                                    &ds->imageIndex);
     if (acquireResult == VK_TIMEOUT || acquireResult == VK_NOT_READY) return false;
