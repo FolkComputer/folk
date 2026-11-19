@@ -175,7 +175,7 @@ fn cncLocalZero {machine local} {
 }
 
 # Parse in local coordinates, then translate the path into machine coordinates.
-# The registered bed origin corresponds to machine zero.
+# The selected bed origin is registered separately in machine coordinates.
 fn cncGcodePaths {gcode pos {zero {0mm 0mm 0mm}}} {
     fn cncPositionMeters
     lassign [cncPositionMeters $pos] x y
@@ -253,9 +253,12 @@ When the CNC gcode is /gcode/ & the CNC local position is /pos/ & the CNC local 
     fn cncGcodePaths
     set paths [cncGcodePaths $gcode $pos $zero]
     When CNC bed mapping is /mapping/ in display /display/ &\
+         CNC bed point one has machine position /bedPosition/ &\
          display /display/ has intrinsics /pk/ &\
          display /display/ has width /pw/ height /ph/ {
         fn cncProject
+        fn cncPositionMeters
+        lassign [cncPositionMeters $bedPosition] bedX bedY
         set geometry [json::decode $mapping]
         lassign [dict get $geometry origin] ox oy oz
         lassign [dict get $geometry xAxis] xx xy xz
@@ -264,6 +267,7 @@ When the CNC gcode is /gcode/ & the CNC local position is /pos/ & the CNC local 
             set projected {}
             foreach point [dict get $path points] {
                 lassign $point x y
+                set x [expr {$x-$bedX}];set y [expr {$y-$bedY}]
                 lappend projected [cncProject $pk $pw $ph [list [expr {$ox+$x*$xx+$y*$yx}] [expr {$oy+$x*$xy+$y*$yy}] [expr {$oz+$x*$xz+$y*$yz}]]]
             }
             set color [expr {[dict get $path rapid] ? {0 .5 1 .6} : {1 1 0 1}}]

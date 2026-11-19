@@ -1,5 +1,11 @@
 # CNC controls and previews; processing runs in builtin-programs/cnc.folk.
 Wish the web server handles route {/cnc} with handler {
+    set machineX {};set machineY {}
+    foreach saved [Query! cnc claims CNC bed point one has machine position /position/] {
+        lassign [dict get $saved position] machineX machineY
+        set machineX [string range $machineX 0 end-2]
+        set machineY [string range $machineY 0 end-2]
+    }
     set panels {}
     foreach item [lrange [lsort -command {apply {{a b} {string compare $a(camera) $b(camera)}}} [Query! camera /camera/ has width /w/ height /h/]] 0 1] {
         set camera $item(camera);set saved null
@@ -23,6 +29,37 @@ Wish the web server handles route {/cnc} with handler {
         const ws = new FolkWS(document.getElementById('connectionStatus'));
         const views = new Map();
         let mapping, mappingText, latestSnapshot, probeRequest, stopped = false;
+
+        const originForm = document.getElementById('machine-origin');
+        const originX = document.getElementById('machine-x');
+        const originY = document.getElementById('machine-y');
+        const originStatus = document.getElementById('origin-status');
+        ws.watchCollected('cnc claims CNC bed point one has machine position /position/', matches => {
+            const position = matches[0]?.position;
+            originStatus.textContent = position ? 'Machine coordinates saved.' :
+                'Enter machine coordinates for point 1 to enable the projected toolpath.';
+            if (!position) return;
+            const values = loadList(position);
+            for (const [field, value] of [[originX, values[0]], [originY, values[1]]]) {
+                if (document.activeElement !== field) field.value = value.slice(0, -2);
+            }
+        });
+        originForm.onsubmit = async event => {
+            event.preventDefault();
+            if (!originForm.reportValidity()) return;
+            const x = originX.valueAsNumber, y = originY.valueAsNumber;
+            if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+            const button = originForm.querySelector('button');
+            button.disabled = true;
+            try {
+                await ws.run(tcl`Hold! -save -on cnc -key bed-machine-origin -- cnc claims CNC bed point one has machine position ${[`${x}mm`, `${y}mm`, '0mm']}`);
+                originStatus.textContent = 'Machine coordinates saved.';
+            } catch (error) {
+                originStatus.textContent = error.message;
+            } finally {
+                button.disabled = false;
+            }
+        };
 
         function transform(h, x, y) {
             const d = h[6]*x + h[7]*y + h[8];
@@ -339,15 +376,22 @@ Wish the web server handles route {/cnc} with handler {
         Select the same four physical bed corners in both camera views, in CNC coordinate order:
     </p>
     <ol>
-        <li>Bed zero (X=0, Y=0).</li>
+        <li>Bed reference point (point 1).</li>
         <li>The adjacent corner in the +X direction.</li>
         <li>The opposite corner (+X, +Y).</li>
         <li>The adjacent corner in the +Y direction.</li>
     </ol>
     <p>
         Follow the machine's axis directions, regardless of how the camera image is rotated.
-        The first corner defines bed zero. Work zero is separate and can change at runtime; its offset must be synced from the CNC controller to place the G-code on the bed.
+        Enter the machine coordinates of point 1 below. Work zero is separate and is synced from the CNC controller.
     </p>
+    <form id="machine-origin">
+        <p>Machine coordinates at point 1 (use CNCjs <strong>Machine Position</strong>):</p>
+        <label>X (mm) <input id="machine-x" type="number" step="any" required value="[htmlEscape $machineX]"></label>
+        <label>Y (mm) <input id="machine-y" type="number" step="any" required value="[htmlEscape $machineY]"></label>
+        <button type="submit">Save machine coordinates</button>
+        <p id="origin-status" role="status"></p>
+    </form>
     <p>
         First click freezes the image; fourth click saves. Selections and projection persist after closing this page.
         Saved bed bounding boxes are automatically segmented and colored; each overlay stays aligned with its source frame.
