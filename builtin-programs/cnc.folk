@@ -155,17 +155,31 @@ When the collected results for {camera /camera/ has CNC bed corners /points/ wit
     }
 }
 
-# XY toolpaths in meters. Position supplies the initial point for modal/relative
-# moves; absolute coordinates stay anchored at the first saved bed corner.
-fn cncGcodePaths {gcode pos} {
-    set xy {}
-    foreach value [lrange $pos 0 1] {
+# Convert unit-suffixed controller coordinates to meters.
+fn cncPositionMeters {pos} {
+    if {[llength $pos] != 3} {error "CNC position must contain three components"}
+    set result {}
+    foreach value $pos {
         if {![regexp {^(.+)(mm|in)$} $value -> amount suffix] || ![string is double -strict $amount]} {
             error "CNC position component must have an mm or in suffix: $value"
         }
-        lappend xy [expr {double($amount)*($suffix eq "in" ? .0254 : .001)}]
+        set scale [dict get {mm .001 in .0254} $suffix]
+        lappend result [expr {double($amount)*$scale}]
     }
-    lassign $xy x y
+    return $result
+}
+
+fn cncLocalZero {machine local} {
+    fn cncPositionMeters
+    lmap m [cncPositionMeters $machine] l [cncPositionMeters $local] {string cat [expr {($m-$l)*1000}] mm}
+}
+
+# Parse in local coordinates, then translate the path into machine coordinates.
+# The registered bed origin corresponds to machine zero.
+fn cncGcodePaths {gcode pos {zero {0mm 0mm 0mm}}} {
+    fn cncPositionMeters
+    lassign [cncPositionMeters $pos] x y
+    lassign [cncPositionMeters $zero] ox oy
     set unit .0254;set absolute 1;set motion 0;set paths {};set points {};set lastRapid -1
     foreach line [split $gcode \n] {
         regsub -all {\([^)]*\)} $line {} line
@@ -221,12 +235,23 @@ fn cncGcodePaths {gcode pos} {
         set x $nx;set y $ny
     }
     if {[llength $points]>1} {lappend paths [dict create rapid $lastRapid points $points]}
-    return $paths
+    lmap path $paths {
+        dict set path points [lmap point [dict get $path points] {
+            lassign $point x y
+            list [expr {$x+$ox}] [expr {$y+$oy}]
+        }]
+        set path
+    }
 }
 
-When the CNC gcode is /gcode/ & the CNC position is /pos/ {
+When /controller/ claims the CNC machine position is /machine/ & /controller/ claims the CNC local position is /local/ {
+    fn cncLocalZero
+    Claim the CNC local zero is [cncLocalZero $machine $local]
+}
+
+When the CNC gcode is /gcode/ & the CNC local position is /pos/ & the CNC local zero is /zero/ {
     fn cncGcodePaths
-    set paths [cncGcodePaths $gcode $pos]
+    set paths [cncGcodePaths $gcode $pos $zero]
     When CNC bed mapping is /mapping/ in display /display/ &\
          display /display/ has intrinsics /pk/ &\
          display /display/ has width /pw/ height /ph/ {
