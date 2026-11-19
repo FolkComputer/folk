@@ -581,6 +581,9 @@ tracy setThreadName "gpu"
 # Statements own the display pointers; ForEach! retains them while in use.
 set displays [dict create]
 set retryAt [dict create]
+# Closing an old direct-display swapchain after starting its replacement can
+# disable the output. Retraction can leave it retained; wait for its actual close.
+set retiring [dict create]
 # macOS runs this body directly on the main thread, without a match.
 # Its statements live until explicitly retired or the process exits.
 if {[__currentMatchRef] ne ""} {
@@ -661,6 +664,11 @@ while true {
     # on the thread that creates windows and polls events.
     ForEach! the GPU retires display /retiredDisplay/ using /retiredDrawLib/ {
         $retiredDrawLib closeDisplay $retiredDisplay
+        if {$retiredDrawLib eq $drawLib} {
+            dict for {display ds} $retiring {
+                if {$ds eq $retiredDisplay} { dict unset retiring $display }
+            }
+        }
         Hold! -key [list close-display $retiredDrawLib $retiredDisplay] {}
     }
 
@@ -722,6 +730,7 @@ while true {
     ForEach! the GPU draw library $drawLib has display /display/ with state /ds/ mode /mode/ info /info/ {
         if {![dict exists $wanted $display] || ![dict exists $available $display] ||
             $mode ne [dict get $wanted $display] || $info ne [dict get $available $display]} {
+            dict set retiring $display $ds
             Hold! -key [list display-state $drawLib $display] {}
         } else {
             dict set displays $display $ds
@@ -729,7 +738,8 @@ while true {
     }
     set now [clock milliseconds]
     dict for {display mode} $wanted {
-        if {[dict exists $displays $display] || ![dict exists $available $display]} continue
+        if {[dict exists $displays $display] || [dict exists $retiring $display] ||
+            ![dict exists $available $display]} continue
         if {$now < [dict getdef $retryAt $display 0]} continue
         try {
             set ds [$drawLib initDisplay $display $mode(width) $mode(height) $mode(refreshRate)]
@@ -772,6 +782,7 @@ while true {
         } on error e {
             puts stderr "gpu/draw: $displayName: $e; retrying in 1 second"
             dict unset displays $displayName
+            dict set retiring $displayName $ds
             dict set retryAt $displayName [expr {[clock milliseconds] + 1000}]
             Hold! -key [list display-state $drawLib $displayName] {}
         }
