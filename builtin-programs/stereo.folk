@@ -1,0 +1,95 @@
+# Start a resident local stereo worker only while a stereo page is connected.
+When /someone/ wishes to load stereo {
+    Wish to really load stereo
+}
+
+When /someone/ wishes to really load stereo {
+    set py [Uvx --python 3.12 --with numpy --with opencv-python-headless==4.11.0.86 \
+                --with onnxruntime --with pooch==1.8.2]
+    $py exec {
+        import sys, json, contextlib, threading
+        from pathlib import Path
+        sys.path.insert(0, str(Path('lib').resolve()))
+        from stereo import Stereo
+        stereo_model = None
+        stereo_lock = threading.Lock()
+    }
+    $py def stereoEstimate {str payload} {
+        global stereo_model
+        with stereo_lock, contextlib.redirect_stdout(sys.stderr):
+            if stereo_model is None:
+                stereo_model = Stereo()
+            return json.dumps(stereo_model.process(json.loads(payload)), allow_nan=False)
+    }
+    fn stereoEstimate {payload} { $py stereoEstimate $payload }
+    Claim the stereo estimator is [fn stereoEstimate]
+}
+
+Wish the web server handles route {/lib/stereo.js} with handler {
+    set f [open lib/stereo.js r]
+    try {set script [read $f]} finally {close $f}
+    dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: text/javascript; charset=utf-8\nCache-Control: no-store\n\n" body $script
+}
+
+Wish the web server handles route {/stereo} with handler {
+    set response [html {
+<!doctype html><html><head><title>Stereo depth</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body {font:16px system-ui; margin:20px; background:#111; color:#eee}
+.views {display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+img {width:100%; display:block} figure {margin:0} a {color:#8cf}
+button {font:inherit;padding:8px} #status {white-space:pre-wrap}
+</style></head><body><h1>Stereo depth</h1>
+<p>Rectified camera views and depth along the left camera’s optical axis, in meters. Warm colors are near; cool colors are far. Black pixels have no valid depth.</p>
+<span id="connectionStatus">Connecting…</span>
+<p><button id="demo" disabled>Try demo pair</button> <button id="capture" disabled>Capture stereo pair</button> <label><input id="live" type="checkbox"> Repeat</label> <a id="download" hidden download="depth-mm.png">Download 16-bit depth (millimeters)</a></p>
+<p id="status" role="status">Starting stereo worker…</p>
+<div class="views"><figure><figcaption id="leftLabel">Rectified left</figcaption><img id="left"></figure><figure><figcaption id="rightLabel">Rectified right</figcaption><img id="right"></figure><figure><figcaption>Depth</figcaption><img id="depth"></figure></div>
+<script src="/lib/folk.js"></script><script src="/lib/stereo.js?v=2"></script>
+</body></html>
+    }]
+    dict set response statusAndHeaders "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store, max-age=0\r\n\r\n"
+    return $response
+}
+
+Wish the web server handles route {/stereo-frame} with handler {
+    set files {}
+    try {
+        if {[dict getdef $QUERY demo 0] eq "1"} {
+            set estimator [QueryOne! the stereo estimator is /./];fn estimator
+            set result [estimator {{"demo":true}}]
+        } else {
+            set libraries [Query! the jpeg library is /jpegLib/]
+            if {![llength $libraries]} {error {No live cameras in this server. Use Try demo pair, or start the normal Folk service with cameras connected.}}
+            set jpegLib [dict get [lindex $libraries 0] jpegLib]
+            set frames {};set names {}
+            # Both cameras must share the same calibrated display coordinate frame.
+            foreach pose [lsort -command {apply {{a b} {string compare $a(camera) $b(camera)}}} [Query! camera /camera/ to display /display/ has extrinsics /e/]] {
+                set camera $pose(camera)
+                if {[lsearch -exact $names $camera]>=0} continue
+                if {[llength $frames] && $pose(display) ne $commonDisplay} continue
+                set ks [Query! camera $camera has intrinsics /k/]
+                set latest [lindex [lsort -real -decreasing -index 1 [lmap r [Query! camera $camera has jpeg frame /jpeg/ at timestamp /timestamp/] {list $r(jpeg) $r(timestamp)}]] 0]
+                if {![llength $ks] || ![llength $latest]} continue
+                set commonDisplay $pose(display)
+                lassign $latest jpeg timestamp
+                set filename [file tempfile /tmp/stereo-frame-XXXXXX];lappend files $filename
+                set f [open $filename wb]
+                try {puts -nonewline $f [$jpegLib jpegData $jpeg]} finally {close $f}
+                lappend frames [dict create camera $camera filename $filename timestamp $timestamp k [dict get [lindex $ks 0] k] e $pose(e)]
+                lappend names $camera
+                if {[llength $frames]==2} break
+            }
+            if {[llength $frames]!=2} {error {Two live cameras with calibration in the same display are required}}
+            set estimator [QueryOne! the stereo estimator is /./];fn estimator
+            set payload [json::encode [dict create frames $frames] {obj frames {list obj timestamp num k {obj width num height num fx num fy num cx num cy num k1 num k2 num p1 num p2 num s num} e {obj R {list list num} t {list num}}}}]
+            set result [estimator $payload]
+        }
+    } on error {e} {
+        set result [json::encode [dict create error $e] obj]
+    } finally {
+        foreach filename $files {file delete -force $filename}
+    }
+    dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: application/json\nCache-Control: no-store\n\n" body $result
+}
