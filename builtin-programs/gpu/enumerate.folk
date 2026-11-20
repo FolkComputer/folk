@@ -1,5 +1,6 @@
 set cc [C]
 $cc cflags -I./vendor
+$cc include <string.h>
 $cc code {
     #define VOLK_IMPLEMENTATION
     #include "volk/volk.h"
@@ -99,10 +100,59 @@ $cc proc enumerateDisplays {} Jim_Obj* {
     return allDisplaysList;
 }
 
+# Whether we can make an offscreen display that needs no monitor
+# (lavapipe and other Mesa drivers can).
+$cc proc hasHeadlessSurface {} bool {
+    if (volkInitialize() != VK_SUCCESS) { return false; }
+
+    uint32_t count = 0;
+    vkEnumerateInstanceExtensionProperties(NULL, &count, NULL);
+    VkExtensionProperties extensions[count];
+    vkEnumerateInstanceExtensionProperties(NULL, &count, extensions);
+    for (uint32_t i = 0; i < count; i++) {
+        if (strcmp(extensions[i].extensionName,
+                   VK_EXT_HEADLESS_SURFACE_EXTENSION_NAME) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 set displayLib [$cc compile]
 
 if {![catch {exec pkg-config --exists glfw3}]} {
     Claim $::thisNode has display glfw with info {name "GLFW (windowed)"}
+}
+
+# The "headless" display renders offscreen, for testing/simulating
+# Folk without a projector or monitor. Use it from the setup page, or
+# boot with e.g. FOLK_HEADLESS=1280x720 (or 1280x720@30 for 30 Hz).
+# `Wish display headless is captured` reads its frames back (see
+# gpu/draw.folk). It can be any size; these modes are just what the
+# setup page offers.
+if {[$displayLib hasHeadlessSurface]} {
+    Claim $::thisNode has display headless with info {
+        name "Headless (offscreen)"
+        modes {
+            {visibleRegion {1920 1080} refreshRate 60000}
+            {visibleRegion {1920 1080} refreshRate 30000}
+            {visibleRegion {1280 720} refreshRate 60000}
+            {visibleRegion {1280 720} refreshRate 30000}
+        }
+    }
+
+    if {[info exists ::env(FOLK_HEADLESS)]} {
+        if {[regexp {^([0-9]+)x([0-9]+)(@([0-9]+))?$} $::env(FOLK_HEADLESS) -> \
+                 headlessWidth headlessHeight _ headlessHz]} {
+            if {$headlessHz eq ""} { set headlessHz 60 }
+            Wish $::thisNode uses display headless with \
+                width $headlessWidth height $headlessHeight \
+                refreshRate [expr {$headlessHz * 1000}]
+        } else {
+            puts stderr "gpu/enumerate: Ignoring FOLK_HEADLESS=$::env(FOLK_HEADLESS)\
+(it should be like 1280x720 or 1280x720@30)"
+        }
+    }
 }
 
 try {

@@ -681,7 +681,11 @@ $gpuc code {
     }
 }
 
-$gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
+# Uploads im into existingBlock's texture (replacing its pixels), or
+# into a newly created texture of the given format if existingBlock
+# is NULL.
+$gpuc proc uploadImageToGpuTexture {Image im GpuTextureBlock* existingBlock
+                                    int format} GpuTextureHandle {
     size_t size = (size_t)im.width * im.height * 4;
     FOLK_ENSURE(size > 0);
     FOLK_ENSURE(im.components == 1 || im.components == 3 || im.components == 4);
@@ -708,7 +712,8 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
     }
 
     // Allocate a texture and texture block:
-    GpuTextureBlock* block = createGpuTexture(im.width, im.height, VK_FORMAT_R8G8B8A8_SRGB);
+    GpuTextureBlock* block = existingBlock != NULL ? existingBlock :
+        createGpuTexture(im.width, im.height, format);
 
     // Record + submit staging buffer -> image copy. We do NOT wait on
     // the fence here; a later call to acquireInflightUpload will
@@ -724,6 +729,7 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
         // Transition to transfer destination
         VkImageMemoryBarrier barrier = {0};
         barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        // (The whole image gets overwritten, so we never need its old contents.)
         barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
         barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -734,11 +740,13 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
         barrier.subresourceRange.levelCount = 1;
         barrier.subresourceRange.baseArrayLayer = 0;
         barrier.subresourceRange.layerCount = 1;
-        barrier.srcAccessMask = 0;
+        barrier.srcAccessMask = existingBlock != NULL ? VK_ACCESS_SHADER_READ_BIT : 0;
         barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 
         vkCmdPipelineBarrier(commandBuffer,
-                             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             existingBlock != NULL ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT :
+                                                     VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT,
                              0, 0, NULL, 0, NULL, 1, &barrier);
 
         // Copy buffer to image
@@ -786,9 +794,34 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
 
     upload->inUse = true;
     pthread_mutex_unlock(&uploadMutex);
-    addToTextureDescriptorSet(block->handle);
+    if (existingBlock == NULL) { addToTextureDescriptorSet(block->handle); }
 
     return block->handle;
+}
+$gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
+    return uploadImageToGpuTexture(im, NULL, VK_FORMAT_R8G8B8A8_SRGB);
+}
+# Like copyImageToGpuTexture, but shaders sample the pixel values
+# exactly as they are in im. (The sRGB textures that
+# copyImageToGpuTexture makes get linearized when sampled, and
+# nothing re-encodes them on the way to the display, so their
+# midtones come out darker: 0x80 is drawn as 0x37.) Free it with
+# freeGpuTexture.
+$gpuc proc copyImageToRawGpuTexture {Image im} GpuTextureHandle {
+    return uploadImageToGpuTexture(im, NULL, VK_FORMAT_R8G8B8A8_UNORM);
+}
+# Replaces the pixels of an existing texture in place; im must have
+# the texture's size. For video-like streams (a new frame many times
+# a second): the texture handle stays the same, so nothing that draws
+# the texture needs to be re-wished, and no texture gets created or
+# freed per frame. The new pixels show up in whatever is drawn after
+# this upload is submitted. Can be called from any thread.
+$gpuc proc updateGpuTexture {GpuTextureHandle handle Image im} void {
+    FOLK_ENSURE(handle > 0 && handle < getMaxTextures());
+    GpuTextureBlock* block = &gpuTextures[handle];
+    FOLK_ENSURE(block->alive && !block->retiring);
+    FOLK_ENSURE(im.width == block->width && im.height == block->height);
+    uploadImageToGpuTexture(im, block, 0);
 }
 # Replace a descriptor slot with a different texture. Must only be
 # called on the GPU thread between frames (used by canvases).

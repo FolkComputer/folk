@@ -1,0 +1,64 @@
+# Renders to the offscreen "headless" display (no monitor or window
+# system needed), captures a frame, and checks its pixels.
+
+if {$::tcl_platform(os) eq "darwin"} {
+    # gpu.folk and draw.folk need to be on the main thread there.
+    Exit! 0
+}
+
+Assert! when /__this/ has program code /__programCode/ {
+    SayWithSource $__this 1 0 {} {} \
+        when $__programCode with environment [list [list this $__this]]
+} with environment {}
+local proc LoadProgram! {programFilename} {
+    set fp [open $programFilename r]
+    Hold! -on test/headless-display.folk -key [list $programFilename code] \
+        Claim $programFilename has program code [read $fp]
+    close $fp
+}
+foreach programFilename [list builtin-programs/collect.folk \
+                             builtin-programs/image/image-lib.folk \
+                             {*}[glob builtin-programs/gpu/*.folk] \
+                             builtin-programs/draw/color-map.folk \
+                             builtin-programs/draw/fill.folk] {
+    LoadProgram! $programFilename
+}
+
+Wish $::thisNode uses display headless with width 320 height 240 refreshRate 60000
+Wish display headless is captured
+
+When $::thisNode has had displays enumerated {
+    if {[llength [Query! $::thisNode has display headless with /...any/]] == 0} {
+        puts "test/headless-display: No VK_EXT_headless_surface; skipping"
+        Exit! 0
+    }
+}
+
+When display headless has width /w/ height /h/ {
+    assert {$w == 320 && $h == 240}
+
+    # You draw onto a display's own canvas in pixels.
+    Wish to draw a quad onto headless with \
+        p0 {40 30} p1 {200 30} p2 {200 120} p3 {40 120} color red
+}
+
+When the image library is /imageLib/ &\
+     display headless has frame /frame/ at timestamp /timestamp/ {
+    # The first frames may come before the quad gets drawn.
+    if {[$imageLib get $frame 120 75] ne "1 0 0"} { return }
+
+    assert {[$imageLib Image_width $frame] == 320}
+    assert {[$imageLib Image_height $frame] == 240}
+    assert {[$imageLib Image_components $frame] == 3}
+    foreach {x y} {42 32  198 32  198 118  42 118} {
+        assert {[$imageLib get $frame $x $y] eq "1 0 0"}
+    }
+    foreach {x y} {37 75  203 75  120 27  120 123  5 5  315 235} {
+        assert {[$imageLib get $frame $x $y] eq "0 0 0"}
+    }
+    Exit! 0
+}
+
+sleep 120
+puts stderr "test/headless-display: Timed out waiting for a good frame"
+Exit! 1

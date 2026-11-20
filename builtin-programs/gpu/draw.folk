@@ -12,6 +12,7 @@ if {[info exists this] && $::tcl_platform(os) eq "darwin"} {
 
 When the GPU library is /gpuLib/ &\
      the GPU Vulkan handle type definer is /defineVulkanHandleType/ &\
+     the image library is /imageLib/ &\
      the GPU texture library is /gpuTextureLib/ &\
      the GPU pipeline library is /pipelineLib/ &\
      the GPU pipeline compiler library is /pipelineCompilerLib/ {
@@ -34,6 +35,8 @@ foreach result $useDisplays {
 set cc [C]
 $cc cflags -I./vendor
 $cc include <stdlib.h>
+$cc include <string.h>
+$cc include <time.h>
 $cc include <unistd.h>
 $cc include <pthread.h>
 $cc code {
@@ -49,6 +52,7 @@ if {$useGlfw} {
 }
 
 $cc extend $gpuLib
+$cc extend $imageLib
 $cc extend $pipelineLib
 
 local proc vktry {call} { string map {\n " "} [csubst {{
@@ -74,6 +78,21 @@ $cc code [subst {
         VkSemaphore* renderFinishedSemaphores;
         VkFence inFlightFence;
         [expr { $useGlfw ? "GLFWwindow* window;" : "" }]
+
+        // Nonzero for the "headless" display, which has no vsync to
+        // block on: drawEnd sleeps to hold this frame interval.
+        int64_t frameIntervalNs;
+        int64_t nextFrameNs;
+
+        // Frame capture (readback of what we present): see captureStart.
+        VkImage* swapchainImages;
+        bool canCapture;
+        bool didWarnCannotCapture;
+        bool isCapturing;
+        int captureCount;
+        VkBuffer captureBuffer;
+        VkDeviceMemory captureMemory;
+        uint8_t* captureData;
     } DisplayState;
 
     VkDevice device;
@@ -94,7 +113,8 @@ $cc rtype DisplayState* {
     $robj = Jim_NewStringObj(interp, buf, -1);
 }
 
-$cc proc initDisplay {char* display uint32_t width uint32_t height uint32_t refreshRate} DisplayState* {
+$cc proc initDisplay {char* display uint32_t width uint32_t height uint32_t refreshRate
+                      bool capturable} DisplayState* {
     volkInitialize();
     volkLoadInstanceOnly(*instance_ptr());
 
@@ -106,6 +126,23 @@ $cc proc initDisplay {char* display uint32_t width uint32_t height uint32_t refr
     DisplayState* ds = calloc(1, sizeof(DisplayState));
 
     // Get drawing surface.
+    if (strcmp(display, "headless") == 0) {
+        // Offscreen surface that needs no monitor or window system.
+        if (vkCreateHeadlessSurfaceEXT == NULL) {
+            free(ds);
+            FOLK_ERROR("Display 'headless' needs VK_EXT_headless_surface "
+                       "(and can't be combined with the glfw display)\n");
+        }
+        VkHeadlessSurfaceCreateInfoEXT createInfo = {0};
+        createInfo.sType = VK_STRUCTURE_TYPE_HEADLESS_SURFACE_CREATE_INFO_EXT;
+        $[vktry {vkCreateHeadlessSurfaceEXT(*instance_ptr(), &createInfo, NULL, &ds->surface)}]
+
+        capturable = true;
+        if ((int32_t)refreshRate > 0) {
+            // refreshRate is in mHz, like VkDisplayModeParametersKHR.
+            ds->frameIntervalNs = 1000000000000LL / refreshRate;
+        }
+    } else {
     $[expr { $useGlfw ? {
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         ds->window = glfwCreateWindow(width, height, "Folk", NULL, NULL);
@@ -208,6 +245,7 @@ $cc proc initDisplay {char* display uint32_t width uint32_t height uint32_t refr
         createInfo.imageExtent = modeProps[chosenMode].parameters.visibleRegion;
         $[vktry {vkCreateDisplayPlaneSurfaceKHR(*instance_ptr(), &createInfo, NULL, &ds->surface)}]
     }] }]
+    }
 
     uint32_t presentQueueFamilyIndex; {
         VkBool32 presentSupport = 0;
@@ -229,6 +267,8 @@ $cc proc initDisplay {char* display uint32_t width uint32_t height uint32_t refr
         if (capabilities.currentExtent.width != UINT32_MAX) {
             extent = capabilities.currentExtent;
         } else {
+            // The surface lets us pick (always so for headless).
+            extent = (VkExtent2D) { width, height };
             $[expr { $useGlfw ? {
                 glfwGetFramebufferSize(ds->window, (int*) &extent.width, (int*) &extent.height);
                 if (capabilities.minImageExtent.width > extent.width) { extent.width = capabilities.minImageExtent.width; }
@@ -280,6 +320,12 @@ $cc proc initDisplay {char* display uint32_t width uint32_t height uint32_t refr
         createInfo.imageExtent = extent;
         createInfo.imageArrayLayers = 1;
         createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        if (capturable &&
+            (capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT)) {
+            // So captureStart/captureEnd can copy presented frames out.
+            createInfo.imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+            ds->canCapture = true;
+        }
 
         if (*graphicsQueueFamilyIndex_ptr() != presentQueueFamilyIndex) {
             fprintf(stderr, "Graphics and present queue families differ\n"); exit(1);
@@ -303,6 +349,9 @@ $cc proc initDisplay {char* display uint32_t width uint32_t height uint32_t refr
         vkGetSwapchainImagesKHR(device, ds->swapchain, &ds->swapchainImageCount, swapchainImages);
         ds->swapchainImageFormat = surfaceFormat.format;
         ds->swapchainExtent = extent;
+
+        ds->swapchainImages = malloc(sizeof(swapchainImages));
+        memcpy(ds->swapchainImages, swapchainImages, sizeof(swapchainImages));
     }
 
     VkImageView swapchainImageViews[ds->swapchainImageCount]; {
@@ -366,6 +415,113 @@ $cc proc initDisplay {char* display uint32_t width uint32_t height uint32_t refr
 }
 $cc proc getDisplayWidth {DisplayState* ds} uint32_t { return ds->swapchainExtent.width; }
 $cc proc getDisplayHeight {DisplayState* ds} uint32_t { return ds->swapchainExtent.height; }
+
+# Frame capture: read back exactly what gets presented on a display.
+# Call captureStart before drawStart; drawEnd then also copies the
+# finished frame into a host-visible buffer, and captureEnd returns
+# it as a fresh RGB image (which the caller must free).
+$cc proc captureStart {DisplayState* ds} bool {
+    if (!ds->canCapture) {
+        if (!ds->didWarnCannotCapture) {
+            fprintf(stderr, "gpu/draw: Can't capture this display "
+                    "(try `capturable true` in its `uses display` wish).\n");
+            ds->didWarnCannotCapture = true;
+        }
+        return false;
+    }
+
+    if (ds->captureBuffer == VK_NULL_HANDLE) {
+        VkBufferCreateInfo bufferInfo = {0};
+        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size = (VkDeviceSize)ds->swapchainExtent.width *
+            ds->swapchainExtent.height * 4;
+        bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        $[vktry {vkCreateBuffer(device, &bufferInfo, NULL, &ds->captureBuffer)}]
+
+        VkMemoryRequirements memRequirements;
+        vkGetBufferMemoryRequirements(device, ds->captureBuffer, &memRequirements);
+        VkPhysicalDeviceMemoryProperties memProperties;
+        vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
+
+        VkMemoryAllocateInfo allocInfo = {0};
+        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocInfo.allocationSize = memRequirements.size;
+        allocInfo.memoryTypeIndex = UINT32_MAX;
+        VkMemoryPropertyFlags properties =
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+            if ((memRequirements.memoryTypeBits & (1 << i)) &&
+                (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+                allocInfo.memoryTypeIndex = i;
+                break;
+            }
+        }
+        FOLK_ENSURE(allocInfo.memoryTypeIndex != UINT32_MAX);
+        $[vktry {vkAllocateMemory(device, &allocInfo, NULL, &ds->captureMemory)}]
+        $[vktry {vkBindBufferMemory(device, ds->captureBuffer, ds->captureMemory, 0)}]
+
+        void* data;
+        $[vktry {vkMapMemory(device, ds->captureMemory, 0, VK_WHOLE_SIZE, 0, &data)}]
+        ds->captureData = data;
+    }
+    ds->isCapturing = true;
+    return true;
+}
+# Called by drawEnd between the render pass and presenting.
+$cc proc captureRecord {DisplayState* ds VkCommandBuffer commandBuffer} void {
+    VkImageMemoryBarrier barrier = {0};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = ds->swapchainImages[ds->imageIndex];
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.layerCount = 1;
+    barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    vkCmdPipelineBarrier(commandBuffer,
+                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         0, 0, NULL, 0, NULL, 1, &barrier);
+
+    VkBufferImageCopy region = {0};
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.layerCount = 1;
+    region.imageExtent = (VkExtent3D) {
+        ds->swapchainExtent.width, ds->swapchainExtent.height, 1
+    };
+    vkCmdCopyImageToBuffer(commandBuffer, barrier.image,
+                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                           ds->captureBuffer, 1, &region);
+
+    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    barrier.dstAccessMask = 0;
+    vkCmdPipelineBarrier(commandBuffer,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                         0, 0, NULL, 0, NULL, 1, &barrier);
+}
+# Call after drawEnd (which waits for the frame, and so the copy).
+$cc proc captureEnd {DisplayState* ds} Image {
+    FOLK_ENSURE(ds->isCapturing);
+    ds->isCapturing = false;
+
+    // The swapchain is always B8G8R8A8; alpha means nothing on a display.
+    Image im = imageNew(ds->swapchainExtent.width, ds->swapchainExtent.height,
+                        3, ds->captureCount++);
+    const uint8_t* bgra = ds->captureData;
+    uint8_t* rgb = im.data;
+    size_t pixelCount = (size_t)im.width * im.height;
+    for (size_t i = 0; i < pixelCount; i++, bgra += 4, rgb += 3) {
+        rgb[0] = bgra[2]; rgb[1] = bgra[1]; rgb[2] = bgra[0];
+    }
+    return im;
+}
 
 $cc proc drawStart {DisplayState* ds} void {
     currentDisplay = ds;
@@ -464,6 +620,7 @@ $cc proc drawEnd {} void {
     VkCommandBuffer commandBuffer = getCommandBuffer();
 
     vkCmdEndRenderPass(commandBuffer);
+    if (ds->isCapturing) { captureRecord(ds, commandBuffer); }
     $[vktry {vkEndCommandBuffer(commandBuffer)}]
 
     VkSemaphore signalSemaphores[] = {ds->renderFinishedSemaphores[ds->imageIndex]};
@@ -512,6 +669,22 @@ $cc proc drawEnd {} void {
     // Wait for this display's submission to complete before we
     // reuse the shared command buffer for the next display.
     vkWaitForFences(device, 1, &ds->inFlightFence, VK_TRUE, UINT64_MAX);
+
+    if (ds->frameIntervalNs != 0) {
+        // Presenting never blocks here, so pace the frames ourselves.
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        int64_t nowNs = (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+        if (ds->nextFrameNs > nowNs) {
+            int64_t sleepNs = ds->nextFrameNs - nowNs;
+            ts = (struct timespec) { sleepNs / 1000000000LL, sleepNs % 1000000000LL };
+            nanosleep(&ts, NULL);
+            ds->nextFrameNs += ds->frameIntervalNs;
+        } else {
+            // We're running behind (or just starting).
+            ds->nextFrameNs = nowNs + ds->frameIntervalNs;
+        }
+    }
 
     currentDisplay = NULL;
 }
@@ -610,6 +783,8 @@ When /wisher/ wishes the GPU compiles pipeline /name/ /source/ {
 
 set missingPipelines [dict create]
 while true {
+    set frameTimestamp [expr {[clock milliseconds] / 1000.0}]
+
     # Advance texture retirement once per frame, then run canvas redraw work.
     $gpuTextureLib beginTextureFrame
     ForEach! /someone/ wishes the GPU runs frame prelude handler /hd/ {
@@ -668,7 +843,8 @@ while true {
             }
             set ds [$drawLib initDisplay $display \
                         $displayOpts(width) $displayOpts(height) \
-                        $displayOpts(refreshRate)]
+                        $displayOpts(refreshRate) \
+                        [dict getdef $displayOpts capturable false]]
             dict set displays $display $ds
             Assert! display $display has width [$drawLib getDisplayWidth $ds] \
                 height [$drawLib getDisplayHeight $ds]
@@ -686,6 +862,17 @@ while true {
     # Draw to each active display.
     dict for {displayName ds} $displays {
         if {$ds eq "missing"} { continue }
+
+        # Frame capture, for tests & simulation & remote debugging:
+        #   Wish display headless is captured
+        #   When display headless has frame /im/ at timestamp /t/ { ... }
+        # The headless display can always be captured; others need
+        # `capturable true` in their `uses display` wish.
+        set isCapturing false
+        if {[llength [Query! /someone/ wishes display $displayName is captured]] > 0} {
+            set isCapturing [$drawLib captureStart $ds]
+        }
+
         $gpu drawStart $ds
 
         set drawCount 0
@@ -701,6 +888,13 @@ while true {
         }
 
         $gpu drawEnd
+
+        if {$isCapturing} {
+            set frame [$drawLib captureEnd $ds]
+            Hold! -key [list display $displayName frame] \
+                Claim display $displayName has frame $frame at timestamp $frameTimestamp \
+                -destructor [list $imageLib imageFree $frame]
+        }
     }
 
     tracy frameMarkNamed $kGpu

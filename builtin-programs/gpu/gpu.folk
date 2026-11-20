@@ -39,6 +39,7 @@ fn gpuInit {useGlfw} {
     $gpuc cflags -I./vendor
     $gpuc include <pthread.h>
     $gpuc include <stdlib.h>
+    $gpuc include <string.h>
     $gpuc code {
         #define VOLK_IMPLEMENTATION
         #include "volk/volk.h"
@@ -169,13 +170,27 @@ fn gpuInit {useGlfw} {
                 const char** enabledExtensions = glfwGetRequiredInstanceExtensions(&createInfo.enabledExtensionCount);
 
             }} else {subst -nocommands {
-                const char* enabledExtensions[] = {
+                const char* enabledExtensions[4] = {
                     // 2 extensions for non-X11/Wayland display
                     VK_KHR_SURFACE_EXTENSION_NAME,
                     VK_KHR_DISPLAY_EXTENSION_NAME,
                     VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
                 };
-                createInfo.enabledExtensionCount = sizeof(enabledExtensions)/sizeof(enabledExtensions[0]);
+                createInfo.enabledExtensionCount = 3;
+
+                // Optional: lets draw.folk create the offscreen
+                // "headless" display (no monitor needed).
+                uint32_t availableCount = 0;
+                vkEnumerateInstanceExtensionProperties(NULL, &availableCount, NULL);
+                VkExtensionProperties available[availableCount];
+                vkEnumerateInstanceExtensionProperties(NULL, &availableCount, available);
+                for (uint32_t i = 0; i < availableCount; i++) {
+                    if (strcmp(available[i].extensionName,
+                               VK_EXT_HEADLESS_SURFACE_EXTENSION_NAME) == 0) {
+                        enabledExtensions[createInfo.enabledExtensionCount++] =
+                            VK_EXT_HEADLESS_SURFACE_EXTENSION_NAME;
+                    }
+                }
             }}]
             createInfo.ppEnabledExtensionNames = enabledExtensions;
 

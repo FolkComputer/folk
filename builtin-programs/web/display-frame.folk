@@ -1,0 +1,67 @@
+# display-frame.folk --
+#
+#     Serves what Folk is presenting on a display, as an image:
+#
+#       /display-frame
+#       /display-frame?display=headless&format=jpeg
+#
+#     (PNG of the first display by default.) It captures on demand
+#     (see `is captured` in gpu/draw.folk), so it costs nothing while
+#     nobody is asking. The display has to be capturable: the headless
+#     display always is.
+
+When the png library is /pngLib/ & the jpeg library is /jpegLib/ {
+    Wish the web server handles route {/display-frame} with handler {
+        set display [dict getdef $QUERY display {}]
+        if {$display eq ""} {
+            set displays [Query! display /display/ has width /w/ height /h/]
+            if {[llength $displays] == 0} { error "display-frame: No display" }
+            set display [dict get [lindex $displays 0] display]
+        }
+        set format [dict getdef $QUERY format png]
+        if {$format ni {png jpeg}} {
+            error "display-frame: format should be png or jpeg"
+        }
+
+        # We only want a frame that was drawn after this request came in.
+        set requestTime [expr {[clock milliseconds] / 1000.0}]
+        set key [list display-frame $display [clock microseconds]]
+        set filename "/tmp/web-display-frame-[pid]-[lindex $key end].$format"
+
+        Hold! -key $key Wish display $display is captured
+        try {
+            set found false
+            for {set i 0} {$i < 500 && !$found} {incr i} {
+                ForEach! display $display has frame /frame/ at timestamp /timestamp/ {
+                    if {$timestamp < $requestTime} { break }
+
+                    if {$format eq "png"} {
+                        $pngLib saveAsPng $frame $filename
+                    } else {
+                        $jpegLib saveAsJpeg $frame $filename
+                    }
+                    set found true
+                }
+                if {!$found} { after 10 }
+            }
+        } finally {
+            Hold! -key $key {}
+        }
+        if {!$found} {
+            error "display-frame: Timed out waiting for a frame of display $display"
+        }
+
+        set fsize [file size $filename]
+        set fd [open $filename r]
+        fconfigure $fd -translation binary
+        set data [read $fd $fsize]
+        close $fd
+        file delete $filename
+
+        dict create statusAndHeaders "HTTP/1.1 200 OK
+Connection: close
+Content-Type: image/$format
+Content-Length: $fsize\n\n" \
+            body $data
+    }
+}
