@@ -11,6 +11,9 @@
 
 When { source builtin-programs/collect.folk }
 When { source builtin-programs/games/engine.folk }
+# For paper pong: Folk's own image and contour libraries.
+When { source builtin-programs/image/image-lib.folk }
+When { source builtin-programs/recognition/contours.folk }
 
 # Run page programs the way boot.folk does: with $this as the page.
 When /page/ has program code /code/ {
@@ -24,10 +27,94 @@ set ::in 0.0254
 proc puts! {s} { puts $::realStdout $s }
 set ::pages [dict create]
 proc page {name code} { dict set ::pages $name $code }
-foreach f {pong tetris asteroids broken} { source test/games/$f.folk }
+foreach f {pong paper-pong tetris asteroids broken} { source test/games/$f.folk }
 
 Expect! the game library is /gameLib/
 set ::gameLib $gameLib
+
+# -------------------------------------------------------------------
+# A simulated camera, for games played with blank paper. It paints a
+# top-down grayscale picture of the board: a dark table with sensor
+# noise, white paper, the arms holding it, and whatever the projector
+# is projecting. Folk's real contour recognizer then looks at that.
+# -------------------------------------------------------------------
+Expect! the image library is /imageLib/
+Expect! the contour library is /contourLib/
+set ::imageLib $imageLib
+set ::contourLib $contourLib
+set cc [C]
+$cc extend $imageLib
+$cc proc clear {Image im int value int seed} void {
+    uint32_t s = (uint32_t)seed * 2654435761u + 1;
+    for (uint32_t y = 0; y < im.height; y++) {
+        for (uint32_t x = 0; x < im.width; x++) {
+            s = s * 1103515245u + 12345u;
+            im.data[y * im.bytesPerRow + x] = value + ((s >> 16) % 25);
+        }
+    }
+}
+$cc proc fillQuad {Image im double[4][2] v int value} void {
+    for (int y = 0; y < (int)im.height; y++) {
+        for (int x = 0; x < (int)im.width; x++) {
+            double px = x + 0.5, py = y + 0.5;
+            int inside = 1;
+            for (int i = 0; i < 4; i++) {
+                int j = (i + 1) % 4;
+                if ((v[j][0] - v[i][0]) * (py - v[i][1]) - (v[j][1] - v[i][1]) * (px - v[i][0]) < 0) inside = 0;
+            }
+            if (inside) im.data[y * im.bytesPerRow + x] = value;
+        }
+    }
+}
+$cc proc fillDisc {Image im double cx double cy double r int value} void {
+    for (int y = 0; y < (int)im.height; y++) {
+        for (int x = 0; x < (int)im.width; x++) {
+            double dx = x + 0.5 - cx, dy = y + 0.5 - cy;
+            if (dx * dx + dy * dy < r * r) im.data[y * im.bytesPerRow + x] = value;
+        }
+    }
+}
+set ::cameraLib [$cc compile]
+set ::pxPerMeter [expr {8 / 0.0254}] ;# 8 pixels per inch
+
+# Photograph the board and claim the contours on it, exactly as
+# recognition/contours.folk would from a real camera slice.
+proc seePaper {game W H n state} {
+    set k $::pxPerMeter
+    if {![info exists ::cameraImage]} {
+        set ::cameraImage [$::imageLib imageNew [expr {int($W * $k)}] [expr {int($H * $k)}] 1 0]
+    }
+    set im $::cameraImage
+    $::cameraLib clear $im 18 $n
+    set quad {{pos a w h} {
+        lmap c [$::gameLib poseCorners $pos $a $w $h] {
+            list [expr {[lindex $c 0] * $::pxPerMeter}] [expr {[lindex $c 1] * $::pxPerMeter}]
+        }
+    }}
+    # Arms: skin is brighter than the table, but not paper-white.
+    dict for {id hand} $::papers {
+        lassign $hand x y a w h
+        set reach [expr {$x < $W / 2 ? -0.12 : 0.12}]
+        $::cameraLib fillQuad $im [apply $quad [list [expr {$x + $reach}] [expr {$y + 0.03}]] 0.0 0.24 0.06] 125
+    }
+    foreach sheets [list $::papers $::strays] {
+        dict for {id hand} $sheets {
+            lassign $hand x y a w h
+            $::cameraLib fillQuad $im [apply $quad [list $x $y] $a $w $h] 232
+        }
+    }
+    # The camera sees the projection too: the ball is a bright disc.
+    foreach prim [dict get $state scene] {
+        if {[lindex $prim 0] eq "circle"} {
+            lassign $prim _ cx cy r
+            $::cameraLib fillDisc $im [expr {$cx * $k}] [expr {$cy * $k}] [expr {$r * $k}] 250
+        }
+    }
+    set contours [$::contourLib findImageContours $im 180 2.0 [expr {1 / $k}] [expr {1 / $k}] 0.1]
+    set this sim
+    Hold! -key [list contours $game] Claim [list $game board] has contours $contours \
+        with threshold 180 epsilon 2.0 minLength 0.1
+}
 
 # -------------------------------------------------------------------
 # The table: pages come and go, and have quads in "table" space.
@@ -81,12 +168,15 @@ proc clampv {v lo hi} { expr {$v < $lo ? $lo : ($v > $hi ? $hi : $v)} }
 # of page -> {x y angle w h} in board coordinates. Hands have limited
 # speed, like real ones.
 # -------------------------------------------------------------------
-proc play_pong {n state} {
+# Two pong players. `var` is the global dict of things they hold
+# (::hands for tagged pages, ::papers for blank paper).
+proc pongPlayers {n state var left right cheats} {
+    upvar #0 $var held
     set W [expr {30 * $::in}]; set H [expr {18 * $::in}]
     set pw [expr {3 * $::in}]; set ph [expr {8.5 * $::in}]
     if {$n == 1} {
-        dict set ::hands pong-paddle-left [list [expr {2.5 * $::in}] [expr {$H / 2}] 0 $pw $ph]
-        dict set ::hands pong-paddle-right [list [expr {27.5 * $::in}] [expr {$H / 2}] 0 $pw $ph]
+        dict set held $left [list [expr {2.5 * $::in}] [expr {$H / 2}] 0 $pw $ph]
+        dict set held $right [list [expr {27.5 * $::in}] [expr {$H / 2}] 0 $pw $ph]
     }
     set bx [expr {$W / 2}]; set by [expr {$H / 2}]; set bvx 0
     dict for {id b} [dict get $state bodies] {
@@ -95,26 +185,26 @@ proc play_pong {n state} {
     }
     # Left is quick and watches the ball early. Right is slower, reacts
     # late and is a little sloppy.
-    foreach {page toward maxSpeed wobble from} {
-        pong-paddle-left -1 13 0.03 0.85
-        pong-paddle-right 1 6.5 0.06 0.55
-    } {
-        lassign [dict get $::hands $page] x y a w h
+    foreach {page toward maxSpeed wobble from} [list $left -1 13 0.03 0.85 $right 1 6.5 0.06 0.55] {
+        lassign [dict get $held $page] x y a w h
         set dist [expr {$toward > 0 ? $W - $bx : $bx}]
         set watching [expr {$bvx * $toward > 0 && $dist < $from * $W}]
         set target [expr {$watching ? $by + $wobble * sin($n / 23.0) : $H / 2}]
         set y [approach $y [clampv $target [expr {$ph / 2}] [expr {$H - $ph / 2}]] \
                    [expr {$maxSpeed * $::in / 60}]]
-        if {$page eq "pong-paddle-right"} {
-            # Three times, right cheats and slides the paddle forward.
+        if {$page eq $right} {
+            # Now and then, right cheats and slides the paddle forward.
             set cheating 0
-            foreach {from to} {300 420 2000 2100 2600 2720} {
+            foreach {from to} $cheats {
                 if {$n >= $from && $n < $to} { set cheating 1 }
             }
             set x [approach $x [expr {($cheating ? 23.5 : 27.5) * $::in}] [expr {12 * $::in / 60}]]
         }
-        dict set ::hands $page [list $x $y $a $w $h]
+        dict set held $page [list $x $y $a $w $h]
     }
+}
+proc play_pong {n state} {
+    pongPlayers $n $state ::hands pong-paddle-left pong-paddle-right {300 420 2000 2100 2600 2720}
     # People drop rule cards on the table, and take them away again.
     foreach {card on off} {
         pong-card-fast 900 1500
@@ -135,6 +225,28 @@ proc play_pong {n state} {
     foreach t {890 1400 1600} {
         if {$n == $t} { dict set ::seen "laws at $t" [llength [Query! pong has law /order/ /stage/ /law/]] }
     }
+}
+
+# Pong again, but the paddles are blank strips of paper, and nobody
+# holds paper perfectly straight.
+proc play_paperpong {n state} {
+    pongPlayers $n $state ::papers left-strip right-strip {300 420}
+    foreach id {left-strip right-strip} phase {0 2} {
+        lassign [dict get $::papers $id] x y a w h
+        dict set ::papers $id [list $x $y [expr {0.16 * sin($n / 70.0 + $phase)}] $w $h]
+    }
+    # Someone leaves a whole letter sheet on the board for a while. It
+    # is white paper too, but it is not paddle-shaped.
+    if {$n == 700} {
+        dict set ::strays letter [list [expr {15 * $::in}] [expr {9 * $::in}] 0.3 [expr {8.5 * $::in}] [expr {11 * $::in}]]
+        dict set ::extras "stray letter sheet" [concat {*}[$::gameLib poseCorners [list [expr {15 * $::in}] [expr {9 * $::in}]] 0.3 [expr {8.5 * $::in}] [expr {11 * $::in}]]]
+        puts! [format "  \[paperpong %5d\] a letter sheet is left in the middle of the board" $n]
+    }
+    if {$n == 780} {
+        set ::strays [dict create]; set ::extras [dict create]
+        puts! [format "  \[paperpong %5d\] the letter sheet is taken away" $n]
+    }
+    if {$n in {100 740}} { dict set ::seen "papers at $n" [dict get $state phys] }
 }
 
 # Pick where to put a tetromino: try every turn and column, drop it,
@@ -249,7 +361,7 @@ proc jsonScene {scene} {
         switch $kind {
             circle { lassign $args x y r color filled; lappend out "\[\"c\",$x,$y,$r,\"$color\",$filled\]" }
             rect { lassign $args x y w h color; lappend out "\[\"r\",$x,$y,$w,$h,\"$color\"\]" }
-            poly { lassign $args pts color filled; lappend out "\[\"p\",\[[join $pts ,]\],\"$color\",$filled\]" }
+            poly - paper { lassign $args pts color filled; lappend out "\[\"p\",\[[join $pts ,]\],\"$color\",$filled\]" }
             text { lassign $args x y text size color; lappend out "\[\"t\",$x,$y,[jsonString $text],$size,\"$color\"\]" }
         }
     }
@@ -293,7 +405,7 @@ proc ascii {scene W H cols margin} {
                         set rr [expr {$r < 0.6 / $sx ? 0.6 / $sx : $r}]
                         if {hypot($x - $cx, ($y - $cy)) < $rr} { set ch [expr {$filled ? "o" : "O"}] }
                     }
-                    poly {
+                    poly - paper {
                         lassign $args pts color filled
                         if {[pointInPoly $x $y $pts]} {
                             set ch [expr {$filled ? "A" : ($color eq "red" ? "!" : "=")}]
@@ -319,6 +431,10 @@ proc playGame {game pages W H cols margin maxTicks showAt} {
     set ::hands [dict create]
     set ::extras [dict create]
     set ::seen [dict create]
+    set ::papers [dict create]
+    set ::strays [dict create]
+    unset -nocomplain ::cameraImage
+    set lastVx {}
     set enginePoly [layEngine $game-engine 0.30 0.25 6]
     foreach p $pages { putPage $p }
     sleep 0.5 ;# let the rulebook compile
@@ -345,6 +461,7 @@ proc playGame {game pages W H cols margin maxTicks showAt} {
         # Hands move the paper...
         play_$game $n $state
         dict for {page hand} $::hands { layPage $page $hand }
+        if {[dict size $::papers]} { seePaper $game $W $H $n $state }
         # ...and the game advances one tick.
         Hold! -key [list advance $game] Wish $game advances to tick $n
         set waited 0
@@ -356,6 +473,13 @@ proc playGame {game pages W H cols margin maxTicks showAt} {
         }
         set state [dict get [lindex $results 0] state]
 
+        # Did the ball turn around between the walls? Then it bounced off a paddle.
+        dict for {id b} [dict get $state bodies] {
+            if {![dict exists $b vel]} { continue }
+            set vx [lindex [dict get $b vel] 0]
+            if {[dict getdef $lastVx $id $vx] * $vx < 0} { dict incr ::seen "paddle bounces" }
+            dict set lastVx $id $vx
+        }
         foreach msg [dict get $state log] {
             dict set ::seen $msg 1
             puts! [format "  \[%s %5d\] %s" $game $n $msg]
@@ -381,6 +505,7 @@ proc playGame {game pages W H cols margin maxTicks showAt} {
     foreach p $pages { takePage $p }
     takePage $game-engine
     Hold! -key [list advance $game] {}
+    Hold! -key [list contours $game] {}
     return $state
 }
 
@@ -395,7 +520,7 @@ foreach p $problems { puts! "  $p" }
 assert {[llength $problems] == 3}
 takePage broken-engine
 
-set only [expr {[info exists ::env(GAMES_ONLY)] ? $::env(GAMES_ONLY) : {pong tetris asteroids}}]
+set only [expr {[info exists ::env(GAMES_ONLY)] ? $::env(GAMES_ONLY) : {pong paperpong tetris asteroids}}]
 
 if {"pong" in $only} {
     set pong [playGame pong {pong-engine pong-paddle-left pong-paddle-right} \
@@ -421,6 +546,22 @@ if {"pong" in $only} {
         assert {[dict get $::seen "laws at 1400"] == [dict get $::seen "laws at 890"] + 1}
         assert {[dict get $::seen "laws at 1600"] == [dict get $::seen "laws at 890"]}
     }
+}
+if {"paperpong" in $only} {
+    set paper [playGame paperpong {paperpong-engine} \
+                   [expr {30 * $::in}] [expr {18 * $::in}] 60 0 [expr {$maxTicks * 2}] {150 360 740}]
+    puts! "paper pong: final score [dict get $paper score], winner: [dict get $paper winner]"
+    puts! "paper pong: the ball bounced off paper [dict getdef $::seen "paddle bounces" 0] times"
+    # Two blank strips were found, and the rules gave each a player.
+    set sheets [dict get $::seen "papers at 100"]
+    assert {[dict size $sheets] == 2}
+    assert {[lsort [lmap p [dict values $sheets] {dict get $p owner}]] eq {left right}}
+    assert {[dict getdef $::seen "paddle bounces" 0] >= 3}
+    if {[dict get $paper tick] > 430} {
+        assert {[llength [lsearch -all -glob [dict keys $::seen] "violation: paddle-* is off-axis*"]] == 1}
+    }
+    # The stray letter sheet was never mistaken for a paddle.
+    if {[dict exists $::seen "papers at 740"]} { assert {[dict size [dict get $::seen "papers at 740"]] == 2} }
 }
 if {"tetris" in $only} {
     set tetris [playGame tetris {tetris-engine tetris-slider tetris-dropper} \

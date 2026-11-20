@@ -1,0 +1,39 @@
+# Pong with no paddle pages at all. A paddle is any blank strip of white
+# paper, 3in by 8.5in (a letter sheet cut into strips works): no tag,
+# no program. The camera finds it on the board by its outline.
+
+page paperpong-engine {
+    Claim paperpong is a game
+    Claim paperpong has players left right
+
+    Claim paperpong has tool board  {fixed; region 30in 18in; anchored at top-right}
+    Claim paperpong has tool paddle {paper; quad 3in 8.5in}
+    Claim paperpong has tool ball   {virtual; circle 1in; filled}
+
+    Claim paperpong has rules {
+        game starts in stage serve
+
+        # paper cannot say whose it is, so the rules do
+        paddle on the west side belongs to player left
+        paddle on the east side belongs to player right
+
+        paddle moves along y
+        ball bounces off paddle
+        ball bounces off board edges north south
+        gravity is 0
+
+        in stage serve {
+            ball spawns at center with speed 20in/s toward a random player
+            when 1s has passed then stage is rally
+        }
+        in stage rally {
+            ball speeds up 5% when it bounces off paddle
+        }
+
+        when ball exits board edge west then player right scores 1, ball is removed, stage is serve
+        when ball exits board edge east then player left scores 1, ball is removed, stage is serve
+        game ends when a player has 5 points
+    }
+
+    Claim $this is the engine of paperpong
+}

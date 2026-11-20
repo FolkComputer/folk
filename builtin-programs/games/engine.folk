@@ -94,6 +94,12 @@ set gameLib [library create gameLib {
             set rest [lrange $w 1 end]
             switch [lindex $w 0] {
                 physical - virtual - fixed { dict set t kind [lindex $w 0] }
+                paper {
+                    # A physical tool with no tag and no program: any
+                    # blank sheet of white paper cut to this tool's size.
+                    dict set t kind physical
+                    dict set t paper 1
+                }
                 quad {
                     dict set t shape quad
                     dict set t w [len [lindex $rest 0]]
@@ -277,6 +283,10 @@ set gameLib [library create gameLib {
         } elseif {[match {?a turns with ?t} $w]} {
             set law [dict create op turn a $a t $t]
             lappend names $a $t
+        } elseif {[match {?a on the ?side side belongs to player ?p} $w]} {
+            if {$side ni {west east north south}} { error "side must be west, east, north or south" }
+            set law [dict create op owns a $a side $side p $p]
+            lappend names $a
         } elseif {[match {gravity is ?g} $w]} {
             set law [dict create op gravity g [expr {$g * 1.0}]]
         } elseif {[match {remedy for ?kind is ?remedy} $w]} {
@@ -375,6 +385,97 @@ set gameLib [library create gameLib {
         }
         return $out
     }
+    # --- Recognizing blank paper ---
+    # A contour is a list of {x y} points in board coordinates, as the
+    # contour recognizer claims them for the board's camera slice.
+    proc hull {pts} {
+        set pts [lsort -unique [lmap p $pts {format "%.6f %.6f" {*}$p}]]
+        set pts [lsort -real -index 1 $pts]
+        set pts [lsort -real -index 0 $pts]
+        if {[llength $pts] < 3} { return $pts }
+        set out {}
+        foreach pass [list $pts [lreverse $pts]] {
+            set h {}
+            foreach p $pass {
+                while {[llength $h] >= 2} {
+                    lassign [lindex $h end-1] ax ay
+                    lassign [lindex $h end] bx by
+                    if {($bx - $ax) * ([lindex $p 1] - $ay) - ($by - $ay) * ([lindex $p 0] - $ax) > 0} { break }
+                    set h [lrange $h 0 end-1]
+                }
+                lappend h $p
+            }
+            lappend out {*}[lrange $h 0 end-1]
+        }
+        return $out
+    }
+    proc polyArea {pts} {
+        set a 0.0
+        set prev [lindex $pts end]
+        foreach p $pts {
+            set a [expr {$a + [lindex $prev 0] * [lindex $p 1] - [lindex $p 0] * [lindex $prev 1]}]
+            set prev $p
+        }
+        expr {abs($a) / 2.0}
+    }
+    # Smallest rectangle around a contour: {cx cy angle width height fill}
+    # where fill is how much of that rectangle the contour covers.
+    proc fitRect {contour} {
+        set h [hull $contour]
+        if {[llength $h] < 3} { return {} }
+        set best {}; set bestArea 1e18
+        set prev [lindex $h end]
+        foreach p $h {
+            lassign $prev ax ay
+            lassign $p bx by
+            set prev $p
+            set l [expr {hypot($bx - $ax, $by - $ay)}]
+            if {$l < 1e-9} { continue }
+            set ux [expr {($bx - $ax) / $l}]; set uy [expr {($by - $ay) / $l}]
+            set u0 1e18; set u1 -1e18; set v0 1e18; set v1 -1e18
+            foreach q $h {
+                lassign $q qx qy
+                set u [expr {$qx * $ux + $qy * $uy}]; set v [expr {-$qx * $uy + $qy * $ux}]
+                if {$u < $u0} { set u0 $u }; if {$u > $u1} { set u1 $u }
+                if {$v < $v0} { set v0 $v }; if {$v > $v1} { set v1 $v }
+            }
+            set area [expr {($u1 - $u0) * ($v1 - $v0)}]
+            if {$area < $bestArea} {
+                set bestArea $area
+                set cu [expr {($u0 + $u1) / 2}]; set cv [expr {($v0 + $v1) / 2}]
+                set best [list [expr {$cu * $ux - $cv * $uy}] [expr {$cu * $uy + $cv * $ux}] \
+                              [expr {atan2($uy, $ux)}] [expr {$u1 - $u0}] [expr {$v1 - $v0}]]
+            }
+        }
+        if {$best eq {} || $bestArea < 1e-9} { return {} }
+        list {*}$best [expr {[polyArea $contour] / $bestArea}]
+    }
+    # Every contour that is a w-by-h rectangle of paper, as corners
+    # {tl tr br bl}. A sheet has no top, so the angle is the one
+    # nearest upright.
+    proc fitRects {contours w h} {
+        set tol 0.2
+        set found {}
+        foreach contour $contours {
+            if {[llength $contour] < 4} { continue }
+            set r [fitRect $contour]
+            if {$r eq {}} { continue }
+            lassign $r cx cy angle e1 e2 fill
+            if {$fill < 0.85} { continue }
+            if {abs($e1 - $w) <= $tol * $w && abs($e2 - $h) <= $tol * $h} {
+            } elseif {abs($e1 - $h) <= $tol * $h && abs($e2 - $w) <= $tol * $w} {
+                set angle [expr {$angle + 1.5707963}]
+                lassign [list $e2 $e1] e1 e2
+            } else { continue }
+            set angle [expr {atan2(sin($angle), cos($angle))}]
+            if {$angle > 1.5707963} { set angle [expr {$angle - 3.14159265}] }
+            if {$angle <= -1.5707963} { set angle [expr {$angle + 3.14159265}] }
+            lappend found [list $cx $cy [poseCorners [list $cx $cy] $angle $e1 $e2]]
+        }
+        set found [lsort -real -index 1 $found]
+        lmap f [lsort -real -index 0 $found] {lindex $f 2}
+    }
+
     # Circle against an oriented rectangle. Returns {} or {nx ny depth}.
     proc circleRect {x y r p} {
         lassign [dict get $p pos] px py
@@ -565,6 +666,24 @@ set gameLib [library create gameLib {
         foreach sl [dict get $ctx allLaws] {
             lassign $sl stage law
             if {$stage eq $s && [dict get $law op] eq "spawn"} { spawn $law }
+        }
+    }
+
+    # `paddle on the west side belongs to player left`
+    proc assignOwners {} {
+        upvar st st ctx ctx
+        set W [dict get $ctx board w]; set H [dict get $ctx board h]
+        foreach law [lawsOf owns] {
+            foreach id [physOf [dict get $law a]] {
+                lassign [dict get $st phys $id pos] x y
+                switch [dict get $law side] {
+                    west { set on [expr {$x < $W / 2}] }
+                    east { set on [expr {$x >= $W / 2}] }
+                    north { set on [expr {$y < $H / 2}] }
+                    south { set on [expr {$y >= $H / 2}] }
+                }
+                if {$on} { dict set st phys $id owner [dict get $law p] }
+            }
         }
     }
 
@@ -987,6 +1106,7 @@ set gameLib [library create gameLib {
     # What to project, as a list of primitives in board coordinates:
     #   {circle x y r color filled}   {rect x y w h color}
     #   {poly {x y x y ...} color filled}   {text x y string size color}
+    #   {paper {x y x y ...} color 0}  a real sheet of paper, where it was seen
     proc buildScene {} {
         upvar st st ctx ctx
         set W [dict get $ctx board w]; set H [dict get $ctx board h]
@@ -1017,7 +1137,9 @@ set gameLib [library create gameLib {
             set color [expr {[dict getdef $p violated 0] ? "red" : [dict getdef $t color white]}]
             set pts {}
             foreach c [dict get $p corners] { lappend pts [r4 [lindex $c 0]] [r4 [lindex $c 1]] }
-            lappend s [list poly $pts $color 0]
+            # Blank paper is `paper`, not `poly`: it is on the table
+            # already, so only the referee's red outline is projected.
+            lappend s [list [expr {[dict getdef $t paper 0] ? "paper" : "poly"}] $pts $color 0]
             if {[dict exists $p seen]} {
                 # Remedy `ignore`: where the paper really is, dimmed.
                 set pts {}
@@ -1073,13 +1195,49 @@ set gameLib [library create gameLib {
         dict set ctx allLaws [lmap l [lsort -integer -index 0 $lawList] {lrange $l 1 2}]
 
         # Arriving observations: sample every physical tool's pose.
+        # Tagged pages name themselves. Blank paper has no name, so
+        # each sheet is tracked: it is whichever sheet was nearest
+        # last tick. A sheet that goes unseen for a moment (a hand or
+        # the projected ball over it) keeps its last pose.
+        set old [dict get $st phys]
         set phys {}
+        set tracked {}
         foreach id [lsort [dict keys $obs]] {
             set o [dict get $obs $id]
-            dict set phys $id [dict merge [pose [dict get $o corners]] \
+            set p [dict merge [pose [dict get $o corners]] \
                 [dict create tool [dict get $o tool] owner [dict getdef $o owner {}]]]
+            if {[dict getdef $o anon 0]} {
+                lassign [dict get $p pos] x y
+                set id {}; set nearest 0.25
+                dict for {oid op} $old {
+                    if {![dict exists $op sawAt] || $oid in $tracked ||
+                        [dict get $op tool] ne [dict get $p tool]} { continue }
+                    lassign [dict get $op pos] ox oy
+                    set d [expr {hypot($x - $ox, $y - $oy)}]
+                    if {$d < $nearest} { set nearest $d; set id $oid }
+                }
+                if {$id eq {}} {
+                    set id "[dict get $p tool]-[dict get $st nextId]"
+                    dict incr st nextId
+                    logEvent "sees paper: $id"
+                }
+                lappend tracked $id
+                dict set p sawAt [dict get $st tick]
+            }
+            dict set phys $id $p
         }
-        dict set st phys $phys
+        dict for {oid op} $old {
+            if {![dict exists $op sawAt] || $oid in $tracked} { continue }
+            if {[dict get $st tick] - [dict get $op sawAt] > 20} {
+                logEvent "lost paper: $oid"
+                continue
+            }
+            dict unset op violated; dict unset op seen
+            dict set phys $oid $op
+        }
+        set sorted {}
+        foreach id [lsort [dict keys $phys]] { dict set sorted $id [dict get $phys $id] }
+        dict set st phys $sorted
 
         if {![dict get $st over]} {
             if {![dict get $st started]} {
@@ -1106,6 +1264,7 @@ set gameLib [library create gameLib {
                 if {$stage ne "any" && $stage ne [dict get $st stage]} { continue }
                 set law
             }]
+            assignOwners
             referee
             fire
             integrate
@@ -1194,6 +1353,21 @@ When /page/ is the engine of /game/ &\
 When /page/ is the board of /game/ & /page/ has quad /quad/ {
     Claim $game has board quad $quad
 }
+# The board is a thing on the table in its own right, like a page: it
+# has a quad and a size, so it can have a canvas and a camera slice.
+When /game/ has board quad /quad/ & /game/ has parsed tool board /boardTool/ {
+    set board [list $game board]
+    Claim $board has quad $quad
+    Claim $board has resolved geometry \
+        [dict create width [dict get $boardTool w] height [dict get $boardTool h]]
+}
+# A `paper` tool is recognized, not claimed: look at the board through
+# the camera and find the bright outlines on it.
+When /game/ has parsed tool /name/ /tool/ {
+    if {[dict getdef $tool paper 0]} {
+        Wish [list $game board] has contours with threshold 180 epsilon 2.0 minLength 0.1
+    }
+}
 
 # -------------------------------------------------------------------
 # State and the stepper.
@@ -1233,6 +1407,18 @@ When /someone/ wishes /game/ advances to tick /target/ &\
         foreach o [Query! $page belongs to player /player/] { set owner [dict get $o player] }
         dict set obs $page [dict create tool [dict get $r tool] owner $owner \
             corners [$gameLib observe $boardQuad [dict get $r quad]]]
+    }
+
+    # Blank paper: every outline on the board with a paper tool's shape.
+    dict for {name tool} $tools {
+        if {![dict getdef $tool paper 0]} { continue }
+        set k 0
+        foreach r [Query! [list $game board] has contours /contours/ with /...opts/] {
+            foreach corners [$gameLib fitRects [dict get $r contours] [dict get $tool w] [dict get $tool h]] {
+                dict set obs [list paper $name [incr k]] \
+                    [dict create tool $name owner {} corners $corners anon 1]
+            }
+        }
     }
 
     # Catch up at most a few ticks per reaction if the clock is ahead.

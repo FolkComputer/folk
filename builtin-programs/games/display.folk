@@ -5,12 +5,8 @@
 # NOTE: written against the draw wishes in builtin-programs/draw but
 # not yet run on a table with a projector.
 
-When /game/ has board quad /quad/ & /game/ has parsed tool board /boardTool/ {
-    set board [list $game board]
-    Claim $board has quad $quad
-    Claim $board has resolved geometry \
-        [dict create width [dict get $boardTool w] height [dict get $boardTool h]]
-    Wish $board has a canvas
+When /game/ has board quad /quad/ {
+    Wish [list $game board] has a canvas
 }
 
 When /game/ has scene /scene/ {
@@ -40,6 +36,16 @@ When /game/ has scene /scene/ {
                     lappend points [lindex $points 0]
                     Wish to draw a line onto $board with points $points width 0.003 color $color
                 }
+            }
+            paper {
+                # Real paper: project nothing on it, unless the
+                # referee is pointing at it.
+                lassign $args flat color
+                if {$color ne "red"} { continue }
+                set points {}
+                foreach {x y} $flat { lappend points [list $x $y] }
+                lappend points [lindex $points 0]
+                Wish to draw a line onto $board with points $points width 0.005 color red
             }
             text {
                 lassign $args x y text size color
