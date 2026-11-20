@@ -1,0 +1,13 @@
+# A rulebook with mistakes, to exercise the validator.
+page broken-engine {
+    Claim broken is a game
+    Claim broken has tool board {fixed; region 10in 10in}
+    Claim broken has tool ball  {virtual; circle 1in}
+    Claim broken has rules {
+        ball bounces off board
+        ball bounces off net
+        ball does a little dance
+        ball expires after soon
+    }
+    Claim $this is the engine of broken
+}

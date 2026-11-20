@@ -1,0 +1,15 @@
+# Real-time clock for Folk Rules games: 60 ticks per second, one
+# clock per game. A game that should be stepped by hand (paused,
+# single-stepped, replayed) can opt out:
+#
+#   Claim pong is stepped by hand
+#   Wish pong advances to tick 4182
+
+When /game/ is a game {
+    set startMs [clock milliseconds]
+    When /nobody/ claims $game is stepped by hand {
+        When the clock time is /t/ {
+            Wish $game advances to tick [expr {int(($t - $startMs / 1000.0) * 60)}]
+        }
+    }
+}

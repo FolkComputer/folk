@@ -1,0 +1,1270 @@
+# Folk Rules: a physics ruleset and game language for Folk (prototype).
+#
+# A game is a named system that declares its tools and its rules:
+#
+#   Claim pong is a game
+#   Claim pong has players left right
+#   Claim pong has tool paddle {physical; quad 8.5in 3in}
+#   Claim pong has rules { ball bounces off paddle ... }
+#
+# Pipeline:
+#
+#   has rules {block}  --interpreter-->  stage S has rule N words...
+#   stage S has rule   --compiler----->  has law N S {op ...}
+#   has law + camera poses + state at tick n  --stepper-->  state at tick n+1
+#
+# The whole world of a game lives in ONE statement, `$game has state
+# $state`, which carries its tick. That makes a step atomic, and makes
+# games pausable, steppable, loggable and replayable (Dedalus-style).
+# Friendlier per-fact claims are derived from it at the bottom of this
+# file.
+#
+# Board coordinates are meters from the board's top-left corner, x to
+# the right and y down -- the same convention as a Folk page canvas.
+
+set gameLib [library create gameLib {
+    # ---------------------------------------------------------------
+    # Units and small helpers
+    # ---------------------------------------------------------------
+    proc len {s} {
+        if {![regexp {^(-?[0-9.]+)(in|cm|mm|m)?$} $s -> v u]} {
+            error "bad length '$s' (try 8.5in, 20cm, 0.3m)"
+        }
+        switch $u {
+            in { return [expr {$v * 0.0254}] }
+            cm { return [expr {$v * 0.01}] }
+            mm { return [expr {$v * 0.001}] }
+        }
+        return [expr {$v * 1.0}]
+    }
+    proc dur {s} {
+        if {![regexp {^([0-9.]+)(ms|s)$} $s -> v u]} {
+            error "bad duration '$s' (try 1s, 250ms)"
+        }
+        expr {$u eq "ms" ? $v / 1000.0 : $v * 1.0}
+    }
+    proc ticks {s} {
+        set n [expr {int(round([dur $s] * 60))}]
+        expr {$n < 1 ? 1 : $n}
+    }
+    proc speed {s} {
+        if {![regexp {^(.+)/s$} $s -> l]} { error "bad speed '$s' (try 20in/s)" }
+        len $l
+    }
+    proc pct {s} {
+        if {![regexp {^([0-9.]+)%$} $s -> v]} { error "bad percentage '$s'" }
+        expr {$v / 100.0}
+    }
+    proc clamp {v lo hi} { expr {$v < $lo ? $lo : ($v > $hi ? $hi : $v)} }
+    proc r4 {v} { expr {round($v * 10000.0) / 10000.0} }
+
+    proc vsub {a b} { lmap x $a y $b {expr {$x - $y}} }
+    proc vadd {a b} { lmap x $a y $b {expr {$x + $y}} }
+    proc vscale {a k} { lmap x $a {expr {$x * $k}} }
+    proc vdot {a b} { set s 0.0; foreach x $a y $b { set s [expr {$s + $x * $y}] }; return $s }
+    proc vunit {a} { vscale $a [expr {1.0 / sqrt([vdot $a $a])}] }
+
+    # ---------------------------------------------------------------
+    # Rulebook: quoted block -> list of sentences (each a Tcl list).
+    # Lines are buffered until the braces balance, so a sentence (like
+    # `in stage serve { ... }`) may span lines.
+    # ---------------------------------------------------------------
+    proc sentences {block} {
+        set out {}
+        set buf ""
+        foreach line [split $block "\n"] {
+            append buf $line "\n"
+            if {![info complete $buf]} { continue }
+            set cmd [string trim $buf]
+            set buf ""
+            if {$cmd eq "" || [string index $cmd 0] eq "#"} { continue }
+            lappend out $cmd
+        }
+        return $out
+    }
+
+    # ---------------------------------------------------------------
+    # Tools: `{physical; quad 8.5in 3in}` -> dict
+    # ---------------------------------------------------------------
+    proc parseTool {decl} {
+        set t [dict create kind virtual shape none color white filled 0 pointer 0]
+        foreach part [split [string map [list "\n" ";"] $decl] ";"] {
+            set w [string trim $part]
+            if {$w eq ""} { continue }
+            set rest [lrange $w 1 end]
+            switch [lindex $w 0] {
+                physical - virtual - fixed { dict set t kind [lindex $w 0] }
+                quad {
+                    dict set t shape quad
+                    dict set t w [len [lindex $rest 0]]
+                    dict set t h [len [lindex $rest 1]]
+                }
+                circle {
+                    # `circle 1in` is a diameter.
+                    dict set t shape circle
+                    dict set t r [expr {[len [lindex $rest 0]] / 2.0}]
+                }
+                region {
+                    dict set t shape region
+                    dict set t w [len [lindex $rest 0]]
+                    dict set t h [len [lindex $rest 1]]
+                }
+                grid {
+                    # `grid 10 20 cell 1in`
+                    dict set t shape grid
+                    dict set t cols [lindex $rest 0]
+                    dict set t rows [lindex $rest 1]
+                    dict set t cell [len [lindex $rest 3]]
+                    dict set t w [expr {[dict get $t cols] * [dict get $t cell]}]
+                    dict set t h [expr {[dict get $t rows] * [dict get $t cell]}]
+                }
+                tetromino { dict set t shape tetromino }
+                cells { dict set t shape cells }
+                anchored { dict set t anchor [lindex $rest 1] }
+                color { dict set t color [lindex $rest 0] }
+                filled { dict set t filled 1 }
+                pointer { dict set t pointer 1 }
+                default { error "tool declaration: don't understand '$w'" }
+            }
+        }
+        return $t
+    }
+
+    # ---------------------------------------------------------------
+    # Rule compiler: one sentence -> one law. Returns {ok $law} or
+    # {error $message}. A law is a dict with an `op`, the tool names it
+    # mentions (`names`, for the validator), and the original `rule`.
+    # ---------------------------------------------------------------
+
+    # Pattern words: literal, ?name (one word), *name (the rest; last only).
+    proc match {pat words} {
+        set n [llength $pat]
+        set last [lindex $pat end]
+        set rest 0
+        if {[string index $last 0] eq "*"} { set rest 1; incr n -1 }
+        if {$rest} {
+            if {[llength $words] <= $n} { return 0 }
+        } elseif {[llength $words] != $n} { return 0 }
+        set binds {}
+        for {set i 0} {$i < $n} {incr i} {
+            set p [lindex $pat $i]
+            set w [lindex $words $i]
+            if {[string index $p 0] eq "?"} {
+                lappend binds [string range $p 1 end] $w
+            } elseif {$p ne $w} { return 0 }
+        }
+        if {$rest} { lappend binds [string range $last 1 end] [lrange $words $n end] }
+        foreach {k v} $binds { uplevel 1 [list set $k $v] }
+        return 1
+    }
+
+    # `center`, `top`, `random edge`, then optional
+    # `with speed 3in/s [to 6in/s]` and `toward a random player`.
+    proc compileSpawn {tool count where} {
+        set spec [dict create op spawn a $tool n $count where center lo 0.0 hi 0.0 toward random names [list $tool]]
+        set w $where
+        if {[lrange $w 0 1] eq {random edge}} {
+            dict set spec where edge; set w [lrange $w 2 end]
+        } elseif {[lindex $w 0] in {center top}} {
+            dict set spec where [lindex $w 0]; set w [lrange $w 1 end]
+        } else { error "spawn: where is '$where'? (center, top, random edge)" }
+        if {[lrange $w 0 1] eq {with speed}} {
+            dict set spec lo [speed [lindex $w 2]]
+            dict set spec hi [dict get $spec lo]
+            set w [lrange $w 3 end]
+            if {[lindex $w 0] eq "to"} {
+                dict set spec hi [speed [lindex $w 1]]; set w [lrange $w 2 end]
+            }
+        }
+        if {$w eq {toward a random player}} {
+            dict set spec toward player; set w {}
+        }
+        if {$w ne {}} { error "spawn: don't understand '$w'" }
+        return $spec
+    }
+    proc compileCond {w} {
+        if {[match {?a hits ?b} $w]} { return [dict create c hits a $a b $b names [list $a $b]] }
+        if {[match {?a exits board edge ?e} $w]} { return [dict create c exits a $a e $e names [list $a]] }
+        if {[match {?a exits board} $w]} { return [dict create c exits a $a e any names [list $a]] }
+        if {[match {?a lands} $w]} { return [dict create c lands a $a names [list $a]] }
+        if {[match {a row is full} $w]} { return [dict create c rowfull names {}] }
+        if {[match {?d has passed} $w]} { return [dict create c passed n [ticks $d] names {}] }
+        if {[match {no ?a remains} $w]} { return [dict create c none a $a names [list $a]] }
+        if {[match {a player has ?n points} $w]} { return [dict create c points n $n names {}] }
+        if {[match {a player has 0 lives} $w]} { return [dict create c nolives names {}] }
+        if {[match {?a cannot spawn} $w]} { return [dict create c cantspawn a $a names [list $a]] }
+        error "don't understand the condition '$w'"
+    }
+    proc compileEffect {w} {
+        if {[match {player ?p scores ?n} $w]} { return [dict create e score p $p n $n names {}] }
+        if {[match {player scores ?n} $w]} { return [dict create e score p {} n $n names {}] }
+        if {[match {player loses ?n ?lives} $w]} { return [dict create e lose n $n names {}] }
+        if {[match {stage is ?s} $w]} { return [dict create e stage s $s names {}] }
+        if {[match {row is cleared} $w]} { return [dict create e clearrow names {}] }
+        if {[match {game is over} $w]} { return [dict create e over names {}] }
+        if {[match {?a is removed} $w]} { return [dict create e remove a $a names [list $a]] }
+        if {[match {?a splits into ?n} $w]} { return [dict create e split a $a n $n names [list $a]] }
+        if {[match {?a becomes ?b} $w]} { return [dict create e blocks a $a names [list $a $b]] }
+        if {[match {?a spawns at *where} $w]} {
+            set spec [compileSpawn $a 1 $where]
+            dict set spec e spawn
+            return $spec
+        }
+        error "don't understand the effect '$w'"
+    }
+
+    proc compile {words} {
+        try {
+            return [list ok [compileLaw $words]]
+        } on error e {
+            return [list error $e]
+        }
+    }
+    proc compileLaw {words} {
+        set w $words
+        set extra [dict create]
+        set names {}
+        # Optional suffix: `... while <tool> is on board`
+        if {[llength $w] > 5 && [lindex $w end-4] eq "while" &&
+            [lrange $w end-2 end] eq {is on board}} {
+            dict set extra while [lindex $w end-3]
+            lappend names [lindex $w end-3]
+            set w [lrange $w 0 end-5]
+        }
+        # Optional suffix: `... restitution 0.9`
+        if {[llength $w] > 2 && [lindex $w end-1] eq "restitution"} {
+            dict set extra restitution [lindex $w end]
+            set w [lrange $w 0 end-2]
+        }
+
+        if {[match {?a bounces off board edges *edges} $w]} {
+            set law [dict create op bounce a $a b board edges $edges]
+            lappend names $a
+        } elseif {[match {?a bounces off board} $w]} {
+            set law [dict create op bounce a $a b board edges {north south east west}]
+            lappend names $a
+        } elseif {[match {?a bounces off ?b} $w]} {
+            set law [dict create op bounce a $a b $b edges {}]
+            lappend names $a $b
+        } elseif {[match {?a passes through ?b} $w]} {
+            set law [dict create op pass a $a b $b]
+            lappend names $a $b
+        } elseif {[match {?a wraps around board} $w]} {
+            set law [dict create op wrap a $a]
+            lappend names $a
+        } elseif {[match {?a moves along ?axis} $w]} {
+            if {$axis ni {x y}} { error "moves along: axis must be x or y, not '$axis'" }
+            set law [dict create op axis a $a axis $axis]
+            lappend names $a
+        } elseif {[match {?a stays inside board} $w]} {
+            set law [dict create op inside a $a]
+            lappend names $a
+        } elseif {[match {?a speeds up ?p when it bounces off ?b} $w]} {
+            set law [dict create op speedup a $a b $b factor [expr {1.0 + [pct $p]}]]
+            lappend names $a $b
+        } elseif {[match {?a expires after ?d} $w]} {
+            set law [dict create op expire a $a ttl [ticks $d]]
+            lappend names $a
+        } elseif {[match {?a fires ?b every ?d at speed ?s} $w]} {
+            set law [dict create op fire a $a b $b every [ticks $d] speed [speed $s]]
+            lappend names $a $b
+        } elseif {[match {?a falls 1 cell every ?d} $w]} {
+            set law [dict create op fall a $a every [ticks $d]]
+            lappend names $a
+        } elseif {[match {?a follows ?t along x} $w]} {
+            set law [dict create op follow a $a t $t]
+            lappend names $a $t
+        } elseif {[match {?a turns with ?t} $w]} {
+            set law [dict create op turn a $a t $t]
+            lappend names $a $t
+        } elseif {[match {gravity is ?g} $w]} {
+            set law [dict create op gravity g [expr {$g * 1.0}]]
+        } elseif {[match {remedy for ?kind is ?remedy} $w]} {
+            if {$remedy ni {highlight ignore penalty nothing}} {
+                error "remedy must be highlight, ignore, penalty or nothing"
+            }
+            set law [dict create op remedy kind $kind remedy $remedy]
+        } elseif {[match {game starts in stage ?s} $w]} {
+            set law [dict create op start s $s]
+        } elseif {[match {player has ?n lives} $w]} {
+            set law [dict create op lives n $n]
+        } elseif {[match {?n ?a spawn at *where} $w] && [string is integer -strict $n]} {
+            set law [compileSpawn $a $n $where]
+        } elseif {[match {?a spawns at *where} $w]} {
+            set law [compileSpawn $a 1 $where]
+        } elseif {[match {game ends when *cond} $w]} {
+            set c [compileCond $cond]
+            lappend names {*}[dict get $c names]
+            set law [dict create op event cond $c effects [list [dict create e over names {}]]]
+        } elseif {[lindex $w 0] eq "when"} {
+            set i [lsearch -exact $w then]
+            if {$i < 2} { error "a `when` rule needs `when <condition> then <effects>`" }
+            set c [compileCond [lrange $w 1 $i-1]]
+            lappend names {*}[dict get $c names]
+            set effects {}
+            foreach e [split [join [lrange $w $i+1 end] " "] ","] {
+                set eff [compileEffect [string trim $e]]
+                lappend names {*}[dict get $eff names]
+                lappend effects $eff
+            }
+            set law [dict create op event cond $c effects $effects]
+        } else {
+            error "no sentence shape matches"
+        }
+        if {[dict exists $law names]} { lappend names {*}[dict get $law names] }
+        set law [dict merge $law $extra]
+        dict set law names [lsort -unique $names]
+        dict set law rule $words
+        return $law
+    }
+
+    # ---------------------------------------------------------------
+    # Geometry: from Folk quads (3D, any shared space) to board space
+    # ---------------------------------------------------------------
+
+    # The board hangs off a corner of the engine page: it starts at
+    # that corner and extends along the page's own right and down
+    # directions, so sliding or turning the engine page moves the
+    # whole game space with it.
+    proc boardQuad {pageQuad boardTool} {
+        lassign [lindex $pageQuad 1] tl tr br bl
+        set ux [vunit [vsub $tr $tl]]
+        set uy [vunit [vsub $bl $tl]]
+        set W [dict get $boardTool w]
+        set H [dict get $boardTool h]
+        switch [dict getdef $boardTool anchor top-right] {
+            top-right { set o $tr }
+            bottom-right { set o $br }
+            bottom-left { set o $bl }
+            top-left { set o $tl }
+            default { error "board: unknown anchor corner" }
+        }
+        set a [vadd $o [vscale $ux $W]]
+        list [lindex $pageQuad 0] \
+            [list $o $a [vadd $a [vscale $uy $H]] [vadd $o [vscale $uy $H]]]
+    }
+    # Corners of a page quad in board coordinates.
+    proc observe {boardQuad pageQuad} {
+        lassign [lindex $boardQuad 1] o tr br bl
+        set ux [vunit [vsub $tr $o]]
+        set uy [vunit [vsub $bl $o]]
+        lmap v [lindex $pageQuad 1] {
+            set d [vsub $v $o]
+            list [vdot $d $ux] [vdot $d $uy]
+        }
+    }
+    # {tl tr br bl} in board coordinates -> center, angle, size.
+    # angle is the direction of the page's top edge; with y down, the
+    # page's "up" is then (sin a, -cos a).
+    proc pose {corners} {
+        lassign $corners tl tr br bl
+        set x 0.0; set y 0.0
+        foreach c $corners { set x [expr {$x + [lindex $c 0] / 4.0}]; set y [expr {$y + [lindex $c 1] / 4.0}] }
+        lassign [vsub $tr $tl] ex ey
+        lassign [vsub $bl $tl] fx fy
+        dict create pos [list $x $y] angle [expr {atan2($ey, $ex)}] \
+            w [expr {hypot($ex, $ey)}] h [expr {hypot($fx, $fy)}] corners $corners
+    }
+    proc poseCorners {pos angle w h} {
+        lassign $pos x y
+        set c [expr {cos($angle)}]; set s [expr {sin($angle)}]
+        set out {}
+        foreach {sx sy} {-1 -1 1 -1 1 1 -1 1} {
+            set lx [expr {$sx * $w / 2.0}]; set ly [expr {$sy * $h / 2.0}]
+            lappend out [list [expr {$x + $lx * $c - $ly * $s}] [expr {$y + $lx * $s + $ly * $c}]]
+        }
+        return $out
+    }
+    # Circle against an oriented rectangle. Returns {} or {nx ny depth}.
+    proc circleRect {x y r p} {
+        lassign [dict get $p pos] px py
+        set a [dict get $p angle]
+        set c [expr {cos($a)}]; set s [expr {sin($a)}]
+        set dx [expr {$x - $px}]; set dy [expr {$y - $py}]
+        set lx [expr {$dx * $c + $dy * $s}]
+        set ly [expr {-$dx * $s + $dy * $c}]
+        set hw [expr {[dict get $p w] / 2.0}]
+        set hh [expr {[dict get $p h] / 2.0}]
+        set ex [expr {$lx - [clamp $lx -$hw $hw]}]
+        set ey [expr {$ly - [clamp $ly -$hh $hh]}]
+        set d [expr {hypot($ex, $ey)}]
+        if {$d >= $r} { return {} }
+        if {$d > 1e-9} {
+            set nlx [expr {$ex / $d}]; set nly [expr {$ey / $d}]
+            set depth [expr {$r - $d}]
+        } else {
+            # Center is inside the rectangle: leave by the nearest side.
+            set ox [expr {$hw - abs($lx)}]; set oy [expr {$hh - abs($ly)}]
+            if {$ox < $oy} {
+                set nlx [expr {$lx < 0 ? -1.0 : 1.0}]; set nly 0.0; set depth [expr {$ox + $r}]
+            } else {
+                set nlx 0.0; set nly [expr {$ly < 0 ? -1.0 : 1.0}]; set depth [expr {$oy + $r}]
+            }
+        }
+        list [expr {$nlx * $c - $nly * $s}] [expr {$nlx * $s + $nly * $c}] $depth
+    }
+
+    # ---------------------------------------------------------------
+    # Grid logic (tetrominoes)
+    # ---------------------------------------------------------------
+    proc pieceDef {shape} {
+        dict get {
+            I {4 {{0 1} {1 1} {2 1} {3 1}}}
+            O {2 {{0 0} {1 0} {0 1} {1 1}}}
+            T {3 {{1 0} {0 1} {1 1} {2 1}}}
+            S {3 {{1 0} {2 0} {0 1} {1 1}}}
+            Z {3 {{0 0} {1 0} {1 1} {2 1}}}
+            J {3 {{0 0} {0 1} {1 1} {2 1}}}
+            L {3 {{2 0} {0 1} {1 1} {2 1}}}
+        } $shape
+    }
+    proc pieceColor {shape} {
+        dict get {I cyan O yellow T magenta S green Z red J blue L orange} $shape
+    }
+    proc pieceCells {shape rot col row} {
+        lassign [pieceDef $shape] n cells
+        set out {}
+        foreach c $cells {
+            lassign $c x y
+            for {set i 0} {$i < $rot} {incr i} {
+                set nx [expr {$n - 1 - $y}]; set y $x; set x $nx
+            }
+            lappend out [list [expr {$col + $x}] [expr {$row + $y}]]
+        }
+        return $out
+    }
+    proc cellsFit {cells grid cols rows} {
+        foreach c $cells {
+            lassign $c x y
+            if {$x < 0 || $x >= $cols || $y < 0 || $y >= $rows} { return 0 }
+            if {[dict exists $grid "$x,$y"]} { return 0 }
+        }
+        return 1
+    }
+
+    # ---------------------------------------------------------------
+    # State
+    # ---------------------------------------------------------------
+    proc initState {} {
+        dict create tick 0 stage {} stageTick 0 started 0 seed 20261118 \
+            over 0 winner {} score {} lives {} bodies {} nextId 1 grid {} \
+            phys {} legal {} rails {} violations {} timers {} log {} scene {}
+    }
+
+    # The helpers below share the step's `st` (state) and `ctx`
+    # (tools, laws, board, players, this tick's events) by upvar.
+
+    proc rnd {} {
+        upvar st st
+        set s [expr {([dict get $st seed] * 1103515245 + 12345) & 0x7fffffff}]
+        dict set st seed $s
+        expr {($s >> 8) / 8388608.0}
+    }
+    proc logEvent {msg} { upvar st st; dict lappend st log $msg }
+    proc lawsOf {op} {
+        upvar ctx ctx
+        lmap law [dict get $ctx laws] {
+            if {[dict get $law op] ne $op} { continue }
+            set law
+        }
+    }
+    proc physOf {tool} {
+        upvar st st
+        set out {}
+        dict for {id p} [dict get $st phys] {
+            if {[dict get $p tool] eq $tool} { lappend out $id }
+        }
+        return $out
+    }
+    proc bodiesOf {tool} {
+        upvar st st
+        set out {}
+        dict for {id b} [dict get $st bodies] {
+            if {[dict get $b tool] eq $tool} { lappend out $id }
+        }
+        return $out
+    }
+    # `... while trigger is on board`
+    proc whileOK {law} {
+        upvar st st ctx ctx
+        if {![dict exists $law while]} { return 1 }
+        set W [dict get $ctx board w]; set H [dict get $ctx board h]
+        foreach id [physOf [dict get $law while]] {
+            lassign [dict get $st phys $id pos] x y
+            if {$x >= 0 && $x <= $W && $y >= 0 && $y <= $H} { return 1 }
+        }
+        return 0
+    }
+    proc addBody {tool fields} {
+        upvar st st
+        set id "$tool[dict get $st nextId]"
+        dict incr st nextId
+        dict set st bodies $id [dict merge \
+            [dict create tool $tool born [dict get $st tick] owner {}] $fields]
+        return $id
+    }
+
+    proc spawn {spec} {
+        upvar st st ctx ctx
+        set tool [dict get $spec a]
+        if {![dict exists $ctx tools $tool]} { return }
+        set t [dict get $ctx tools $tool]
+        set W [dict get $ctx board w]; set H [dict get $ctx board h]
+        for {set i 0} {$i < [dict get $spec n]} {incr i} {
+            if {[dict get $t shape] eq "tetromino"} {
+                set shape [lindex {I O T S Z J L} [expr {int([rnd] * 7)}]]
+                lassign [pieceDef $shape] n
+                set col [expr {([dict get $ctx board cols] - $n) / 2}]
+                if {![cellsFit [pieceCells $shape 0 $col 0] [dict get $st grid] \
+                          [dict get $ctx board cols] [dict get $ctx board rows]]} {
+                    dict lappend ctx events [list cantspawn $tool]
+                    continue
+                }
+                addBody $tool [dict create shape $shape rot 0 col $col row 0 \
+                                   lastFall [dict get $st tick]]
+                continue
+            }
+            set r [dict getdef $t r 0.0127]
+            switch [dict get $spec where] {
+                center { set x [expr {$W / 2.0}]; set y [expr {$H / 2.0}] }
+                top { set x [expr {$W / 2.0}]; set y $r }
+                edge {
+                    set u [expr {[rnd] * 2 * ($W + $H)}]
+                    if {$u < $W} { set x $u; set y 0.0
+                    } elseif {$u < $W + $H} { set x $W; set y [expr {$u - $W}]
+                    } elseif {$u < 2 * $W + $H} { set x [expr {$u - $W - $H}]; set y $H
+                    } else { set x 0.0; set y [expr {$u - 2 * $W - $H}] }
+                }
+            }
+            set v [expr {[dict get $spec lo] + [rnd] * ([dict get $spec hi] - [dict get $spec lo])}]
+            set ang [expr {[rnd] * 6.283185307}]
+            if {[dict get $spec toward] eq "player"} {
+                set players [dict get $ctx players]
+                set pl [lindex $players [expr {int([rnd] * [llength $players])}]]
+                set target {}
+                dict for {id p} [dict get $st phys] {
+                    if {[dict get $p owner] eq $pl} { set target [dict get $p pos]; break }
+                }
+                if {$target eq {} && $pl eq "left"} { set target [list 0.0 $y] }
+                if {$target eq {} && $pl eq "right"} { set target [list $W $y] }
+                if {$target ne {}} {
+                    lassign $target tx ty
+                    set ang [expr {atan2($ty - $y, $tx - $x) + ([rnd] - 0.5) * 0.7}]
+                }
+            }
+            addBody $tool [dict create pos [list $x $y] r $r \
+                               vel [list [expr {$v * cos($ang)}] [expr {$v * sin($ang)}]]]
+        }
+    }
+
+    proc enterStage {s} {
+        upvar st st ctx ctx
+        dict set st stage $s
+        dict set st stageTick [dict get $st tick]
+        if {$s ne "any"} { logEvent "stage is $s" }
+        foreach sl [dict get $ctx allLaws] {
+            lassign $sl stage law
+            if {$stage eq $s && [dict get $law op] eq "spawn"} { spawn $law }
+        }
+    }
+
+    # Referee: compare expectations (motion rules on physical tools)
+    # with observations (camera poses). People can always slide the
+    # paper, so these rules are checked, not enforced.
+    proc referee {} {
+        upvar st st ctx ctx
+        set tol 0.019 ;# 0.75in of slop for hands and camera jitter
+        set W [dict get $ctx board w]; set H [dict get $ctx board h]
+        set remedies {}
+        foreach law [lawsOf remedy] { dict set remedies [dict get $law kind] [dict get $law remedy] }
+        set prev [dict get $st violations]
+        set now {}
+        foreach id [dict keys [dict get $st phys]] {
+            set p [dict get $st phys $id]
+            set tool [dict get $p tool]
+            lassign [dict get $p pos] x y
+            set bad {}
+            foreach law [lawsOf axis] {
+                if {[dict get $law a] ne $tool} { continue }
+                if {![dict exists $st rails $id]} { dict set st rails $id [list $x $y] }
+                lassign [dict get $st rails $id] rx ry
+                set off [expr {[dict get $law axis] eq "y" ? $x - $rx : $y - $ry}]
+                if {abs($off) > $tol} { lappend bad off-axis }
+            }
+            foreach law [lawsOf inside] {
+                if {[dict get $law a] ne $tool} { continue }
+                foreach c [dict get $p corners] {
+                    lassign $c cx cy
+                    if {$cx < -$tol || $cx > $W + $tol || $cy < -$tol || $cy > $H + $tol} {
+                        lappend bad outside; break
+                    }
+                }
+            }
+            if {$bad eq {}} {
+                dict set st legal $id $p
+                continue
+            }
+            foreach kind $bad {
+                set remedy [dict getdef $remedies $kind highlight]
+                lappend now [list $id $kind]
+                if {[list $id $kind] ni $prev} {
+                    logEvent "violation: $id is $kind (remedy: $remedy)"
+                    if {$remedy eq "penalty"} {
+                        foreach pl [dict get $ctx players] {
+                            if {$pl ne [dict get $p owner]} {
+                                dict set st score $pl [expr {[dict getdef [dict get $st score] $pl 0] + 1}]
+                                logEvent "penalty: player $pl scores 1"
+                            }
+                        }
+                    }
+                }
+                if {$remedy ne "nothing"} { dict set st phys $id violated 1 }
+                if {$remedy eq "ignore" && [dict exists $st legal $id]} {
+                    # The ball collides with the last legal pose, not the real one.
+                    set legal [dict get $st legal $id]
+                    dict set st phys $id seen [dict get $p corners]
+                    foreach k {pos angle corners} { dict set st phys $id $k [dict get $legal $k] }
+                }
+            }
+        }
+        dict set st violations $now
+    }
+
+    # Control logic: `ship fires bullet every 0.3s at speed 30in/s`
+    proc fire {} {
+        upvar st st ctx ctx
+        set tick [dict get $st tick]
+        foreach law [lawsOf fire] {
+            if {![whileOK $law]} { continue }
+            set tool [dict get $law b]
+            if {![dict exists $ctx tools $tool]} { continue }
+            set r [dict getdef [dict get $ctx tools $tool] r 0.005]
+            foreach id [physOf [dict get $law a]] {
+                if {$tick - [dict getdef [dict get $st timers] "fire $id" -100000] < [dict get $law every]} { continue }
+                dict set st timers "fire $id" $tick
+                set p [dict get $st phys $id]
+                lassign [dict get $p pos] x y
+                set ux [expr {sin([dict get $p angle])}]
+                set uy [expr {-cos([dict get $p angle])}]
+                set d [expr {[dict get $p h] / 2.0 + $r}]
+                set v [dict get $law speed]
+                addBody $tool [dict create r $r owner [dict get $p owner] \
+                    pos [list [expr {$x + $ux * $d}] [expr {$y + $uy * $d}]] \
+                    vel [list [expr {$ux * $v}] [expr {$uy * $v}]]]
+            }
+        }
+    }
+
+    # Physics step for virtual circles: integrate, then resolve the
+    # collision rules. Physical tools are kinematic colliders: their
+    # camera pose is used as-is.
+    proc integrate {} {
+        upvar st st ctx ctx
+        set dt [expr {1.0 / 60}]
+        set W [dict get $ctx board w]; set H [dict get $ctx board h]
+        set g 0.0
+        foreach law [lawsOf gravity] { set g [dict get $law g] }
+        set passes {}
+        foreach law [lawsOf pass] { lappend passes [list [dict get $law a] [dict get $law b]] }
+        set bounces [lawsOf bounce]
+        set speedups [lawsOf speedup]
+        set wraps [lmap law [lawsOf wrap] {dict get $law a}]
+        set insides [lmap law [lawsOf inside] {dict get $law a}]
+
+        foreach id [dict keys [dict get $st bodies]] {
+            set b [dict get $st bodies $id]
+            if {![dict exists $b vel]} { continue }
+            set tool [dict get $b tool]
+            lassign [dict get $b pos] x y
+            lassign [dict get $b vel] vx vy
+            set r [dict get $b r]
+            set vy [expr {$vy + $g * $dt}]
+            # Sub-step fast bodies so they cannot tunnel through a paddle.
+            set n [expr {int(ceil(hypot($vx, $vy) * $dt / ($r * 0.5)))}]
+            set n [clamp $n 1 12]
+            set h [expr {$dt / $n}]
+            for {set i 0} {$i < $n} {incr i} {
+                set x [expr {$x + $vx * $h}]; set y [expr {$y + $vy * $h}]
+                foreach law $bounces {
+                    if {[dict get $law a] ne $tool} { continue }
+                    set other [dict get $law b]
+                    if {[list $tool $other] in $passes} { continue }
+                    set e [dict getdef $law restitution 1.0]
+                    set hit 0
+                    if {$other eq "board"} {
+                        set edges [dict get $law edges]
+                        if {"west" in $edges && $x < $r && $vx < 0} { set vx [expr {-$vx * $e}]; set x $r; set hit 1 }
+                        if {"east" in $edges && $x > $W - $r && $vx > 0} { set vx [expr {-$vx * $e}]; set x [expr {$W - $r}]; set hit 1 }
+                        if {"north" in $edges && $y < $r && $vy < 0} { set vy [expr {-$vy * $e}]; set y $r; set hit 1 }
+                        if {"south" in $edges && $y > $H - $r && $vy > 0} { set vy [expr {-$vy * $e}]; set y [expr {$H - $r}]; set hit 1 }
+                    } else {
+                        foreach pid [physOf $other] {
+                            set c [circleRect $x $y $r [dict get $st phys $pid]]
+                            if {$c eq {}} { continue }
+                            lassign $c nx ny depth
+                            set x [expr {$x + $nx * $depth}]; set y [expr {$y + $ny * $depth}]
+                            set vn [expr {$vx * $nx + $vy * $ny}]
+                            if {$vn < 0} {
+                                set vx [expr {$vx - (1 + $e) * $vn * $nx}]
+                                set vy [expr {$vy - (1 + $e) * $vn * $ny}]
+                                set hit 1
+                            }
+                        }
+                    }
+                    if {!$hit} { continue }
+                    dict lappend ctx events [list bounce $id $other]
+                    foreach sp $speedups {
+                        if {[dict get $sp a] eq $tool && [dict get $sp b] eq $other} {
+                            set vx [expr {$vx * [dict get $sp factor]}]
+                            set vy [expr {$vy * [dict get $sp factor]}]
+                        }
+                    }
+                }
+            }
+            if {$tool in $wraps} {
+                set x [expr {fmod(fmod($x, $W) + $W, $W)}]
+                set y [expr {fmod(fmod($y, $H) + $H, $H)}]
+            }
+            if {$tool in $insides} {
+                set x [clamp $x $r [expr {$W - $r}]]; set y [clamp $y $r [expr {$H - $r}]]
+            }
+            dict set st bodies $id pos [list $x $y]
+            dict set st bodies $id vel [list $vx $vy]
+        }
+        foreach law [lawsOf expire] {
+            foreach id [bodiesOf [dict get $law a]] {
+                if {[dict get $st tick] - [dict get $st bodies $id born] >= [dict get $law ttl]} {
+                    dict unset st bodies $id
+                }
+            }
+        }
+    }
+
+    # Grid step for tetrominoes. The piece is virtual, so its motion
+    # rules are true constraints: it follows the physical slider only
+    # through legal moves.
+    proc gridStep {} {
+        upvar st st ctx ctx
+        if {![dict exists $ctx board cols]} { return }
+        set cols [dict get $ctx board cols]; set rows [dict get $ctx board rows]
+        set cell [dict get $ctx board cell]
+        set tick [dict get $st tick]
+        foreach id [dict keys [dict get $st bodies]] {
+            set b [dict get $st bodies $id]
+            if {![dict exists $b shape]} { continue }
+            set tool [dict get $b tool]
+            dict with b {}
+            lassign [pieceDef $shape] n
+            set grid [dict get $st grid]
+            foreach law [lawsOf turn] {
+                if {[dict get $law a] ne $tool} { continue }
+                set pid [lindex [physOf [dict get $law t]] 0]
+                if {$pid eq ""} { continue }
+                set want [expr {int(round([dict get $st phys $pid angle] / 1.5707963)) % 4}]
+                set diff [expr {($want - $rot) % 4}]
+                if {$diff == 0} { continue }
+                set next [expr {($rot + ($diff == 3 ? 3 : 1)) % 4}]
+                foreach kick {0 -1 1 -2 2} {
+                    if {[cellsFit [pieceCells $shape $next [expr {$col + $kick}] $row] $grid $cols $rows]} {
+                        set rot $next; set col [expr {$col + $kick}]; break
+                    }
+                }
+            }
+            foreach law [lawsOf follow] {
+                if {[dict get $law a] ne $tool} { continue }
+                set pid [lindex [physOf [dict get $law t]] 0]
+                if {$pid eq ""} { continue }
+                set want [expr {int(round([lindex [dict get $st phys $pid pos] 0] / $cell - $n / 2.0))}]
+                set d [expr {$want > $col ? 1 : ($want < $col ? -1 : 0)}]
+                if {$d != 0 && [cellsFit [pieceCells $shape $rot [expr {$col + $d}] $row] $grid $cols $rows]} {
+                    incr col $d
+                }
+            }
+            set every 0
+            foreach law [lawsOf fall] {
+                if {[dict get $law a] ne $tool || ![whileOK $law]} { continue }
+                if {$every == 0 || [dict get $law every] < $every} { set every [dict get $law every] }
+            }
+            if {$every > 0 && $tick - $lastFall >= $every} {
+                set lastFall $tick
+                if {[cellsFit [pieceCells $shape $rot $col [expr {$row + 1}]] $grid $cols $rows]} {
+                    incr row
+                } else {
+                    dict lappend ctx events [list lands $id]
+                }
+            }
+            foreach k {rot col row lastFall} { dict set st bodies $id $k [set $k] }
+        }
+    }
+
+    # Every way a condition holds right now, as a list of bindings
+    # (tool name -> body id, plus player/owner/row).
+    proc condBindings {c} {
+        upvar st st ctx ctx
+        set out {}
+        set W [dict get $ctx board w]; set H [dict get $ctx board h]
+        switch [dict get $c c] {
+            hits {
+                set ta [dict get $c a]; set tb [dict get $c b]
+                foreach ia [bodiesOf $ta] {
+                    set a [dict get $st bodies $ia]
+                    if {![dict exists $a pos]} { continue }
+                    lassign [dict get $a pos] x y
+                    set r [dict get $a r]
+                    foreach ib [bodiesOf $tb] {
+                        set b [dict get $st bodies $ib]
+                        if {$ia eq $ib || ![dict exists $b pos]} { continue }
+                        lassign [dict get $b pos] bx by
+                        if {hypot($x - $bx, $y - $by) < $r + [dict get $b r]} {
+                            lappend out [dict create $ta $ia $tb $ib \
+                                owner [dict get $a owner][dict get $b owner]]
+                        }
+                    }
+                    foreach ib [physOf $tb] {
+                        if {[circleRect $x $y $r [dict get $st phys $ib]] ne {}} {
+                            lappend out [dict create $ta $ia owner [dict get $st phys $ib owner]]
+                        }
+                    }
+                }
+            }
+            exits {
+                set e [dict get $c e]
+                foreach id [bodiesOf [dict get $c a]] {
+                    set b [dict get $st bodies $id]
+                    if {![dict exists $b pos]} { continue }
+                    lassign [dict get $b pos] x y
+                    set r [dict get $b r]
+                    set gone {}
+                    if {$x < -$r} { lappend gone west }
+                    if {$x > $W + $r} { lappend gone east }
+                    if {$y < -$r} { lappend gone north }
+                    if {$y > $H + $r} { lappend gone south }
+                    if {($e eq "any" && $gone ne {}) || $e in $gone} {
+                        lappend out [dict create [dict get $c a] $id]
+                    }
+                }
+            }
+            lands - cantspawn {
+                foreach ev [dict getdef $ctx events {}] {
+                    if {[lindex $ev 0] ne [dict get $c c]} { continue }
+                    if {[dict get $c c] eq "cantspawn"} {
+                        if {[lindex $ev 1] eq [dict get $c a]} { lappend out [dict create] }
+                    } elseif {[dict exists $st bodies [lindex $ev 1]] &&
+                              [dict get $st bodies [lindex $ev 1] tool] eq [dict get $c a]} {
+                        lappend out [dict create [dict get $c a] [lindex $ev 1]]
+                    }
+                }
+            }
+            rowfull {
+                if {[dict exists $ctx board cols]} {
+                    for {set row 0} {$row < [dict get $ctx board rows]} {incr row} {
+                        lappend out [dict create row $row checkfull 1]
+                    }
+                }
+            }
+            passed {
+                if {[dict get $st tick] - [dict get $st stageTick] == [dict get $c n]} {
+                    lappend out [dict create]
+                }
+            }
+            none {
+                if {[llength [bodiesOf [dict get $c a]]] == 0} { lappend out [dict create] }
+            }
+            points {
+                dict for {pl n} [dict get $st score] {
+                    if {$n >= [dict get $c n]} { lappend out [dict create player $pl winner $pl] }
+                }
+            }
+            nolives {
+                dict for {pl n} [dict get $st lives] {
+                    if {$n <= 0} { lappend out [dict create player $pl] }
+                }
+            }
+        }
+        return $out
+    }
+    proc rowIsFull {row} {
+        upvar st st ctx ctx
+        for {set c 0} {$c < [dict get $ctx board cols]} {incr c} {
+            if {![dict exists $st grid "$c,$row"]} { return 0 }
+        }
+        return 1
+    }
+    proc playerOf {bind} {
+        upvar ctx ctx
+        if {[dict exists $bind player]} { return [dict get $bind player] }
+        if {[dict getdef $bind owner {}] ne {}} { return [dict get $bind owner] }
+        lindex [dict get $ctx players] 0
+    }
+    proc applyEffect {eff bind} {
+        upvar st st ctx ctx
+        switch [dict get $eff e] {
+            score {
+                set pl [dict get $eff p]
+                if {$pl eq {}} { set pl [playerOf $bind] }
+                dict set st score $pl [expr {[dict getdef [dict get $st score] $pl 0] + [dict get $eff n]}]
+                logEvent "player $pl scores [dict get $eff n] ([dict get $st score])"
+            }
+            lose {
+                set pl [playerOf $bind]
+                dict set st lives $pl [expr {[dict getdef [dict get $st lives] $pl 0] - [dict get $eff n]}]
+                logEvent "player $pl loses [dict get $eff n] life ([dict get $st lives $pl] left)"
+            }
+            stage { enterStage [dict get $eff s] }
+            remove {
+                if {[dict exists $bind [dict get $eff a]]} {
+                    dict unset st bodies [dict get $bind [dict get $eff a]]
+                }
+            }
+            split {
+                set id [dict getdef $bind [dict get $eff a] {}]
+                if {$id eq {} || ![dict exists $st bodies $id]} { return }
+                set b [dict get $st bodies $id]
+                dict unset st bodies $id
+                set r [expr {[dict get $b r] * 0.62}]
+                set full [dict getdef [dict get $ctx tools [dict get $b tool]] r $r]
+                if {$r < $full * 0.3} { return }
+                lassign [dict get $b pos] x y
+                lassign [dict get $b vel] vx vy
+                set n [dict get $eff n]
+                for {set i 0} {$i < $n} {incr i} {
+                    set a [expr {($i - ($n - 1) / 2.0) * 1.1 + ([rnd] - 0.5) * 0.5}]
+                    set c [expr {cos($a) * 1.3}]; set s [expr {sin($a) * 1.3}]
+                    addBody [dict get $b tool] [dict create r $r \
+                        pos [list [expr {$x + $r * cos($a * 3)}] [expr {$y + $r * sin($a * 3)}]] \
+                        vel [list [expr {$vx * $c - $vy * $s}] [expr {$vx * $s + $vy * $c}]]]
+                }
+            }
+            blocks {
+                set id [dict getdef $bind [dict get $eff a] {}]
+                if {$id eq {} || ![dict exists $st bodies $id]} { return }
+                set b [dict get $st bodies $id]
+                foreach c [pieceCells [dict get $b shape] [dict get $b rot] [dict get $b col] [dict get $b row]] {
+                    dict set st grid [join $c ,] [dict get $b shape]
+                }
+                dict unset st bodies $id
+                logEvent "[dict get $b tool] [dict get $b shape] lands at column [dict get $b col]"
+            }
+            clearrow {
+                set row [dict get $bind row]
+                set grid {}
+                dict for {k v} [dict get $st grid] {
+                    lassign [split $k ,] c r
+                    if {$r == $row} { continue }
+                    if {$r < $row} { incr r }
+                    dict set grid "$c,$r" $v
+                }
+                dict set st grid $grid
+                logEvent "row $row is cleared"
+            }
+            over {
+                dict set st over 1
+                dict set st winner [dict getdef $bind winner {}]
+                logEvent "game over[expr {[dict get $st winner] ne {} ? ": [dict get $st winner] wins" : ""}]"
+            }
+            spawn { spawn $eff }
+        }
+    }
+    # Referee checks and events, in rulebook order.
+    proc runEvents {} {
+        upvar st st ctx ctx
+        foreach law [lawsOf event] {
+            foreach bind [condBindings [dict get $law cond]] {
+                if {[dict get $st over]} { return }
+                if {[dict exists $bind checkfull] && ![rowIsFull [dict get $bind row]]} { continue }
+                # An earlier effect this tick may have removed a body.
+                set stale 0
+                dict for {k v} $bind {
+                    if {[dict exists $ctx tools $k] && [dict get $ctx tools $k kind] eq "virtual" &&
+                        ![dict exists $st bodies $v]} { set stale 1 }
+                }
+                if {$stale} { continue }
+                foreach eff [dict get $law effects] { applyEffect $eff $bind }
+            }
+        }
+    }
+
+    # What to project, as a list of primitives in board coordinates:
+    #   {circle x y r color filled}   {rect x y w h color}
+    #   {poly {x y x y ...} color filled}   {text x y string size color}
+    proc buildScene {} {
+        upvar st st ctx ctx
+        set W [dict get $ctx board w]; set H [dict get $ctx board h]
+        set s {}
+        lappend s [list poly [list 0 0 $W 0 $W $H 0 $H] white 0]
+        if {[dict exists $ctx board cell]} {
+            set cell [dict get $ctx board cell]
+            dict for {k shape} [dict get $st grid] {
+                lassign [split $k ,] c r
+                lappend s [list rect [r4 [expr {$c * $cell}]] [r4 [expr {$r * $cell}]] $cell $cell [pieceColor $shape]]
+            }
+        }
+        dict for {id b} [dict get $st bodies] {
+            set t [dict getdef [dict get $ctx tools] [dict get $b tool] {}]
+            if {[dict exists $b shape]} {
+                foreach c [pieceCells [dict get $b shape] [dict get $b rot] [dict get $b col] [dict get $b row]] {
+                    lassign $c cx cy
+                    lappend s [list rect [r4 [expr {$cx * $cell}]] [r4 [expr {$cy * $cell}]] $cell $cell [pieceColor [dict get $b shape]]]
+                }
+            } elseif {[dict exists $b pos]} {
+                lassign [dict get $b pos] x y
+                lappend s [list circle [r4 $x] [r4 $y] [r4 [dict get $b r]] \
+                               [dict getdef $t color white] [dict getdef $t filled 0]]
+            }
+        }
+        dict for {id p} [dict get $st phys] {
+            set t [dict getdef [dict get $ctx tools] [dict get $p tool] {}]
+            set color [expr {[dict getdef $p violated 0] ? "red" : [dict getdef $t color white]}]
+            set pts {}
+            foreach c [dict get $p corners] { lappend pts [r4 [lindex $c 0]] [r4 [lindex $c 1]] }
+            lappend s [list poly $pts $color 0]
+            if {[dict exists $p seen]} {
+                # Remedy `ignore`: where the paper really is, dimmed.
+                set pts {}
+                foreach c [dict get $p seen] { lappend pts [r4 [lindex $c 0]] [r4 [lindex $c 1]] }
+                lappend s [list poly $pts gray 0]
+            }
+            if {[dict getdef $t pointer 0]} {
+                lassign [dict get $p pos] x y
+                set ux [expr {sin([dict get $p angle])}]; set uy [expr {-cos([dict get $p angle])}]
+                set hw [expr {[dict get $p w] * 0.3}]; set hh [expr {[dict get $p h] * 0.4}]
+                lappend s [list poly [list \
+                    [r4 [expr {$x + $ux * $hh}]] [r4 [expr {$y + $uy * $hh}]] \
+                    [r4 [expr {$x - $ux * $hh - $uy * $hw}]] [r4 [expr {$y - $uy * $hh + $ux * $hw}]] \
+                    [r4 [expr {$x - $ux * $hh + $uy * $hw}]] [r4 [expr {$y - $uy * $hh - $ux * $hw}]]] $color 1]
+            }
+        }
+        set players [dict get $ctx players]
+        set i 0
+        foreach pl $players {
+            set label "$pl [dict getdef [dict get $st score] $pl 0]"
+            if {[dict exists $st lives $pl]} { append label "  lives [dict get $st lives $pl]" }
+            set x [expr {$W * ($i + 0.5) / [llength $players]}]
+            lappend s [list text [r4 $x] -0.02 $label 0.02 white]
+            incr i
+        }
+        if {[dict get $st over]} {
+            set msg "GAME OVER"
+            if {[dict get $st winner] ne {}} { append msg ": [dict get $st winner] wins" }
+            lappend s [list text [r4 [expr {$W / 2.0}]] [r4 [expr {$H / 2.0}]] $msg 0.03 yellow]
+        }
+        return $s
+    }
+
+    # ---------------------------------------------------------------
+    # The step: state at tick n -> state at tick n+1. A pure function
+    # of its arguments, so a game can be replayed from a log.
+    #
+    #   tools    dict name -> parsed tool
+    #   lawList  list of {order stage law}
+    #   players  list of player names
+    #   obs      dict page -> {tool T owner P corners {tl tr br bl}},
+    #            this tick's camera poses in board coordinates
+    # ---------------------------------------------------------------
+    proc step {state tools lawList players obs} {
+        set st $state
+        dict incr st tick
+        dict set st log {}
+        if {![dict exists $tools board] || [llength $lawList] == 0} {
+            return $st ;# not a playable game yet
+        }
+        set ctx [dict create tools $tools players $players board [dict get $tools board] events {}]
+        if {$players eq {}} { dict set ctx players solo }
+        dict set ctx allLaws [lmap l [lsort -integer -index 0 $lawList] {lrange $l 1 2}]
+
+        # Arriving observations: sample every physical tool's pose.
+        set phys {}
+        foreach id [lsort [dict keys $obs]] {
+            set o [dict get $obs $id]
+            dict set phys $id [dict merge [pose [dict get $o corners]] \
+                [dict create tool [dict get $o tool] owner [dict getdef $o owner {}]]]
+        }
+        dict set st phys $phys
+
+        if {![dict get $st over]} {
+            if {![dict get $st started]} {
+                dict set st started 1
+                foreach pl [dict get $ctx players] { dict set st score $pl 0 }
+                foreach sl [dict get $ctx allLaws] {
+                    lassign $sl stage law
+                    if {[dict get $law op] eq "lives"} {
+                        foreach pl [dict get $ctx players] { dict set st lives $pl [dict get $law n] }
+                    }
+                }
+                dict set ctx laws {}
+                enterStage any
+            }
+            if {[dict get $st stage] eq "any"} {
+                foreach sl [dict get $ctx allLaws] {
+                    lassign $sl stage law
+                    if {[dict get $law op] eq "start"} { enterStage [dict get $law s]; break }
+                }
+            }
+            # Only the rules of the current stage are in force.
+            dict set ctx laws [lmap sl [dict get $ctx allLaws] {
+                lassign $sl stage law
+                if {$stage ne "any" && $stage ne [dict get $st stage]} { continue }
+                set law
+            }]
+            referee
+            fire
+            integrate
+            gridStep
+            runEvents
+        } else {
+            dict set ctx laws {}
+        }
+        dict set st scene [buildScene]
+        return $st
+    }
+}]
+Claim the game library is $gameLib
+
+# -------------------------------------------------------------------
+# Rulebook interpreter. The braces in `has rules { ... }` are a Tcl
+# string, so the rulebook is quoted data until this splits it up.
+#
+# Each sentence keeps its position in the rulebook (Inform 7-style
+# ordering) and the stage it belongs to: `any` for always-on rules.
+# -------------------------------------------------------------------
+When /game/ has rules /block/ {
+    set i 0
+    foreach cmd [$gameLib sentences $block] {
+        incr i
+        if {[lrange $cmd 0 1] eq {in stage}} {
+            set j 0
+            foreach sub [$gameLib sentences [lindex $cmd 3]] {
+                incr j
+                Claim $game stage [lindex $cmd 2] has rule [expr {$i * 1000 + $j}] {*}$sub
+            }
+        } else {
+            Claim $game stage any has rule [expr {$i * 1000}] {*}$cmd
+        }
+    }
+}
+# A loose rule, e.g. from a rule card that is on the table:
+#   Claim pong has rule ball speeds up 25% when it bounces off paddle
+When /game/ has rule /...words/ {
+    Claim $game stage any has rule 900000 {*}$words
+}
+
+# Compiler: each rule becomes exactly one law.
+When /game/ stage /stage/ has rule /order/ /...words/ {
+    lassign [$gameLib compile $words] status law
+    if {$status eq "ok"} {
+        Claim $game has law $order $stage $law
+    } else {
+        Claim $game has problem "rule \"$words\": $law"
+    }
+}
+
+When /game/ has tool /name/ /decl/ {
+    try {
+        Claim $game has parsed tool $name [$gameLib parseTool $decl]
+    } on error e {
+        Claim $game has problem "tool $name: $e"
+    }
+}
+
+# Validator: rules may only name declared tools (as in Ludii).
+When /game/ is a game {
+    When the collected results for [list $game has parsed tool /name/ /tool/] are /tools/ &\
+         the collected results for [list $game has law /order/ /stage/ /law/] are /laws/ {
+        set declared [lmap t $tools {dict get $t name}]
+        foreach l $laws {
+            foreach name [dict get [dict get $l law] names] {
+                if {$name ni $declared} {
+                    Claim $game has problem \
+                        "rule \"[dict get [dict get $l law] rule]\" names undeclared tool \"$name\""
+                }
+            }
+        }
+    }
+}
+
+# -------------------------------------------------------------------
+# The board. Either a page is the engine of the game and the board
+# hangs off one of its corners, or a page simply is the board.
+# -------------------------------------------------------------------
+When /page/ is the engine of /game/ &\
+     /page/ has quad /quad/ &\
+     /game/ has parsed tool board /boardTool/ {
+    Claim $game has board quad [$gameLib boardQuad $quad $boardTool]
+}
+When /page/ is the board of /game/ & /page/ has quad /quad/ {
+    Claim $game has board quad $quad
+}
+
+# -------------------------------------------------------------------
+# State and the stepper.
+# -------------------------------------------------------------------
+When /game/ is a game {
+    Hold! -key [list $game state] Claim $game has state [$gameLib initState]
+    On unmatch { Hold! -key [list $game state] {} }
+}
+
+# Anyone may own the clock: wish for a game to advance to a tick, and
+# it steps until it gets there. (games/clock.folk wishes in real time;
+# a test or a pause/step page can wish one tick at a time.)
+When /someone/ wishes /game/ advances to tick /target/ &\
+     /game/ has state /state/ {
+    set tick [dict get $state tick]
+    if {$tick >= $target} { return }
+
+    set boards [Query! $game has board quad /quad/]
+    if {[llength $boards] == 0} { return } ;# no board on the table: paused
+    set boardQuad [dict get [lindex $boards 0] quad]
+
+    set tools [dict create]
+    foreach r [Query! $game has parsed tool /name/ /tool/] {
+        dict set tools [dict get $r name] [dict get $r tool]
+    }
+    set laws [lmap r [Query! $game has law /order/ /stage/ /law/] {
+        list [dict get $r order] [dict get $r stage] [dict get $r law]
+    }]
+    set players {}
+    foreach r [Query! $game has players /...players/] { set players [dict get $r players] }
+
+    # Arriving observations: wherever the camera sees the tools now.
+    set obs [dict create]
+    foreach r [Query! /page/ is a /tool/ of $game & /page/ has quad /quad/] {
+        set page [dict get $r page]
+        set owner {}
+        foreach o [Query! $page belongs to player /player/] { set owner [dict get $o player] }
+        dict set obs $page [dict create tool [dict get $r tool] owner $owner \
+            corners [$gameLib observe $boardQuad [dict get $r quad]]]
+    }
+
+    # Catch up at most a few ticks per reaction if the clock is ahead.
+    set n [expr {$target - $tick > 4 ? 4 : $target - $tick}]
+    for {set i 0} {$i < $n} {incr i} {
+        set state [$gameLib step $state $tools $laws $players $obs]
+    }
+    Hold! -key [list $game state] -version [dict get $state tick] \
+        Claim $game has state $state
+}
+
+# -------------------------------------------------------------------
+# Friendly claims derived from the state, for display programs and
+# for other pages that want to react to the game.
+# -------------------------------------------------------------------
+When /game/ has state /state/ {
+    Claim $game is at tick [dict get $state tick]
+    Claim $game is in stage [dict get $state stage]
+    Claim $game has scene [dict get $state scene]
+    dict for {player n} [dict get $state score] {
+        Claim $game player $player has $n points
+    }
+    dict for {id b} [dict get $state bodies] {
+        if {![dict exists $b pos]} { continue }
+        Claim $game has virtual body $id with position [dict get $b pos] velocity [dict get $b vel]
+    }
+    foreach v [dict get $state violations] {
+        Claim $game has violation $v
+        if {[dict getdef [dict get $state phys] [lindex $v 0] {}] ne {} &&
+            [dict getdef [dict get $state phys [lindex $v 0]] violated 0]} {
+            Wish [lindex $v 0] is outlined red
+        }
+    }
+    if {[dict get $state over]} { Claim $game is over with winner [dict get $state winner] }
+}

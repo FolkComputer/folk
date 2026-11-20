@@ -1,0 +1,40 @@
+# Asteroids. The ship IS a page: slide and turn it by hand. It fires
+# along the way it points while the trigger page is on the board.
+
+page asteroids-engine {
+    Claim asteroids is a game
+    Claim asteroids has players solo
+
+    Claim asteroids has tool board   {fixed; region 30in 20in; anchored at top-right}
+    Claim asteroids has tool ship    {physical; quad 4in 5in; pointer}
+    Claim asteroids has tool trigger {physical; quad 3in 3in}
+    Claim asteroids has tool rock    {virtual; circle 3.5in}
+    Claim asteroids has tool bullet  {virtual; circle 0.4in; filled}
+
+    Claim asteroids has rules {
+        game starts in stage wave
+        player has 3 lives
+
+        ship stays inside board
+        rock wraps around board
+        bullet expires after 0.9s
+        ship fires bullet every 0.25s at speed 30in/s while trigger is on board
+
+        in stage wave {
+            4 rock spawn at random edge with speed 2in/s to 5in/s
+        }
+
+        when bullet hits rock then rock splits into 2, bullet is removed, player scores 10
+        when rock hits ship then rock is removed, player loses 1 life
+        when no rock remains then stage is wave
+        game ends when a player has 0 lives
+    }
+
+    Claim $this is the engine of asteroids
+}
+
+page asteroids-ship {
+    Claim $this is a ship of asteroids
+    Claim $this belongs to player solo
+}
+page asteroids-trigger { Claim $this is a trigger of asteroids }

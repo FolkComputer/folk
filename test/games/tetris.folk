@@ -1,0 +1,33 @@
+# Tetris. The piece is virtual; you steer it with two physical pages:
+# slide the slider page left and right to choose a column, turn it to
+# turn the piece, and put the dropper page on the board to drop.
+
+page tetris-engine {
+    Claim tetris is a game
+    Claim tetris has players solo
+
+    Claim tetris has tool board   {fixed; grid 10 20 cell 1in; anchored at top-right}
+    Claim tetris has tool piece   {virtual; tetromino}
+    Claim tetris has tool blocks  {fixed; cells}
+    Claim tetris has tool slider  {physical; quad 4in 3in; pointer}
+    Claim tetris has tool dropper {physical; quad 3in 3in}
+
+    Claim tetris has rules {
+        piece spawns at top
+
+        # control: a virtual tool follows a physical one, through legal moves only
+        piece follows slider along x
+        piece turns with slider
+        piece falls 1 cell every 0.5s
+        piece falls 1 cell every 0.04s while dropper is on board
+
+        when piece lands then piece becomes blocks, piece spawns at top
+        when a row is full then row is cleared, player scores 100
+        game ends when piece cannot spawn
+    }
+
+    Claim $this is the engine of tetris
+}
+
+page tetris-slider  { Claim $this is a slider of tetris }
+page tetris-dropper { Claim $this is a dropper of tetris }

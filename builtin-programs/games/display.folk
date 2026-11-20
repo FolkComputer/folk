@@ -1,0 +1,56 @@
+# Game-agnostic display for Folk Rules games: projects whatever scene
+# the rules derive onto the game's board. The board gets its own
+# canvas, in meters from its top-left corner, like a page.
+#
+# NOTE: written against the draw wishes in builtin-programs/draw but
+# not yet run on a table with a projector.
+
+When /game/ has board quad /quad/ & /game/ has parsed tool board /boardTool/ {
+    set board [list $game board]
+    Claim $board has quad $quad
+    Claim $board has resolved geometry \
+        [dict create width [dict get $boardTool w] height [dict get $boardTool h]]
+    Wish $board has a canvas
+}
+
+When /game/ has scene /scene/ {
+    set board [list $game board]
+    foreach prim $scene {
+        set args [lassign $prim kind]
+        switch $kind {
+            circle {
+                lassign $args x y r color filled
+                Wish to draw a circle onto $board with \
+                    center [list $x $y] radius $r thickness 0.003 color $color filled $filled
+            }
+            rect {
+                lassign $args x y w h color
+                Wish to draw a polygon onto $board with points \
+                    [list [list $x $y] [list [expr {$x + $w}] $y] \
+                         [list [expr {$x + $w}] [expr {$y + $h}]] [list $x [expr {$y + $h}]]] \
+                    color $color
+            }
+            poly {
+                lassign $args flat color filled
+                set points {}
+                foreach {x y} $flat { lappend points [list $x $y] }
+                if {$filled} {
+                    Wish to draw a polygon onto $board with points $points color $color
+                } else {
+                    lappend points [lindex $points 0]
+                    Wish to draw a line onto $board with points $points width 0.003 color $color
+                }
+            }
+            text {
+                lassign $args x y text size color
+                Wish to draw text onto $board with \
+                    position [list $x $y] text $text scale $size color $color
+            }
+        }
+    }
+}
+
+When /game/ has problem /problem/ & /page/ is the engine of /game/ {
+    Wish $page is labelled $problem
+    Wish $page is outlined red
+}

@@ -1,0 +1,438 @@
+# Folk Rules, end to end, with no camera and no projector.
+#
+# This is a simulated table. It loads the game pages in test/games/,
+# gives every page a quad, and then plays: simulated hands slide and
+# turn the physical pages while the engine steps the rules one tick
+# at a time. Pong, Tetris and Asteroids all run on the same engine.
+#
+#   make test/games                       # play, print frames, assert
+#   GAMES_TRACE=/some/dir make test/games # also write <game>.jsonl replays
+#   GAMES_TICKS=600 make test/games       # shorter games
+
+When { source builtin-programs/collect.folk }
+When { source builtin-programs/games/engine.folk }
+
+# Run page programs the way boot.folk does: with $this as the page.
+When /page/ has program code /code/ {
+    SayWithSource $page 1 0 {} {} \
+        when $code with environment [list [list this $page]]
+}
+
+set ::in 0.0254
+# Folk redirects each program's stdout to a log file; a test wants
+# to be read in the terminal.
+proc puts! {s} { puts $::realStdout $s }
+set ::pages [dict create]
+proc page {name code} { dict set ::pages $name $code }
+foreach f {pong tetris asteroids broken} { source test/games/$f.folk }
+
+Expect! the game library is /gameLib/
+set ::gameLib $gameLib
+
+# -------------------------------------------------------------------
+# The table: pages come and go, and have quads in "table" space.
+# -------------------------------------------------------------------
+proc putPage {id} {
+    set this sim
+    Hold! -key [list code $id] Claim $id has program code [dict get $::pages $id]
+}
+proc takePage {id} {
+    set this sim
+    Hold! -key [list code $id] {}
+    Hold! -key [list quad $id] {}
+}
+# Where the engine page lies on the table decides where the board is.
+proc layEngine {id x y degrees} {
+    set a [expr {$degrees * 3.14159265 / 180}]
+    set w [expr {8.5 * $::in}]; set h [expr {11 * $::in}]
+    set corners [$::gameLib poseCorners [list $x $y] $a $w $h]
+    set ::frame [dict create o [lindex $corners 1] \
+        ux [list [expr {cos($a)}] [expr {sin($a)}]] \
+        uy [list [expr {-sin($a)}] [expr {cos($a)}]]]
+    set this sim
+    Hold! -key [list quad $id] Claim $id has quad \
+        [list table [lmap c $corners {list {*}$c 0.0}]]
+    # The engine page in board coordinates, for the replay viewer.
+    return [list [expr {-$w}] 0 0 0 0 $h [expr {-$w}] $h]
+}
+# Lay a page down at a pose given in board coordinates.
+proc layPage {id hand} {
+    lassign $hand x y a w h
+    lassign [dict get $::frame o] ox oy
+    lassign [dict get $::frame ux] uxx uxy
+    lassign [dict get $::frame uy] uyx uyy
+    set verts [lmap c [$::gameLib poseCorners [list $x $y] $a $w $h] {
+        lassign $c bx by
+        list [expr {$ox + $bx * $uxx + $by * $uyx}] [expr {$oy + $bx * $uxy + $by * $uyy}] 0.0
+    }]
+    set this sim
+    Hold! -key [list quad $id] Claim $id has quad [list table $verts]
+}
+proc approach {cur target max} {
+    set d [expr {$target - $cur}]
+    if {abs($d) <= $max} { return $target }
+    expr {$cur + ($d > 0 ? $max : -$max)}
+}
+proc wrapAngle {a} { expr {atan2(sin($a), cos($a))} }
+proc clampv {v lo hi} { expr {$v < $lo ? $lo : ($v > $hi ? $hi : $v)} }
+
+# -------------------------------------------------------------------
+# Simulated players. Each returns nothing and moves ::hands, a dict
+# of page -> {x y angle w h} in board coordinates. Hands have limited
+# speed, like real ones.
+# -------------------------------------------------------------------
+proc play_pong {n state} {
+    set W [expr {30 * $::in}]; set H [expr {18 * $::in}]
+    set pw [expr {3 * $::in}]; set ph [expr {8.5 * $::in}]
+    if {$n == 1} {
+        dict set ::hands pong-paddle-left [list [expr {2.5 * $::in}] [expr {$H / 2}] 0 $pw $ph]
+        dict set ::hands pong-paddle-right [list [expr {27.5 * $::in}] [expr {$H / 2}] 0 $pw $ph]
+    }
+    set bx [expr {$W / 2}]; set by [expr {$H / 2}]; set bvx 0
+    dict for {id b} [dict get $state bodies] {
+        lassign [dict get $b pos] bx by
+        lassign [dict get $b vel] bvx bvy
+    }
+    # Left is quick and watches the ball early. Right is slower, reacts
+    # late and is a little sloppy.
+    foreach {page toward maxSpeed wobble from} {
+        pong-paddle-left -1 13 0.03 0.85
+        pong-paddle-right 1 6.5 0.06 0.55
+    } {
+        lassign [dict get $::hands $page] x y a w h
+        set dist [expr {$toward > 0 ? $W - $bx : $bx}]
+        set watching [expr {$bvx * $toward > 0 && $dist < $from * $W}]
+        set target [expr {$watching ? $by + $wobble * sin($n / 23.0) : $H / 2}]
+        set y [approach $y [clampv $target [expr {$ph / 2}] [expr {$H - $ph / 2}]] \
+                   [expr {$maxSpeed * $::in / 60}]]
+        if {$page eq "pong-paddle-right"} {
+            # Three times, right cheats and slides the paddle forward.
+            set cheating 0
+            foreach {from to} {300 420 2000 2100 2600 2720} {
+                if {$n >= $from && $n < $to} { set cheating 1 }
+            }
+            set x [approach $x [expr {($cheating ? 23.5 : 27.5) * $::in}] [expr {12 * $::in / 60}]]
+        }
+        dict set ::hands $page [list $x $y $a $w $h]
+    }
+    # People drop rule cards on the table, and take them away again.
+    foreach {card on off} {
+        pong-card-fast 900 1500
+        pong-card-penalty 1900 2300
+        pong-card-ignore 2500 2900
+    } {
+        if {$n == $on} {
+            putPage $card
+            dict set ::extras $card [list -0.19 0.33 -0.09 0.33 -0.09 0.40 -0.19 0.40]
+            puts! [format "  \[pong %5d\] card on the table: %s" $n [string trim [dict get $::pages $card]]]
+        }
+        if {$n == $off} {
+            takePage $card
+            dict unset ::extras $card
+            puts! [format "  \[pong %5d\] card taken away: %s" $n $card]
+        }
+    }
+    foreach t {890 1400 1600} {
+        if {$n == $t} { dict set ::seen "laws at $t" [llength [Query! pong has law /order/ /stage/ /law/]] }
+    }
+}
+
+# Pick where to put a tetromino: try every turn and column, drop it,
+# and score the pile that results.
+proc tetrisPlan {grid shape cols rows} {
+    set best {}; set bestScore -1e9
+    for {set rot 0} {$rot < 4} {incr rot} {
+        for {set col -2} {$col < $cols} {incr col} {
+            if {![$::gameLib cellsFit [$::gameLib pieceCells $shape $rot $col 0] $grid $cols $rows]} { continue }
+            set row 0
+            while {[$::gameLib cellsFit [$::gameLib pieceCells $shape $rot $col [expr {$row + 1}]] $grid $cols $rows]} { incr row }
+            set g $grid
+            foreach c [$::gameLib pieceCells $shape $rot $col $row] { dict set g [join $c ,] x }
+            set lines 0; set holes 0; set heights {}
+            for {set r 0} {$r < $rows} {incr r} {
+                set full 1
+                for {set c 0} {$c < $cols} {incr c} { if {![dict exists $g "$c,$r"]} { set full 0; break } }
+                incr lines $full
+            }
+            for {set c 0} {$c < $cols} {incr c} {
+                set top $rows
+                for {set r 0} {$r < $rows} {incr r} {
+                    if {[dict exists $g "$c,$r"]} {
+                        if {$top == $rows} { set top $r }
+                    } elseif {$top < $rows} { incr holes }
+                }
+                lappend heights [expr {$rows - $top}]
+            }
+            set sum 0; set bumps 0; set prev [lindex $heights 0]
+            foreach hgt $heights { incr sum $hgt; incr bumps [expr {abs($hgt - $prev)}]; set prev $hgt }
+            set score [expr {$lines * 12 - $holes * 8 - $sum * 0.5 - $bumps * 0.4 + $row * 0.3}]
+            if {$score > $bestScore} { set bestScore $score; set best [list $rot $col] }
+        }
+    }
+    return $best
+}
+proc play_tetris {n state} {
+    set cell $::in; set W [expr {10 * $cell}]; set H [expr {20 * $cell}]
+    if {$n == 1} {
+        dict set ::hands tetris-slider [list [expr {$W / 2}] [expr {$H + 3 * $::in}] 0 [expr {4 * $::in}] [expr {3 * $::in}]]
+        dict set ::hands tetris-dropper [list [expr {$W + 3 * $::in}] [expr {$H / 2}] 0 [expr {3 * $::in}] [expr {3 * $::in}]]
+        set ::plan {}
+    }
+    set piece {}
+    dict for {id b} [dict get $state bodies] { set piece $b; set pieceId $id }
+    set ready 0
+    if {$piece ne {} && ![dict get $state over]} {
+        if {[dict getdef $::plan id {}] ne $pieceId} {
+            lassign [tetrisPlan [dict get $state grid] [dict get $piece shape] 10 20] rot col
+            set ::plan [dict create id $pieceId rot $rot col $col]
+        }
+        lassign [$::gameLib pieceDef [dict get $piece shape]] size
+        lassign [dict get $::hands tetris-slider] x y a w h
+        set x [approach $x [expr {([dict get $::plan col] + $size / 2.0) * $cell}] [expr {14 * $::in / 60}]]
+        set turn [wrapAngle [expr {[dict get $::plan rot] * 1.5707963 - $a}]]
+        set a [expr {$a + [clampv $turn -0.12 0.12]}]
+        dict set ::hands tetris-slider [list $x $y $a $w $h]
+        set ready [expr {[dict get $piece col] == [dict get $::plan col] &&
+                         [dict get $piece rot] == [dict get $::plan rot]}]
+    }
+    # Dropper goes onto the board once the piece is where we want it.
+    lassign [dict get $::hands tetris-dropper] x y a w h
+    set x [approach $x [expr {$ready ? $W - 1.5 * $::in : $W + 3 * $::in}] [expr {60 * $::in / 60}]]
+    dict set ::hands tetris-dropper [list $x $y $a $w $h]
+}
+
+proc play_asteroids {n state} {
+    set W [expr {30 * $::in}]; set H [expr {20 * $::in}]
+    if {$n == 1} {
+        dict set ::hands asteroids-ship [list [expr {$W / 2}] [expr {$H / 2}] 0 [expr {4 * $::in}] [expr {5 * $::in}]]
+        dict set ::hands asteroids-trigger [list [expr {$W + 3 * $::in}] [expr {$H - 2 * $::in}] 0 [expr {3 * $::in}] [expr {3 * $::in}]]
+    }
+    lassign [dict get $::hands asteroids-ship] x y a w h
+    # Drift the ship around the middle of the board.
+    set x [expr {$W / 2 + 4 * $::in * cos($n / 170.0)}]
+    set y [expr {$H / 2 + 3 * $::in * sin($n / 110.0)}]
+    # Turn toward the nearest rock, leading it a little.
+    set aimed 0; set nearest 1e9
+    dict for {id b} [dict get $state bodies] {
+        if {[dict get $b tool] ne "rock"} { continue }
+        lassign [dict get $b pos] rx ry
+        lassign [dict get $b vel] rvx rvy
+        set d [expr {hypot($rx - $x, $ry - $y)}]
+        if {$d < $nearest} {
+            set nearest $d
+            set lead [expr {$d / (30 * $::in)}]
+            set want [expr {atan2($rx + $rvx * $lead - $x, -($ry + $rvy * $lead - $y))}]
+        }
+    }
+    if {$nearest < 1e9} {
+        set turn [wrapAngle [expr {$want - $a}]]
+        set a [expr {$a + [clampv $turn -0.07 0.07]}]
+        set aimed [expr {abs($turn) < 0.08}]
+    }
+    dict set ::hands asteroids-ship [list $x $y $a $w $h]
+    # Slide the trigger page onto the board to fire.
+    lassign [dict get $::hands asteroids-trigger] tx ty ta tw th
+    set tx [approach $tx [expr {$aimed ? $W - 2 * $::in : $W + 3 * $::in}] [expr {60 * $::in / 60}]]
+    dict set ::hands asteroids-trigger [list $tx $ty $ta $tw $th]
+}
+
+# -------------------------------------------------------------------
+# Output: text frames for the terminal, JSON lines for the viewer.
+# -------------------------------------------------------------------
+proc jsonString {s} {
+    return "\"[string map [list \\ \\\\ \" \\\" "\n" \\n "\t" " "] $s]\""
+}
+proc jsonScene {scene} {
+    set out {}
+    foreach prim $scene {
+        set args [lassign $prim kind]
+        switch $kind {
+            circle { lassign $args x y r color filled; lappend out "\[\"c\",$x,$y,$r,\"$color\",$filled\]" }
+            rect { lassign $args x y w h color; lappend out "\[\"r\",$x,$y,$w,$h,\"$color\"\]" }
+            poly { lassign $args pts color filled; lappend out "\[\"p\",\[[join $pts ,]\],\"$color\",$filled\]" }
+            text { lassign $args x y text size color; lappend out "\[\"t\",$x,$y,[jsonString $text],$size,\"$color\"\]" }
+        }
+    }
+    return "\[[join $out ,]\]"
+}
+proc pointInPoly {x y pts} {
+    set inside 0
+    set n [expr {[llength $pts] / 2}]
+    for {set i 0; set j [expr {$n - 1}]} {$i < $n} {set j $i; incr i} {
+        set xi [lindex $pts [expr {2 * $i}]]; set yi [lindex $pts [expr {2 * $i + 1}]]
+        set xj [lindex $pts [expr {2 * $j}]]; set yj [lindex $pts [expr {2 * $j + 1}]]
+        if {($yi > $y) != ($yj > $y) && $x < ($xj - $xi) * ($y - $yi) / ($yj - $yi) + $xi} {
+            set inside [expr {!$inside}]
+        }
+    }
+    return $inside
+}
+# Rasterise a scene into characters. Characters are about twice as
+# tall as they are wide, hence the two scales.
+proc ascii {scene W H cols margin} {
+    set sx [expr {$cols / $W}]; set sy [expr {$sx / 2.0}]
+    set m [expr {int(ceil($margin * $sy))}]
+    set rows [expr {int(round($H * $sy))}]
+    set titles {}
+    set lines {}
+    for {set j [expr {-$m}]} {$j < $rows + $m} {incr j} {
+        set line ""
+        set y [expr {($j + 0.5) / $sy}]
+        for {set i 0} {$i < $cols} {incr i} {
+            set x [expr {($i + 0.5) / $sx}]
+            set ch [expr {($j < 0 || $j >= $rows) ? " " : "."}]
+            foreach prim [lrange $scene 1 end] {
+                set args [lassign $prim kind]
+                switch $kind {
+                    rect {
+                        lassign $args rx ry rw rh
+                        if {$x >= $rx && $x < $rx + $rw && $y >= $ry && $y < $ry + $rh} { set ch "#" }
+                    }
+                    circle {
+                        lassign $args cx cy r color filled
+                        set rr [expr {$r < 0.6 / $sx ? 0.6 / $sx : $r}]
+                        if {hypot($x - $cx, ($y - $cy)) < $rr} { set ch [expr {$filled ? "o" : "O"}] }
+                    }
+                    poly {
+                        lassign $args pts color filled
+                        if {[pointInPoly $x $y $pts]} {
+                            set ch [expr {$filled ? "A" : ($color eq "red" ? "!" : "=")}]
+                        }
+                    }
+                }
+            }
+            append line $ch
+        }
+        lappend lines [expr {($j < 0 || $j >= $rows) ? " $line" : "|$line|"}]
+    }
+    foreach prim $scene {
+        if {[lindex $prim 0] eq "text"} { lappend titles [lindex $prim 3] }
+    }
+    return "  [join $titles "   "]\n[join $lines \n]"
+}
+
+# -------------------------------------------------------------------
+# Play one game for a number of ticks.
+# -------------------------------------------------------------------
+proc playGame {game pages W H cols margin maxTicks showAt} {
+    puts! "\n=================== $game ==================="
+    set ::hands [dict create]
+    set ::extras [dict create]
+    set ::seen [dict create]
+    set enginePoly [layEngine $game-engine 0.30 0.25 6]
+    foreach p $pages { putPage $p }
+    sleep 0.5 ;# let the rulebook compile
+
+    set problems [Query! $game has problem /problem/]
+    assert {[llength $problems] == 0}
+    set laws [Query! $game has law /order/ /stage/ /law/]
+    puts! "$game: [llength $laws] rules compiled into laws:"
+    foreach l [lsort -integer -index 1 [lmap l $laws {list [dict get $l stage] [dict get $l order] [dict get [dict get $l law] op] [dict get [dict get $l law] rule]}]] {
+        puts! [format "  %-6s %-8s %s" [lindex $l 0] [lindex $l 2] [lindex $l 3]]
+    }
+
+    set trace {}
+    if {[info exists ::env(GAMES_TRACE)]} {
+        set trace [open "$::env(GAMES_TRACE)/$game.jsonl" w]
+        set rulebook {}
+        foreach p $pages { lappend rulebook "[jsonString $p]:[jsonString [dict get $::pages $p]]" }
+        puts $trace "{\"game\":\"$game\",\"w\":$W,\"h\":$H,\"engine\":\[[join $enginePoly ,]\],\"pages\":{[join $rulebook ,]}}"
+    }
+
+    set state [dict get [QueryOne! $game has state /state/] state]
+    set this sim
+    for {set n 1} {$n <= $maxTicks} {incr n} {
+        # Hands move the paper...
+        play_$game $n $state
+        dict for {page hand} $::hands { layPage $page $hand }
+        # ...and the game advances one tick.
+        Hold! -key [list advance $game] Wish $game advances to tick $n
+        set waited 0
+        while 1 {
+            set results [Query! $game has state /state/]
+            if {[llength $results] == 1 && [dict get [lindex $results 0] state tick] >= $n} { break }
+            sleep 0.0002
+            if {[incr waited] > 50000} { error "$game: stuck at tick $n" }
+        }
+        set state [dict get [lindex $results 0] state]
+
+        foreach msg [dict get $state log] {
+            dict set ::seen $msg 1
+            puts! [format "  \[%s %5d\] %s" $game $n $msg]
+        }
+        if {$n in $showAt} {
+            puts! "\n--- $game at tick $n ---"
+            puts! [ascii [dict get $state scene] $W $H $cols $margin]
+            puts! ""
+        }
+        if {$trace ne {} && ($n % 2 == 0 || [dict get $state log] ne {})} {
+            set x {}
+            dict for {id poly} $::extras { lappend x "\[[jsonString $id],\[[join $poly ,]\]\]" }
+            puts $trace "{\"t\":$n,\"s\":[jsonScene [dict get $state scene]],\"log\":\[[join [lmap m [dict get $state log] {jsonString $m}] ,]\],\"x\":\[[join $x ,]\]}"
+        }
+        if {[dict get $state over] && ![info exists overAt]} { set overAt $n }
+        if {[info exists overAt] && $n > $overAt + 60} { break }
+    }
+    if {$trace ne {}} { close $trace }
+    puts! "\n--- $game, final frame (tick [dict get $state tick]) ---"
+    puts! [ascii [dict get $state scene] $W $H $cols $margin]
+
+    # Take the game off the table again.
+    foreach p $pages { takePage $p }
+    takePage $game-engine
+    Hold! -key [list advance $game] {}
+    return $state
+}
+
+set maxTicks [expr {[info exists ::env(GAMES_TICKS)] ? $::env(GAMES_TICKS) : 2400}]
+
+# ---- The validator catches mistakes in a rulebook ----
+putPage broken-engine
+sleep 0.5
+set problems [lsort [lmap r [Query! broken has problem /problem/] {dict get $r problem}]]
+puts! "broken rulebook, as flagged by the validator:"
+foreach p $problems { puts! "  $p" }
+assert {[llength $problems] == 3}
+takePage broken-engine
+
+set only [expr {[info exists ::env(GAMES_ONLY)] ? $::env(GAMES_ONLY) : {pong tetris asteroids}}]
+
+if {"pong" in $only} {
+    set pong [playGame pong {pong-engine pong-paddle-left pong-paddle-right} \
+                  [expr {30 * $::in}] [expr {18 * $::in}] 60 0 [expr {$maxTicks * 2}] {150 360 1000}]
+    puts! "pong: final score [dict get $pong score], winner: [dict get $pong winner]"
+    set total 0
+    dict for {player n} [dict get $pong score] { incr total $n }
+    assert {$total >= 1}
+    # The referee saw each cheat, and each remedy did its job.
+    set ticks [dict get $pong tick]
+    if {$ticks > 430} {
+        assert {[dict exists $::seen "violation: pong-paddle-right is off-axis (remedy: highlight)"]}
+    }
+    if {$ticks > 2110} {
+        assert {[dict exists $::seen "violation: pong-paddle-right is off-axis (remedy: penalty)"]}
+        assert {[dict exists $::seen "penalty: player left scores 1"]}
+    }
+    if {$ticks > 2730} {
+        assert {[dict exists $::seen "violation: pong-paddle-right is off-axis (remedy: ignore)"]}
+    }
+    # The rule card added a law while it was on the table.
+    if {$ticks > 1600} {
+        assert {[dict get $::seen "laws at 1400"] == [dict get $::seen "laws at 890"] + 1}
+        assert {[dict get $::seen "laws at 1600"] == [dict get $::seen "laws at 890"]}
+    }
+}
+if {"tetris" in $only} {
+    set tetris [playGame tetris {tetris-engine tetris-slider tetris-dropper} \
+                    [expr {10 * $::in}] [expr {20 * $::in}] 20 0.11 $maxTicks {200 1200}]
+    puts! "tetris: final score [dict get $tetris score]"
+    assert {[dict size [dict get $tetris grid]] > 0}
+    if {$maxTicks >= 1000} { assert {[dict get $tetris score solo] >= 100} }
+}
+if {"asteroids" in $only} {
+    set asteroids [playGame asteroids {asteroids-engine asteroids-ship asteroids-trigger} \
+                       [expr {30 * $::in}] [expr {20 * $::in}] 60 0 $maxTicks {120 900}]
+    puts! "asteroids: final score [dict get $asteroids score], lives [dict get $asteroids lives]"
+    assert {[dict get $asteroids score solo] >= 10}
+}
+Exit! 0

@@ -1,0 +1,58 @@
+# Pong, as pages on a table. `page <id> {program}` is one sheet of paper.
+
+# The engine page: the rulebook. The board hangs off its top-right corner.
+page pong-engine {
+    Claim pong is a game
+    Claim pong has players left right
+
+    Claim pong has tool board  {fixed; region 30in 18in; anchored at top-right}
+    Claim pong has tool paddle {physical; quad 3in 8.5in}
+    Claim pong has tool ball   {virtual; circle 1in; filled}
+
+    Claim pong has rules {
+        game starts in stage serve
+
+        # shapes and motion
+        paddle moves along y
+        paddle stays inside board
+        remedy for off-axis is highlight
+        ball bounces off paddle
+        ball bounces off board edges north south
+        gravity is 0
+
+        in stage serve {
+            ball spawns at center with speed 20in/s toward a random player
+            when 1s has passed then stage is rally
+        }
+        in stage rally {
+            ball speeds up 5% when it bounces off paddle
+        }
+
+        when ball exits board edge west then player right scores 1, ball is removed, stage is serve
+        when ball exits board edge east then player left scores 1, ball is removed, stage is serve
+        game ends when a player has 7 points
+    }
+
+    Claim $this is the engine of pong
+}
+
+# Each player's paddle is just a page that joins the game.
+page pong-paddle-left {
+    Claim $this is a paddle of pong
+    Claim $this belongs to player left
+}
+page pong-paddle-right {
+    Claim $this is a paddle of pong
+    Claim $this belongs to player right
+}
+
+# Rule cards: a rule is in force while its card is on the table.
+page pong-card-fast {
+    Claim pong has rule ball speeds up 25% when it bounces off paddle
+}
+page pong-card-penalty {
+    Claim pong has rule remedy for off-axis is penalty
+}
+page pong-card-ignore {
+    Claim pong has rule remedy for off-axis is ignore
+}
