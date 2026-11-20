@@ -1,7 +1,9 @@
 # Function to check if the device is a keyboard
 proc isKeyboard {device} {
-    set properties [exec udevadm info --query=property --name=$device]
-    if {$properties eq ""} {
+    # (If there's no udevadm, or it fails for this device, the device
+    # just isn't a keyboard; emulated keyboards get claimed directly.)
+    if {[catch {exec udevadm info --query=property --name=$device} properties] ||
+        $properties eq ""} {
         return false
     }
     set isKeyboard [string match *ID_INPUT_KEYBOARD=1* $properties]
