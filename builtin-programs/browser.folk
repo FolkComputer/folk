@@ -40,7 +40,13 @@
 #   }
 #
 # Environment: FOLK_BROWSER (path of a Chromium binary),
-# FOLK_BROWSER_FLAGS (extra command-line flags).
+# FOLK_BROWSER_FLAGS (extra command-line flags), FOLK_BROWSER_TRACE
+# (a file that gets every DevTools message, for debugging).
+#
+# The picture is drawn straight onto the display, over the thing's
+# quad (not into its canvas); what the thing draws on its own canvas
+# ends up underneath. Sound is not muted: Chromium inherits Folk's
+# environment (PULSE_SERVER etc.).
 
 When the image library is /imageLib/ & the GPU texture library is /gpuTextureLib/ {
 
