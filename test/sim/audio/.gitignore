@@ -1,0 +1,3 @@
+*.wav
+*.wav.json
+__pycache__/
