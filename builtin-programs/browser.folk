@@ -117,6 +117,8 @@ $cc code {
     typedef struct Browser {
         int id;
         int refs;                          // API calls in flight (under brRegMu)
+        int claims;                        // browserCreate calls minus browserDestroy calls
+        char key[512];                     // what it was created for
         int w, h, fps, quality;
         double pointerSpeed, quietS;
         char** argv; char udd[128];
@@ -1146,11 +1148,24 @@ $cc code {
     static int brRemoveCb(const char* path, const struct stat* sb, int flag, struct FTW* ftw) {
         remove(path); return 0;
     }
-    static int brCreate(int w, int h, int fps, int quality, double pointerSpeed, int quietMs, Jim_Obj* argvObj) {
+    // One browser per key: creating it again (a rule body that ran twice, or that runs
+    // again while the destructor of its previous run is still pending) gives the same one,
+    // and it lives until it has been destroyed as often as it was created.
+    static int brCreate(const char* key, int w, int h, int fps, int quality, double pointerSpeed, int quietMs, Jim_Obj* argvObj) {
+        pthread_mutex_lock(&brRegMu);
+        for (int i = 0; i < BR_MAX; i++) {
+            if (brTable[i] != NULL && strcmp(brTable[i]->key, key) == 0) {
+                int id = brTable[i]->id; brTable[i]->claims++;
+                pthread_mutex_unlock(&brRegMu);
+                return id;
+            }
+        }
+        pthread_mutex_unlock(&brRegMu);
         int argc = Jim_ListLength(interp, argvObj);
         FOLK_ENSURE(argc >= 1);
         FOLK_ENSURE(w >= 16 && h >= 16 && w <= 8192 && h <= 8192);
         Browser* b = calloc(1, sizeof(Browser));
+        snprintf(b->key, sizeof(b->key), "%s", key); b->claims = 1;
         b->w = w; b->h = h;
         b->fps = fps < 1 ? 1 : (fps > 120 ? 120 : fps);
         b->quality = quality < 1 ? 1 : (quality > 100 ? 100 : quality);
@@ -1186,12 +1201,22 @@ $cc code {
 
         pthread_mutex_lock(&brRegMu);
         if (!brB64Ready) brB64Init();
-        b->id = brNextId++;
-        int slot = -1;
-        for (int i = 0; i < BR_MAX; i++) if (brTable[i] == NULL) { slot = i; break; }
-        if (slot >= 0) brTable[slot] = b;
+        int slot = -1, existing = 0;
+        for (int i = 0; i < BR_MAX; i++) {
+            if (brTable[i] == NULL) { if (slot < 0) slot = i; }
+            else if (strcmp(brTable[i]->key, key) == 0) { existing = brTable[i]->id; brTable[i]->claims++; }
+        }
+        if (existing == 0 && slot >= 0) { b->id = brNextId++; brTable[slot] = b; }
         pthread_mutex_unlock(&brRegMu);
-        if (slot < 0) FOLK_ERROR("browser: too many browsers");      // (leaks b; 64 browsers is absurd)
+        if (existing != 0 || slot < 0) {
+            // Somebody else made it in the meantime (or there are 64 browsers): undo.
+            brGpuFreeTexture(b->tex); tjDestroy(b->tj); rmdir(b->udd);
+            for (int i = 0; b->argv[i] != NULL; i++) free(b->argv[i]);
+            free(b->argv); free(b->frame); free(b->decodeBuf); free(b->compose); free(b->devices);
+            free(b);
+            if (existing != 0) return existing;
+            FOLK_ERROR("browser: too many browsers");
+        }
 
         b->readerStarted = pthread_create(&b->reader, NULL, brReaderMain, b) == 0;
         b->workerStarted = pthread_create(&b->worker, NULL, brWorkerMain, b) == 0;
@@ -1201,7 +1226,10 @@ $cc code {
         Browser* b = NULL;
         pthread_mutex_lock(&brRegMu);
         for (int i = 0; i < BR_MAX; i++) {
-            if (brTable[i] != NULL && brTable[i]->id == id) { b = brTable[i]; brTable[i] = NULL; break; }
+            if (brTable[i] != NULL && brTable[i]->id == id) {
+                if (--brTable[i]->claims <= 0) { b = brTable[i]; brTable[i] = NULL; }
+                break;
+            }
         }
         pthread_mutex_unlock(&brRegMu);
         if (b == NULL) return;
@@ -1495,10 +1523,11 @@ $cc code {
     }
 }
 
+# key: what the browser is for (one browser per key, see brCreate).
 # argv: the command line up to (not including) --user-data-dir,
 # --window-size and the URL, which browserCreate adds.
-$cc proc browserCreate {int w int h int fps int quality double pointerSpeed int reorderWindowMs Jim_Obj* argv} int {
-    return brCreate(w, h, fps, quality, pointerSpeed, reorderWindowMs, argv);
+$cc proc browserCreate {char* key int w int h int fps int quality double pointerSpeed int reorderWindowMs Jim_Obj* argv} int {
+    return brCreate(key, w, h, fps, quality, pointerSpeed, reorderWindowMs, argv);
 }
 $cc proc browserDestroy {int b} void { brDestroy(b); }
 # JSON text of the value of a JavaScript expression (awaits promises).
@@ -1594,7 +1623,7 @@ When /thing/ is a web browser with width /w/ height /h/ settings /settings/ {
     if {$browserBinary eq ""} {
         error "browser: no Chromium found (install chromium or set FOLK_BROWSER)"
     }
-    set b [$browserLib browserCreate $w $h [dict get $settings fps] [dict get $settings quality] \
+    set b [$browserLib browserCreate [list $thing $w $h $settings] $w $h [dict get $settings fps] [dict get $settings quality] \
                [dict get $settings pointerSpeed] [dict get $settings reorderWindow] $browserArgv]
     Claim -destructor [list $browserLib browserDestroy $b] $thing has web browser $b
 }
