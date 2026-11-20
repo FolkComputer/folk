@@ -16,6 +16,22 @@
 // Build:  make            (needs only libc and the kernel uapi headers)
 // Usage:  hidemu [--kbd PATH] [--mouse PATH] [--log FILE] [--script FILE] [--ctl SOCKET]
 //                [--seed N] [--fuzz N[:kbd|mouse|all]] [--evdev-overflow] [--quiet]
+//   --kbd/--mouse PATH   where the evdev events go; a FIFO is created if PATH does not exist. The FIFO is
+//                        opened read-write, so hidemu never waits for a reader and may exit before the
+//                        events have been read (they stay in the FIFO as long as someone has it open).
+//   --log FILE           ground truth, appended, tab-separated: TIME kbd|mouse|emu KIND ...
+//                        (`cmd`, `report` = raw HID report, `event` = one input_event, `error`, `stats`)
+//   --script FILE        run the commands in FILE, then exit (default: commands from stdin)
+//   --ctl SOCKET         listen on a unix stream socket instead; one client at a time. Every line is
+//                        answered with `ok` or `err MESSAGE` once the command has been emitted
+//                        completely (so a client can simply write a line and read a line). `quit` ends
+//                        hidemu. Lines are limited to 4095 bytes.
+//   --evdev-overflow     behave like an evdev client buffer: never block, drop frames and send
+//                        SYN_DROPPED when the reader is too slow (default: block until there is room)
+// Example:
+//   hidemu --kbd /tmp/kbd0 --mouse /tmp/mouse0 --log /tmp/emu.log --ctl /tmp/emu.sock &
+//   python3:  s = socket.socket(socket.AF_UNIX); s.connect("/tmp/emu.sock"); f = s.makefile("rw")
+//             f.write('type "hello"\n'); f.flush(); f.readline()   # -> "ok\n"
 // Commands (stdin, --script or the control socket; one per line, `#` starts a comment):
 //   key down|up NAME          NAME is KEY_A, a, A, ctrl, shift, enter, ... or a HID usage `u0x04`
 //   tap NAME [holdms]         press + release
@@ -229,6 +245,7 @@ static void fireTimers(void) { // input_repeat_key()
         if (!kTest(K.repeatKey)) { K.repeatKey = -1; break; }
         emit(&kbd, EV_KEY, K.repeatKey, 2);
         flushFrame(&kbd, 1);
+        if (logf_) fflush(logf_); // repeats also happen while we wait for the next command
         K.repeatAtNs += K.repPeriodMs * 1000000LL;
         if (K.repeatAtNs < monoNs() - 1000000000LL) K.repeatAtNs = monoNs(); // we were stalled; do not replay a backlog
     }
@@ -501,7 +518,7 @@ static const char* runCommand(char* line) {
 
 // Reads lines from fd; while waiting for input the autorepeat timer keeps running.
 static void runStream(int fd, int replyFd) {
-    char buf[4096]; size_t len = 0;
+    char buf[4096]; size_t len = 0; bool tooLong = false;
     while (!wantQuit) {
         char* nl;
         while ((nl = memchr(buf, '\n', len))) {
@@ -519,12 +536,22 @@ static void runStream(int fd, int replyFd) {
         struct pollfd p = { fd, POLLIN, 0 };
         int pr = poll(&p, 1, timeout);
         if (pr <= 0) continue;
+        if (len == sizeof(buf) - 1) { // no newline in 4095 bytes: drop the line (one reply) instead of mistaking it for EOF
+            logLine("emu", "error\tline too long"); if (!quiet) fprintf(stderr, "hidemu: line too long\n");
+            if (replyFd >= 0 && write(replyFd, "err line too long\n", 18) < 0) return;
+            len = 0; tooLong = true;
+        }
         ssize_t n = read(fd, buf + len, sizeof(buf) - 1 - len);
         if (n <= 0) { // EOF: run a last line without a newline
             if (len) { buf[len] = 0; runCommand(buf); }
             return;
         }
         len += n;
+        if (tooLong) { // skip the rest of the dropped line
+            char* nl2 = memchr(buf, '\n', len);
+            if (!nl2) { len = 0; continue; }
+            len -= nl2 + 1 - buf; memmove(buf, nl2 + 1, len); tooLong = false;
+        }
     }
 }
 
