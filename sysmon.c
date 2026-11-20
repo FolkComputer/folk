@@ -140,8 +140,9 @@ void sysmon() {
         }
         fclose(fp);
 
-        // If it's running, then we'll count it as non-blocked.
-        if (state == 'R') {
+        // If it's running (or parked because it has no work), then
+        // we'll count it as non-blocked.
+        if (state == 'R' || threads[i].isIdle) {
             notBlockedWorkersCount++;
             threads[i].wasObservedAsBlocked = false;
         } else {

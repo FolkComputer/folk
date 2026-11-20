@@ -50,6 +50,10 @@ typedef struct ThreadControlBlock {
     // non-benched threads to utilize the CPUs.
     bool _Atomic isDeactivated;
     sem_t reactivate;
+    // True while the worker is parked in workerLoop waiting for work
+    // (see idleWakeSem in folk.c). sysmon must not count a parked
+    // worker as blocked on I/O.
+    bool _Atomic isIdle;
 
     // Current match being constructed (if applicable).
     Match* currentMatch;

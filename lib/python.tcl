@@ -210,9 +210,16 @@ $cc proc setRegisteredArgtypes {char* endpoint char* value} void {
     pthread_mutex_unlock(&registeredArgtypesMutex);
 }
 
-set impl [$cc compile]
+# Compile the Uvx support library lazily, in whichever interpreter first
+# calls Uvx. prelude.tcl sources this file every time a worker thread boots
+# its interpreter; compiling here made every new worker block in the C
+# compiler for hundreds of ms, which sysmon read as "blocked" and answered
+# by spawning yet more workers (a spawn storm of dozens of threads).
+set ::__uvxCc $cc
 
-proc Uvx args {impl UVX} {
+proc Uvx args {UVX} {
+    if {![info exists ::__uvxImpl]} { set ::__uvxImpl [$::__uvxCc compile] }
+    set impl $::__uvxImpl
     set endpoint "/tmp/uvx-[clock milliseconds]-[expr {int(rand() * 100000)}].sock"
     set folkPid [pid]
 

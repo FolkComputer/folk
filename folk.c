@@ -39,6 +39,16 @@ __thread ThreadControlBlock* self;
 // helper function to get self from LLDB:
 ThreadControlBlock* getSelf() { return self; }
 
+// Idle workers park on this semaphore instead of busy-waiting. Every
+// push of a work item wakes one parked worker (if there is one).
+#define IDLE_SPINS_BEFORE_PARK 2000
+#define IDLE_PARK_TIMEOUT_NS 20000000
+static sem_t idleWakeSem;
+static _Atomic int idleParkedCount;
+static inline void idleWakeOne(void) {
+    if (atomic_load(&idleParkedCount) > 0) { sem_post(&idleWakeSem); }
+}
+
 struct mpmc_queue globalWorkQueue;
 _Atomic int globalWorkQueueSize;
 void globalWorkQueueInit() {
@@ -59,6 +69,7 @@ void globalWorkQueuePush(WorkQueueItem item) {
         FATAL("globalWorkQueuePush: failed\n");
     }
     globalWorkQueueSize++;
+    idleWakeOne();
 }
 WorkQueueItem globalWorkQueueTake() {
     WorkQueueItem ret = { .op = NONE };
@@ -76,6 +87,7 @@ WorkQueueItem globalWorkQueueTake() {
 void appropriateWorkQueuePush(WorkQueueItem item) {
     if (self) {
         workQueuePush(self->workQueue, item);
+        idleWakeOne();
         return;
     }
     globalWorkQueuePush(item);
@@ -1492,8 +1504,25 @@ WorkQueueItem workerSteal() {
 
     return workQueueSteal(threads[stealee].workQueue);
 }
+// Unlike workerSteal (one random victim), looks once at every worker's
+// queue and then at the global queue. Used as the last check before a
+// worker parks, so that a push can't be missed.
+static WorkQueueItem workerStealScan() {
+    int n = threadCount;
+    int start = rand_r(&seedp) % n;
+    for (int k = 0; k < n; k++) {
+        int i = (start + k) % n;
+        if (i == self->index || threads[i].tid == 0 || threads[i].workQueue == NULL) {
+            continue;
+        }
+        WorkQueueItem item = workQueueSteal(threads[i].workQueue);
+        if (item.op != NONE) { return item; }
+    }
+    return globalWorkQueueTake();
+}
 void workerLoop() {
     int64_t schedtick = 0;
+    int idleSpins = 0;
     for (;;) {
         schedtick++;
         if (interp->sigmask & (1 << SIGUSR1)) {
@@ -1516,8 +1545,34 @@ void workerLoop() {
             item = globalWorkQueueTake();
         }
         if (item.op == NONE) {
-            continue;
+            if (++idleSpins < IDLE_SPINS_BEFORE_PARK) { continue; }
+
+            // We've found nothing for a while: park until some
+            // thread pushes work (or a timeout, as a safety net).
+            // Announce that we're parking _before_ the final scan, so
+            // a pusher either gets seen by the scan or sees us and
+            // posts the semaphore.
+            atomic_fetch_add(&idleParkedCount, 1);
+            item = workerStealScan();
+            if (item.op == NONE) {
+                struct timespec deadline;
+                clock_gettime(CLOCK_REALTIME, &deadline);
+                deadline.tv_nsec += IDLE_PARK_TIMEOUT_NS;
+                if (deadline.tv_nsec >= 1000000000) {
+                    deadline.tv_sec++; deadline.tv_nsec -= 1000000000;
+                }
+                self->isIdle = true;
+                int r = sem_timedwait(&idleWakeSem, &deadline);
+                self->isIdle = false;
+                atomic_fetch_sub(&idleParkedCount, 1);
+                // Woken by a push: spin and look hard for the work.
+                // Timed out: take one quick look, then park again.
+                idleSpins = (r == 0) ? 0 : IDLE_SPINS_BEFORE_PARK;
+                continue;
+            }
+            atomic_fetch_sub(&idleParkedCount, 1);
         }
+        idleSpins = 0;
 
         workerRun(item);
     }
@@ -1748,6 +1803,7 @@ int main(int argc, char** argv) {
     db = dbNew();
 
     workQueueInit();
+    sem_init(&idleWakeSem, 0, 0);
 
     globalWorkQueueInit();
     blockStatsInit();
