@@ -1,0 +1,111 @@
+# table.folk -- an emulated tabletop for headless simulation.
+#
+#     Turns wishes into the statements that a camera looking at
+#     printed pages (AprilTags) would have produced, in display pixel
+#     coordinates (rects are upright: x y of the top-left corner,
+#     then width and height):
+#
+#       Wish the simulated table has page <name> at <x> <y> <w> <h> with code <code>
+#       Wish the simulated table has keyboard <name> at <x> <y> <w> <h> with path <kbFifo>
+#       Wish the simulated table has mouse <name> at <x> <y> <w> <h> with path <mouseFifo>
+#       Wish the simulated table has keyboard <name> at <x> <y> <w> <h> with path <kbFifo> mouse <mouseFifo>
+#
+#     A page runs its code as a program ($this is <name>) and has a
+#     quad, a geometry and a canvas, so whatever it draws lands
+#     exactly on its pixel rect. A keyboard (or mouse) page is a page
+#     whose program is `Claim $this is a keyboard with path <kbFifo>`,
+#     like a printed keyboard page; put it below its target, so that
+#     it points up at it. The FIFOs are fed with evdev events by
+#     test/sim/hidemu.
+#
+#     To move or remove a page, replace the wish (make it with Hold!).
+#     A page keeps running while it moves.
+#
+#     Needs a calibration without lens distortion; see sim-setup.folk.
+
+# How long a page survives without a wish. Replacing a held wish
+# leaves a gap; this bridges it, so that moving a page doesn't
+# restart its program or recreate its canvas.
+set linger 250ms
+
+When /someone/ wishes the simulated table has page /name/ at /x/ /y/ /w/ /h/ with code /code/ {
+    Claim the simulated table has thing $name at $x $y $w $h
+    Claim -keep $linger $name has program code $code
+}
+
+When /someone/ wishes the simulated table has keyboard /name/ at /x/ /y/ /w/ /h/ with path /kbPath/ {
+    Claim the simulated table has thing $name at $x $y $w $h
+    Claim -keep $linger the simulated table has keyboard device $kbPath
+    Claim -keep $linger $name has program code \
+        "Claim \$this is a keyboard with path [list $kbPath]"
+}
+
+When /someone/ wishes the simulated table has mouse /name/ at /x/ /y/ /w/ /h/ with path /mousePath/ {
+    Claim the simulated table has thing $name at $x $y $w $h
+    Claim -keep $linger the simulated table has mouse device $mousePath
+    Claim -keep $linger $name has program code \
+        "Claim \$this is a mouse with path [list $mousePath]"
+}
+
+When /someone/ wishes the simulated table has keyboard /name/ at /x/ /y/ /w/ /h/ with path /kbPath/ mouse /mousePath/ {
+    Claim the simulated table has thing $name at $x $y $w $h
+    Claim -keep $linger the simulated table has keyboard device $kbPath
+    Claim -keep $linger the simulated table has mouse device $mousePath
+    Claim -keep $linger $name has program code \
+        "Claim \$this is a keyboard with path [list $kbPath]
+Claim \$this is a mouse with path [list $mousePath]"
+}
+
+# Geometry: the display is the image plane of an ideal pinhole
+# projector, and all pages lie on the plane 1 m in front of it.
+When the quad library is /quadLib/ &\
+     display /disp/ has width /dispWidth/ height /dispHeight/ &\
+     display /disp/ has intrinsics /intr/ {
+
+    When the simulated table has thing /name/ at /x/ /y/ /w/ /h/ {
+        # The inverse of `$poseLib project` in tags-to-quads.folk: a
+        # display pixel -> the point on the z = 1 m plane (in display
+        # space, so no camera is involved) that's drawn there.
+        set sx [expr {[dict get $intr width] / double($dispWidth)}]
+        set sy [expr {[dict get $intr height] / double($dispHeight)}]
+        set fx [dict get $intr fx]; set fy [dict get $intr fy]
+        set cx [dict get $intr cx]; set cy [dict get $intr cy]
+        set vertices [list]
+        foreach {px py} [list $x $y  [+ $x $w] $y  [+ $x $w] [+ $y $h]  $x [+ $y $h]] {
+            lappend vertices [list [expr {($px * $sx - $cx) / $fx}] \
+                                  [expr {($py * $sy - $cy) / $fy}] \
+                                  1.0]
+        }
+        Claim $name has quad [$quadLib create "display $disp" $vertices]
+
+        # Page space is meters on that plane. The geometry has the
+        # fields of a printed page (see tags-geometry.folk; the editor
+        # computes its size from them): a tag in the top-right corner
+        # and no margins around the page.
+        set width [expr {$w * $sx / $fx}]
+        set height [expr {$h * $sy / $fy}]
+        set tagSize [min 0.03 [min $width $height]]
+        Claim -keep $linger $name has resolved geometry \
+            [dict create tagSize $tagSize top 0 right 0 \
+                 left [expr {$width - $tagSize}] bottom [expr {$height - $tagSize}] \
+                 width $width height $height]
+        # One canvas pixel per display pixel.
+        Wish -keep $linger $name has a canvas with width $w height $h
+    }
+}
+
+# Input devices are FIFOs. keyboard.folk opens its device read-only:
+# that blocks until there's a writer, and reads EOF (forever) once the
+# last writer is gone. So we hold every FIFO open ourselves; the
+# emulator can then come and go.
+When the simulated table has /kind/ device /path/ {
+    if {$kind ni {keyboard mouse}} { return }
+
+    if {![file exists $path]} { exec mkfifo $path }
+    if {[file type $path] eq "fifo"} {
+        set keepAlive [open $path r+]
+        # (This channel stays with this thread's interpreter; a FIFO
+        # with no wish left is just not read anymore.)
+    }
+    Claim $path is a $kind device
+}

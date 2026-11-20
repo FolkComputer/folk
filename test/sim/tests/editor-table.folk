@@ -1,0 +1,126 @@
+# editor-table.folk -- the table that test/sim/tests/editor.sh looks at.
+# (Loaded as a program next to sim-setup.folk and table.folk; the
+# FIFOs of the emulated keyboards and mice live in $FOLK_SIM_DIR.)
+#
+#   sim-page    a program page; sim-kbd (keyboard kbd0) lies below it,
+#               so it gets the editor
+#   sim-flag    turns green once sim-page claims it `is edited`
+#   sim-app     wants raw keys and a mouse; sim-combo (keyboard kbd1 +
+#               mouse mouse1) lies below it
+#   sim-pad     wants a mouse; sim-mouse (mouse mouse0) lies below it
+
+set dir $::env(FOLK_SIM_DIR)
+
+Wish the simulated table has page sim-page at 80 60 480 300 with code {
+Wish $this is outlined white
+Claim $this is version one
+}
+Wish the simulated table has keyboard sim-kbd at 220 370 200 80 with path $dir/kbd0
+
+Wish the simulated table has page sim-flag at 80 500 200 100 with code {
+    Wish $this is outlined white
+    When sim-page is edited { Wish $this is filled with color green }
+}
+
+# A reference consumer of mouse reports: buffers them, applies them in
+# seq order (1 device unit = 1 page pixel, starting from the center of
+# the page), and draws a pointer.
+set pointerCode {
+    Claim $this handles mouse input
+    Wish $this is outlined white
+
+    set cc [C]
+    $cc include <pthread.h>
+    $cc include <stdbool.h>
+    $cc code {
+        #define WINDOW 64
+        typedef struct { int seq, dx, dy, buttons; } Report;
+        static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+        static Report window[WINDOW]; static int nWindow;
+        static bool started;
+        static int nextSeq, x, y, buttons, clicks, revision;
+
+        static void apply(const Report* r, int w, int h) {
+            x += r->dx; y += r->dy;
+            if (x < 0) x = 0; else if (x > w - 1) x = w - 1;
+            if (y < 0) y = 0; else if (y > h - 1) y = h - 1;
+            if ((r->buttons & 1) && !(buttons & 1)) clicks++;
+            buttons = r->buttons;
+        }
+        static void feedLocked(Report r, int w, int h) {
+            if (!started) { started = true; nextSeq = r.seq; x = w / 2; y = h / 2; }
+            if (r.seq < nextSeq) { r.buttons = buttons; apply(&r, w, h); return; } // late: motion only
+            if (nWindow == WINDOW) { // something got lost: skip to the oldest report we have
+                int oldest = window[0].seq;
+                for (int i = 1; i < nWindow; i++) if (window[i].seq < oldest) oldest = window[i].seq;
+                nextSeq = oldest;
+            } else {
+                window[nWindow++] = r;
+            }
+            for (bool found = true; found;) {
+                found = false;
+                for (int i = 0; i < nWindow; i++) {
+                    if (window[i].seq != nextSeq) continue;
+                    apply(&window[i], w, h);
+                    window[i] = window[--nWindow];
+                    nextSeq++; found = true;
+                    break;
+                }
+            }
+        }
+    }
+    # Returns {revision x y buttons clicks}.
+    $cc proc feed {int seq int dx int dy int newButtons int w int h} Jim_Obj* {
+        pthread_mutex_lock(&mutex);
+        feedLocked((Report) { seq, dx, dy, newButtons }, w, h);
+        Jim_Obj* objs[5] = {
+            Jim_NewIntObj(interp, ++revision), Jim_NewIntObj(interp, x), Jim_NewIntObj(interp, y),
+            Jim_NewIntObj(interp, buttons), Jim_NewIntObj(interp, clicks)
+        };
+        pthread_mutex_unlock(&mutex);
+        return Jim_NewListObj(interp, objs, 5);
+    }
+    set pointerLib [$cc compile]
+
+    When $this has canvas /canvas/ with /...canvasOpts/ &\
+         /mousePage/ is a mouse with path /mousePath/ &\
+         /mousePage/ is pointing into $this {
+        if {![info exists canvasOpts]} { return }
+        set w [dict get $canvasOpts width]; set h [dict get $canvasOpts height]
+        Subscribe: mouse $mousePath claims report with /...r/ {
+            lassign [$pointerLib feed [dict get $r seq] [dict get $r dx] [dict get $r dy] \
+                         [dict get $r buttons] $w $h] revision x y buttons clicks
+            # Handlers run concurrently: an older state mustn't replace a newer one.
+            Hold! -version $revision -key pointer \
+                Claim $this has pointer $x $y buttons $buttons clicks $clicks
+        }
+    }
+    When $this has pointer /x/ /y/ buttons /buttons/ clicks /clicks/ &\
+         $this has canvas /canvas/ with /...canvasOpts/ &\
+         $this has resolved geometry /geom/ {
+        if {![info exists canvasOpts]} { return }
+        set m [expr {[dict get $geom width] / double([dict get $canvasOpts width])}] ;# meters per pixel
+        Wish to draw a circle onto $this with \
+            center [list [expr {$x * $m}] [expr {$y * $m}]] radius [expr {7 * $m}] \
+            color [expr {$buttons ? "red" : "white"}] filled true
+    }
+}
+
+# A target that takes raw keys (so it doesn't get an editor) and a mouse.
+Wish the simulated table has page sim-app at 640 60 400 300 with code "
+    Claim \$this handles keyboard input
+    When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\\
+         /keyboard/ is typing into \$this {
+        Subscribe: keyboard \$kbPath claims key /key/ is /state/ with /...o/ {
+            if {\$state ne {down}} { return }
+            Hold! -key \[list key \[dict get \$o seq\]\] \\
+                Claim \$this got key \$key with seq \[dict get \$o seq\]
+        }
+    }
+    $pointerCode
+"
+Wish the simulated table has keyboard sim-combo at 740 370 200 80 \
+    with path $dir/kbd1 mouse $dir/mouse1
+
+Wish the simulated table has page sim-pad at 1080 60 160 300 with code $pointerCode
+Wish the simulated table has mouse sim-mouse at 1110 370 100 80 with path $dir/mouse0
