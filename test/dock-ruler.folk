@@ -1,0 +1,478 @@
+# Interaction fuzz test for the dock ruler demo (tag 45009 in
+# builtin-programs/demos.folk).
+#
+# We fake a flat table, an orthographic projector (1 px = 1 mm) and a
+# handful of AprilTags, then randomly slide the tags and the ruler
+# page around (into docks, out of docks, on top of each other, off the
+# table) and check after every step that what the demo wishes to draw
+# agrees with a simple model of what it ought to be showing.
+#
+# Environment variables:
+#   DOCK_RULER_SEED   random seed (default 1)
+#   DOCK_RULER_STEPS  number of fuzz steps (default 80)
+#   DOCK_RULER_VERBOSE  if set, print every step
+
+global seed steps RULER TAGS DISP GEOM DOCK_SIZE DOCK_GAP TABLE_Z pagePose tagPos model incumbent recent
+
+set seed [expr {[info exists ::env(DOCK_RULER_SEED)] ? $::env(DOCK_RULER_SEED) : 1}]
+set steps [expr {[info exists ::env(DOCK_RULER_STEPS)] ? $::env(DOCK_RULER_STEPS) : 80}]
+expr {srand($seed)}
+
+set RULER 45009
+set TAGS {1 2 3 4}
+set DISP fake-display
+set GEOM {tagSize 0.03 top 0.028 right 0.028 left 0.157 bottom 0.08
+          width 0.215 height 0.138}
+set DOCK_SIZE 0.06
+set DOCK_GAP 0.01
+set TABLE_Z 0.8
+
+# ---- Fake world -------------------------------------------------------
+
+Assert! when /__this/ has program code /__programCode/ {
+    SayWithSource $__this 1 0 {} {} \
+        when $__programCode with environment [list [list this $__this]]
+} with environment {}
+
+When { source builtin-programs/collect.folk }
+When { source builtin-programs/quad-lib.folk }
+When { source builtin-programs/draw/color-map.folk }
+When { source builtin-programs/demos.folk }
+
+# Orthographic projector looking straight down: 1 px = 1 mm.
+set fakePoseLib [library create fakePoseLib {
+    proc project {intr w h v} {
+        lassign $v x y z
+        list [expr {$w / 2.0 + 1000.0 * $x}] [expr {$h / 2.0 + 1000.0 * $y}]
+    }
+}]
+Claim the pose library is $fakePoseLib
+
+# Everything is already in display space; just relabel the quad.
+fn quadChange {q targetSpace} { list $targetSpace [lindex $q 1] }
+Claim the quad changer is [fn quadChange]
+
+Claim display $DISP has width 1920 height 1080
+Claim display $DISP has intrinsics fake-intrinsics
+
+set geom $GEOM ;# (globals aren't captured by When bodies)
+When page /p/ is out & /p/ has demo code /code/ {
+    Claim $p has program code $code
+    Claim $p has resolved geometry $geom
+}
+
+# ---- Scene helpers ----------------------------------------------------
+
+proc rnd {lo hi} { expr {$lo + rand() * ($hi - $lo)} }
+proc pick {l} { lindex $l [expr {int(rand() * [llength $l])}] }
+
+# A rectangle on the table whose top-left corner is at (x, y), rotated
+# by theta, as a quad (clockwise from top-left).
+proc rectQuad {x y theta width height} {
+    set ux [expr {cos($theta)}]; set uy [expr {sin($theta)}]
+    set vx [expr {-sin($theta)}]; set vy [expr {cos($theta)}]
+    set vertices [list]
+    foreach {a b} [list 0 0 $width 0 $width $height 0 $height] {
+        lappend vertices [list [expr {$x + $a*$ux + $b*$vx}] \
+                              [expr {$y + $a*$uy + $b*$vy}] \
+                              $::TABLE_Z]
+    }
+    list world $vertices
+}
+# Page pose {x y theta} + page coordinates -> table coordinates.
+proc pageToTable {pose px py} {
+    lassign $pose x y theta
+    list [expr {$x + $px*cos($theta) - $py*sin($theta)}] \
+         [expr {$y + $px*sin($theta) + $py*cos($theta)}]
+}
+proc tableToPage {pose tx ty} {
+    lassign $pose x y theta
+    set dx [expr {$tx - $x}]; set dy [expr {$ty - $y}]
+    list [expr {$dx*cos($theta) + $dy*sin($theta)}] \
+         [expr {-$dx*sin($theta) + $dy*cos($theta)}]
+}
+# Dock rectangle {x0 y0 x1 y1} in page coordinates.
+proc dockRect {side} {
+    set yc [expr {[dict get $::GEOM top] + [dict get $::GEOM tagSize] / 2.0}]
+    if {$side eq "left"} {
+        set x1 [expr {-$::DOCK_GAP}]; set x0 [expr {$x1 - $::DOCK_SIZE}]
+    } else {
+        set x0 [expr {[dict get $::GEOM width] + $::DOCK_GAP}]
+        set x1 [expr {$x0 + $::DOCK_SIZE}]
+    }
+    list $x0 [expr {$yc - $::DOCK_SIZE / 2.0}] $x1 [expr {$yc + $::DOCK_SIZE / 2.0}]
+}
+
+# Scene state: pagePose is {x y theta} or "" when the ruler page is off
+# the table; tagPos maps tag -> {x y theta} or "" likewise.
+set pagePose ""
+set tagPos [dict create]
+foreach tag $TAGS { dict set tagPos $tag "" }
+
+# Which dock (if any) a tag at table position (tx, ty) is in. Returns
+# "edge" if it is too close to a dock boundary to call.
+proc dockAt {pose tx ty} {
+    if {$pose eq ""} { return "" }
+    lassign [tableToPage $pose $tx $ty] px py
+    foreach side {left right} {
+        lassign [dockRect $side] x0 y0 x1 y1
+        foreach edge [list $x0 $x1] {
+            if {abs($px - $edge) < 1e-6 && $py > $y0 - 1e-6 && $py < $y1 + 1e-6} { return edge }
+        }
+        foreach edge [list $y0 $y1] {
+            if {abs($py - $edge) < 1e-6 && $px > $x0 - 1e-6 && $px < $x1 + 1e-6} { return edge }
+        }
+        if {$px > $x0 && $px < $x1 && $py > $y0 && $py < $y1} { return $side }
+    }
+    return ""
+}
+proc tagsInDock {side} {
+    set result [list]
+    dict for {tag pos} $::tagPos {
+        if {$pos eq ""} { continue }
+        if {[dockAt $::pagePose [lindex $pos 0] [lindex $pos 1]] eq $side} {
+            lappend result $tag
+        }
+    }
+    return $result
+}
+
+proc publishPage {} {
+    if {$::pagePose eq ""} {
+        Hold! -on fuzz -key page {}
+        Hold! -on fuzz -key page-quad {}
+    } else {
+        lassign $::pagePose x y theta
+        Hold! -on fuzz -key page-quad Claim $::RULER has quad \
+            [rectQuad $x $y $theta [dict get $::GEOM width] [dict get $::GEOM height]]
+        Hold! -on fuzz -key page Claim page $::RULER is out
+    }
+}
+proc publishTag {tag} {
+    set pos [dict get $::tagPos $tag]
+    if {$pos eq ""} {
+        Hold! -on fuzz -key [list tag $tag] {}
+    } else {
+        lassign $pos cx cy theta
+        # rectQuad wants the top-left corner; we have the center.
+        set r 0.015
+        set x [expr {$cx - $r*cos($theta) + $r*sin($theta)}]
+        set y [expr {$cy - $r*sin($theta) - $r*cos($theta)}]
+        Hold! -on fuzz -key [list tag $tag] Claim tag $tag has quad \
+            [rectQuad $x $y $theta 0.03 0.03]
+    }
+}
+
+# ---- Random actions ---------------------------------------------------
+
+proc randomPagePose {} {
+    list [rnd -0.3 0.1] [rnd -0.2 0.1] [rnd -3.2 3.2]
+}
+# Returns a description of what it did.
+proc randomAction {} {
+    set roll [rnd 0 100]
+    if {$roll < 8} {
+        if {$::pagePose eq ""} {
+            set ::pagePose [randomPagePose]; publishPage
+            return "page appears"
+        } else {
+            set ::pagePose ""; publishPage
+            return "page leaves"
+        }
+    } elseif {$roll < 18} {
+        if {$::pagePose eq ""} { return [randomAction] }
+        if {rand() < 0.5} {
+            # Nudge, as if someone bumped the page.
+            lassign $::pagePose x y theta
+            set ::pagePose [list [expr {$x + [rnd -0.01 0.01]}] \
+                                [expr {$y + [rnd -0.01 0.01]}] \
+                                [expr {$theta + [rnd -0.1 0.1]}]]
+            publishPage
+            return "page nudged"
+        }
+        set ::pagePose [randomPagePose]; publishPage
+        return "page moves"
+    }
+
+    set tag [pick $::TAGS]
+    set what ""
+    if {$roll < 28} {
+        dict set ::tagPos $tag ""
+        set what "tag $tag leaves"
+    } elseif {$roll < 68 && $::pagePose ne ""} {
+        # Into (or just around) a dock.
+        set side [pick {left right}]
+        lassign [dockRect $side] x0 y0 x1 y1
+        set spread [pick {0.02 0.02 0.045}]
+        set px [expr {($x0 + $x1) / 2.0 + [rnd -$spread $spread]}]
+        set py [expr {($y0 + $y1) / 2.0 + [rnd -$spread $spread]}]
+        dict set ::tagPos $tag [list {*}[pageToTable $::pagePose $px $py] [rnd -3.2 3.2]]
+        set what "tag $tag -> around $side dock"
+    } elseif {$roll < 76} {
+        # On top of another tag.
+        set other [pick $::TAGS]
+        set otherPos [dict get $::tagPos $other]
+        if {$other eq $tag || $otherPos eq ""} { return [randomAction] }
+        dict set ::tagPos $tag $otherPos
+        set what "tag $tag -> on top of tag $other"
+    } else {
+        dict set ::tagPos $tag [list [rnd -0.6 0.6] [rnd -0.4 0.4] [rnd -3.2 3.2]]
+        set what "tag $tag -> table"
+    }
+
+    # Don't leave anything exactly on a dock boundary.
+    set pos [dict get $::tagPos $tag]
+    if {$pos ne "" && [dockAt $::pagePose [lindex $pos 0] [lindex $pos 1]] eq "edge"} {
+        return [randomAction]
+    }
+    publishTag $tag
+    return $what
+}
+
+# ---- Checking ---------------------------------------------------------
+
+# Model of which tag is registered at each dock ("" if none).
+set model [dict create left "" right ""]
+set incumbent [dict create left 0 right 0]
+set recent [dict create left {} right {}]
+
+proc actualPieces {} {
+    set pieces [dict create left {} right {}]
+    foreach result [Query! $::RULER has dock pieces /pieces/] {
+        dict for {side piece} [dict get $result pieces] {
+            if {$piece ne ""} { dict lappend pieces $side $piece }
+        }
+    }
+    return $pieces
+}
+proc drawn {} {
+    set out [dict create dashed {} line {} text {}]
+    foreach result [Query! /someone/ wishes to draw a dashed line onto $::DISP with /...options/] {
+        dict lappend out dashed [dict get $result options]
+    }
+    foreach result [Query! /someone/ wishes to draw a line onto $::DISP with /...options/] {
+        dict lappend out line [dict get $result options]
+    }
+    foreach result [Query! /someone/ wishes to draw text onto $::DISP with /...options/] {
+        dict lappend out text [dict get $result options]
+    }
+    return $out
+}
+proc errors {} {
+    set errs [list]
+    foreach result [Query! /p/ has error /err/ with info /info/] {
+        lappend errs "[dict get $result p]: [dict get $result err]"
+    }
+    return $errs
+}
+
+# Returns a list of problems (empty if the demo's output agrees with
+# the model). `allowed` maps side -> list of pieces that may
+# legitimately be registered there right now.
+proc check {allowed} {
+    set problems [errors]
+
+    set pieces [actualPieces]
+    foreach side {left right} {
+        set actual [dict get $pieces $side]
+        if {[llength $actual] > 1} {
+            lappend problems "$side dock has several pieces at once: $actual"
+        }
+        set actual [lindex $actual 0]
+        if {[lsearch -exact [dict get $allowed $side] $actual] < 0} {
+            lappend problems "$side piece is '$actual', expected one of\
+                              [lmap p [dict get $allowed $side] {format '%s' $p}]"
+        }
+        set $side $actual
+    }
+    if {$left ne "" && $left eq $right} {
+        lappend problems "tag $left is registered at both docks"
+    }
+
+    set d [drawn]
+    set pageOut [expr {$::pagePose ne ""}]
+
+    # Dock outlines + ruler line.
+    set docksDrawn 0; set rulers [list]
+    foreach options [dict get $d dashed] {
+        if {[string match *nan* [string tolower $options]]} {
+            lappend problems "NaN in dashed line: $options"
+        }
+        if {[llength [dict get $options points]] == 5} {
+            incr docksDrawn
+        } else {
+            lappend rulers $options
+        }
+    }
+    if {$docksDrawn != ($pageOut ? 2 : 0)} {
+        lappend problems "$docksDrawn dock outlines drawn, page out = $pageOut"
+    }
+
+    set leftPos [expr {$left eq "" ? "" : [dict get $::tagPos $left]}]
+    set rightPos [expr {$right eq "" ? "" : [dict get $::tagPos $right]}]
+    set mmTexts [lmap options [dict get $d text] {
+        if {![string match "* mm" [dict get $options text]]} { continue }
+        dict get $options text
+    }]
+    foreach options [dict get $d text] {
+        if {[string match *nan* [string tolower $options]]} {
+            lappend problems "NaN in text: $options"
+        }
+    }
+    set expectRuler [expr {$pageOut && $leftPos ne "" && $rightPos ne "" && $left ne $right}]
+    if {$expectRuler} {
+        lassign $leftPos ax ay; lassign $rightPos bx by
+        set mm [expr {1000.0 * sqrt(($bx-$ax)*($bx-$ax) + ($by-$ay)*($by-$ay))}]
+        if {$mm < 1} {
+            # Tags stacked on each other: nothing sensible to draw.
+            if {[llength $rulers] > 1} { lappend problems "[llength $rulers] ruler lines" }
+        } else {
+            if {[llength $rulers] != 1} {
+                lappend problems "[llength $rulers] ruler lines, expected 1 ($left to $right)"
+            } else {
+                # 1 px = 1 mm, so the drawn line should be as long as
+                # the reported distance.
+                lassign [dict get [lindex $rulers 0] points] pa pb
+                if {abs([vec2 distance $pa $pb] - $mm) > 0.01} {
+                    lappend problems "ruler line is [vec2 distance $pa $pb] px, expected $mm"
+                }
+            }
+            set expectedText [format "%.0f mm" $mm]
+            # Allow for the report being rounded the other way at .5.
+            if {[llength $mmTexts] != 1 ||
+                abs([lindex [lindex $mmTexts 0] 0] - $mm) > 0.5001} {
+                lappend problems "distance report is '$mmTexts', expected '$expectedText'"
+            }
+        }
+    } else {
+        if {[llength $rulers] != 0} {
+            lappend problems "[llength $rulers] ruler lines, expected none"
+        }
+        if {[llength $mmTexts] != 0} {
+            lappend problems "distance report '$mmTexts', expected none"
+        }
+    }
+
+    # Rings (width 4) and dock highlights (width 6).
+    set rings 0; set highlights 0
+    foreach options [dict get $d line] {
+        if {[dict get $options width] == 4} { incr rings }
+        if {[dict get $options width] == 6} { incr highlights }
+    }
+    set expectedRings 0
+    if {$pageOut && $leftPos ne ""} { incr expectedRings }
+    if {$pageOut && $rightPos ne ""} { incr expectedRings }
+    if {$rings != $expectedRings} {
+        lappend problems "$rings rings drawn, expected $expectedRings"
+    }
+    set expectedHighlights 0
+    foreach side {left right} {
+        if {[llength [tagsInDock $side]] > 0} { incr expectedHighlights }
+    }
+    if {$highlights != $expectedHighlights} {
+        lappend problems "$highlights dock highlights drawn, expected $expectedHighlights"
+    }
+
+    return $problems
+}
+
+# ---- Main loop --------------------------------------------------------
+
+# Wait for the libraries to load (collect.folk has C to compile).
+When the collected results for [list fuzz probe /x/] are /results/ {
+    Claim the fuzz collect probe is ready
+}
+set ready 0
+for {set try 0} {$try < 600 && !$ready} {incr try} {
+    sleep 0.1
+    set ready [expr {[llength [Query! the fuzz collect probe is ready]] > 0 &&
+                     [llength [Query! the quad library is /lib/]] > 0 &&
+                     [llength [Query! the color map is /map/]] > 0 &&
+                     [llength [Query! $RULER has demo code /code/]] > 0}]
+}
+if {!$ready} {
+    puts $::realStderr "dock-ruler: libraries never loaded"
+    Exit! 1
+}
+
+set failures 0
+for {set step 0} {$step < $steps} {incr step} {
+    # What may each dock's piece be once this step settles? Whatever
+    # it was, or anything that passes through the dock on the way.
+    set allowed [dict create]
+    # (On a busy machine, a tag that brushed past a dock during the
+    # previous step may only get registered during this one.)
+    foreach side {left right} {
+        dict set allowed $side [list [dict get $model $side] {*}[dict get $recent $side]]
+    }
+    set recent [dict create left {} right {}]
+
+    # A piece that sits in its dock throughout the step keeps it.
+    foreach side {left right} {
+        set piece [dict get $model $side]
+        dict set incumbent $side \
+            [expr {$piece ne "" && [lsearch -exact [tagsInDock $side] $piece] >= 0}]
+    }
+
+    set descriptions [list]
+    set nActions [pick {1 1 1 2 3}]
+    for {set i 0} {$i < $nActions} {incr i} {
+        lappend descriptions [randomAction]
+        foreach side {left right} {
+            set here [tagsInDock $side]
+            dict lappend allowed $side {*}$here
+            dict lappend recent $side {*}$here
+            if {[lsearch -exact $here [dict get $model $side]] < 0} {
+                dict set incumbent $side 0
+            }
+        }
+        # Sometimes let the system see the intermediate state.
+        if {rand() < 0.3} { sleep 0.02 }
+    }
+    # A tag that docks on one side stops being the other side's
+    # piece, so each side may also have been cleared.
+    foreach side {left right} { dict lappend allowed $side "" }
+
+    # Whatever is in a dock when things settle must have won it,
+    # unless it is sharing the dock or is in both lists.
+    foreach side {left right} {
+        set here [tagsInDock $side]
+        if {[llength $here] > 0} { dict set allowed $side $here }
+        if {[dict get $incumbent $side]} {
+            dict set allowed $side [list [dict get $model $side]]
+        }
+    }
+
+    # Wait for the system to settle into a state the model accepts.
+    # The demo treats a tag as still docked for 200ms after it leaves
+    # (to ride out flicker), so give that time to run out first.
+    sleep 0.3
+    set problems [list]
+    for {set try 0} {$try < 60} {incr try} {
+        set problems [check $allowed]
+        if {[llength $problems] == 0} { break }
+        sleep 0.05
+    }
+    if {[llength $problems] > 0} {
+        incr failures
+        puts $::realStderr "FAIL seed $seed step $step: [join $descriptions {; }]"
+        foreach problem $problems { puts $::realStderr "    $problem" }
+        puts $::realStderr "    page: $pagePose"
+        puts $::realStderr "    tags: $tagPos"
+        puts $::realStderr "    model: $model  allowed: $allowed  actual: [actualPieces]"
+        puts $::realStderr "    occupancy claims: [Query! $RULER has tag /tag/ in dock /side/]"
+    }
+
+    if {[info exists ::env(DOCK_RULER_VERBOSE)]} {
+        puts $::realStderr "step $step: [join $descriptions {; }]\n    in docks: left {[tagsInDock left]} right {[tagsInDock right]}  pieces: [actualPieces]"
+    }
+
+    # Adopt what the demo actually registered.
+    set pieces [actualPieces]
+    foreach side {left right} {
+        dict set model $side [lindex [dict get $pieces $side] 0]
+    }
+}
+
+puts $::realStderr "dock-ruler: seed $seed, $steps steps, $failures failures"
+Exit! [expr {$failures > 0}]
