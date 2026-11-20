@@ -309,9 +309,11 @@ $gpuc proc endSingleTimeCommands {VkCommandBuffer commandBuffer VkFence fence} v
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &commandBuffer;
 
+    folkWatchdogEnter("gpu/textures: endSingleTimeCommands: vkQueueSubmit");
     pthread_mutex_lock(graphicsQueueMutex_ptr());
     vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo, fence);
     pthread_mutex_unlock(graphicsQueueMutex_ptr());
+    folkWatchdogLeave();
 }
 
 $gpuc code {
@@ -321,10 +323,12 @@ $gpuc code {
 
     static void destroyWorkerFence(void* value) {
         VkFence* fence = value;
+        folkWatchdogEnter("gpu/textures: destroyWorkerFence: vkQueueWaitIdle");
         pthread_mutex_lock(graphicsQueueMutex_ptr());
         vkQueueWaitIdle(*graphicsQueue_ptr());
         vkDestroyFence(device, *fence, NULL);
         pthread_mutex_unlock(graphicsQueueMutex_ptr());
+        folkWatchdogLeave();
         free(fence);
     }
     static void initializeFenceCleanup() {
@@ -403,7 +407,9 @@ $gpuc proc transitionImageLayout {VkImage image VkFormat format
 
     endSingleTimeCommands(commandBuffer, fence);
     // HACK: this wait is so that the commandBuffer is usable afterward.
+    folkWatchdogEnter("gpu/textures: transitionImageLayout: vkWaitForFences");
     vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
+    folkWatchdogLeave();
 }
 
 # Copy 1-channel, 3-channel, or 4-channel im to 4-channel ret.
@@ -646,8 +652,10 @@ $gpuc code {
 #ifdef TRACY_ENABLE
             TracyCZoneN(ctx, "vkWaitForFences (ring full)", 1);
 #endif
-            uploadCheck(vkWaitForFences(device, 1, &slot->fence, VK_TRUE, UINT64_MAX),
-                        "vkWaitForFences");
+            folkWatchdogEnter("gpu/textures: vkWaitForFences (upload ring full)");
+            VkResult waitResult = vkWaitForFences(device, 1, &slot->fence, VK_TRUE, UINT64_MAX);
+            folkWatchdogLeave();
+            uploadCheck(waitResult, "vkWaitForFences");
 #ifdef TRACY_ENABLE
             TracyCZoneEnd(ctx);
             TracyCFree(slot->stagingBufferAllocation);
@@ -778,10 +786,12 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
         submitInfo.commandBufferCount = 1;
         submitInfo.pCommandBuffers = &commandBuffer;
 
+        folkWatchdogEnter("gpu/textures: upload: vkQueueSubmit");
         pthread_mutex_lock(graphicsQueueMutex_ptr());
-        uploadCheck(vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo, upload->fence),
-                    "vkQueueSubmit");
+        VkResult submitResult = vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo, upload->fence);
         pthread_mutex_unlock(graphicsQueueMutex_ptr());
+        folkWatchdogLeave();
+        uploadCheck(submitResult, "vkQueueSubmit");
     }
 
     upload->inUse = true;

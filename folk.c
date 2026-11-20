@@ -1556,6 +1556,7 @@ void workerInit(int index) {
     self->clockid = CLOCK_MONOTONIC;
 /* #endif */
     self->currentItemStartTimestamp = 0;
+    self->watchdogWhat = NULL;
     self->index = index;
     self->pthread = pthread_self();
 

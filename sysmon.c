@@ -10,6 +10,8 @@
 #include <string.h>
 #include <stdatomic.h>
 #include <assert.h>
+#include <stdarg.h>
+#include <stdlib.h>
 
 #ifdef __linux__
 #include <sys/sysinfo.h>
@@ -57,9 +59,71 @@ int64_t _Atomic tick;
 int64_t timestampAtBoot;
 int targetNotBlockedWorkersCount;
 
+// Watchdog. See sysmon.h.
+//
+// We count in sysmon ticks, not wall time, so that stopping the
+// whole process (in a debugger, or by suspending the machine) doesn't
+// make every open call look hung when the process comes back.
+#define WATCHDOG_DEFAULT_TIMEOUT_MS 10000
+// Distinctive, so you can tell from the service manager's log that
+// this was the watchdog. (This is EX_TEMPFAIL in sysexits.h.)
+#define WATCHDOG_EXIT_CODE 75
+extern __thread ThreadControlBlock* self;
+extern int realStderr;
+static int64_t watchdogTimeoutTicks;
+
+void folkWatchdogEnter(const char* what) {
+    if (self == NULL) { return; }
+    // Write the tick first, so sysmon never pairs a new `what` with
+    // an old tick.
+    self->watchdogSinceTick = tick;
+    self->watchdogWhat = what;
+}
+void folkWatchdogLeave(void) {
+    if (self == NULL) { return; }
+    self->watchdogWhat = NULL;
+}
+void folkWatchdogDie(const char* format, ...) {
+    char why[1024];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(why, sizeof(why), format, args);
+    va_end(args);
+
+    // Write to the process's real stderr (this thread's stderr may be
+    // redirected to a per-program log file).
+    dprintf(realStderr != -1 ? realStderr : 2,
+            "--------------------\n"
+            "WATCHDOG: %s\n"
+            "Exiting (code %d) so that Folk can be restarted.\n"
+            "--------------------\n",
+            why, WATCHDOG_EXIT_CODE);
+    // Not exit(): atexit handlers (the GPU driver's, for one) may
+    // hang on the same thing that got us here.
+    _exit(WATCHDOG_EXIT_CODE);
+}
+static void checkWatchdog(int64_t currentTick) {
+    if (watchdogTimeoutTicks <= 0) { return; }
+    for (int i = 0; i < THREADS_MAX; i++) {
+        if (threads[i].tid == 0) { continue; }
+        const char* what = threads[i].watchdogWhat;
+        if (what == NULL) { continue; }
+        int64_t ticks = currentTick - threads[i].watchdogSinceTick;
+        if (ticks < watchdogTimeoutTicks) { continue; }
+
+        folkWatchdogDie("thread %d has been stuck in `%s` for over %" PRId64 " ms",
+                        i, what, ticks * SYSMON_TICK_MS);
+    }
+}
+
 void sysmonInit(int targetCount) {
     timestampAtBoot = timestamp_get(CLOCK_MONOTONIC);
     targetNotBlockedWorkersCount = targetCount;
+
+    // FOLK_WATCHDOG_TIMEOUT_MS=0 disables the watchdog.
+    const char* timeoutMs = getenv("FOLK_WATCHDOG_TIMEOUT_MS");
+    watchdogTimeoutTicks = (timeoutMs != NULL ? atoll(timeoutMs) : WATCHDOG_DEFAULT_TIMEOUT_MS)
+        / SYSMON_TICK_MS;
 }
 
 static void checkRam();
@@ -121,7 +185,11 @@ void sysmon() {
     // fully online yet.
     ///////////////////////////////////
 
-    // Fifth: manage the pool of worker threads.
+    // Fifth: check that no thread is stuck in a call that it asked
+    // us to watch.
+    if (currentTick % 100 == 0) { checkWatchdog(currentTick); }
+
+    // Sixth: manage the pool of worker threads.
     // How many workers are _not_ blocked on I/O?
 #ifdef __linux__
     int notBlockedWorkersCount = 0;
@@ -158,7 +226,7 @@ void sysmon() {
     }
 #endif
 
-    // Sixth: update the time statements in the database.
+    // Seventh: update the time statements in the database.
     int64_t timeNs = timestamp_get(CLOCK_REALTIME);
 
     Clause* internalTimeClause = clauseFormat(

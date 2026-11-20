@@ -56,6 +56,11 @@ typedef struct ThreadControlBlock {
     // If running in subscription
     int inSubscription;
 
+    // Set while this thread is inside a call that sysmon's watchdog
+    // should not let hang forever (see folkWatchdogEnter in sysmon.c).
+    const char* _Atomic watchdogWhat;
+    int64_t _Atomic watchdogSinceTick;
+
     // FOR DEBUGGING:
     int _Atomic _allocs;
     int _Atomic _frees;

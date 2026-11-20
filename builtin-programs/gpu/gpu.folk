@@ -331,10 +331,12 @@ fn gpuInit {} {
             VkCommandPool* pool = value;
             // Submitted GPU commands may still be running when the worker exits.
             // Wait for them before destroying the pool and its command buffers.
+            folkWatchdogEnter("gpu: destroyWorkerCommandPool: vkQueueWaitIdle");
             pthread_mutex_lock(&graphicsQueueMutex);
             vkQueueWaitIdle(graphicsQueue);
             vkDestroyCommandPool(device, *pool, NULL);
             pthread_mutex_unlock(&graphicsQueueMutex);
+            folkWatchdogLeave();
             free(pool);
         }
         static void initializeCommandPoolCleanup() {

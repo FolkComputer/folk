@@ -76,6 +76,24 @@ $cc code [subst {
     static DisplayState* currentDisplay;
     static VkPipeline boundPipeline;
     static VkDescriptorSet boundDescriptorSet;
+
+    // Calls that touch a direct display can hang forever inside the
+    // driver if the display is powered off underneath us, and nothing
+    // in this process can unstick them. Have sysmon's watchdog restart
+    // Folk in that case. We don't watch windows: presenting to a
+    // hidden window can legitimately block for as long as it's hidden.
+    static void watch(DisplayState* ds, const char* what) {
+        [expr { $haveGlfw ? "if (ds->window) return;" : "" }]
+        folkWatchdogEnter(what);
+    }
+    // Once the device is lost, every later call fails too, so retrying
+    // the display would just spin. Only a new VkDevice helps, and we
+    // get one by restarting.
+    static void dieIfDeviceLost(VkResult res, const char* call) {
+        if (res == VK_ERROR_DEVICE_LOST) {
+            folkWatchdogDie("gpu/draw: %s returned VK_ERROR_DEVICE_LOST", call);
+        }
+    }
 }]
 
 $cc argtype DisplayState* {
@@ -90,6 +108,7 @@ $cc rtype DisplayState* {
 
 $cc code [csubst {
     static void destroyDisplay(DisplayState* ds) {
+        watch(ds, "gpu/draw: destroyDisplay");
         // The shared queue can still reference this display's images/semaphores.
         pthread_mutex_lock(graphicsQueueMutex_ptr());
         vkQueueWaitIdle(*graphicsQueue_ptr());
@@ -111,12 +130,15 @@ $cc code [csubst {
         free(ds->swapchainImageViews);
         free(ds->renderFinishedSemaphores);
         free(ds);
+        folkWatchdogLeave();
     }
 }]
 $cc proc closeDisplay {DisplayState* ds} void { destroyDisplay(ds); }
 
 local proc vktryDisplay {call} { string map {\n " "} [csubst {{
+    watch(ds, "gpu/draw: initDisplay: $call");
     VkResult res = $call;
+    folkWatchdogLeave();
     if (res != VK_SUCCESS) {
         destroyDisplay(ds);
         FOLK_ERROR("Failed $call: %s (%d)\n", VkResultToString(res), res);
@@ -399,9 +421,12 @@ $cc proc drawStart {DisplayState* ds} bool {
     // SURFACE_LOST instead of TIMEOUT (thrd_timedout vs ETIMEDOUT). A short
     // wait then tears down healthy displays during calibration redraws.
     // Keep the wait bounded, but allow time for a frame under load.
+    watch(ds, "gpu/draw: vkAcquireNextImageKHR");
     VkResult acquireResult = vkAcquireNextImageKHR(device, ds->swapchain, 1000000000,
                                                    ds->imageAvailableSemaphore, VK_NULL_HANDLE,
                                                    &ds->imageIndex);
+    folkWatchdogLeave();
+    dieIfDeviceLost(acquireResult, "vkAcquireNextImageKHR");
     if (acquireResult == VK_TIMEOUT || acquireResult == VK_NOT_READY) return false;
     if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR) {
         FOLK_ERROR("Failed vkAcquireNextImageKHR: %s (%d)\n",
@@ -512,9 +537,12 @@ $cc proc drawEnd {} void {
         submitInfo.signalSemaphoreCount = 1;
         submitInfo.pSignalSemaphores = signalSemaphores;
 
+        watch(ds, "gpu/draw: vkQueueSubmit");
         pthread_mutex_lock(graphicsQueueMutex_ptr());
         VkResult submitResult = vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo, ds->inFlightFence);
         pthread_mutex_unlock(graphicsQueueMutex_ptr());
+        folkWatchdogLeave();
+        dieIfDeviceLost(submitResult, "vkQueueSubmit");
         if (submitResult != VK_SUCCESS) {
             FOLK_ERROR("Failed vkQueueSubmit: %s (%d)\n", VkResultToString(submitResult), submitResult);
         }
@@ -532,14 +560,22 @@ $cc proc drawEnd {} void {
         presentInfo.pImageIndices = &ds->imageIndex;
         presentInfo.pResults = NULL;
 
+        // Other threads' uploads and canvas draws queue up behind
+        // this mutex, so a present that hangs stalls them all.
+        watch(ds, "gpu/draw: vkQueuePresentKHR");
         pthread_mutex_lock(graphicsQueueMutex_ptr());
         VkResult presentResult = vkQueuePresentKHR(*presentQueue_ptr(), &presentInfo);
         pthread_mutex_unlock(graphicsQueueMutex_ptr());
+        folkWatchdogLeave();
 
         // Wait for this display's submission to complete before we
         // reuse the shared command buffer for the next display.
         // Do this even if presentation failed, before unwinding the display.
-        vkWaitForFences(device, 1, &ds->inFlightFence, VK_TRUE, UINT64_MAX);
+        watch(ds, "gpu/draw: vkWaitForFences");
+        VkResult waitResult = vkWaitForFences(device, 1, &ds->inFlightFence, VK_TRUE, UINT64_MAX);
+        folkWatchdogLeave();
+        dieIfDeviceLost(waitResult, "vkWaitForFences");
+        dieIfDeviceLost(presentResult, "vkQueuePresentKHR");
         if (presentResult != VK_SUCCESS && presentResult != VK_SUBOPTIMAL_KHR) {
             FOLK_ERROR("Failed vkQueuePresentKHR: %s (%d)\n",
                        VkResultToString(presentResult), presentResult);

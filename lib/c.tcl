@@ -85,6 +85,11 @@ class C {
         extern __thread jmp_buf __onError;
         extern __thread bool __onErrorIsSet;
 
+        // See sysmon.h. Don't FOLK_ERROR between Enter and Leave.
+        extern void folkWatchdogEnter(const char* what);
+        extern void folkWatchdogLeave(void);
+        extern void folkWatchdogDie(const char* format, ...);
+
         #define __ENSURE(EXPR) if (!(EXPR)) { Jim_SetResultFormatted(interp, "failed to convert argument from Tcl to C in: " #EXPR); longjmp(__onError, 0); }
         #define __ENSURE_OK(EXPR) if ((EXPR) != JIM_OK) { longjmp(__onError, 0); }
 

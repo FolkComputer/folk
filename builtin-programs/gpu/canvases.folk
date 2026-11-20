@@ -275,13 +275,24 @@ When the GPU library is /gpuLib/ &\
             submitInfo.commandBufferCount = 1;
             submitInfo.pCommandBuffers = &commandBuffer;
 
+            // If the display thread hangs while it holds this mutex
+            // (see draw.folk), we hang here behind it.
+            folkWatchdogEnter("gpu/canvases: vkQueueSubmit");
             pthread_mutex_lock(graphicsQueueMutex_ptr());
-            $[vktry {vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo,
-                                   boundCanvas->inFlightFence)}]
+            VkResult res = vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo,
+                                         boundCanvas->inFlightFence);
             pthread_mutex_unlock(graphicsQueueMutex_ptr());
+            folkWatchdogLeave();
+            // Check after unlocking: FOLK_ERROR would otherwise leave
+            // the queue locked forever.
+            if (res != VK_SUCCESS) {
+                FOLK_ERROR("Failed vkQueueSubmit: %s (%d)\n", VkResultToString(res), res);
+            }
         }
 
+        folkWatchdogEnter("gpu/canvases: vkWaitForFences");
         vkWaitForFences(device, 1, &boundCanvas->inFlightFence, VK_TRUE, UINT64_MAX);
+        folkWatchdogLeave();
 
         replaceInTextureDescriptorSet(boundCanvas->gpuTexture,
                                       boundCanvas->gpuTexture);

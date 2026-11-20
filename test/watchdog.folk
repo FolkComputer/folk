@@ -1,0 +1,49 @@
+# sysmon's watchdog should exit Folk (with code 75) when a thread stays
+# inside folkWatchdogEnter/Leave for longer than the timeout, and
+# should leave Folk alone when the thread leaves in time.
+
+set hangProgram [file tempfile /tmp/folk-watchdog-hang-XXXXXX]
+set fd [open $hangProgram w]
+puts $fd {
+    set cc [C]
+    $cc include <unistd.h>
+    $cc proc hang {} void {
+        folkWatchdogEnter("test: hang");
+        for (;;) { sleep(1); }
+    }
+    [$cc compile] hang
+}
+close $fd
+
+set okProgram [file tempfile /tmp/folk-watchdog-ok-XXXXXX]
+set fd [open $okProgram w]
+puts $fd {
+    set cc [C]
+    $cc include <unistd.h>
+    $cc proc enterAndLeave {} void {
+        folkWatchdogEnter("test: enterAndLeave");
+        folkWatchdogLeave();
+    }
+    $cc proc sleepPastTimeout {} void { sleep(2); }
+    set lib [$cc compile]
+    $lib enterAndLeave
+    $lib sleepPastTimeout
+    Exit! 0
+}
+close $fd
+
+set ::env(FOLK_WATCHDOG_TIMEOUT_MS) 500
+
+set status 0
+try {
+    exec ./folk $hangProgram >/dev/null 2>/dev/null
+} on error {e opts} {
+    set status [lindex [dict get $opts -errorcode] 2]
+}
+assert {$status == 75}
+
+# Raises an error (failing this test) if the child exits non-zero.
+exec ./folk $okProgram >/dev/null 2>/dev/null
+
+file delete $hangProgram $okProgram
+Exit! 0
