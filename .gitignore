@@ -11,3 +11,6 @@ play
 vendor/jimtcl/conftest__.dSYM/Contents/Info.plist
 vendor/jimtcl/conftest__.dSYM/Contents/Resources/Relocations/aarch64/conftest__.yml
 .agent-shell
+
+# Built on demand by builtin-programs/connect.folk
+vendor/libdatachannel/

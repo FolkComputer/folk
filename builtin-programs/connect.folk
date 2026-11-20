@@ -1,0 +1,613 @@
+# Lets a phone or laptop on the same network find this Folk system
+# and talk to it from a Web page served over HTTPS (see connect/).
+#
+# This program does nothing until you opt in, for example from a file
+# in ~/folk-data/local-program/:
+#
+#    Claim the connect server is "wss://connect.folk.computer/ws"
+#
+# or, with options:
+#
+#    Claim the connect server is "wss://connect.folk.computer/ws" \
+#        with room "my-table" pairing true
+#
+# How it works: we keep one outbound WebSocket open to the connect
+# server, which only introduces peers to each other. When a browser
+# asks, we set up a WebRTC connection directly to it, and each data
+# channel named "folk" that it opens is piped to this system's own
+# Web server (ws://127.0.0.1:4273/ws). So the browser ends up speaking
+# exactly the protocol that lib/folk.js speaks, and everything a page
+# on :4273 can do, it can do.
+#
+# That includes evaluating arbitrary Tcl, which is why:
+#
+#  - We use no STUN or TURN servers. A browser can only connect if it
+#    can reach one of this machine's local addresses, i.e., it is on
+#    the same network. This is the same reach as :4273 itself.
+#
+#  - With `pairing true`, a browser must also enter a code the first
+#    time it connects. The code is printed to the console and claimed
+#    as `the connect pairing code is /code/` so that a program can
+#    display it.
+#
+# Options:
+#   room <name>      Join a named room instead of the one for this
+#                    network's public address.
+#   pairing <bool>   Require a pairing code (default false).
+#   name <name>      Name to show in the room (default: hostname).
+
+When the connect server is /serverUrl/ {
+    Claim the connect server is $serverUrl with room ""
+}
+
+When the connect server is /serverUrl/ with /...options/ {
+    set room [dict getdef $options room ""]
+    set pairing [expr {!![dict getdef $options pairing false]}]
+    set nodeName [dict getdef $options name $::thisNode]
+
+    # --- libdatachannel ---
+
+    set prefix ""
+    foreach candidate [list [pwd]/vendor/libdatachannel/install /usr/local /usr] {
+        if {[file exists $candidate/include/rtc/rtc.h]} { set prefix $candidate; break }
+    }
+    if {$prefix eq ""} {
+        puts "connect: Building libdatachannel (this takes a few minutes, once)..."
+        exec sh connect/build-libdatachannel.sh >@stdout 2>@stderr
+        set prefix [pwd]/vendor/libdatachannel/install
+    }
+
+    set cc [C]
+    $cc cflags -I$prefix/include
+    $cc include <stdlib.h>
+    $cc include <string.h>
+    $cc include <stdbool.h>
+    $cc include <pthread.h>
+    $cc include <time.h>
+    $cc include <rtc/rtc.h>
+    $cc code {
+        // libdatachannel calls us back on its own threads, which
+        // cannot touch the Tcl interpreter. So callbacks push events
+        // onto this queue, and the Folk thread below pops them.
+        typedef struct Event {
+            struct Event* next;
+            char* type;
+            int id; int id2;
+            char* a; char* b;
+        } Event;
+        static pthread_mutex_t queueMutex = PTHREAD_MUTEX_INITIALIZER;
+        static pthread_cond_t queueCond;
+        static bool queueReady = false;
+        static Event* queueHead = NULL;
+        static Event* queueTail = NULL;
+
+        static void push(const char* type, int id, int id2,
+                         const char* a, const char* b) {
+            Event* e = calloc(1, sizeof(Event));
+            e->type = strdup(type);
+            e->id = id; e->id2 = id2;
+            e->a = strdup(a ? a : "");
+            e->b = strdup(b ? b : "");
+
+            pthread_mutex_lock(&queueMutex);
+            if (queueTail) { queueTail->next = e; } else { queueHead = e; }
+            queueTail = e;
+            pthread_cond_signal(&queueCond);
+            pthread_mutex_unlock(&queueMutex);
+        }
+
+        // --- Signaling socket ---
+
+        static void onSignalOpen(int ws, void* ptr) { push("signal-open", ws, 0, NULL, NULL); }
+        static void onSignalClosed(int ws, void* ptr) { push("signal-closed", ws, 0, NULL, NULL); }
+        static void onSignalError(int ws, const char* error, void* ptr) {
+            push("signal-error", ws, 0, error, NULL);
+        }
+        static void onSignalMessage(int ws, const char* message, int size, void* ptr) {
+            // size < 0 means a null-terminated text message.
+            if (size < 0) { push("signal-message", ws, 0, message, NULL); }
+        }
+
+        // --- Peer connections ---
+
+        static const char* stateName(rtcState state) {
+            switch (state) {
+            case RTC_NEW: return "new";
+            case RTC_CONNECTING: return "connecting";
+            case RTC_CONNECTED: return "connected";
+            case RTC_DISCONNECTED: return "disconnected";
+            case RTC_FAILED: return "failed";
+            case RTC_CLOSED: return "closed";
+            }
+            return "unknown";
+        }
+        static void onDescription(int pc, const char* sdp, const char* type, void* ptr) {
+            push("description", pc, 0, sdp, type);
+        }
+        static void onCandidate(int pc, const char* cand, const char* mid, void* ptr) {
+            push("candidate", pc, 0, cand, mid);
+        }
+        static void onState(int pc, rtcState state, void* ptr) {
+            push("state", pc, 0, stateName(state), NULL);
+        }
+        static void onChannel(int pc, int dc, void* ptr) {
+            char label[256] = "";
+            rtcGetDataChannelLabel(dc, label, sizeof(label));
+            push("channel", pc, dc, label, NULL);
+        }
+
+        // --- Channels handled in Tcl (pairing) ---
+
+        static void onWatchedMessage(int dc, const char* message, int size, void* ptr) {
+            if (size < 0) { push("channel-message", dc, 0, message, NULL); }
+        }
+        static void onWatchedClosed(int dc, void* ptr) {
+            push("channel-closed", dc, 0, NULL, NULL);
+        }
+
+        // --- Bridges: data channel <-> this system's own /ws ---
+        //
+        // Messages are copied straight across on libdatachannel's
+        // threads, without going through Tcl.
+
+        typedef struct Pending {
+            struct Pending* next;
+            int size;
+            char data[];
+        } Pending;
+        typedef struct Bridge {
+            int dc; int ws;
+            pthread_mutex_t mutex;
+            bool wsOpen;
+            bool reported;
+            Pending* head; Pending* tail;
+        } Bridge;
+
+        static void bridgeReportClosed(Bridge* b) {
+            pthread_mutex_lock(&b->mutex);
+            bool first = !b->reported;
+            b->reported = true;
+            pthread_mutex_unlock(&b->mutex);
+            if (first) { push("bridge-closed", b->dc, 0, NULL, NULL); }
+        }
+        static void onBridgeChannelMessage(int dc, const char* message, int size, void* ptr) {
+            Bridge* b = ptr;
+            pthread_mutex_lock(&b->mutex);
+            if (b->wsOpen) {
+                pthread_mutex_unlock(&b->mutex);
+                rtcSendMessage(b->ws, message, size);
+                return;
+            }
+            // The browser may start talking before our local
+            // WebSocket is up; hold on to what it says.
+            size_t len = size < 0 ? strlen(message) + 1 : (size_t) size;
+            Pending* p = malloc(sizeof(Pending) + len);
+            p->next = NULL; p->size = size;
+            memcpy(p->data, message, len);
+            if (b->tail) { b->tail->next = p; } else { b->head = p; }
+            b->tail = p;
+            pthread_mutex_unlock(&b->mutex);
+        }
+        static void onBridgeChannelClosed(int dc, void* ptr) { bridgeReportClosed(ptr); }
+
+        static void onBridgeSocketOpen(int ws, void* ptr) {
+            Bridge* b = ptr;
+            pthread_mutex_lock(&b->mutex);
+            for (Pending* p = b->head; p != NULL; ) {
+                rtcSendMessage(ws, p->data, p->size);
+                Pending* next = p->next; free(p); p = next;
+            }
+            b->head = b->tail = NULL;
+            b->wsOpen = true;
+            pthread_mutex_unlock(&b->mutex);
+        }
+        static void onBridgeSocketMessage(int ws, const char* message, int size, void* ptr) {
+            Bridge* b = ptr;
+            rtcSendMessage(b->dc, message, size);
+        }
+        static void onBridgeSocketClosed(int ws, void* ptr) { bridgeReportClosed(ptr); }
+        static void onBridgeSocketError(int ws, const char* error, void* ptr) {
+            bridgeReportClosed(ptr);
+        }
+    }
+
+    $cc proc init {} void {
+        pthread_mutex_lock(&queueMutex);
+        if (!queueReady) {
+            // A monotonic clock, so that waiting with a timeout is
+            // not confused by the wall clock being set.
+            pthread_condattr_t attr;
+            pthread_condattr_init(&attr);
+            pthread_condattr_setclock(&attr, CLOCK_MONOTONIC);
+            pthread_cond_init(&queueCond, &attr);
+            queueReady = true;
+            rtcInitLogger(RTC_LOG_ERROR, NULL);
+        }
+        pthread_mutex_unlock(&queueMutex);
+    }
+
+    # Returns {type id id2 a b}, or {} if nothing happened in time.
+    $cc proc nextEvent {int timeoutMs} Jim_Obj* {
+        struct timespec deadline;
+        clock_gettime(CLOCK_MONOTONIC, &deadline);
+        deadline.tv_sec += timeoutMs / 1000;
+        deadline.tv_nsec += (long) (timeoutMs % 1000) * 1000000L;
+        if (deadline.tv_nsec >= 1000000000L) { deadline.tv_sec++; deadline.tv_nsec -= 1000000000L; }
+
+        pthread_mutex_lock(&queueMutex);
+        while (queueHead == NULL) {
+            if (pthread_cond_timedwait(&queueCond, &queueMutex, &deadline) != 0) { break; }
+        }
+        Event* e = queueHead;
+        if (e != NULL) {
+            queueHead = e->next;
+            if (queueHead == NULL) { queueTail = NULL; }
+        }
+        pthread_mutex_unlock(&queueMutex);
+
+        Jim_Obj* result = Jim_NewListObj(interp, NULL, 0);
+        if (e == NULL) { return result; }
+        Jim_ListAppendElement(interp, result, Jim_NewStringObj(interp, e->type, -1));
+        Jim_ListAppendElement(interp, result, Jim_NewIntObj(interp, e->id));
+        Jim_ListAppendElement(interp, result, Jim_NewIntObj(interp, e->id2));
+        Jim_ListAppendElement(interp, result, Jim_NewStringObj(interp, e->a, -1));
+        Jim_ListAppendElement(interp, result, Jim_NewStringObj(interp, e->b, -1));
+        free(e->type); free(e->a); free(e->b); free(e);
+        return result;
+    }
+    # Wakes the event loop from another thread.
+    $cc proc post {char* type} void { push(type, 0, 0, NULL, NULL); }
+
+    $cc proc signalOpen {char* url} int {
+        int ws = rtcCreateWebSocket(url);
+        if (ws < 0) { return ws; }
+        rtcSetOpenCallback(ws, onSignalOpen);
+        rtcSetClosedCallback(ws, onSignalClosed);
+        rtcSetErrorCallback(ws, onSignalError);
+        rtcSetMessageCallback(ws, onSignalMessage);
+        return ws;
+    }
+    $cc proc socketDelete {int ws} void { rtcDeleteWebSocket(ws); }
+    $cc proc send {int id char* message} int { return rtcSendMessage(id, message, -1); }
+
+    $cc proc peerNew {} int {
+        // No ICE servers: only local ("host") candidates, so only
+        // peers on the same network can reach us.
+        rtcConfiguration config;
+        memset(&config, 0, sizeof(config));
+        int pc = rtcCreatePeerConnection(&config);
+        if (pc < 0) { return pc; }
+        rtcSetLocalDescriptionCallback(pc, onDescription);
+        rtcSetLocalCandidateCallback(pc, onCandidate);
+        rtcSetStateChangeCallback(pc, onState);
+        rtcSetDataChannelCallback(pc, onChannel);
+        return pc;
+    }
+    $cc proc peerSetRemote {int pc char* sdp char* type} int {
+        return rtcSetRemoteDescription(pc, sdp, type);
+    }
+    $cc proc peerAddCandidate {int pc char* cand char* mid} int {
+        return rtcAddRemoteCandidate(pc, cand, mid);
+    }
+    $cc proc peerDelete {int pc} void { rtcDeletePeerConnection(pc); }
+
+    $cc proc channelWatch {int dc} void {
+        rtcSetClosedCallback(dc, onWatchedClosed);
+        rtcSetMessageCallback(dc, onWatchedMessage);
+    }
+    $cc proc channelDelete {int dc} void { rtcDeleteDataChannel(dc); }
+
+    $cc proc bridgeNew {int dc char* url} Bridge* {
+        Bridge* b = calloc(1, sizeof(Bridge));
+        pthread_mutex_init(&b->mutex, NULL);
+        b->dc = dc;
+        b->ws = rtcCreateWebSocket(url);
+        if (b->ws < 0) { free(b); return NULL; }
+
+        rtcSetUserPointer(b->ws, b);
+        rtcSetOpenCallback(b->ws, onBridgeSocketOpen);
+        rtcSetClosedCallback(b->ws, onBridgeSocketClosed);
+        rtcSetErrorCallback(b->ws, onBridgeSocketError);
+        rtcSetMessageCallback(b->ws, onBridgeSocketMessage);
+
+        rtcSetUserPointer(dc, b);
+        rtcSetClosedCallback(dc, onBridgeChannelClosed);
+        rtcSetMessageCallback(dc, onBridgeChannelMessage);
+        return b;
+    }
+    # Deleting waits for any callback that is still running, so after
+    # this nothing refers to the bridge.
+    $cc proc bridgeDelete {Bridge* b} void {
+        rtcDeleteWebSocket(b->ws);
+        rtcDeleteDataChannel(b->dc);
+        for (Pending* p = b->head; p != NULL; ) {
+            Pending* next = p->next; free(p); p = next;
+        }
+        pthread_mutex_destroy(&b->mutex);
+        free(b);
+    }
+    $cc endcflags -L$prefix/lib -Wl,-rpath,$prefix/lib -ldatachannel -lpthread
+    set lib [$cc compile]
+    $lib init
+
+    # --- Helpers ---
+
+    set jsonString {{s} {
+        set out "\""
+        foreach ch [split $s ""] {
+            scan $ch %c code
+            if {$ch eq "\"" || $ch eq "\\"} {
+                append out "\\" $ch
+            } elseif {$code < 32} {
+                append out [format "\\u%04x" $code]
+            } else {
+                append out $ch
+            }
+        }
+        append out "\""
+    }}
+    set randomHex {{nbytes} {
+        set fd [open /dev/urandom rb]
+        binary scan [read $fd $nbytes] H* hex
+        close $fd
+        return $hex
+    }}
+
+    # Devices that have paired before present a token instead of the
+    # code. Tokens outlive restarts if ~/folk-data exists.
+    set tokenFile "$::env(HOME)/folk-data/connect-tokens"
+    set tokens [list]
+    if {[file exists $tokenFile]} {
+        set fd [open $tokenFile r]; set tokens [split [string trim [read $fd]] "\n"]; close $fd
+    }
+    set newPairingCode [list apply {{randomHex} {
+        scan [apply $randomHex 4] %x n
+        format %04d [expr {$n % 10000}]
+    }} $randomHex]
+
+    set pairingCode ""
+    set wrongCodes 0
+    if {$pairing} {
+        set pairingCode [{*}$newPairingCode]
+        Hold! -on connect -key pairing-code \
+            Claim the connect pairing code is $pairingCode
+        puts "connect: Pairing code is $pairingCode"
+    }
+    On unmatch { Hold! -on connect -key pairing-code {} }
+
+    set signalUrl $serverUrl
+    if {$room ne ""} {
+        append signalUrl [expr {[string first ? $serverUrl] == -1 ? "?" : "&"}] room=$room
+    }
+    set caps {"folk"}
+    if {$pairing} { append caps {,"pairing"} }
+    set hello "{\"type\":\"hello\",\"kind\":\"folk\",\"name\":[apply $jsonString $nodeName],\"caps\":\[$caps\]}"
+
+    set localWs "ws://127.0.0.1:4273/ws"
+    set maxPeers 16
+
+    # --- Event loop ---
+
+    set stopKey [apply $randomHex 8]
+    On unmatch [list $lib post "stop-$stopKey"]
+
+    set signal -1          ;# id of the signaling socket, or -1
+    set reconnectAt 0      ;# when to next try to open it (ms)
+    set lastPing 0
+    set lastHeard 0
+    set peerOfPc [dict create]   ;# pc -> peer id on the server
+    set pcOfPeer [dict create]   ;# peer id -> pc
+    set paired [dict create]     ;# pc -> 1
+    set channelsOfPc [dict create]  ;# pc -> list of {kind dc handle}
+    set pcOfChannel [dict create]   ;# dc -> pc
+
+    set closeChannel {{lib entry} {
+        lassign $entry kind dc handle
+        if {$kind eq "bridge"} { $lib bridgeDelete $handle } else { $lib channelDelete $dc }
+    }}
+
+    puts "connect: Will announce '$nodeName' on $signalUrl"
+    set running true
+    while {$running} {
+        set now [clock milliseconds]
+
+        if {$signal == -1 && $now >= $reconnectAt} {
+            set signal [$lib signalOpen $signalUrl]
+            set lastHeard $now
+            set lastPing $now
+        }
+        if {$signal != -1 && $now - $lastPing > 25000} {
+            $lib send $signal {{"type":"ping"}}
+            set lastPing $now
+        }
+        if {$signal != -1 && $now - $lastHeard > 70000} {
+            # The server has gone quiet (a dead connection that
+            # nobody told us about). Start over.
+            $lib socketDelete $signal
+            set signal -1
+            set reconnectAt $now
+            continue
+        }
+
+        lassign [$lib nextEvent 1000] type id id2 a b
+        switch -- $type {
+            "" {}
+
+            signal-open {
+                if {$id != $signal} { continue }
+                $lib send $signal $hello
+            }
+            signal-closed - signal-error {
+                if {$id != $signal} { continue }
+                if {$type eq "signal-error"} { puts stderr "connect: Server connection failed: $a" }
+                $lib socketDelete $signal
+                set signal -1
+                set reconnectAt [expr {[clock milliseconds] + 3000}]
+            }
+            signal-message {
+                if {$id != $signal} { continue }
+                set lastHeard [clock milliseconds]
+                try {
+                    set msg [json::decode $a]
+                    set msgType [dict get $msg type]
+                } on error e {
+                    puts stderr "connect: Bad message from server: $e"
+                    continue
+                }
+
+                if {$msgType eq "welcome"} {
+                    puts "connect: Online as '$nodeName' in [dict get $msg room label]"
+                } elseif {$msgType eq "error"} {
+                    puts stderr "connect: Server says: [dict getdef $msg error ?]"
+                } elseif {$msgType eq "signal"} {
+                    try {
+                        set peer [dict get $msg from]
+                        set data [dict get $msg data]
+
+                        if {[dict exists $data description]} {
+                            set description [dict get $data description]
+                            # Browsers call us; we never call them.
+                            if {[dict get $description type] ne "offer"} { continue }
+
+                            if {![dict exists $pcOfPeer $peer]} {
+                                if {[dict size $peerOfPc] >= $maxPeers} {
+                                    puts stderr "connect: Too many connections; ignoring $peer"
+                                    continue
+                                }
+                                set pc [$lib peerNew]
+                                if {$pc < 0} { error "could not create a peer connection" }
+                                dict set pcOfPeer $peer $pc
+                                dict set peerOfPc $pc $peer
+                                dict set channelsOfPc $pc [list]
+                            }
+                            $lib peerSetRemote [dict get $pcOfPeer $peer] \
+                                [dict get $description sdp] offer
+                        } elseif {[dict exists $data candidate] && [dict exists $pcOfPeer $peer]} {
+                            set candidate [dict get $data candidate]
+                            $lib peerAddCandidate [dict get $pcOfPeer $peer] \
+                                [dict get $candidate candidate] \
+                                [dict getdef $candidate sdpMid 0]
+                        }
+                    } on error e {
+                        puts stderr "connect: Could not handle a signal: $e"
+                    }
+                }
+            }
+
+            description - candidate {
+                if {$signal == -1 || ![dict exists $peerOfPc $id]} { continue }
+                set to [apply $jsonString [dict get $peerOfPc $id]]
+                if {$type eq "description"} {
+                    set data "{\"description\":{\"type\":[apply $jsonString $b],\"sdp\":[apply $jsonString $a]}}"
+                } else {
+                    set data "{\"candidate\":{\"candidate\":[apply $jsonString $a],\"sdpMid\":[apply $jsonString $b]}}"
+                }
+                $lib send $signal "{\"type\":\"signal\",\"to\":$to,\"data\":$data}"
+            }
+
+            state {
+                if {![dict exists $peerOfPc $id]} { continue }
+                if {$a eq "connected"} {
+                    puts "connect: A device connected"
+                } elseif {$a in {failed closed}} {
+                    foreach entry [dict get $channelsOfPc $id] {
+                        apply $closeChannel $lib $entry
+                        dict unset pcOfChannel [lindex $entry 1]
+                    }
+                    $lib peerDelete $id
+                    dict unset pcOfPeer [dict get $peerOfPc $id]
+                    dict unset peerOfPc $id
+                    dict unset channelsOfPc $id
+                    dict unset paired $id
+                    puts "connect: A device disconnected"
+                }
+            }
+
+            channel {
+                # id is the peer connection, id2 the new channel, a
+                # its label.
+                if {![dict exists $peerOfPc $id]} { $lib channelDelete $id2; continue }
+
+                if {$a eq "folk" && (!$pairing || [dict exists $paired $id])} {
+                    set bridge [$lib bridgeNew $id2 $localWs]
+                    dict lappend channelsOfPc $id [list bridge $id2 $bridge]
+                    dict set pcOfChannel $id2 $id
+                } elseif {$a eq "auth"} {
+                    $lib channelWatch $id2
+                    dict lappend channelsOfPc $id [list watched $id2 {}]
+                    dict set pcOfChannel $id2 $id
+                } else {
+                    $lib channelDelete $id2
+                }
+            }
+
+            channel-message {
+                # Pairing. The browser says `token <t>` or `code <c>`;
+                # we say `ok <token>` or `no`.
+                if {![dict exists $pcOfChannel $id]} { continue }
+                set pc [dict get $pcOfChannel $id]
+                lassign [split $a " "] verb value
+
+                set ok false
+                if {!$pairing} {
+                    set ok true
+                } elseif {$verb eq "token" && $value ne "" && $value in $tokens} {
+                    set ok true
+                } elseif {$verb eq "code" && $value eq $pairingCode} {
+                    set ok true
+                } elseif {$verb eq "code" && [incr wrongCodes] >= 5} {
+                    # Don't let anyone walk through all the codes.
+                    set wrongCodes 0
+                    set pairingCode [{*}$newPairingCode]
+                    Hold! -on connect -key pairing-code \
+                        Claim the connect pairing code is $pairingCode
+                    puts "connect: Too many wrong codes. Pairing code is now $pairingCode"
+                }
+
+                if {!$ok} {
+                    $lib send $id "no"
+                    continue
+                }
+                dict set paired $pc 1
+                if {$pairing && $verb eq "code"} {
+                    set value [apply $randomHex 16]
+                    lappend tokens $value
+                    if {[file isdirectory [file dirname $tokenFile]]} {
+                        set fd [open $tokenFile a]; puts $fd $value; close $fd
+                        exec chmod 600 $tokenFile
+                    }
+                    $lib send $id "ok $value"
+                } else {
+                    $lib send $id "ok"
+                }
+            }
+
+            channel-closed - bridge-closed {
+                if {![dict exists $pcOfChannel $id]} { continue }
+                set pc [dict get $pcOfChannel $id]
+                dict unset pcOfChannel $id
+                set remaining [list]
+                foreach entry [dict get $channelsOfPc $pc] {
+                    if {[lindex $entry 1] == $id} {
+                        apply $closeChannel $lib $entry
+                    } else {
+                        lappend remaining $entry
+                    }
+                }
+                dict set channelsOfPc $pc $remaining
+            }
+
+            default {
+                if {$type eq "stop-$stopKey"} { set running false }
+            }
+        }
+    }
+
+    # The configuration was withdrawn: hang up on everyone.
+    dict for {pc entries} $channelsOfPc {
+        foreach entry $entries { apply $closeChannel $lib $entry }
+        $lib peerDelete $pc
+    }
+    if {$signal != -1} { $lib socketDelete $signal }
+    puts "connect: Stopped"
+}

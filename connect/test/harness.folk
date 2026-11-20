@@ -1,0 +1,37 @@
+# A Folk system with just enough running to test connect.folk: the
+# Web server, the connect bridge, and a few Whens that write what
+# they see to a log file for the test (folk-e2e.mjs) to read.
+#
+#   CONNECT_SERVER=ws://127.0.0.1:8787/ws CONNECT_LOG=/tmp/log \
+#       ./folk connect/test/harness.folk
+
+When {
+    source "builtin-programs/web/web.folk"
+}
+When {
+    source "builtin-programs/connect.folk"
+}
+
+set report {{line} {
+    set fd [open $::env(CONNECT_LOG) a]
+    puts $fd $line
+    close $fd
+}}
+
+When /dev/ has touch /id/ at /pos/ {
+    apply $report "touch $dev $id"
+    On unmatch [list apply $report "untouch $dev $id"]
+}
+When /program/ has program code /code/ {
+    apply $report "code $program: $code"
+    On unmatch [list apply $report "uncode $program"]
+}
+When the connect pairing code is /code/ {
+    apply $report "pairing-code $code"
+}
+
+if {[info exists ::env(CONNECT_PAIRING)]} {
+    Assert! the connect server is $::env(CONNECT_SERVER) with name harness pairing true
+} else {
+    Assert! the connect server is $::env(CONNECT_SERVER) with name harness
+}

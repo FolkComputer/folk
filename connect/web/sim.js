@@ -58,6 +58,11 @@ export class Sim {
       for (const held of client.holds.values()) {
         for (const words of held.statements) {
           if (words.includes('quad') || words.includes('geometry')) continue;
+          if (held.code != null && words[3] === 'program' && words[4] === 'code') {
+            // Show the code itself, not the base64 it travelled as.
+            lines.push(`${words.slice(0, 5).join(' ')} {${held.code}}`);
+            continue;
+          }
           lines.push(words.map((w) => (/\s/.test(w) ? `{${w}}` : w)).join(' '));
         }
       }
