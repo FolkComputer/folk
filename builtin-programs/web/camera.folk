@@ -29,6 +29,7 @@ Wish the web server handles route {/camera} with handler {
     } else {
         set exposureAtPageLoad 1500
     }
+    set tagAutoexposureAtPageLoad [expr {[llength [Query! /someone/ wishes camera $camera uses AprilTag-based autoexposure]] > 0}]
     set gainAtPageLoad 140
     set gainsAtPageLoad [Query! /someone/ wishes camera $baseCameraToControl uses gain /gain/]
     if {[llength $gainsAtPageLoad] == 1} {
@@ -50,7 +51,8 @@ Wish the web server handles route {/camera} with handler {
       <span id="statusSpan">Status</span>
 
       <div style="margin-top: 8px">
-        <label><input type="checkbox" id="cameraAutoexposure">Auto-exposure</label>
+        <label><input type="checkbox" id="cameraTagAutoexposure">Auto-exposure from tags</label>
+        <label><input type="checkbox" id="cameraAutoexposure">Camera's built-in auto-exposure</label>
 
         <div style="display: inline-block" id="manualExposure">
           Manual exposure:
@@ -101,11 +103,35 @@ Wish the web server handles route {/camera} with handler {
       }
       cameraGainSlider.addEventListener('input', (e) => updateGain(e.target.value));
       cameraGainNumber.addEventListener('change', (e) => updateGain(e.target.value));
-      // either disable hold when autoexposure, or match keys
       function sendExposure(valueInMicroseconds) {
         ws.hold('exposure $baseCameraToControl', tcl`
           Wish camera $baseCameraToControl uses exposure time \${valueInMicroseconds} us
         `, 'builtin-programs/web/setup.folk', true);
+      }
+
+      // Tag-based autoexposure (camera/autoexposure.folk) holds the
+      // exposure wish under the same key as sendExposure above, so
+      // while it is on we must not send manual values (they would
+      // fight), and we grey out the manual controls.
+      let tagAutoexposure = $tagAutoexposureAtPageLoad == 1;
+      function updateTagAutoexposure(on, doSend = true) {
+        tagAutoexposure = on;
+        cameraTagAutoexposure.checked = on;
+        if (doSend) {
+          ws.hold('autoexposure [list $camera]', on ? tcl`
+            Wish camera [list $camera] uses AprilTag-based autoexposure
+          ` : '', 'builtin-programs/web/setup.folk', true);
+        }
+        cameraAutoexposure.disabled = on;
+        if (on) {
+          cameraAutoexposure.checked = false;
+          cameraExposureSlider.disabled = true;
+          cameraExposureNumber.disabled = true;
+          manualExposure.style.opacity = 0.5;
+        } else {
+          // Leave the camera at the exposure the tags last chose.
+          updateExposure(cameraExposureNumber.value, false);
+        }
       }
 
       function updateExposure(valueInMicroseconds, doSend = true) {
@@ -120,7 +146,7 @@ Wish the web server handles route {/camera} with handler {
           cameraExposureNumber.value = valueInMicroseconds;
         }
 
-        if (doSend) { sendExposure(valueInMicroseconds); }
+        if (doSend && !tagAutoexposure) { sendExposure(valueInMicroseconds); }
       }
 
       cameraExposureSlider.addEventListener('input', (e) => updateExposure(Math.round(e.target.value * 100)));
@@ -130,7 +156,9 @@ Wish the web server handles route {/camera} with handler {
          updateExposure(value);
       });
       cameraAutoexposure.addEventListener('change', (e) => updateExposure(e.target.checked ? 0 : cameraExposureNumber.value));
-      updateExposure($exposureAtPageLoad, false)
+      cameraTagAutoexposure.addEventListener('change', (e) => updateTagAutoexposure(e.target.checked));
+      updateExposure($exposureAtPageLoad, false);
+      updateTagAutoexposure(tagAutoexposure, false);
     </script>
   </body>
 </html>
