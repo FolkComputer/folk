@@ -1,0 +1,51 @@
+# Plays one sound file through builtin-programs/audio.folk (miniaudio), then exits.
+#
+#   FOLK_SIM_AUDIO_WAV=/abs/path.wav [FOLK_SIM_AUDIO_SECONDS=1.5] \
+#       TERM=dumb timeout 120 ./folk test/sim/audio/play-audio.folk
+#
+# Run it with the environment printed by `sink.sh start` while `sink.sh record` is
+# capturing (selftest.sh does this) to check that Folk's own audio reaches the sink.
+# Exit code 0: audio.folk came up and the wish was played for FOLK_SIM_AUDIO_SECONDS;
+# 1: a program reported an error; 2: audio.folk never claimed its library.
+
+set out $::realStdout
+set wav $::env(FOLK_SIM_AUDIO_WAV)
+set seconds 1.5
+if {[info exists ::env(FOLK_SIM_AUDIO_SECONDS)]} { set seconds $::env(FOLK_SIM_AUDIO_SECONDS) }
+
+Assert! when /__this/ has program code /__programCode/ {
+    SayWithSource $__this 1 0 {} {} \
+        when $__programCode with environment [list [list this $__this]]
+} with environment {}
+local proc LoadProgram! {programFilename} {
+    set fp [open $programFilename r]
+    Hold! -on test/sim/audio/play-audio.folk -key [list $programFilename code] \
+        Claim $programFilename has program code [read $fp]
+    close $fp
+}
+LoadProgram! builtin-programs/audio.folk
+
+When /program/ has error /err/ with info /info/ {
+    puts $out "play-audio: FAIL: $program: $err"
+    Exit! 1
+}
+When { sleep 60; puts $out "play-audio: FAIL: no audio library after 60 s"; Exit! 2 }
+
+When the audio library is /audioLib/ {
+    # audio.folk logs the miniaudio backend it chose to its own stderr file.
+    set log "/var/tmp/folk-[pid]/builtin-programs__audio.folk.stderr"
+    if {[file exists $log]} {
+        set fp [open $log r]
+        foreach line [split [read $fp] "\n"] {
+            if {[string match "miniaudio:*" $line]} { puts $out "play-audio: $line" }
+        }
+        close $fp
+    }
+    puts $out "play-audio: wishing to play $wav at [clock milliseconds] ms"
+    Wish to play audio $wav
+    When {
+        sleep $seconds
+        puts $out "play-audio: done"
+        Exit! 0
+    }
+}

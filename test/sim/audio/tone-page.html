@@ -1,0 +1,119 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>tone page</title>
+<style>
+  body { font: 16px sans-serif; margin: 20px; background: #fff; }
+  button { font: 20px sans-serif; width: 260px; height: 60px; margin: 0 10px 10px 0; }
+  pre { font: 11px monospace; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<!--
+  Test page for the audio sink (test/sim/audio/README.md).
+
+    #play        WebAudio: 440 Hz for 1.0 s, then 880 Hz for 0.5 s
+    #play-audio  <audio> element: a generated 660 Hz WAV (data: URI), 1.0 s
+
+  Every step is appended to window.__audioLog as {event, t (Date.now(), ms), ...}.
+  Query parameters: f1 d1 f2 d2 (WebAudio tones, Hz / s), f3 d3 (audio element),
+  gain (0..1, default 0.5), autoplay=1 (try both WITHOUT a user gesture on load:
+  shows what the autoplay policy does).
+-->
+<button id="play">play tones</button>
+<button id="play-audio">play audio element</button>
+<pre id="log"></pre>
+<script>
+"use strict";
+const q = new URLSearchParams(location.search);
+const num = (name, def) => q.has(name) ? parseFloat(q.get(name)) : def;
+const P = { f1: num("f1", 440), d1: num("d1", 1.0), f2: num("f2", 880), d2: num("d2", 0.5),
+            f3: num("f3", 660), d3: num("d3", 1.0), gain: num("gain", 0.5) };
+
+window.__audioLog = [];
+function log(event, extra) {
+  const e = Object.assign({ event: event, t: Date.now() }, extra || {});
+  window.__audioLog.push(e);
+  document.getElementById("log").textContent += JSON.stringify(e) + "\n";
+  return e;
+}
+function activation() {
+  const ua = navigator.userActivation;
+  return ua ? { active: ua.isActive, hasBeenActive: ua.hasBeenActive } : null;
+}
+
+// The context is created at load time, i.e. before any gesture: under the default
+// autoplay policy it starts "suspended" and only a user activation lets resume() succeed.
+const ctx = new AudioContext();
+window.__audioCtx = ctx;
+ctx.onstatechange = () => log("ctx-state", { state: ctx.state, currentTime: ctx.currentTime });
+log("loaded", { state: ctx.state, sampleRate: ctx.sampleRate, baseLatency: ctx.baseLatency,
+                params: P, activation: activation() });
+
+function tone(freq, t0, dur, name) {
+  const osc = new OscillatorNode(ctx, { type: "sine", frequency: freq });
+  const g = new GainNode(ctx, { gain: 0 });
+  // 5 ms ramps: no clicks, and the analyser sees clean segment edges.
+  g.gain.setValueAtTime(0, t0);
+  g.gain.linearRampToValueAtTime(P.gain, t0 + 0.005);
+  g.gain.setValueAtTime(P.gain, t0 + dur - 0.005);
+  g.gain.linearRampToValueAtTime(0, t0 + dur);
+  osc.connect(g).connect(ctx.destination);
+  osc.start(t0);
+  osc.stop(t0 + dur);
+  return new Promise(resolve => { osc.onended = () => { log(name + "-ended", { currentTime: ctx.currentTime }); resolve(); }; });
+}
+
+async function playTones(why) {
+  log("tones-request", { why: why, state: ctx.state, activation: activation() });
+  // resume() never settles while the policy blocks the context: do not wait for it forever.
+  const resumed = await Promise.race([
+    ctx.resume().then(() => "resumed", e => "rejected: " + e.name),
+    new Promise(r => setTimeout(() => r("timeout"), 1000)) ]);
+  if (ctx.state !== "running") { log("tones-blocked", { resume: resumed, state: ctx.state }); return; }
+  const t0 = ctx.currentTime;
+  const ts = ctx.getOutputTimestamp ? ctx.getOutputTimestamp() : {};
+  log("tones-start", { resume: resumed, currentTime: t0, outputLatency: ctx.outputLatency,
+                       baseLatency: ctx.baseLatency, outputContextTime: ts.contextTime });
+  const a = tone(P.f1, t0, P.d1, "tone1");
+  const b = tone(P.f2, t0 + P.d1, P.d2, "tone2");
+  await a; await b;
+  log("tones-ended", { currentTime: ctx.currentTime });
+}
+
+function wavDataUri(freq, dur, rate) {
+  const n = Math.round(dur * rate), buf = new ArrayBuffer(44 + 2 * n), v = new DataView(buf);
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  str(0, "RIFF"); v.setUint32(4, 36 + 2 * n, true); str(8, "WAVEfmt ");
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, 2 * rate, true); v.setUint16(32, 2, true);
+  v.setUint16(34, 16, true); str(36, "data"); v.setUint32(40, 2 * n, true);
+  const ramp = Math.round(0.005 * rate);
+  for (let i = 0; i < n; i++) {
+    const env = Math.min(1, i / ramp, (n - 1 - i) / ramp);
+    v.setInt16(44 + 2 * i, Math.round(32767 * P.gain * env * Math.sin(2 * Math.PI * freq * i / rate)), true);
+  }
+  let bin = ""; const bytes = new Uint8Array(buf);
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return "data:audio/wav;base64," + btoa(bin);
+}
+
+const audio = new Audio(wavDataUri(P.f3, P.d3, 48000));
+window.__audioElement = audio;
+audio.preload = "auto";
+for (const ev of ["playing", "ended", "error", "pause"])
+  audio.addEventListener(ev, () => log("audio-" + ev, { currentTime: audio.currentTime }));
+
+async function playAudio(why) {
+  log("audio-request", { why: why, activation: activation() });
+  try { audio.currentTime = 0; await audio.play(); log("audio-play-resolved"); }
+  catch (e) { log("audio-blocked", { error: e.name, message: e.message }); }
+}
+
+document.getElementById("play").addEventListener("click", ev => playTones("click isTrusted=" + ev.isTrusted));
+document.getElementById("play-audio").addEventListener("click", ev => playAudio("click isTrusted=" + ev.isTrusted));
+if (q.get("autoplay") === "1") { playTones("autoplay"); playAudio("autoplay"); }
+</script>
+</body>
+</html>
