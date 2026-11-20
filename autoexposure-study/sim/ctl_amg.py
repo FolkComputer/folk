@@ -13,7 +13,8 @@ say what each suggested commit buys:
                     clip-aware, median across tags (suggested commit 2)
   amg_quartile_10hz + ~10 Hz cadence instead of `sleep 1`
   amg_suggested     + sweep when no tag is visible, bounded: after touching
-                    both ends it returns home and rests 5 s. This mirrors
+                    both ends it returns home and rests 5 s; the first direction is
+                    picked from the frame's mean brightness. This mirrors
                     builtin-programs/camera/autoexposure.folk as suggested
                     (range 300..15000 us, corners one frame stale).
 """
@@ -106,6 +107,8 @@ class Suggested(Proposal):
             return cur
         if self.home is None:
             self.home, self.bounces = cur, 0
+            # start in the likelier direction (getFrameBrightness in the .folk)
+            self.sweep_dir = -1 if int(self._frame[::8, ::8].mean()) > 128 else +1
         self.last_write = self.frame_i
         if self.bounces >= 2:
             nxt, self.home = self.home, None
@@ -124,6 +127,7 @@ class Suggested(Proposal):
         return int(nxt)
 
     def step(self, frame, dets, exposure_cmd, t):
+        self._frame = frame
         self.det_q.append([dict(d, hamming=0) for d in dets])
         stale = self.det_q[0] if len(self.det_q) > self.det_lag else []
         if len(self.det_q) > self.det_lag:
