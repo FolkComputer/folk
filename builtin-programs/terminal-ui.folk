@@ -2,7 +2,9 @@
 
 $::realStdout puts "Folk Computer (pid [pid])."
 set host $([string match "*.local" $::thisNode] ? $::thisNode : "$::thisNode.local")
-$::realStdout puts "Web interface at: http://$host:4273/"
+set webPort 4273
+if {[info exists ::env(FOLK_WEB_PORT)]} { set webPort $::env(FOLK_WEB_PORT) }
+$::realStdout puts "Web interface at: http://$host:$webPort/"
 $::realStdout puts ""
 $::realStdout flush
 

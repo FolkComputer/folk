@@ -297,9 +297,14 @@ proc handleRead {chan addr} {^HtmlWhen sha1Lib} {
     } else { puts "Closing: $chan $addr $headers"; close $chan }
 }
 
+# FOLK_WEB_PORT lets several Folks (e.g. headless simulations) run on
+# one machine.
+set webPort 4273
+if {[info exists ::env(FOLK_WEB_PORT)]} { set webPort $::env(FOLK_WEB_PORT) }
+Claim the web server is listening on port $webPort
 while true {
     try {
-        set f [socket stream.server 4273]
+        set f [socket stream.server $webPort]
         $f listen 128
         $f readable [lambda {} {f} {
             set client [$f accept addr]
@@ -307,7 +312,7 @@ while true {
         }]
         break
     } on error e {
-        # Handles failure to bind to :4273. We try again in a second.
+        # Handles failure to bind to the port. We try again in a second.
         puts stderr "web: $e"
         sleep 1
     }

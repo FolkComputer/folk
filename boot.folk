@@ -11,18 +11,22 @@ apply {{} {
     # not proof of a running Folk: another process can reuse it after reboot.
     # Open without truncating so a rejected launch preserves the owner's PID.
     # Never unlink this file: all launches must lock the same inode.
-    set instanceLock [open "folk.pid" {RDWR CREAT}]
+    # FOLK_PID_FILE lets several Folks (e.g. headless simulations) run
+    # from one checkout.
+    set pidFile "folk.pid"
+    if {[info exists ::env(FOLK_PID_FILE)]} { set pidFile $::env(FOLK_PID_FILE) }
+    set instanceLock [open $pidFile {RDWR CREAT}]
     if {![$instanceLock lock]} {
-        puts $::realStderr "boot: ERROR: Another Folk already running (folk.pid is locked)."
+        puts $::realStderr "boot: ERROR: Another Folk already running ($pidFile is locked)."
         Exit! 1
     }
 
     # Jim has no ftruncate. Pad with whitespace to overwrite any old digits
     # when the new PID is shorter. Keep the channel open to retain the lock.
-    puts -nonewline $instanceLock [format "%-*s" [file size folk.pid] [pid]]
+    puts -nonewline $instanceLock [format "%-*s" [file size $pidFile] [pid]]
     flush $instanceLock
     # in case we're running as root:
-    catch { exec chown folk folk.pid }
+    catch { exec chown folk $pidFile }
 }}
 
 __installLocalStdoutAndStderr "boot.folk"
