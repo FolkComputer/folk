@@ -100,6 +100,21 @@ When the image library is /imageLib/ {
         return ret;
     }
 
+    # Rough mean brightness of the whole frame (every 8th pixel in
+    # each direction). Only used to guess which way to start
+    # sweeping when no tag is visible.
+    $aecc proc getFrameBrightness {Image grayFrame} int {
+        FOLK_ENSURE(grayFrame.components == 1);
+        uint64_t sum = 0; uint32_t n = 0;
+        for (uint32_t y = 0; y < grayFrame.height; y += 8) {
+            for (uint32_t x = 0; x < grayFrame.width; x += 8) {
+                sum += grayFrame.data[y * grayFrame.bytesPerRow + x];
+                n++;
+            }
+        }
+        return n == 0 ? 0 : (int)(sum / n);
+    }
+
     set autoExpLib [$aecc compile]
 
     # aeNextExposure --
@@ -286,6 +301,11 @@ When the image library is /imageLib/ {
                 if {[dict get $state sweepHome] eq ""} {
                     dict set state sweepHome $cur
                     dict set state sweepBounces 0
+                    # Start in the likelier direction: if the frame is
+                    # mostly bright we are probably overexposed (sun),
+                    # so go shorter first; otherwise go longer first.
+                    dict set state sweepDir \
+                        [expr {[$autoExpLib getFrameBrightness $grayFrame] > 128 ? -1 : 1}]
                 }
                 dict set state lastSweepTs $frameTs
                 if {[dict get $state sweepBounces] >= 2} {
