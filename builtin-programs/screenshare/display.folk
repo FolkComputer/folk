@@ -119,25 +119,12 @@ When /someone/ wishes screenshare slot /slot/ displays screen /name/ for /root/ 
 }
 
 When /someone/ wishes screenshare slot /thing/ displays screen /name/ for /root/ at index /index/ &\
-     screen /screenName/ has latest frame /im/ width /sourceWidth/ height /sourceHeight/ seq /seq/ &\
      /thing/ has resolved geometry /geom/ &\
      /thing/ has canvas /id/ with /...wiOptions/ &\
      /thing/ has canvas projection /surfaceToClip/ {
-    if {$screenName ne $name} { return }
     set destWidth [dict get $geom width]
     set destHeight [dict get $geom height]
-    set sourceAspect [expr {double($sourceWidth) / double($sourceHeight)}]
     set destAspect [expr {double($destWidth) / double($destHeight)}]
-
-    if {$sourceAspect > $destAspect} {
-        set crop [expr {(1.0 - ($destAspect / $sourceAspect)) / 2.0}]
-        set uvMin [list $crop 0]
-        set uvMax [list [expr {1.0 - $crop}] 1]
-    } else {
-        set crop [expr {(1.0 - ($sourceAspect / $destAspect)) / 2.0}]
-        set uvMin [list 0 $crop]
-        set uvMax [list 1 [expr {1.0 - $crop}]]
-    }
 
     set a [list 0 0]
     set b [list $destWidth 0]
@@ -145,9 +132,24 @@ When /someone/ wishes screenshare slot /thing/ displays screen /name/ for /root/
     set d [list 0 $destHeight]
     set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
 
-    Wish the GPU loads image $im as texture
-    When the GPU has loaded image $im as texture /gim/ {
-        Wish the GPU draws pipeline "screenshare-cover" onto canvas $id with arguments \
-            [list $wiResolution $surfaceToClip $gim $a $b $c $d $uvMin $uvMax]
+    When -atomicallyWithKey [list screenshare $thing $name] \
+         screen $name has latest frame /im/ width /sourceWidth/ height /sourceHeight/ seq /seq/ {
+        set sourceAspect [expr {double($sourceWidth) / double($sourceHeight)}]
+
+        if {$sourceAspect > $destAspect} {
+            set crop [expr {(1.0 - ($destAspect / $sourceAspect)) / 2.0}]
+            set uvMin [list $crop 0]
+            set uvMax [list [expr {1.0 - $crop}] 1]
+        } else {
+            set crop [expr {(1.0 - ($sourceAspect / $destAspect)) / 2.0}]
+            set uvMin [list 0 $crop]
+            set uvMax [list 1 [expr {1.0 - $crop}]]
+        }
+
+        Wish the GPU loads image $im as texture
+        When the GPU has loaded image $im as texture /gim/ {
+            Wish the GPU draws pipeline "screenshare-cover" onto canvas $id with arguments \
+                [list $wiResolution $surfaceToClip $gim $a $b $c $d $uvMin $uvMax]
+        }
     }
 }

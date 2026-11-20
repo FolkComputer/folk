@@ -1,0 +1,28 @@
+When /p/ has canvas /id/ with /...wiOptions/ &\
+     /p/ has canvas projection /surfaceToClip/ &\
+     the color map is /colorMap/ &\
+     /someone/ wishes /p/ draws contour /contour/ with /...options/ {
+
+    set color [dict getdef $options color white]
+    set color [dict getdef $colorMap $color $color]
+    set thickness [dict getdef $options thickness [dict getdef $options width 0.001]]
+    set layer [dict getdef $options layer 0]
+
+    set wiResolution [list [dict get $wiOptions width] \
+                          [dict get $wiOptions height]]
+
+    set instances [list]
+    set n [llength $contour]
+    if {$n >= 2} {
+        for {set i 0} {$i < $n} {incr i} {
+            set from [lindex $contour $i]
+            set to [lindex $contour [expr {($i + 1) % $n}]]
+            lappend instances [list $wiResolution $surfaceToClip \
+                                   $from $to $thickness \
+                                   $color 0 0]
+        }
+    }
+
+    Wish the GPU draws pipeline "line" onto canvas $id \
+        with instances $instances layer $layer
+}

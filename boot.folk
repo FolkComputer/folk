@@ -6,24 +6,21 @@ apply {{} {
     # PID in folk.pid).
     catch { setpgrp }
 
-    catch {
-        set fp [open "folk.pid" r]
-        set oldPid [read $fp]; close $fp
-        try {
-            if {[string trim [exec ps -o state= -p $oldPid]] eq "Z"} {
-                error "Zombie Folk process exists (PID $oldPid)"
-            }
-            puts $::realStderr "boot: ($::errorCode) ERROR: Another Folk (PID $oldPid) already running."
-            Exit! 1
-        } on error e {
-            if {$e ne ""} {
-                puts stderr "boot: $e; this is OK; continuing."
-            }
-        }
+    # Keep this channel open for the process lifetime. The kernel releases
+    # the lock on exit (including crashes) and reboot. A saved PID alone is
+    # not proof of a running Folk: another process can reuse it after reboot.
+    # Open without truncating so a rejected launch preserves the owner's PID.
+    # Never unlink this file: all launches must lock the same inode.
+    set instanceLock [open "folk.pid" {RDWR CREAT}]
+    if {![$instanceLock lock]} {
+        puts $::realStderr "boot: ERROR: Another Folk already running (folk.pid is locked)."
+        Exit! 1
     }
 
-    set fp [open "folk.pid" w]
-    puts -nonewline $fp [pid]; close $fp
+    # Jim has no ftruncate. Pad with whitespace to overwrite any old digits
+    # when the new PID is shorter. Keep the channel open to retain the lock.
+    puts -nonewline $instanceLock [format "%-*s" [file size folk.pid] [pid]]
+    flush $instanceLock
     # in case we're running as root:
     catch { exec chown folk folk.pid }
 }}

@@ -1,6 +1,21 @@
 set UVX "$::env(HOME)/.local/bin/uvx"
 if {![file exists $UVX]} { set UVX "uvx" }
 
+proc UvxCleanup {pid endpoint} {
+    # `uvx` may keep the real Python worker as a child process. Kill children
+    # first, then the wrapper. Both commands are best-effort because the worker
+    # may already have exited by the time the match is retracted.
+    catch {exec pkill -TERM -P $pid}
+    catch {kill SIGTERM $pid}
+    catch {kill $pid}
+    catch {file delete -force $endpoint}
+
+    after 1000 [list apply {{pid} {
+        catch {exec pkill -KILL -P $pid}
+        catch {kill SIGKILL $pid}
+    }} $pid]
+}
+
 set cc [C]
 $cc include <sys/socket.h>
 $cc include <sys/un.h>
@@ -8,16 +23,42 @@ $cc include <unistd.h>
 $cc include <pthread.h>
 $cc include <string.h>
 $cc include <stdlib.h>
+$cc include <fcntl.h>
+
+$cc code {
+    static void closeInterpreterSocket(Jim_Interp* owner, void* data) {
+        int* fd = data;
+        close(*fd);
+        free(fd);
+    }
+}
 
 $cc proc sockConnect {char* path} int {
-    for (int i = 0; i < 200; i++) {
+    for (int i = 0; i < 1000; i++) {
         int fd = socket(AF_UNIX, SOCK_STREAM, 0);
         if (fd < 0) { usleep(1000000); continue; }
+        if (fcntl(fd, F_SETFD, FD_CLOEXEC) == -1) {
+            close(fd);
+            FOLK_ERROR("sockConnect: failed to set close-on-exec");
+        }
         struct sockaddr_un addr;
         memset(&addr, 0, sizeof(addr));
         addr.sun_family = AF_UNIX;
         strncpy(addr.sun_path, path, sizeof(addr.sun_path) - 1);
         if (connect(fd, (struct sockaddr*)&addr, sizeof(addr)) == 0) {
+            int* ownedFd = malloc(sizeof(*ownedFd));
+            if (ownedFd == NULL) {
+                close(fd);
+                FOLK_ERROR("sockConnect: failed to allocate socket owner");
+            }
+            *ownedFd = fd;
+            char key[64];
+            snprintf(key, sizeof(key), "uvx::socket:%d", fd);
+            if (Jim_SetAssocData(interp, key, closeInterpreterSocket, ownedFd) != JIM_OK) {
+                close(fd);
+                free(ownedFd);
+                FOLK_ERROR("sockConnect: failed to register socket cleanup");
+            }
             return fd;
         }
         close(fd);
@@ -25,6 +66,12 @@ $cc proc sockConnect {char* path} int {
     }
     Jim_SetResultString(interp, "sockConnect: failed to connect", -1);
     return -1;
+}
+
+$cc proc sockClose {int fd} void {
+    char key[64];
+    snprintf(key, sizeof(key), "uvx::socket:%d", fd);
+    Jim_DeleteAssocData(interp, key);
 }
 
 $cc proc sockSendStr {int fd char* data} void {
@@ -167,13 +214,57 @@ set impl [$cc compile]
 
 proc Uvx args {impl UVX} {
     set endpoint "/tmp/uvx-[clock milliseconds]-[expr {int(rand() * 100000)}].sock"
+    set folkPid [pid]
 
     set harnessCode [subst -nocommands -nobackslashes {
 import sys
+import os
 import socket
 import struct
 import json
 import threading
+import time
+
+folk_pid = $folkPid
+uvx_parent_pid = os.getppid()
+
+def process_has_live_threads(pid):
+    if not sys.platform.startswith("linux"):
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+
+    try:
+        thread_ids = os.listdir(f"/proc/{pid}/task")
+    except OSError:
+        return False
+
+    # On Linux, the process-group leader can become a zombie after its
+    # pthread exits while other threads in the same process keep running.
+    # Folk's main thread is also worker 0, so normal match cancellation can
+    # create exactly that state.  Do not mistake it for the whole process
+    # exiting.
+    for thread_id in thread_ids:
+        try:
+            with open(f"/proc/{pid}/task/{thread_id}/stat") as f:
+                if f.read().split()[2] != "Z":
+                    return True
+        except (OSError, IndexError):
+            # Threads may disappear while we inspect the task directory.
+            continue
+    return False
+
+def exit_when_parent_is_gone():
+    while True:
+        time.sleep(1)
+        if os.getppid() != uvx_parent_pid:
+            os._exit(0)
+        if not process_has_live_threads(folk_pid):
+            os._exit(0)
+
+threading.Thread(target=exit_when_parent_is_gone, daemon=True).start()
 
 def recv_frame(conn):
     hdr = b''
@@ -264,10 +355,25 @@ def handle_conn(conn):
                         break
                     parsed_args.append(arg.decode('utf-8'))
 
-            result = func(*parsed_args)
-            send_frame(conn, b"ok")
-            send_frame(conn, json.dumps(result).encode('utf-8'))
+            try:
+                result = func(*parsed_args)
+            except Exception:
+                import traceback
+                send_frame(conn, b"error")
+                send_frame(conn, traceback.format_exc().encode('utf-8'))
+                send_frame(conn, b"")
+                continue
+            if isinstance(result, (bytes, bytearray)):
+                send_frame(conn, b"okb")
+                send_frame(conn, result)
+            else:
+                send_frame(conn, b"ok")
+                send_frame(conn, json.dumps(result).encode('utf-8'))
             send_frame(conn, b"")
+
+        except ConnectionError:
+            conn.close()
+            return
 
         except Exception as e:
             import traceback
@@ -284,7 +390,7 @@ while True:
                  python -u -c $harnessCode &]
     # HACK: This is a bit of Folk poking down into the library level,
     # which is awkward.
-    catch { uplevel [list On unmatch [list kill $pid]] } res
+    catch { uplevel [list On unmatch [list UvxCleanup $pid $endpoint]] } res
 
     # Return a library that runs internal state through the Folk db so
     # it can be called from any thread.
@@ -318,11 +424,16 @@ proc registerArgtype {typeName serializer} {
 }
 
 proc unknown {fnName args} {
-    variable impl; variable socket
+    variable impl; variable socket; variable endpoint
     # We need normal `unknown` to call methods on $impl, so need to
     # pass it through to ::unknown.
     if {$fnName eq $impl} {
         tailcall ::unknown $fnName {*}$args
+    }
+
+    if {$socket < 0} {
+        set socket [$impl sockConnect $endpoint]
+        if {$socket < 0} { error "Uvx: failed to reconnect to Python at $endpoint" }
     }
 
     # Send function name first
@@ -357,9 +468,18 @@ proc unknown {fnName args} {
     $impl sockSendStr $socket ""
 
     set response [$impl sockRecvMulti $socket]
+    if {[llength $response] == 0} {
+        $impl sockClose $socket
+        set socket -1
+        error "Python worker at $endpoint closed the connection"
+    }
 
     lassign $response status value
     if {$status eq "error"} { error $value }
+    if {$status eq "okb"} { return $value }
+    if {$status ne "ok"} {
+        error "Python worker at $endpoint returned invalid response: $response"
+    }
     return [json::decode $value]
 }
 proc exec {code} {

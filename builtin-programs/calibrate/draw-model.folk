@@ -3,7 +3,7 @@ When display /display/ has width /displayWidth/ height /displayHeight/ &\
      the calibration model library is /modelLib/ &\
      /someone/ wishes to draw calibration model /model/ \
         using model-to-display homography /H_modelToDisplay/ \
-        with message /calibrationMessage/ {
+        with message /calibrationMessage/ on display /display/ {
 
     package require linalg
     namespace import ::math::linearalgebra::scale \

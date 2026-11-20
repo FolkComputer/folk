@@ -4,6 +4,7 @@ $cc include <pthread.h>
 $cc include <assert.h>
 $cc include <stdio.h>
 $cc include <string.h>
+$cc include <unistd.h>
 $cc include "jim.h"
 
 $cc code {
@@ -99,15 +100,17 @@ $cc proc saveHold {char* canonical Jim_Obj* tclEscaped char* filename Jim_Obj* k
         Jim_SetHashVal(&holds, he, (void *)Jim_String(holdDict));
     }
 
-    pthread_mutex_unlock(&holdMutex);
-
     // grab entries from dict
     int dictLen = 0;
     Jim_Obj** dictValues = Jim_DictPairs(interp, holdDict, &dictLen);
 
     if (dictLen > 0) {
         // write changes
-        FILE* file = fopen(filename, "w+b");
+        char tmpFilename[4096];
+        snprintf(tmpFilename, sizeof(tmpFilename), "%s.tmp.%ld.%lu",
+                 filename, (long)getpid(), (unsigned long)pthread_self());
+
+        FILE* file = fopen(tmpFilename, "w+b");
         assert(file != NULL);
 
         // write the filename in tcl form at the top of the file
@@ -126,12 +129,16 @@ $cc proc saveHold {char* canonical Jim_Obj* tclEscaped char* filename Jim_Obj* k
         }
 
         fclose(file);
+
+        int renameResult = rename(tmpFilename, filename);
+        assert(renameResult == 0);
     } else {
         // the dict is empty, so we should delete its hold file if it exists
         remove(filename); // no need to check error
     }
 
     Jim_FreeNewObj(interp, holdDict);
+    pthread_mutex_unlock(&holdMutex);
 }
 
 set savedHoldsLib [$cc compile]

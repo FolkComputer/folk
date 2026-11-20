@@ -169,7 +169,11 @@ fn musicFinishSetup {} {
   exec mkfifo $fifo
 
   sleep 0.2
-  musicExec sh -c "ghci < $fifo" &
+  # The first exec is to keep a writer open on the FIFO for ghci's
+  # whole lifetime. A writer owned only by a Folk worker can disappear
+  # when that worker is later cancelled by another program; then, with
+  # no FIFO writers, ghci would receive EOF and exit, which is bad.
+  musicExec sh -c {exec 3<>"$1"; exec ghci <"$1"} sh $fifo &
 
   set fifoId [open $fifo w]
   puts $fifoId $bootTidal; flush $fifoId

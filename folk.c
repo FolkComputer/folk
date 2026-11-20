@@ -84,6 +84,16 @@ void appropriateWorkQueuePush(WorkQueueItem item) {
 // These are used by dynamically-loaded Tcl-C modules, especially for
 // error handling.
 __thread Jim_Interp* interp = NULL;
+
+// Jim interpreters install and restore process-wide signal handlers. Keep a
+// permanent cancellation handler beneath them so freeing the first interpreter
+// cannot restore SIG_DFL and terminate a different worker on its next cancel.
+static void workerCancellationHandler(int signalNumber) {
+    if (interp != NULL) {
+        // Mark this signal pending for Jim to handle during interpreter execution.
+        interp->sigmask |= ((jim_wide)1 << signalNumber);
+    }
+}
 __thread jmp_buf __onError;
 // __onError can only be set once for one call into C; if it's already
 // set and you try to set it again (maybe because you called a _Cmd
@@ -228,8 +238,9 @@ static void reactToNewStatement(StatementRef ref);
 int64_t _Atomic latestVersion = 0; // TODO: split by key?
 // Note: returns an acquired statement that the caller should release.
 Statement* HoldStatementGloballyAcquiring(const char *key, double version,
-                                          Clause *clause, long keepMs, const char *destructorCode,
-                                          const char *sourceFileName, int sourceLineNumber) {
+                                          Clause *clause, long keepMs, Destructor* destructor,
+                                          const char *sourceFileName, int sourceLineNumber,
+                                          Match* inheritDestructorsFromMatch) {
 /* #ifdef TRACY_ENABLE */
 /*     char *s = clauseToString(clause); */
 /*     TracyCMessageFmt("hold: %.200s", s); free(s); */
@@ -240,25 +251,12 @@ Statement* HoldStatementGloballyAcquiring(const char *key, double version,
     newStmt = dbHoldStatement(db, key, version,
                               clause, keepMs,
                               sourceFileName, sourceLineNumber,
+                              destructor, inheritDestructorsFromMatch,
                               &oldRef);
 
-    Destructor* destructor = NULL;
-    if (destructorCode != NULL) {
-        destructor = destructorNew(destructorHelper, strdup(destructorCode));
-    }
-
     if (newStmt != NULL) {
-        if (destructor != NULL) {
-            statementAddDestructor(newStmt, destructor);
-        }
-
         StatementRef newRef = statementRef(db, newStmt);
         reactToNewStatement(newRef);
-    } else {
-        if (destructor != NULL) {
-            destructorRun(destructor);
-            free(destructor);
-        }
     }
 
     if (!statementRefIsNull(oldRef)) {
@@ -272,18 +270,18 @@ Statement* HoldStatementGloballyAcquiring(const char *key, double version,
     return newStmt;
 }
 void HoldStatementGlobally(const char *key, double version,
-                           Clause *clause, long keepMs, const char *destructorCode,
+                           Clause *clause, long keepMs, Destructor* destructor,
                            const char *sourceFileName, int sourceLineNumber) {
     Statement* stmt = HoldStatementGloballyAcquiring(key, version,
-                                                     clause, keepMs, destructorCode,
-                                                     sourceFileName, sourceLineNumber);
+                                                     clause, keepMs, destructor,
+                                                     sourceFileName, sourceLineNumber, NULL);
     if (stmt != NULL) {
         dbInflightDecr(db, stmt);
         statementRelease(db, stmt);
     }
 }
 static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    assert(argc == 8);
+    assert(argc == 8 || argc == 9);
 
     const char* sourceFileName;
     long sourceLineNumber;
@@ -303,16 +301,32 @@ static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *cons
         destructorCode = NULL;
     }
 
-    HoldStatementGlobally(key, version,
-                          clause, keepMs, destructorCode,
-                          sourceFileName, sourceLineNumber);
+    int retainResources = 0;
+    if (argc == 9 && Jim_GetBoolean(interp, argv[8], &retainResources) != JIM_OK) {
+        clauseFree(clause);
+        return JIM_ERR;
+    }
+    Destructor* destructor = NULL;
+    if (destructorCode != NULL) {
+        destructor = destructorNew(destructorHelper, strdup(destructorCode));
+        destructorRetain(destructor);
+    }
+    Statement* stmt = HoldStatementGloballyAcquiring(key, version,
+        clause, keepMs, destructor, sourceFileName, sourceLineNumber,
+        retainResources && self != NULL ? self->currentMatch : NULL);
+    if (destructor != NULL) { destructorRelease(destructor); }
+    if (stmt != NULL) {
+        dbInflightDecr(db, stmt);
+        statementRelease(db, stmt);
+    }
 
     return (JIM_OK);
 }
 
 
 static StatementRef Say(Clause* clause, long keepMs,
-                        AtomicallyVersion* atomicallyVersion,
+                        AtomicallyVersion* const* atomicallyVersions,
+                        int atomicallyVersionsCount,
                         const char *destructorCode,
                         const char *sourceFileName, int sourceLineNumber) {
     MatchRef parent;
@@ -327,22 +341,20 @@ static StatementRef Say(Clause* clause, long keepMs,
         free(s);
     }
 
-    Statement* stmt;
-    stmt = dbInsertOrReuseStatement(db, clause,
-                                    keepMs, atomicallyVersion,
-                                    sourceFileName, sourceLineNumber,
-                                    parent, NULL);
-
     Destructor* destructor = NULL;
     if (destructorCode != NULL) {
         destructor = destructorNew(destructorHelper, strdup(destructorCode));
+        destructorRetain(destructor);
     }
 
-    if (stmt != NULL) {
-        if (destructor != NULL) {
-            statementAddDestructor(stmt, destructor);
-        }
+    Statement* stmt = dbInsertOrReuseStatement(db, clause,
+                                    keepMs, atomicallyVersions, atomicallyVersionsCount,
+                                    sourceFileName, sourceLineNumber,
+                                    parent, destructor, NULL,
+                                    NULL);
+    if (destructor != NULL) { destructorRelease(destructor); }
 
+    if (stmt != NULL) {
         StatementRef ref = statementRef(db, stmt);
 
         reactToNewStatement(ref);
@@ -352,10 +364,6 @@ static StatementRef Say(Clause* clause, long keepMs,
         return ref;
 
     } else {
-        if (destructor != NULL) {
-            destructorRun(destructor);
-            free(destructor);
-        }
         return STATEMENT_REF_NULL;
     }
 }
@@ -363,6 +371,7 @@ static StatementRef Say(Clause* clause, long keepMs,
 static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc >= 7);
     Clause* clause = jimObjsToClause(argc - 6, argv + 6);
+    AtomicallyVersion** atomicallyVersions = NULL;
 
     const char* sourceFileName;
     long sourceLineNumber;
@@ -377,10 +386,17 @@ static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         goto err;
     }
 
-    AtomicallyVersion* atomicallyVersion = NULL;
-    const char* atomicallyVersionStr = Jim_String(argv[4]);
-    if (atomicallyVersionStr && strlen(atomicallyVersionStr) > 0) {
-        sscanf(atomicallyVersionStr, "(AtomicallyVersion*) %p", &atomicallyVersion);
+    int atomicallyVersionsCount = Jim_ListLength(interp, argv[4]);
+    atomicallyVersions = atomicallyVersionsCount == 0 ? NULL :
+        malloc(sizeof(AtomicallyVersion*) * atomicallyVersionsCount);
+    for (int i = 0; i < atomicallyVersionsCount; i++) {
+        void* version = NULL;
+        if (sscanf(Jim_String(Jim_ListGetIndex(interp, argv[4], i)),
+                   "(AtomicallyVersion*) %p", &version) != 1 || version == NULL) {
+            Jim_SetResultString(interp, "Invalid atomic version", -1);
+            goto err;
+        }
+        atomicallyVersions[i] = version;
     }
 
     int destructorCodeLen;
@@ -394,12 +410,14 @@ static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         goto err;
     }
 
-    Say(clause, keepMs, atomicallyVersion,
+    Say(clause, keepMs, atomicallyVersions, atomicallyVersionsCount,
         destructorCode,
         sourceFileName, (int) sourceLineNumber);
+    free(atomicallyVersions);
     return JIM_OK;
 
  err:
+    free(atomicallyVersions);
     clauseFree(clause);
     return JIM_ERR;
 }
@@ -437,12 +455,8 @@ Jim_Obj* QuerySimple(bool isAtomically, Clause* pattern) {
         Statement* result = statementAcquire(db, rs->results[i]);
         if (result == NULL) { continue; }
 
-        // If `isAtomically` is on, then throw away any
-        // statement that has an AtomicallyVersion _and_ that
-        // AtomicallyVersion isn't converged yet.
-        if (isAtomically &&
-            statementAtomicallyVersion(result) != NULL &&
-            !dbAtomicallyVersionHasConverged(statementAtomicallyVersion(result))) {
+        // Atomic queries require every inherited version to have converged.
+        if (isAtomically && !statementAtomicallyHasConverged(result)) {
 
             /* fprintf(stderr, "DISCARD %.100s\n", */
             /*         clauseToString(statementClause(result))); */
@@ -517,6 +531,58 @@ static int StatementReleaseFunc(Jim_Interp *interp, int argc, Jim_Obj *const *ar
     assert(sscanf(Jim_String(argv[1]), "s%d:%d", &ref.idx, &ref.gen) == 2);
 
     statementRelease(db, statementUnsafeGet(db, ref));
+    return JIM_OK;
+}
+static int CurrentMatchInheritStatementDestructorsFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 2);
+
+    if (self->currentMatch == NULL) {
+        Jim_SetResultString(interp, "Cannot inherit statement destructors without a current match.", -1);
+        return JIM_ERR;
+    }
+
+    StatementRef ref;
+    assert(sscanf(Jim_String(argv[1]), "s%d:%d", &ref.idx, &ref.gen) == 2);
+
+    Statement* stmt = statementAcquire(db, ref);
+    if (stmt == NULL) {
+        Jim_SetResultString(interp, "Unable to acquire statement.", -1);
+        return JIM_ERR;
+    }
+
+    matchInheritStatementDestructors(self->currentMatch, stmt);
+    statementRelease(db, stmt);
+    return JIM_OK;
+}
+static int __statementOfCurrentMatchSourceInfoFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 1);
+    StatementRef stmtRef = STATEMENT_REF_NULL;
+    mutexLock(&self->currentItemMutex);
+    if (self->currentItem.op == RUN_WHEN) {
+        stmtRef = self->currentItem.runWhen.stmt;
+    }
+    mutexUnlock(&self->currentItemMutex);
+
+    if (statementRefIsNull(stmtRef)) {
+        Jim_SetEmptyResult(interp);
+        return JIM_OK;
+    }
+
+    Statement* stmt = statementAcquire(db, stmtRef);
+    if (stmt == NULL) {
+        Jim_SetEmptyResult(interp);
+        return JIM_OK;
+    }
+
+    const char* fileName = statementSourceFileName(stmt);
+    int lineNumber = statementSourceLineNumber(stmt);
+    Jim_Obj* result[2] = {
+        Jim_NewStringObj(interp, fileName ? fileName : "", -1),
+        Jim_NewIntObj(interp, lineNumber),
+    };
+    Jim_SetResult(interp, Jim_NewListObj(interp, result, 2));
+
+    statementRelease(db, stmt);
     return JIM_OK;
 }
 
@@ -613,25 +679,19 @@ static int __threadIdFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return JIM_OK;
 }
 
-static int __setFreshAtomicallyVersionOnKeyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    assert(argc == 2);
-    const char* key = Jim_String(argv[1]);
-    self->currentAtomicallyVersion =
-        dbFreshAtomicallyVersionOnKey(db, key,
-                                      matchRef(db, self->currentMatch));
-    matchSetAtomicallyVersion(self->currentMatch, self->currentAtomicallyVersion);
-    return JIM_OK;
-}
 static int __currentAtomicallyVersionFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 1);
-    if (self->currentAtomicallyVersion == NULL) {
-        Jim_SetResultString(interp, "", -1);
-    } else {
+    Jim_Obj* versionsList = Jim_NewListObj(interp, NULL, 0);
+    int count = 0;
+    AtomicallyVersion* const* versions = self->currentMatch == NULL ? NULL :
+        matchAtomicallyVersions(self->currentMatch, &count);
+    for (int i = 0; i < count; i++) {
         char ret[100];
         snprintf(ret, 100, "(AtomicallyVersion*) %p",
-                 self->currentAtomicallyVersion);
-        Jim_SetResultString(interp, ret, strlen(ret));
+                 versions[i]);
+        Jim_ListAppendElement(interp, versionsList, Jim_NewStringObj(interp, ret, -1));
     }
+    Jim_SetResult(interp, versionsList);
     return JIM_OK;
 }
 
@@ -661,6 +721,14 @@ static int exitFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return JIM_OK;
 }
 
+void __attribute__((noinline)) __attribute__((used)) magic_trace_stop_indicator() {
+    asm volatile("" ::: "memory");
+}
+static int __magicTraceStopIndicatorFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    magic_trace_stop_indicator();
+    return JIM_OK;
+}
+
 static void interpBoot() {
     interp = Jim_CreateInterp();
     Jim_RegisterCoreCommands(interp);
@@ -681,6 +749,8 @@ static void interpBoot() {
 
     Jim_CreateCommand(interp, "StatementAcquire!", StatementAcquireFunc, NULL, NULL);
     Jim_CreateCommand(interp, "StatementRelease!", StatementReleaseFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "CurrentMatchInheritStatementDestructors!", CurrentMatchInheritStatementDestructorsFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__statementOfCurrentMatchSourceInfo", __statementOfCurrentMatchSourceInfoFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "__scanVariable", __scanVariableFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__variableNameIsNonCapturing", __variableNameIsNonCapturingFunc, NULL, NULL);
@@ -696,8 +766,8 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "__db", __dbFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__threadId", __threadIdFunc, NULL, NULL);
 
-    Jim_CreateCommand(interp, "__setFreshAtomicallyVersionOnKey", __setFreshAtomicallyVersionOnKeyFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__currentAtomicallyVersion", __currentAtomicallyVersionFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__magicTraceStopIndicator", __magicTraceStopIndicatorFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "setpgrp", setpgrpFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Exit!", exitFunc, NULL, NULL);
@@ -832,47 +902,71 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     Clause* whenClause = statementClause(when);
     Clause* stmtClause = stmt == NULL ? whenPattern : statementClause(stmt);
 
+    assert(whenClause->nTerms >= 5);
+    const Term* body = whenClause->terms[whenClause->nTerms - 4];
+    const Term* capturedEnvStack = whenClause->terms[whenClause->nTerms - 1];
+    Jim_Obj* envStackObj = termToJimObj(interp, capturedEnvStack);
+
+    // If the last frame in envStackObj is {__atomicallyKey KEY}, then
+    // it's a metadata frame that is telling us to make a fresh
+    // AtomicallyVersion on KEY, and we should consume that metadata
+    // frame before attaching the match or evaluating Tcl. An optional third
+    // element specifies the timeout in nanoseconds.
+    //
+    // If applicable, we need to create the fresh AtomicallyVersion
+    // before Tcl starts evaluation, so we need to get the Atomically
+    // for it here.
+    //
+    // (Why? Why not create the AtomicallyVersion inside Tcl, in the
+    // evaluated block? If you do that, then there is a risk that
+    // during Tcl evaluation, parent statement(s) get destroyed ->
+    // this match gets invalidated -> all its child statements fail to
+    // attach, so 0 inflight children -> this match converges
+    // immediately on Tcl evaluation completion, degenerately -> you
+    // now have a degenerate empty AtomicallyVersion and probably see
+    // a blink at the frontend. In contrast, when you create the
+    // AtomicallyVersion before evaluation, with parent
+    // childMatchesMutex held, 1. match will never make the
+    // AtomicallyVersion at all if invalidated first, or 2. the match
+    // will be preserved because it's already been made an Atomically
+    // root.)
+    Atomically* freshAtomically = NULL;
+    int nFrames = Jim_ListLength(interp, envStackObj);
+    Jim_Obj* metadata = nFrames > 0 ? Jim_ListGetIndex(interp, envStackObj, nFrames - 1) : NULL;
+    int metadataLen = metadata == NULL ? 0 : Jim_ListLength(interp, metadata);
+    if ((metadataLen == 2 || metadataLen == 3) &&
+        strcmp(Jim_String(Jim_ListGetIndex(interp, metadata, 0)), "__atomicallyKey") == 0) {
+        jim_wide timeout = 100000000; // 100ms unless When supplies -keep.
+        if (metadataLen == 3) {
+            Jim_GetWide(interp, Jim_ListGetIndex(interp, metadata, 2), &timeout);
+        }
+        freshAtomically = dbGetOrCreateAtomically(db,
+            Jim_String(Jim_ListGetIndex(interp, metadata, 1)), timeout);
+        Jim_Obj* lexicalEnv = Jim_NewListObj(interp, NULL, 0);
+        for (int i = 0; i < nFrames - 1; i++) {
+            Jim_ListAppendElement(interp, lexicalEnv, Jim_ListGetIndex(interp, envStackObj, i));
+        }
+        Jim_DecrRefCount(interp, envStackObj);
+        envStackObj = lexicalEnv;
+    }
+
     if (stmt != NULL) {
         StatementRef parents[] = { whenRef, stmtRef };
 
-        AtomicallyVersion* whenAtomicallyVersion = statementAtomicallyVersion(when);
-        AtomicallyVersion* stmtAtomicallyVersion = statementAtomicallyVersion(stmt);
-        AtomicallyVersion* atomicallyVersion = NULL;
-        if (whenAtomicallyVersion && stmtAtomicallyVersion &&
-            whenAtomicallyVersion != stmtAtomicallyVersion) {
-            fprintf(stderr, "runWhenBlock: Warning: Conflicting atomicallyVersion between:\n"
-                    "  when (%p): (%.150s)\n"
-                    "  stmt (%p): (%.150s)\n",
-                    whenAtomicallyVersion, clauseToString(statementClause(when)),
-                    stmtAtomicallyVersion, clauseToString(statementClause(stmt)));
-        }
-        atomicallyVersion = stmtAtomicallyVersion ?
-            stmtAtomicallyVersion : whenAtomicallyVersion;
         self->currentMatch = dbInsertMatch(db, 2, parents,
-                                           atomicallyVersion,
-                                           self->index);
-        self->currentAtomicallyVersion = atomicallyVersion;
+                                           freshAtomically, self->index);
     } else {
         StatementRef parents[] = { whenRef };
         self->currentMatch = dbInsertMatch(db, 1, parents,
-                                           statementAtomicallyVersion(when),
-                                           self->index);
-        self->currentAtomicallyVersion = statementAtomicallyVersion(when);
-    }
-    if (self->currentAtomicallyVersion != NULL) {
-        dbAtomicallyVersionInflightIncr(self->currentAtomicallyVersion);
+                                           freshAtomically, self->index);
     }
     // We don't want to hang onto these inflight when running the
-    // block. (If we're keeping one, we've just incr-ed it for
-    // ourselves before this.)
+    // block. A successfully attached match already owns its inflight count.
     dbInflightDecr(db, when);
     dbInflightDecr(db, stmt);
 
     if (!self->currentMatch) {
-        if (self->currentAtomicallyVersion != NULL) {
-            dbAtomicallyVersionInflightDecr(db, self->currentAtomicallyVersion);
-        }
-
+        Jim_DecrRefCount(interp, envStackObj);
         statementRelease(db, when);
         if (stmt != NULL) {
             statementRelease(db, stmt);
@@ -882,20 +976,16 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     // make sure this is initialized
     self->inSubscription = false;
 
-    assert(whenClause->nTerms >= 5);
-
-    // when the time is /t/ /body/ with environment /capturedEnvStack/
-    const Term* body = whenClause->terms[whenClause->nTerms - 4];
-    const Term* capturedEnvStack = whenClause->terms[whenClause->nTerms - 1];
-    Jim_Obj *envStackObj = termToJimObj(interp, capturedEnvStack);
-
     int error = runBlock(whenPattern, stmtClause, body,
                          statementSourceFileName(when),
                          statementSourceLineNumber(when),
                          envStackObj);
 
-    if (self->currentAtomicallyVersion != NULL) {
-        dbAtomicallyVersionInflightDecr(db, self->currentAtomicallyVersion);
+    int atomicallyVersionsCount;
+    AtomicallyVersion* const* atomicallyVersions =
+        matchAtomicallyVersions(self->currentMatch, &atomicallyVersionsCount);
+    for (int i = 0; i < atomicallyVersionsCount; i++) {
+        dbAtomicallyVersionInflightDecr(db, atomicallyVersions[i]);
     }
 
     statementRelease(db, when);
@@ -1020,7 +1110,7 @@ static void pushRunSubscriptionBlock(StatementRef subscribeRef, Clause* subscrib
 // shouldn't be claimized. Returns a new heap-allocated Clause* that
 // must be freed by the caller.
 Clause* claimizeClause(Clause* clause) {
-    if (clause->nTerms >= 2 &&
+    if (clause->nTerms > 2 &&
         (termEqString(clause->terms[1], "claims") ||
          termEqString(clause->terms[1], "wishes"))) {
         return NULL;
@@ -1190,7 +1280,7 @@ static void reactToNewStatement(StatementRef ref) {
 
         clauseFreeBorrowed(whenizedClause); // doesn't own any terms.
     }
-    if (clause->nTerms >= 2 && termEqString(clause->terms[1], "claims")) {
+    if (clause->nTerms > 2 && termEqString(clause->terms[1], "claims")) {
         // Cut off `/x/ claims` from start of clause:
         //
         // /x/ claims the time is 3
@@ -1274,10 +1364,11 @@ void workerRun(WorkQueueItem item) {
 
         Statement* stmt;
         stmt = dbInsertOrReuseStatement(db, item.assert.clause,
-                                        0, NULL,
+                                        0, NULL, 0,
                                         item.assert.sourceFileName,
                                         item.assert.sourceLineNumber,
-                                        MATCH_REF_NULL, NULL);
+                                        MATCH_REF_NULL, NULL, NULL,
+                                        NULL);
         if (stmt != NULL) {
             StatementRef ref = statementRef(db, stmt);
 
@@ -1360,18 +1451,21 @@ void traceItem(char* buf, size_t bufsz, WorkQueueItem item) {
         snprintf(buf, bufsz, "Retract (%.100s)",
                  clauseToString(item.retract.pattern));
     } else if (item.op == RUN_WHEN) {
-        Statement* when = statementUnsafeGet(db, item.runWhen.when);
-        Statement* stmt = statementUnsafeGet(db, item.runWhen.stmt);
+        Statement* when = statementAcquire(db, item.runWhen.when);
+        Statement* stmt = statementAcquire(db, item.runWhen.stmt);
         snprintf(buf, bufsz, "Run when(%.100s) pattern(%.100s) stmt(%.100s)",
                  when != NULL ? clauseToString(statementClause(when)) : "NULL",
                  clauseToString(item.runWhen.whenPattern),
                  stmt != NULL ? clauseToString(statementClause(stmt)) : "NULL");
+        if (when) statementRelease(db, when);
+        if (stmt) statementRelease(db, stmt);
     } else if (item.op == RUN_SUBSCRIBE) {
-        Statement* subscribe = statementUnsafeGet(db, item.runSubscribe.subscribeRef);
+        Statement* subscribe = statementAcquire(db, item.runSubscribe.subscribeRef);
         snprintf(buf, bufsz, "Run subscribe(%.100s) pattern(%.100s) stmt(%.100s)",
                  subscribe != NULL ? clauseToString(statementClause(subscribe)) : "NULL",
                  clauseToString(item.runSubscribe.subscribePattern),
                  clauseToString(item.runSubscribe.notifyClause));
+        if (subscribe) statementRelease(db, subscribe);
     } else if (item.op == EVAL) {
         snprintf(buf, bufsz, "Eval");
     } else if (item.op == NONE) {
@@ -1474,7 +1568,31 @@ void workerExit() {
     // Need this so that this worker doesn't count as still being
     // alive and count toward the worker cap.
 
-    // TODO: Clear everything else out?
+    // Donate any remaining items in our local workQueue to the global
+    // queue. Otherwise they'd be stranded: workerSteal skips workers
+    // whose tid == 0. This matters for self-kill scenarios like a
+    // When body whose Hold!/Say replaces its own match's parent —
+    // reactToNewStatement pushes the follow-up RUN_WHEN onto the
+    // local queue right before SIGUSR1 tears the worker down.
+    if (self->workQueue != NULL) {
+        while (true) {
+            WorkQueueItem item = workQueueTake(self->workQueue);
+            if (item.op == NONE) { break; }
+            globalWorkQueuePush(item);
+        }
+    }
+
+    // No more cancellation can be handled by this exiting interpreter. Its
+    // assoc-data and channel destructors release Python sockets and other fds.
+    sigset_t cancelSignals;
+    sigemptyset(&cancelSignals);
+    sigaddset(&cancelSignals, SIGUSR1);
+    pthread_sigmask(SIG_BLOCK, &cancelSignals, NULL);
+    if (interp != NULL) {
+        Jim_FreeInterp(interp);
+        interp = NULL;
+    }
+
     self->tid = 0;
     epochThreadDestroy();
 
@@ -1541,7 +1659,7 @@ static void workerInfo(int threadIndex) {
     printf("Elapsed time: %.3f us\n", elapsed);
 }
 
-void workerReactivateOrSpawn(int64_t msSinceBoot, int targetNotBlockedWorkersCount) {
+void workerReactivateOrSpawn() {
     int nLivingThreads = 0;
     for (int i = 0; i < THREADS_MAX; i++) {
         if (threads[i].tid != 0) {
@@ -1552,29 +1670,7 @@ void workerReactivateOrSpawn(int64_t msSinceBoot, int targetNotBlockedWorkersCou
             }
         }
     }
-    // Arbitrarily picked: we don't want to have more than 15
-    // background threads hanging around.
-    if (nLivingThreads > targetNotBlockedWorkersCount + 15) {
-        if (msSinceBoot > 10000) {
-            // (Don't print a warning before 10 seconds have elapsed
-            // since boot, because we expect to have to do a lot of
-            // work at startup, and we don't want to spam stderr.)
-            /* fprintf(stderr, "folk: workerReactivateOrSpawn: " */
-            /*         "Not spawning new thread; too many already\n"); */
-        }
-
-        /* { */
-        /*     printf("SPAWN NEW WORKER\n" */
-        /*            "============================\n"); */
-        /*     for (int i = 0; i < THREADS_MAX; i++) { */
-        /*         printf("\nthread %d\n" */
-        /*                "------------------\n", i); */
-        /*         workerInfo(i); */
-        /*     } */
-        /* } */
-
-        return;
-    }
+    if (nLivingThreads >= THREADS_MAX) { return; }
     fprintf(stderr, "folk: workerReactivateOrSpawn: Worker spawn\n");
     workerSpawn();
 }
@@ -1640,6 +1736,13 @@ int main(int argc, char** argv) {
     // Jim_Allocator = webDebugAllocator;
 
     outputRedirectionInit();
+
+    struct sigaction cancellationAction = {0};
+    cancellationAction.sa_handler = workerCancellationHandler;
+    sigemptyset(&cancellationAction.sa_mask);
+    if (sigaction(SIGUSR1, &cancellationAction, NULL) == -1) {
+        FATAL("Could not install worker cancellation handler: %s\n", strerror(errno));
+    }
 
     // Set up database.
     db = dbNew();

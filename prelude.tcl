@@ -46,7 +46,7 @@ proc unknown {cmdName args} {
                 # environment (probably passed through a statement)
                 # and can just be applied to args.
                 set fnObj [lindex $fn 0]
-                uplevel [list local proc $cmdName \
+                uplevel 1 [list local proc $cmdName \
                              args [list [list fnObj $fnObj]] \
                              { tailcall {*}$fnObj {*}$args }]
                 tailcall $cmdName {*}$args
@@ -80,8 +80,8 @@ proc unknown {cmdName args} {
 
             set envPairs [list]
             dict for {k v} $env { lappend envPairs [list $k $v] }
-            uplevel [list local proc $cmdName \
-                         $argNames $envPairs $body]
+            uplevel 1 [list local proc $cmdName \
+                           $argNames $envPairs $body]
 
             tailcall $cmdName {*}$args
         }
@@ -99,7 +99,7 @@ proc captureEnvStack {} {
     # Get all changed variables and serialize them, to fake lexical
     # scope.
     set env [dict create]
-    set upNames [uplevel {list {*}[info statics] {*}[info locals]}]
+    set upNames [uplevel 1 {list {*}[info statics] {*}[info locals]}]
     foreach name $upNames {
         if {[string match "__*" $name]} { continue }
 
@@ -111,7 +111,7 @@ proc captureEnvStack {} {
         }
     }
 
-    return [list {*}[uplevel set __envStack] $env]
+    return [list {*}[uplevel 1 set __envStack] $env]
 }
 
 $::realStdout buffering line
@@ -156,7 +156,7 @@ proc applyBlock {body envStack} {pid} {
             # command-space. We want to reload this one when it
             # gets called.
             try {
-                rename [string index $name 1 end] {}
+                rename [string range $name 1 end] {}
             } on error e {}
         }
     }
@@ -192,7 +192,7 @@ proc evaluateBlock {whenBody envStack} {
             # (TODO: might be a better way?)
             Hold! -key $this-error -on $this $this has error $err with info $opts
         } else {
-            Say $this has error $err with info $opts
+            Say -nonatomically $this has error $err with info $opts
         }
     }
 }
@@ -211,7 +211,7 @@ proc fn {args} {
             # it can be inherited by child scopes, and in
             # callable-function namespace) and then return.
 
-            uplevel [list set ^$fnName [list $fnObj]]
+            uplevel 1 [list set ^$fnName [list $fnObj]]
             proc $fnName args {fnObj} { tailcall {*}$fnObj {*}$args }
             return
         }
@@ -256,7 +256,7 @@ proc fn {args} {
     # function! we don't expect people to pass it around really), so
     # the caller of this function will just rehydrate that enclosing
     # environment.
-    uplevel [list set ^$fnName [list $argNames $body [info source $body]]]
+    uplevel 1 [list set ^$fnName [list $argNames $body [info source $body]]]
 
     # In case they actually want to call the fn in the same context,
     # we make a proc immediately also:
@@ -268,7 +268,7 @@ proc fn {args} {
 }
 
 proc assert condition {
-    if {![uplevel [list expr $condition]]} {
+    if {![uplevel 1 [list expr $condition]]} {
         return -code error "assertion failed: $condition"
     }
 }
@@ -306,10 +306,10 @@ namespace eval ::library {
     namespace ensemble create
 }
 
-proc baretime body { string map {" microseconds per iteration" ""} [uplevel [list time $body]] }
+proc baretime body { string map {" microseconds per iteration" ""} [uplevel 1 [list time $body]] }
 
 proc Hold! {args} {
-    set this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
+    set this [uplevel 1 {expr {[info exists this] ? $this : "<unknown>"}}]
 
     set on $this
     set key [list]
@@ -319,6 +319,7 @@ proc Hold! {args} {
     set destructorCode {}
     set isNonCapturing false
     set saveHold false
+    set retainResources false
     for {set i 0} {$i < [llength $args]} {incr i} {
         set arg [lindex $args $i]
         if {$arg eq "-on"} {
@@ -354,6 +355,13 @@ proc Hold! {args} {
     } elseif {[llength $clause] == 1} {
         # Hold! { ... body ... }
         set body [lindex $clause 0]
+        # HACK: if we have a capturing body `Hold! {...}`, then we
+        # retain resources by default (unlike when we Hold! a plain
+        # statement), because the body may use any destructor-bound
+        # resource, so we need to keep them all alive just in case (so
+        # the held statement must inherit the current Match's
+        # destructor set).
+        if {!$isNonCapturing} { set retainResources true }
 
         if {$isNonCapturing} {
             set envStack {}
@@ -384,7 +392,7 @@ proc Hold! {args} {
 
     tailcall HoldStatementGlobally! \
         $key $version $clause $keepMs $destructorCode \
-        $filename $lineno
+        $filename $lineno $retainResources
 }
 
 proc Say {args} {
@@ -437,7 +445,7 @@ proc Say {args} {
 proc Claim {args} { upvar this this; tailcall Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
 proc Wish {args} { upvar this this; tailcall Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }
 # returns the statement to Say/Assert (minus the envStack), as well as all bound variable names
-proc desugarWhen {pattern body} {
+proc desugarWhen {pattern body {whenOptions {}}} {
     set varNamesWillBeBound [list]
     set isNegated false
     for {set i 0} {$i < [llength $pattern]} {incr i} {
@@ -453,7 +461,8 @@ proc desugarWhen {pattern body} {
                     lset remainingPattern $j \$$remainingVarName
                 }
             }
-            set body [list When {*}$remainingPattern $body]
+            set body [list When {*}$whenOptions {*}$remainingPattern $body]
+            set whenOptions {}
             break
 
         } elseif {[set varName [__scanVariable $term]] != 0} {
@@ -480,11 +489,11 @@ proc desugarWhen {pattern body} {
         return [list \
             [list when the collected results for $pattern are /__results/ \
                 $negateBody with environment] \
-            $varNamesWillBeBound]
+            $varNamesWillBeBound $whenOptions]
     } else {
         return [list \
             [list when {*}$pattern $body with environment] \
-            $varNamesWillBeBound]
+            $varNamesWillBeBound $whenOptions]
     }
 }
 proc When {args} {
@@ -496,6 +505,7 @@ proc When {args} {
     set isAfterAmpersand false
     set isNonCapturing false
     set isSerially false
+    set keepMs 0
     set atomicallyVersion "default"
 
     set pattern [list]
@@ -512,6 +522,13 @@ proc When {args} {
             set isNonCapturing true
         } elseif {$term eq "-serially"} {
             set isSerially true
+        } elseif {$term eq "-keep"} {
+            incr i; set keep [lindex $args $i]
+            set keepMs [string range $keep 0 end-2]
+            if {![string match {*ms} $keep] ||
+                ![string is integer -strict $keepMs] || $keepMs < 0} {
+                error "When: invalid keep value: $keep"
+            }
         } elseif {$term eq "-atomically"} {
             # Defer key construction until after the loop so the key
             # uses the full pattern, not just the terms parsed before
@@ -539,8 +556,13 @@ proc When {args} {
         set inheritAtomicallyVersion [__currentAtomicallyVersion]
         if {$inheritAtomicallyVersion eq {}} {
             # HACK: Default atomically on certain patterns:
-            if {([lrange $pattern 1 end-1] eq {has camera slice} ||
-                 [lrange $pattern 0 end-1] eq {the clock time is})} {
+            set ampersand [lsearch -exact $pattern &]
+            set firstPattern [lrange $pattern 0 [expr {$ampersand < 0 ? [llength $pattern]-1 : $ampersand-1}]]
+            if {([lrange $firstPattern 1 end-1] eq {has camera slice} ||
+                 ([llength $firstPattern] == 8 &&
+                  [lrange $firstPattern 1 3] eq {has camera slice} &&
+                  [lrange $firstPattern 5 6] eq {with width}) ||
+                 [lrange $firstPattern 0 end-1] eq {the clock time is})} {
 
                 set key [list [uplevel set this] $sourceInfo $pattern]
                 set atomicallyVersion [list "fresh" $key]
@@ -570,22 +592,30 @@ proc When {args} {
         set body "$prologue\n$body"
     }
 
+    set whenOptions {}
     if {[llength $atomicallyVersion] == 2 &&
         [lindex $atomicallyVersion 0] eq "fresh"} {
-        # The AtomicallyVersion should be set _inside_ the When body,
-        # uniquely for each execution.
-        set key [lindex $atomicallyVersion 1]
-        set prologue [list __setFreshAtomicallyVersionOnKey $key]
-        set body "$prologue;$body"
-
+        set whenOptions [list -atomicallyWithKey [lindex $atomicallyVersion 1]]
+        if {[info exists keep]} { lappend whenOptions -keep $keep }
+        set atomicTimeout [expr {([info exists keep] ? $keepMs : 100) * 1000000}]
+        # For a fresh atomic version, keep controls its timeout, not the
+        # lifetime of the rule statement. Zero disables atomic expiry.
+        set keepMs 0
         set atomicallyVersion {}
     }
 
-    lassign [desugarWhen $pattern $body] statement boundVars
+    lassign [desugarWhen $pattern $body $whenOptions] statement boundVars whenOptions
+    if {$whenOptions ne {}} {
+        # The runtime consumes this metadata before attaching the match and
+        # removes the frame before evaluation, so nested rules don't capture it.
+        set metadata [list __atomicallyKey [lindex $whenOptions 1]]
+        if {[info exists keep]} { lappend metadata $atomicTimeout }
+        lappend envStack $metadata
+    }
     lappend statement $envStack
 
     tailcall SayWithSource {*}$sourceInfo \
-        0 $atomicallyVersion {} \
+        $keepMs $atomicallyVersion {} \
         {*}$statement
 }
 proc Subscribe: {args} {
@@ -612,6 +642,9 @@ proc On {event args} {
     }
 }
 
+# Synchronous, sampling query of the db. Returns a list of dicts where
+# each dict is a statement matching the pattern.
+#
 # Query! is like QuerySimple! but with added support for & joins, and
 # it'll automatically also query the claimized pattern (the pattern
 # with `/someone/ claims` prepended).
@@ -700,14 +733,89 @@ proc Query! {args} {
     }
     return $results
 }
-proc QueryOne! {args} {
-    set results [Query! {*}$args]
 
+# Synchronous, sampling query of the db. Throws unless there is
+# exactly 1 statement result. Returns a dict whose keys are bound keys
+# from the pattern and whose values are corresponding terms from the
+# statement.
+#
+# Use like this:
+#
+#    Claim the dog is cool
+#    sleep 0.5
+#    puts [dict get [QueryOne! the dog is /val/] val] ;# -> cool
+#
+proc QueryOne! {args} {
+    set pattern [list]
+    for {set i 0} {$i < [llength $args]} {incr i} {
+        set arg [lindex $args $i]
+        if {$arg eq "-default"} {
+            incr i
+            set default [lindex $args $i]
+        } else {
+            lappend pattern $arg
+        }
+    }
+
+    set results [Query! {*}$pattern]
+    if {[llength $results] == 0 && [info exists default]} {
+        return $default
+    }
     if {[llength $results] != 1} {
         error "QueryOne! of ($args) had [llength $results] results. Should be one result!"
     }
 
+    if {{/./} in $pattern} {
+        return [dict get [lindex $results 0] .]
+    }
     return [lindex $results 0]
+}
+
+# Sort of like QueryOne!, but introduces the bindings directly into
+# caller scope. Unlike Expect!, this samples the db once and errors
+# unless there is exactly one result.
+proc Require! {args} {
+    dict for {k v} [QueryOne! {*}$args] {
+        uplevel 1 [list set $k $v]
+    }
+}
+
+# Sort of like QueryOne!, but picks an arbitrary result if >1 result,
+# and introduces the bindings directly into caller scope. The matched
+# statement's destructors are inherited by the current match, so Wishes/Whens
+# created after Expect! retain them until those descendants have dissipated.
+#
+#     Expect! the dog is /val/
+#     puts $val ;# -> cool
+#
+# Also polls and retries if there are 0 results.
+proc Expect! {args} {
+    while true {
+        set results [Query! {*}$args]
+        if {[llength $results] == 0} {
+            sleep 0.1
+            continue
+        }
+
+        set result [lindex $results 0]
+        if {[dict exists $result __ref] && [__currentMatchRef] ne ""} {
+            set ref [dict get $result __ref]
+            try {
+                CurrentMatchInheritStatementDestructors! $ref
+            } on error e {
+                # The sampled statement dissipated before we could inherit
+                # its destructors.
+                # Query again rather than returning bindings from a stale
+                # result.
+                continue
+            }
+        }
+        break
+    }
+
+    dict for {k v} $result {
+        uplevel 1 [list set $k $v]
+    }
 }
 proc ForEach! {args} {
     set body [lindex $args end]
@@ -869,11 +977,6 @@ signal handle SIGUSR1
 
 source "lib/python.tcl"
 
-# For backward-compatibility:
-proc Assert {args} {
-    puts stderr "Warning: Assert with no ! is deprecated: trying to [list Assert {*}$args]"
-    uplevel Assert! {*}$args
-}
 set ::isLaptop [expr {$::tcl_platform(os) eq "darwin" ||
                       ([info exists ::env(XDG_SESSION_TYPE)] &&
                        $::env(XDG_SESSION_TYPE) ne "tty")}]

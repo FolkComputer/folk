@@ -92,6 +92,10 @@ fn codeToPostScript {id code opts {marginsVar {}}} {
     set tagInset $opts(tagInset)
     set lineHeight $opts(lineHeight)
 
+    # Mixins will be drawn with coordinate system in points from the
+    # bottom-left corner of the page. X is rightward, Y is upward.
+    set mixins [dict getdef $opts mixins {}]
+
     # The calibration concat [s 0 0 s tx ty] maps our user coords to
     # the printer's raw PS coords. Anything outside the raw
     # [0,PageWidth]x[0,PageHeight] is clipped, so the effective
@@ -163,6 +167,7 @@ fn codeToPostScript {id code opts {marginsVar {}}} {
                 }
             }] "\n"]
 
+            % Draw tag and mixins only on first page.
             [expr {[llength $outPages] > 0 ? {} : [subst {
                 gsave
                 [expr {$PageWidth-$effMargins(right)-$tagWidth-$tagInset}] [expr {$PageHeight-$effMargins(top)-$tagHeight-$tagInset}] translate
@@ -176,6 +181,8 @@ fn codeToPostScript {id code opts {marginsVar {}}} {
                 newpath
                 [expr {$PageWidth-$effMargins(right)-$tagWidth-$tagInset}] [expr {$PageHeight-$effMargins(top)-$tagHeight-14-$tagInset}] moveto
                 ($id ([clock format [clock seconds] -format "%a, %d %b %Y, %r"])) show
+
+                [join $mixins \n]
             }] }]
 
             showpage
@@ -220,14 +227,11 @@ When $::thisNode claims printer /name/ is a cups printer with /...options/ {
     exec {*}$command
 }
 
-Subscribe: print code /code/ {
-    set formats [dict get [QueryOne! the paper formats are /formats/] formats]
-    set formatName letter
-    set defaultFormatMatches [Query! paper format /format/ is the default paper format]
-    if {[llength $defaultFormatMatches] > 0} {
-        set candidate [dict get [lindex $defaultFormatMatches 0] format]
-        if {[dict exists $formats $candidate]} { set formatName $candidate }
-    }
+# Print with 'default' typesetting (meant to be used from Web editor).
+Subscribe: print code /code/ with mixins /mixins/ {
+    Require! the paper formats are /formats/
+    set formatName [QueryOne! paper format /./ is the default paper format \
+                       -default letter]
     set fmt $formats($formatName)
 
     set mToPt 2834.646
@@ -237,9 +241,14 @@ Subscribe: print code /code/ {
         code $code \
         lineHeight [* $textScale $mToPt] \
         advance [* 0.5859375 $textScale $mToPt] \
-        margin [lmap x $margin {* $x $mToPt}]]]
+        margin [lmap x $margin {* $x $mToPt}] \
+        mixins $mixins]]
     Notify: print a new program with {*}$options
 }
+Subscribe: print code /code/ {
+    Notify: print code $code with mixins {}
+}
+
 Subscribe: print a new program with /...options/ {
     if {$::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial"} {
         # HACK: Forward the print request to folk-hex.
@@ -345,20 +354,20 @@ Subscribe: print pdf /pdfPath/ with /...options/ {
     set args [list]
 
     if {![dict exists $options printer]} {
-        set defaultPrinterMatches [Query! printer /printer/ is the default printer]
-        if {[llength $defaultPrinterMatches] > 0} {
-            dict set options printer [dict get [lindex $defaultPrinterMatches 0] printer]
-        }
+        try {
+            dict set options printer \
+                [QueryOne! printer /./ is the default printer]
+        } on error e {}
     }
     if {[dict exists $options printer]} {
         lappend args -P $options(printer)
     }
 
     if {![dict exists $options format]} {
-        set defaultFormatMatches [Query! paper format /format/ is the default paper format]
-        if {[llength $defaultFormatMatches] > 0} {
-            dict set options format [dict get [lindex $defaultFormatMatches 0] format]
-        }
+        try {
+            dict set options format \
+                [QueryOne! paper format /./ is the default paper format]
+        } on error e {}
     }
     if {[dict exists $options format]} {
         lappend args -o media=$options(format)

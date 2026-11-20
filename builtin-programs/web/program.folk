@@ -1,9 +1,10 @@
 Wish the web server handles route {/program/(.*)$} with handler {
     set programName $1
-    set match [QueryOne! $programName has program code /programCode/]
-    if {$match eq ""} {
-        html "<html><body>Program not found: [htmlEscape $programName]</body></html>"
-        return
+    Require! $1 has program code /programCode/
+
+    set replacements [Query! /someone/ wishes program $programName is replaced with /...replacedOpts/]
+    if {[llength $replacements] > 0} {
+        set programCode [dict get [lindex $replacements 0] replacedOpts code]
     }
 
     html [subst {
@@ -14,7 +15,7 @@ Wish the web server handles route {/program/(.*)$} with handler {
         </head>
         <body>
         <h1>[htmlEscape $programName]</h1>
-        <pre><code>[htmlEscape $match(programCode)]</code></pre>
+        <pre><code>[htmlEscape $programCode]</code></pre>
         </body>
         </html>
     }]

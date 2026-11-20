@@ -23,6 +23,7 @@
 
 #include "common.h"
 #include "epoch.h"
+#include "db.h"
 
 extern void installLocalStdoutAndStderr(int stdoutfd, int stderrfd);
 
@@ -31,9 +32,9 @@ extern ThreadControlBlock threads[];
 extern Db* db;
 extern void trace(const char* format, ...);
 extern void HoldStatementGlobally(const char *key, double version,
-                                  Clause *clause, long keepMs, const char *destructorCode,
+                                  Clause *clause, long keepMs, Destructor* destructor,
                                   const char *sourceFileName, int sourceLineNumber);
-extern void workerReactivateOrSpawn(int64_t msSinceBoot, int targetNotBlockedWorkersCount);
+extern void workerReactivateOrSpawn();
 extern void dbGarbageCollectAtomicallys(Db* db, int64_t now);
 
 // How many ms are in each tick? You probably want this to be less
@@ -45,6 +46,7 @@ char thisNode[256];
 typedef struct RemoveLater {
     StatementRef _Atomic stmt;
     int64_t _Atomic canRemoveAtTick;
+    uint64_t _Atomic keepGeneration;
 } RemoveLater;
 
 #define REMOVE_LATER_MAX 1000
@@ -87,14 +89,16 @@ void sysmon() {
             int64_t canRemoveAt = removeLater[i].canRemoveAtTick;
             // Skip if canRemoveAtTick hasn't been written yet (still 0)
             if (canRemoveAt > 0 && currentTick >= canRemoveAt) {
+                uint64_t keepGeneration = removeLater[i].keepGeneration;
                 // Remove immediately on sysmon thread so there's no
                 // pileup.
                 Statement* stmt;
                 if ((stmt = statementAcquire(db, stmtRef))) {
-                    statementDecrParentCountAndMaybeRemoveSelf(db, stmt);
+                    statementKeepExpired(db, stmt, keepGeneration);
                     statementRelease(db, stmt);
                 }
 
+                removeLater[i].keepGeneration = 0;
                 removeLater[i].canRemoveAtTick = 0;
                 removeLater[i].stmt = STATEMENT_REF_NULL;
             }
@@ -150,7 +154,7 @@ void sysmon() {
     }
 
     if (notBlockedWorkersCount < targetNotBlockedWorkersCount) {
-        workerReactivateOrSpawn(currentMs, targetNotBlockedWorkersCount);
+        workerReactivateOrSpawn();
     }
 #endif
 
@@ -293,7 +297,8 @@ void *sysmonMain(void *ptr) {
 
 
 // This gets called from other threads.
-void sysmonScheduleRemoveAfter(StatementRef stmtRef, int afterMs) {
+void sysmonScheduleRemoveAfter(StatementRef stmtRef, int afterMs,
+                               uint64_t keepGeneration) {
     int afterTicks = afterMs / SYSMON_TICK_MS;
 
     int i;
@@ -303,6 +308,7 @@ void sysmonScheduleRemoveAfter(StatementRef stmtRef, int afterMs) {
             atomic_compare_exchange_weak(&removeLater[i].stmt,
                                          &oldStmtRef, stmtRef)) {
 
+            removeLater[i].keepGeneration = keepGeneration;
             removeLater[i].canRemoveAtTick = tick + afterTicks;
             break;
         }

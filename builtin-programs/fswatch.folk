@@ -10,6 +10,12 @@ try {
         if {![regexp {builtin-programs\/.*$} $line changedPath]} {
             set changedPath $line
         }
+        # boot.folk loads user-programs relative to $PWD; use the same key
+        # so a reload replaces the running program instead of duplicating it.
+        set cwdPrefix $::env(PWD)/
+        if {[string first $cwdPrefix $changedPath] == 0} {
+            set changedPath [string range $changedPath [string length $cwdPrefix] end]
+        }
 
         set changedFilename [file tail $changedPath]
         if {[string index $changedFilename 0] eq "." ||

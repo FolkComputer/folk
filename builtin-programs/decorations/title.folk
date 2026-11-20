@@ -70,9 +70,37 @@ When the quad library is /quadLib/ &\
                 set dispTop [vec2 sub $dispTopRight $dispTopLeft]
                 set dispRadians [expr {-atan2([lindex $dispTop 1], [lindex $dispTop 0])}]
 
+
+                set wrappedLines {}
+                set maxLineLength 100
+                foreach line [split $text "\n"] {
+                    while {[string length $line] > $maxLineLength} {
+                        set breakAt [string last " " [string range $line 0 $maxLineLength]]
+                        if {$breakAt <= 0} {
+                            set breakAt $maxLineLength
+                        }
+                        lappend wrappedLines \
+                            [string trimright [string range $line 0 [expr {$breakAt - 1}]]]
+                        set line [string trimleft [string range $line $breakAt end]]
+                    }
+                    lappend wrappedLines $line
+                }
+                set text [join $wrappedLines "\n"]
+
+                set maxLength 0
+                foreach line $wrappedLines {
+                    set lineLength [string length $line]
+                    if {$lineLength > $maxLength} {
+                        set maxLength $lineLength
+                    }
+                }
+
+                if {$maxLength == 0} { return }
+                set scale [::math::min 36.0 [/ 3600.0 $maxLength]]
+
                 Wish to draw text onto $disp with \
                     position $dispPosition \
-                    scale 36.0 radians $dispRadians anchor $textAnchor \
+                    scale $scale radians $dispRadians anchor $textAnchor \
                     text $text
             }
         }

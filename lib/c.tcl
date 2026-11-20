@@ -639,7 +639,17 @@ C method compile {args} {
 
     set init [subst {
         #include <string.h>
+        #include <pthread.h>
+        #include <dlfcn.h>
 
+        // DB statements and imported function pointers outlive the
+        // interpreter that first loaded a module. Keep one dlopen-ed
+        // reference here that lasts forever (the lifetime of the
+        // whole Folk process), so that even if the interpreter dies
+        // and closes its reference, the module stays open forever and
+        // all those C function pointers, etc. remain valid.
+        static void* __moduleLifetimeHandle = NULL;
+        static pthread_mutex_t __moduleLifetimeMutex = PTHREAD_MUTEX_INITIALIZER;
         #ifdef __cplusplus
         \}
         #include <atomic>
@@ -668,6 +678,16 @@ C method compile {args} {
         }
 
         int Jim_${cid}Init(Jim_Interp* intp) {
+            pthread_mutex_lock(&__moduleLifetimeMutex);
+            if (__moduleLifetimeHandle == NULL) {
+                __moduleLifetimeHandle = dlopen("/tmp/$cid.so", RTLD_NOW | RTLD_LOCAL);
+                if (__moduleLifetimeHandle == NULL) {
+                    Jim_SetResultString(intp, dlerror(), -1);
+                    pthread_mutex_unlock(&__moduleLifetimeMutex);
+                    return JIM_ERR;
+                }
+            }
+            pthread_mutex_unlock(&__moduleLifetimeMutex);
             interp = intp;
 
             [join [lmap srcid $extends {

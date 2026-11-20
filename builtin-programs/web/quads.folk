@@ -6,33 +6,19 @@ Wish the web server handles route "/quads" with handler {
             <title>Folk Quads 3D</title>
             <script src="/lib/folk.js"></script>
             <script type="importmap">
-            {
-                "imports": {
+                {"imports": {
                     "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
                     "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
-                }
-            }
+                }}
             </script>
             <style>
-                body {
-                    margin: 0;
-                    overflow: hidden;
-                    font-family: monospace;
-                }
-                #canvas-container {
-                    width: 100vw;
-                    height: 100vh;
-                }
+                body { margin: 0; overflow: hidden; font-family: monospace; }
+                canvas { display: block; }
                 #stats {
-                    position: absolute;
-                    top: 10px;
-                    left: 10px;
-                    color: white;
-                    background: rgba(0, 0, 0, 0.7);
-                    padding: 10px;
-                    border-radius: 4px;
+                    position: absolute; top: 10px; left: 10px;
+                    color: white; background: rgba(0, 0, 0, 0.7);
+                    padding: 10px; border-radius: 4px; line-height: 1.6;
                     font-size: 14px;
-                    line-height: 1.6;
                 }
             </style>
         </head>
@@ -41,240 +27,130 @@ Wish the web server handles route "/quads" with handler {
                 <div>Quads: <span id="quad-count">0</span></div>
                 <div>Space: <span id="camera-space">none</span></div>
             </div>
-            <div id="canvas-container"></div>
             <script type="module">
                 import * as THREE from 'three';
                 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-                // Initialize scene
                 const scene = new THREE.Scene();
                 scene.background = new THREE.Color(0x1a1a1a);
-
-                // Initialize camera
-                const camera = new THREE.PerspectiveCamera(
-                    60,
-                    window.innerWidth / window.innerHeight,
-                    0.01,
-                    100
-                );
+                scene.add(new THREE.GridHelper(2, 20), new THREE.AxesHelper(0.5));
+                const camera = new THREE.PerspectiveCamera(60, 1, 0.01, 100);
                 camera.position.set(0, 0, -2);
-                camera.lookAt(0, 0, 0);
-
-                // Initialize renderer
-                const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-                renderer.setSize(window.innerWidth, window.innerHeight);
+                const renderer = new THREE.WebGLRenderer({ antialias: true });
                 renderer.setPixelRatio(window.devicePixelRatio);
-                document.getElementById('canvas-container').appendChild(renderer.domElement);
-
-                // Initialize controls
+                document.body.appendChild(renderer.domElement);
                 const controls = new OrbitControls(camera, renderer.domElement);
                 controls.enableDamping = true;
                 controls.dampingFactor = 0.05;
                 controls.minDistance = 0.1;
                 controls.maxDistance = 10;
-
-                // Add lighting
-                const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-                scene.add(ambientLight);
-
-                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.4);
-                directionalLight.position.set(1, 2, 1);
-                scene.add(directionalLight);
-
-                // Add grid helper (2m x 2m, 20 divisions = 10cm each)
-                const gridHelper = new THREE.GridHelper(2, 20);
-                scene.add(gridHelper);
-
-                // Add axes helper (0.5m)
-                const axesHelper = new THREE.AxesHelper(0.5);
-                scene.add(axesHelper);
-
-                // State management
-                const quadMeshes = new Map(); // tag -> { mesh, sprite }
-                let firstCameraSpace = null;
-                window.allQuads = [];
-
-                // Color generation
-                function getColorForTag(tag) {
-                    const hash = Math.abs(tag.split('').reduce((h, c) =>
-                        ((h << 5) - h) + c.charCodeAt(0), 0));
-                    const hue = (hash % 360) / 360;
-                    return new THREE.Color().setHSL(hue, 0.7, 0.6);
-                }
-
-                // Compute centroid + normal offset for a quad's
-                // vertices so the label sprite sits slightly above
-                // the surface (label has smaller Z value) instead of
-                // coplanar.
-                function quadLabelPosition(vertices) {
-                    const centroid = vertices.reduce(
-                        (sum, v) => [sum[0] + v[0]/4, sum[1] + v[1]/4, sum[2] + v[2]/4],
-                        [0, 0, 0]);
-                    const v0 = new THREE.Vector3(...vertices[0]);
-                    const v1 = new THREE.Vector3(...vertices[1]);
-                    const v3 = new THREE.Vector3(...vertices[3]);
-                    const normal = new THREE.Vector3()
-                        .crossVectors(
-                            new THREE.Vector3().subVectors(v1, v0),
-                            new THREE.Vector3().subVectors(v3, v0))
-                        .normalize();
-                    return new THREE.Vector3(...centroid).addScaledVector(normal, -0.005);
-                }
-
-                // Create quad mesh from vertices
-                function createQuadMesh(tag, vertices) {
-                    const geometry = new THREE.BufferGeometry();
-
-                    // vertices: [TL, TR, BR, BL]
-                    // Create two triangles: [TL, TR, BL] and [TR, BR, BL]
-                    const positions = new Float32Array([
-                        ...vertices[0], ...vertices[1], ...vertices[3], // Triangle 1
-                        ...vertices[1], ...vertices[2], ...vertices[3]  // Triangle 2
-                    ]);
-
-                    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-                    geometry.computeVertexNormals();
-
-                    const color = getColorForTag(tag);
-                    const material = new THREE.MeshBasicMaterial({
-                        color,
-                        side: THREE.DoubleSide,
-                        transparent: true,
-                        opacity: 0.8
-                    });
-
-                    return new THREE.Mesh(geometry, material);
-                }
-
-                // Create label sprite
-                function createLabelSprite(text) {
-                    const canvas = document.createElement('canvas');
-                    const context = canvas.getContext('2d');
-                    canvas.width = 512;
-                    canvas.height = 128;
-
-                    context.font = 'Bold 48px Arial';
-                    context.fillStyle = 'white';
-                    context.textAlign = 'center';
-                    context.textBaseline = 'middle';
-                    context.fillText(text, 256, 64);
-
-                    const texture = new THREE.CanvasTexture(canvas);
-                    const material = new THREE.SpriteMaterial({ map: texture, depthTest: false });
-                    const sprite = new THREE.Sprite(material);
-                    sprite.scale.set(0.2, 0.05, 1);
-
-                    return sprite;
-                }
-
-                // Update statistics display
-                function updateStatistics(count, space) {
-                    document.getElementById('quad-count').textContent = count;
-                    document.getElementById('camera-space').textContent = space || 'none';
-                }
-
-                // Update quads in the scene
-                function updateQuads() {
-                    // Filter quads by camera space
-                    const filtered = firstCameraSpace
-                        ? window.allQuads.filter(r => r.quad && r.quad[0] === firstCameraSpace)
-                        : window.allQuads;
-
-                    const currentTags = new Set(filtered.map(r => r.tag));
-
-                    // Remove deleted quads
-                    for (const [tag, objects] of quadMeshes.entries()) {
-                        if (!currentTags.has(tag)) {
-                            scene.remove(objects.mesh);
-                            scene.remove(objects.sprite);
-                            quadMeshes.delete(tag);
-                        }
-                    }
-
-                    // Add or update quads
-                    for (const result of filtered) {
-                        const { tag, quad } = result;
-
-                        if (!quad || quad.length < 2) continue;
-
-                        const [space, vertices] = quad;
-
-                        if (!vertices || vertices.length !== 4) continue;
-
-                        const verticesKey = JSON.stringify(vertices);
-
-                        if (!quadMeshes.has(tag)) {
-                            const mesh = createQuadMesh(tag, vertices);
-                            const sprite = createLabelSprite(tag);
-
-                            sprite.position.copy(quadLabelPosition(vertices));
-
-                            scene.add(mesh);
-                            scene.add(sprite);
-                            quadMeshes.set(tag, { mesh, sprite, verticesKey });
-                        } else {
-                            // Check if vertices changed
-                            const objects = quadMeshes.get(tag);
-                            if (objects.verticesKey !== verticesKey) {
-                                // Update mesh geometry
-                                const positions = new Float32Array([
-                                    ...vertices[0], ...vertices[1], ...vertices[3], // Triangle 1
-                                    ...vertices[1], ...vertices[2], ...vertices[3]  // Triangle 2
-                                ]);
-                                objects.mesh.geometry.setAttribute('position',
-                                    new THREE.BufferAttribute(positions, 3));
-                                objects.mesh.geometry.computeVertexNormals();
-
-                                // Update sprite position
-                                objects.sprite.position.copy(quadLabelPosition(vertices));
-
-                                // Update stored vertices key
-                                objects.verticesKey = verticesKey;
-                            }
-                        }
-                    }
-
-                    updateStatistics(quadMeshes.size, firstCameraSpace);
-                }
-
-                // Window resize handler
-                window.addEventListener('resize', () => {
+                function resize() {
                     camera.aspect = window.innerWidth / window.innerHeight;
                     camera.updateProjectionMatrix();
                     renderer.setSize(window.innerWidth, window.innerHeight);
-                });
+                }
+                window.addEventListener('resize', resize);
+                resize();
 
-                // Animation loop
-                function animate() {
+                const quads = new Map();
+                const dropoutHoldMs = 150, dropoutFadeMs = 100;
+                let cameraSpace = null, results = [], dirty = false;
+
+                function createQuad(tag) {
+                    const hash = Math.abs([...tag].reduce((h, c) =>
+                        ((h << 5) - h) + c.charCodeAt(0), 0));
+                    const geometry = new THREE.BufferGeometry();
+                    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(12), 3));
+                    geometry.setIndex([0, 1, 3, 1, 2, 3]);
+                    const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+                        color: new THREE.Color().setHSL((hash % 360) / 360, 0.7, 0.6),
+                        side: THREE.DoubleSide, transparent: true, opacity: 0.8
+                    }));
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 512;
+                    canvas.height = 128;
+                    const context = canvas.getContext('2d');
+                    Object.assign(context, {
+                        font: 'Bold 48px Arial', fillStyle: 'white',
+                        textAlign: 'center', textBaseline: 'middle'
+                    });
+                    context.fillText(tag, 256, 64);
+                    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+                        map: new THREE.CanvasTexture(canvas), depthTest: false
+                    }));
+                    sprite.scale.set(0.2, 0.05, 1);
+                    scene.add(mesh, sprite);
+                    return { mesh, sprite, missingSince: null };
+                }
+
+                function removeQuad(tag, { mesh, sprite }) {
+                    scene.remove(mesh, sprite);
+                    mesh.geometry.dispose();
+                    mesh.material.dispose();
+                    sprite.material.map.dispose();
+                    sprite.material.dispose();
+                    quads.delete(tag);
+                }
+
+                function updateQuads(now) {
+                    const present = new Set();
+                    for (const { tag, quad } of results) {
+                        const [space, encodedVertices] = loadList(quad);
+                        if (space !== cameraSpace) continue;
+                        const vertices = loadList(encodedVertices).map(row => loadList(row).map(Number));
+                        if (vertices.length !== 4 || vertices.some(v =>
+                            v.length !== 3 || !v.every(Number.isFinite))) continue;
+                        present.add(tag);
+                        if (!quads.has(tag)) quads.set(tag, createQuad(tag));
+                        const q = quads.get(tag);
+                        const position = q.mesh.geometry.getAttribute('position');
+                        position.array.set(vertices.flat());
+                        position.needsUpdate = true;
+                        q.mesh.geometry.computeBoundingSphere();
+                        // Labels ignore depth, so placing them at the center is enough.
+                        q.sprite.position.fromArray([0, 1, 2].map(axis =>
+                            vertices.reduce((sum, v) => sum + v[axis], 0) / 4));
+                        q.missingSince = null;
+                    }
+                    for (const [tag, q] of quads) {
+                        if (!present.has(tag) && q.missingSince === null) q.missingSince = now;
+                    }
+                }
+
+                function animate(now = performance.now()) {
                     requestAnimationFrame(animate);
+                    // Coalesce intermediate query results into one update per frame.
+                    if (dirty) { dirty = false; updateQuads(now); }
+                    for (const [tag, q] of quads) {
+                        const elapsed = q.missingSince === null ? 0 : now - q.missingSince;
+                        if (elapsed >= dropoutHoldMs + dropoutFadeMs) {
+                            removeQuad(tag, q);
+                        } else {
+                            const opacity = 1 - Math.max(0, elapsed - dropoutHoldMs) / dropoutFadeMs;
+                            q.mesh.material.opacity = 0.8 * opacity;
+                            q.sprite.material.opacity = opacity;
+                        }
+                    }
+                    document.getElementById('quad-count').textContent = quads.size;
+                    document.getElementById('camera-space').textContent = cameraSpace || 'none';
                     controls.update();
                     renderer.render(scene, camera);
                 }
                 animate();
 
-                // Connect to Folk
                 const ws = new FolkWS();
-
-                // Watch for camera space
-                ws.watchCollected("/someone/ claims camera /camera/ has width /w/ height /h/",
-                    results => {
-                        const newSpace = results[0]?.camera || null;
-                        if (newSpace !== firstCameraSpace) {
-                            firstCameraSpace = newSpace;
-                            updateQuads();
-                        }
+                ws.watchCollected('/someone/ claims camera /camera/ has width /w/ height /h/', cameras => {
+                    const spaces = [...new Set(cameras.map(r => r.camera))].sort();
+                    // Preserve the selected camera through reordered or empty updates.
+                    if (spaces.length && !spaces.includes(cameraSpace)) {
+                        cameraSpace = spaces[0];
+                        for (const [tag, q] of quads) removeQuad(tag, q);
+                        dirty = true;
                     }
-                );
-
-                // Watch for quads
-                ws.watchCollected("/someone/ claims /tag/ has quad /quad/", results => {
-                  allQuads = results.map(r => {
-                    const r1 = {...r};
-                    r1.quad = loadList(r.quad);
-                    r1.quad[1] = loadList(r1.quad[1]).map(row => loadList(row));
-                    return r1;
-                  });
-                  updateQuads();
+                });
+                ws.watchCollected('/someone/ claims /tag/ has quad /quad/', quads => {
+                    results = quads;
+                    dirty = true;
                 });
             </script>
         </body>
