@@ -1,0 +1,457 @@
+# Recognizes simple shapes that are drawn (or printed, or placed) on
+# a page, by looking at the page's camera slice.
+#
+#   Wish $this recognizes circles
+#   When a circle /c/ is recognized {
+#       Wish a circle is drawn around $c
+#   }
+#
+# You can wish for circles, triangles, squares, or rectangles (a
+# square is also recognized as a rectangle). Options:
+#
+#   Wish $this recognizes triangles with minSize 0.02 threshold 100
+#
+#   minSize    smallest shape to report, in meters (default 0.008)
+#   threshold  0-255 brightness below which a pixel counts as ink
+#              (default: auto, picked per frame with Otsu's method)
+#   contrast   in auto mode, how far apart (0-255) ink and paper must
+#              be before we believe there is any ink at all (default 40)
+#
+# Each recognized shape /c/ is a dict, in page coordinates (meters
+# from the top-left of the page):
+#
+#   page      the page the shape is on
+#   kind      circle, triangle, square, or rectangle
+#   center    {x y}
+#   radius    radius of the circle (or, for the other shapes, of the
+#             circle through the farthest corner)
+#   vertices  list of corner {x y}s (empty for circles)
+#
+# Because the shape carries its page with it, anything you wish about
+# $c inside `When a circle /c/ is recognized { ... }` can be drawn
+# onto the right page, and it goes away when the shape goes away (or
+# when the page stops wishing to recognize shapes), like any other
+# statement made inside a When.
+
+When the image library is /imageLib/ {
+    set cc [C]
+    $cc extend $imageLib
+    $cc cflags -I.
+    $cc include <math.h>
+    $cc include <stdlib.h>
+    $cc include "vendor/CContour.c"
+
+    $cc code {
+        typedef struct { double x, y; } ShapePt;
+
+        static double shapeCross(ShapePt o, ShapePt a, ShapePt b) {
+            return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+        }
+        static double shapeDist(ShapePt a, ShapePt b) {
+            return hypot(a.x - b.x, a.y - b.y);
+        }
+        static int shapePtCmp(const void *pa, const void *pb) {
+            const ShapePt *a = pa, *b = pb;
+            if (a->x != b->x) return a->x < b->x ? -1 : 1;
+            if (a->y != b->y) return a->y < b->y ? -1 : 1;
+            return 0;
+        }
+        static double shapeDistToSegment(ShapePt p, ShapePt a, ShapePt b) {
+            double dx = b.x - a.x, dy = b.y - a.y;
+            double lenSq = dx * dx + dy * dy;
+            double t = lenSq > 0
+                ? ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq : 0;
+            if (t < 0) t = 0;
+            if (t > 1) t = 1;
+            return hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+        }
+
+        // Andrew's monotone chain. Sorts pts in place; writes the
+        // hull (no repeated endpoint) to hull, which must have room
+        // for 2*n points. Returns the number of hull points.
+        static int shapeHull(ShapePt *pts, int n, ShapePt *hull) {
+            qsort(pts, n, sizeof(ShapePt), shapePtCmp);
+            int k = 0;
+            for (int i = 0; i < n; i++) {
+                while (k >= 2 && shapeCross(hull[k-2], hull[k-1], pts[i]) <= 0) k--;
+                hull[k++] = pts[i];
+            }
+            for (int i = n - 2, t = k + 1; i >= 0; i--) {
+                while (k >= t && shapeCross(hull[k-2], hull[k-1], pts[i]) <= 0) k--;
+                hull[k++] = pts[i];
+            }
+            return k - 1;
+        }
+
+        static double shapePolyArea(const ShapePt *p, int n) {
+            double a = 0;
+            for (int i = 0; i < n; i++) {
+                ShapePt q = p[(i + 1) % n];
+                a += p[i].x * q.y - q.x * p[i].y;
+            }
+            return fabs(a) / 2;
+        }
+        static double shapePolyPerimeter(const ShapePt *p, int n) {
+            double len = 0;
+            for (int i = 0; i < n; i++) len += shapeDist(p[i], p[(i + 1) % n]);
+            return len;
+        }
+        static ShapePt shapePolyCentroid(const ShapePt *p, int n) {
+            double a = 0, cx = 0, cy = 0;
+            for (int i = 0; i < n; i++) {
+                ShapePt q = p[(i + 1) % n];
+                double w = p[i].x * q.y - q.x * p[i].y;
+                a += w;
+                cx += (p[i].x + q.x) * w;
+                cy += (p[i].y + q.y) * w;
+            }
+            if (a == 0) return p[0];
+            return (ShapePt) { cx / (3 * a), cy / (3 * a) };
+        }
+
+        // Ramer-Douglas-Peucker on p[lo..hi] (inclusive); marks the
+        // interior points worth keeping.
+        static void shapeRdp(const ShapePt *p, int lo, int hi,
+                             double eps, char *keep) {
+            if (hi - lo < 2) return;
+            double dmax = 0;
+            int argmax = -1;
+            for (int i = lo + 1; i < hi; i++) {
+                double d = shapeDistToSegment(p[i], p[lo], p[hi]);
+                if (d > dmax) { dmax = d; argmax = i; }
+            }
+            if (dmax > eps) {
+                keep[argmax] = 1;
+                shapeRdp(p, lo, argmax, eps, keep);
+                shapeRdp(p, argmax, hi, eps, keep);
+            }
+        }
+
+        // Simplifies the closed convex polygon hull[0..m) down to its
+        // corners. Writes to out (room for m points); returns count.
+        static int shapeCorners(const ShapePt *hull, int m, double eps,
+                                ShapePt *out) {
+            ShapePt *p = malloc(sizeof(ShapePt) * (m + 1));
+            char *keep = calloc(m + 1, 1);
+            memcpy(p, hull, sizeof(ShapePt) * m);
+            p[m] = hull[0];
+
+            int far = 0;
+            double dfar = 0;
+            for (int i = 1; i < m; i++) {
+                double d = shapeDist(p[0], p[i]);
+                if (d > dfar) { dfar = d; far = i; }
+            }
+            keep[0] = keep[far] = 1;
+            shapeRdp(p, 0, far, eps, keep);
+            shapeRdp(p, far, m, eps, keep);
+
+            int n = 0;
+            for (int i = 0; i < m; i++) if (keep[i]) out[n++] = p[i];
+            free(p);
+            free(keep);
+
+            // Our two starting points aren't necessarily corners:
+            // drop any vertex that is nearly on the line between its
+            // neighbors.
+            while (n > 3) {
+                int argmin = -1;
+                double dmin = eps;
+                for (int i = 0; i < n; i++) {
+                    double d = shapeDistToSegment(out[i], out[(i + n - 1) % n],
+                                                  out[(i + 1) % n]);
+                    if (d < dmin) { dmin = d; argmin = i; }
+                }
+                if (argmin < 0) break;
+                for (int i = argmin; i < n - 1; i++) out[i] = out[i + 1];
+                n--;
+            }
+            return n;
+        }
+
+        // What fraction of the hull's boundary actually has ink near
+        // it? Rejects things like a C, a U, or a scribble, whose
+        // hulls have long edges that bridge over nothing, while
+        // tolerating a hand-drawn outline that doesn't quite close.
+        static double shapeHullSupport(const ShapePt *hull, int m,
+                                       const ShapePt *pts, int n,
+                                       double perimeter, double tol) {
+            enum { SAMPLES = 64 };
+            int supported = 0;
+            int edge = 0;
+            double edgeStart = 0;
+            double edgeLen = shapeDist(hull[0], hull[1 % m]);
+            for (int s = 0; s < SAMPLES; s++) {
+                double at = perimeter * s / SAMPLES;
+                while (edge < m - 1 && at > edgeStart + edgeLen) {
+                    edgeStart += edgeLen;
+                    edge++;
+                    edgeLen = shapeDist(hull[edge], hull[(edge + 1) % m]);
+                }
+                double t = edgeLen > 0 ? (at - edgeStart) / edgeLen : 0;
+                ShapePt a = hull[edge], b = hull[(edge + 1) % m];
+                ShapePt q = { a.x + t * (b.x - a.x), a.y + t * (b.y - a.y) };
+                for (int i = 0; i < n; i++) {
+                    if (shapeDist(q, pts[i]) <= tol) { supported++; break; }
+                }
+            }
+            return (double) supported / SAMPLES;
+        }
+
+        // Otsu's method on the first channel. Returns -1 if the
+        // image doesn't have two brightness classes at least
+        // `contrast` apart (i.e., there's probably no ink).
+        static int shapeAutoThreshold(Image im, double contrast) {
+            double hist[256] = {0};
+            for (uint32_t y = 0; y < im.height; y++) {
+                uint8_t *row = im.data + (size_t)y * im.bytesPerRow;
+                for (uint32_t x = 0; x < im.width; x++) {
+                    hist[row[x * im.components]]++;
+                }
+            }
+            double total = (double)im.width * im.height;
+            double sumAll = 0;
+            for (int i = 0; i < 256; i++) sumAll += i * hist[i];
+
+            double wB = 0, sumB = 0, best = -1;
+            int bestT = -1;
+            double bestGap = 0;
+            for (int t = 0; t < 255; t++) {
+                wB += hist[t];
+                sumB += t * hist[t];
+                double wF = total - wB;
+                if (wB == 0 || wF == 0) continue;
+                double mB = sumB / wB, mF = (sumAll - sumB) / wF;
+                double between = wB * wF * (mB - mF) * (mB - mF);
+                if (between > best) {
+                    best = between;
+                    bestT = t;
+                    bestGap = mF - mB;
+                }
+            }
+            if (bestGap < contrast) return -1;
+            return bestT;
+        }
+    }
+
+    # Finds dark shapes in the first channel of `im`. Returns a list
+    # of dicts {kind center radius vertices}, with coordinates scaled
+    # by scaleX and scaleY (so they can be in meters rather than
+    # pixels). threshold < 0 means pick a threshold automatically.
+    $cc proc recognizeShapes {Image im int threshold double contrast
+                              double scaleX double scaleY
+                              double minSize} Jim_Obj* {
+        Jim_Obj *result = Jim_NewListObj(interp, NULL, 0);
+        int w = (int)im.width;
+        int h = (int)im.height;
+        if (w < 8 || h < 8) return result;
+
+        if (threshold < 0) {
+            threshold = shapeAutoThreshold(im, contrast);
+            if (threshold < 0) return result;
+        }
+
+        // Ink (dark) is foreground, so that each drawn shape's outer
+        // edge is exactly one outer border, whether the shape is
+        // filled in or just an outline.
+        int *F = malloc(sizeof(int) * (size_t)w * (size_t)h);
+        for (int y = 0; y < h; y++) {
+            uint8_t *row = im.data + (size_t)y * im.bytesPerRow;
+            int *Frow = F + (size_t)y * w;
+            for (int x = 0; x < w; x++) {
+                Frow[x] = (row[x * im.components] <= threshold) ? 1 : 0;
+            }
+        }
+        Contour *contours = findContours(F, w, h);
+        free(F);
+
+        double pageArea = (w * scaleX) * (h * scaleY);
+        double pixel = scaleX > scaleY ? scaleX : scaleY;
+
+        for (ptrdiff_t c = 0; c < arrlen(contours); c++) {
+            if (contours[c].isHole) continue;
+            Point *raw = contours[c].points;
+            int n = (int)arrlen(raw);
+            if (n < 12) continue;
+
+            // Skip anything cut off by the edge of the page.
+            bool touchesEdge = false;
+            for (int i = 0; i < n; i++) {
+                if (raw[i].x <= 1 || raw[i].y <= 1 ||
+                    raw[i].x >= w - 2 || raw[i].y >= h - 2) {
+                    touchesEdge = true;
+                    break;
+                }
+            }
+            if (touchesEdge) continue;
+
+            ShapePt *pts = malloc(sizeof(ShapePt) * n);
+            ShapePt *sorted = malloc(sizeof(ShapePt) * n);
+            ShapePt *hull = malloc(sizeof(ShapePt) * 2 * n);
+            ShapePt *corners = malloc(sizeof(ShapePt) * 2 * n);
+            for (int i = 0; i < n; i++) {
+                pts[i] = (ShapePt) { raw[i].x * scaleX, raw[i].y * scaleY };
+                sorted[i] = pts[i];
+            }
+            int m = shapeHull(sorted, n, hull);
+
+            const char *kind = NULL;
+            int nCorners = 0;
+            ShapePt center = {0, 0};
+            double radius = 0;
+
+            if (m < 3) goto done;
+            double area = shapePolyArea(hull, m);
+            double perimeter = shapePolyPerimeter(hull, m);
+            double size = sqrt(area);
+            if (size < minSize || area > 0.9 * pageArea) goto done;
+
+            double tol = 0.04 * size;
+            if (tol < 2 * pixel) tol = 2 * pixel;
+            if (shapeHullSupport(hull, m, pts, n, perimeter, tol) < 0.9) goto done;
+
+            center = shapePolyCentroid(hull, m);
+            double circularity = 4 * M_PI * area / (perimeter * perimeter);
+            if (circularity > 0.89) {
+                kind = "circle";
+                radius = sqrt(area / M_PI);
+                goto done;
+            }
+
+            nCorners = shapeCorners(hull, m, 0.03 * perimeter, corners);
+            if (nCorners != 3 && nCorners != 4) goto done;
+            // The corners have to account for (nearly) the whole
+            // shape; this throws out things like a D or a blob.
+            if (shapePolyArea(corners, nCorners) < 0.88 * area) goto done;
+
+            center = shapePolyCentroid(corners, nCorners);
+            for (int i = 0; i < nCorners; i++) {
+                double d = shapeDist(center, corners[i]);
+                if (d > radius) radius = d;
+            }
+
+            if (nCorners == 3) {
+                kind = "triangle";
+                goto done;
+            }
+
+            double minSide = INFINITY, maxSide = 0;
+            bool rightAngles = true;
+            for (int i = 0; i < 4; i++) {
+                ShapePt prev = corners[(i + 3) % 4];
+                ShapePt cur = corners[i];
+                ShapePt next = corners[(i + 1) % 4];
+                double a = shapeDist(prev, cur), b = shapeDist(cur, next);
+                if (b < minSide) minSide = b;
+                if (b > maxSide) maxSide = b;
+                double cosAngle = ((prev.x - cur.x) * (next.x - cur.x) +
+                                   (prev.y - cur.y) * (next.y - cur.y)) / (a * b);
+                // ~70 to 110 degrees
+                if (fabs(cosAngle) > 0.34) rightAngles = false;
+            }
+            if (!rightAngles) goto done;
+            kind = (minSide > 0.8 * maxSide) ? "square" : "rectangle";
+
+        done:
+            if (kind != NULL) {
+                Jim_Obj *vertices = Jim_NewListObj(interp, NULL, 0);
+                for (int i = 0; i < nCorners; i++) {
+                    Jim_ListAppendElement(interp, vertices,
+                        Jim_ObjPrintf("%.4f %.4f", corners[i].x, corners[i].y));
+                }
+                Jim_Obj *shape = Jim_NewListObj(interp, NULL, 0);
+                Jim_ListAppendElement(interp, shape, Jim_NewStringObj(interp, "kind", -1));
+                Jim_ListAppendElement(interp, shape, Jim_NewStringObj(interp, kind, -1));
+                Jim_ListAppendElement(interp, shape, Jim_NewStringObj(interp, "center", -1));
+                Jim_ListAppendElement(interp, shape,
+                    Jim_ObjPrintf("%.4f %.4f", center.x, center.y));
+                Jim_ListAppendElement(interp, shape, Jim_NewStringObj(interp, "radius", -1));
+                Jim_ListAppendElement(interp, shape, Jim_ObjPrintf("%.4f", radius));
+                Jim_ListAppendElement(interp, shape, Jim_NewStringObj(interp, "vertices", -1));
+                Jim_ListAppendElement(interp, shape, vertices);
+                Jim_ListAppendElement(interp, result, shape);
+            }
+            free(pts);
+            free(sorted);
+            free(hull);
+            free(corners);
+        }
+        freeContours(contours);
+        return result;
+    }
+
+    Claim the shape recognition library is [$cc compile]
+}
+
+When /someone/ wishes /p/ recognizes /kinds/ {
+    Wish $p recognizes $kinds with minSize 0.008
+}
+When the shape recognition library is /shapeLib/ &\
+     /someone/ wishes /p/ recognizes /kinds/ with /...opts/ {
+    if {![info exists opts]} { return }
+    set wanted [dict getdef {
+        circles circle triangles triangle
+        squares square rectangles rectangle
+        circle circle triangle triangle
+        square square rectangle rectangle
+    } $kinds ""]
+    if {$wanted eq ""} { return }
+
+    set threshold [dict getdef $opts threshold -1]
+    set contrast [dict getdef $opts contrast 40]
+    set minSize [dict getdef $opts minSize 0.008]
+
+    Wish $p has camera slice
+    When $p has resolved geometry /geom/ &\
+         $p has camera slice /s/ {
+        set scaleX [/ $geom(width) $s(width)]
+        set scaleY [/ $geom(height) $s(height)]
+        set shapes [$shapeLib recognizeShapes $s $threshold $contrast \
+                        $scaleX $scaleY $minSize]
+
+        # The page's own AprilTag is a big dark square; don't report
+        # it (or the blobs inside it).
+        set hasTag [expr {[dict exists $geom left] && [dict exists $geom top] &&
+                          [dict exists $geom tagSize]}]
+        if {$hasTag} {
+            set margin [* 0.15 $geom(tagSize)]
+            set tagX0 [- $geom(left) $margin]
+            set tagY0 [- $geom(top) $margin]
+            set tagX1 [+ $geom(left) $geom(tagSize) $margin]
+            set tagY1 [+ $geom(top) $geom(tagSize) $margin]
+        }
+
+        foreach shape $shapes {
+            set kind [dict get $shape kind]
+            # A square is also a rectangle.
+            if {$kind ne $wanted &&
+                !($wanted eq "rectangle" && $kind eq "square")} { continue }
+
+            if {$hasTag} {
+                lassign [dict get $shape center] x y
+                if {$x > $tagX0 && $x < $tagX1 &&
+                    $y > $tagY0 && $y < $tagY1} { continue }
+            }
+            Claim a $wanted [dict create page $p {*}$shape] is recognized
+        }
+    }
+}
+
+# Wish a circle is drawn around $c
+# Wish a circle is drawn around $c with color green padding 0.01
+#
+# where $c is any recognized shape (not necessarily a circle). The
+# circle is drawn onto the page that the shape is on.
+When /someone/ wishes a circle is drawn around /c/ {
+    Wish a circle is drawn around $c with color white
+}
+When /someone/ wishes a circle is drawn around /c/ with /...options/ {
+    if {![info exists options]} { return }
+    set padding [dict getdef $options padding 0.004]
+    Wish to draw a circle onto [dict get $c page] with \
+        center [dict get $c center] \
+        radius [+ [dict get $c radius] $padding] \
+        thickness [dict getdef $options thickness 0.002] \
+        color [dict getdef $options color white] \
+        layer [dict getdef $options layer 1]
+}

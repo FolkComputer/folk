@@ -1,0 +1,144 @@
+When { source builtin-programs/image/image-lib.folk }
+When { source builtin-programs/recognition/shapes.folk }
+
+# Paints a fake 20cm x 20cm page (400x400 px, so 0.5mm per pixel) with
+# some shapes on it, then checks that the right ones get recognized.
+When the image library is /imageLib/ {
+    set cc [C]
+    $cc extend $imageLib
+    $cc include <math.h>
+    $cc include <string.h>
+    $cc proc fill {Image im int value} void {
+        memset(im.data, value, im.bytesPerRow * im.height);
+    }
+    $cc proc disc {Image im double cx double cy double rOuter double rInner
+                   double gapRadians} void {
+        for (int y = 0; y < im.height; y++) for (int x = 0; x < im.width; x++) {
+            double d = hypot(x - cx, y - cy);
+            double theta = fabs(atan2(y - cy, x - cx));
+            if (d <= rOuter && d >= rInner && theta >= gapRadians) {
+                im.data[y * im.bytesPerRow + x] = 20;
+            }
+        }
+    }
+    # Convex polygon with vertices in either winding.
+    $cc proc polygon {Image im int n double[8] xy} void {
+        for (int y = 0; y < im.height; y++) for (int x = 0; x < im.width; x++) {
+            int pos = 0, neg = 0;
+            for (int i = 0; i < n; i++) {
+                double ax = xy[i*2], ay = xy[i*2+1];
+                double bx = xy[((i+1)%n)*2], by = xy[((i+1)%n)*2+1];
+                double cross = (bx - ax) * (y - ay) - (by - ay) * (x - ax);
+                if (cross > 0) pos++;
+                if (cross < 0) neg++;
+            }
+            if (pos == 0 || neg == 0) im.data[y * im.bytesPerRow + x] = 20;
+        }
+    }
+    set paint [$cc compile]
+
+    set im [$imageLib imageNew 400 400 1 0]
+    $paint fill $im 230
+    # Fake tag in the top-left corner (should be ignored).
+    $paint polygon $im 4 {20 20 80 20 80 80 20 80}
+    # Filled circle, r = 2cm, centered at (5cm, 15cm)
+    $paint disc $im 100 300 40 0 0
+    # Outlined circle with a small gap in it, r = 1.5cm, at (15cm, 15cm)
+    $paint disc $im 300 300 30 26 0.15
+    # A C shape, which should not be a circle.
+    $paint disc $im 200 320 30 26 1.0
+    # Triangle
+    $paint polygon $im 3 {150 40 210 50 170 110}
+    # Rotated square, side ~3cm
+    $paint polygon $im 4 {300 30 352 60 322 112 270 82}
+    # Rectangle, 6cm x 2cm
+    $paint polygon $im 4 {120 160 240 160 240 200 120 200}
+    # Too-small circle (r = 2mm)
+    $paint disc $im 350 200 4 0 0
+
+    set geom {tagSize 0.03 left 0.01 top 0.01 width 0.2 height 0.2}
+    Claim testpage has resolved geometry $geom
+    Claim testpage has camera slice $im
+
+    When circle recognition is on {
+        Wish testpage recognizes circles
+    }
+    Wish testpage recognizes triangles
+    Wish testpage recognizes squares
+    Wish testpage recognizes rectangles
+
+    # Blank page: nothing at all.
+    set blank [$imageLib imageNew 400 400 1 1]
+    $paint fill $blank 230
+    Claim blankpage has resolved geometry $geom
+    Claim blankpage has camera slice $blank
+    Wish blankpage recognizes circles
+
+    When a circle /c/ is recognized {
+        Wish a circle is drawn around $c with color green
+    }
+}
+
+Assert! circle recognition is on
+
+fn near {a b tol} { expr {abs($a - $b) < $tol} }
+fn shapesOfKind {kind} {
+    lmap r [Query! a $kind /c/ is recognized] { dict get $r c }
+}
+
+set circles {}
+for {set i 0} {$i < 100 && [llength $circles] == 0} {incr i} {
+    sleep 0.2
+    set circles [shapesOfKind circle]
+}
+sleep 0.5
+
+set circles [lsort [shapesOfKind circle]]
+puts "circles: $circles"
+assert {[llength $circles] == 2}
+foreach c $circles {
+    assert {[dict get $c page] eq "testpage"}
+    lassign [dict get $c center] x y
+    if {$x < 0.1} {
+        assert {[near $x 0.05 0.001] && [near $y 0.15 0.001]}
+        assert {[near [dict get $c radius] 0.02 0.001]}
+    } else {
+        assert {[near $x 0.15 0.002] && [near $y 0.15 0.002]}
+        assert {[near [dict get $c radius] 0.015 0.001]}
+    }
+}
+
+set triangles [shapesOfKind triangle]
+puts "triangles: $triangles"
+assert {[llength $triangles] == 1}
+assert {[llength [dict get [lindex $triangles 0] vertices]] == 3}
+
+set squares [shapesOfKind square]
+puts "squares: $squares"
+assert {[llength $squares] == 1}
+lassign [dict get [lindex $squares 0] center] x y
+assert {[near $x 0.1555 0.002] && [near $y 0.0355 0.002]}
+
+# The square counts as a rectangle, too.
+set rectangles [shapesOfKind rectangle]
+puts "rectangles: $rectangles"
+assert {[llength $rectangles] == 2}
+
+# Every circle gets a circle drawn around it, on its own page.
+set draws [Query! /someone/ wishes to draw a circle onto /p/ with /...options/]
+puts "draws: $draws"
+assert {[llength $draws] == 2}
+foreach d $draws {
+    assert {[dict get $d p] eq "testpage"}
+    assert {[dict get $d options color] eq "green"}
+}
+
+# When the page stops wishing for circles, the circles go away, and
+# so does everything that was wished about them.
+Retract! circle recognition is on
+sleep 1
+assert {[llength [shapesOfKind circle]] == 0}
+assert {[llength [Query! /someone/ wishes to draw a circle onto /p/ with /...options/]] == 0}
+assert {[llength [shapesOfKind triangle]] == 1}
+
+Exit! 0
