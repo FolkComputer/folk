@@ -153,7 +153,7 @@ $cc code {
         _Atomic long framesReceived, framesDecoded, framesUploaded, decodeErrors;
         _Atomic long inputSent, keysSent, mouseSent, eventsQueued, eventsLate, gapsSkipped;
         _Atomic long msgsReceived, bytesReceived, ignoredIds;
-        double lastFrameLatencyMs, lastDecodeMs, lastUploadMs;
+        double lastFrameLatencyMs, lastDecodeMs, lastUploadMs, frameArrivedAt;
         double createdAt, firstFrameAt;
 
         // input
@@ -420,7 +420,7 @@ $cc code {
     }
     // b64 points at the first character of a base64 JPEG inside a JSON string.
     // Runs on the reader thread only.
-    static const char* brDecodeFrame(Browser* b, const char* b64, double capturedAt) {
+    static const char* brDecodeFrame(Browser* b, const char* b64) {
         double t0 = brNow();
         size_t b64len = strlen(b64);     // upper bound: the rest of the message
         if (b->jpegCap < b64len) { free(b->jpegBuf); b->jpegCap = b64len + 4096; b->jpegBuf = malloc(b->jpegCap); }
@@ -447,7 +447,7 @@ $cc code {
         uint8_t* t = b->frame; b->frame = b->decodeBuf; b->decodeBuf = t;
         b->frameDirty = true;
         b->lastDecodeMs = (now - t0) * 1000;
-        if (capturedAt > 0) b->lastFrameLatencyMs = (brWall() - capturedAt) * 1000;
+        b->frameArrivedAt = t0;
         if (b->firstFrameAt == 0) b->firstFrameAt = now;
         b->framesDecoded++;
         pthread_cond_signal(&b->workCond);
@@ -857,7 +857,7 @@ $cc code {
             // A screenshot we asked for after a load, so that a page that never changes still
             // shows up. Stale if screencast frames arrived in the meantime.
             const char* data = strstr(m, "\"data\":\"");
-            if (data != NULL && b->framesReceived == b->shotBase) brDecodeFrame(b, data + 8, 0);
+            if (data != NULL && b->framesReceived == b->shotBase) brDecodeFrame(b, data + 8);
         } else if (id == ID_TITLE || id == ID_URL) {
             // Answers to the worker's periodic questions (see brAskInfo).
             char v[2048];
@@ -881,11 +881,9 @@ $cc code {
             const char* data = strstr(m, "\"data\":\"");
             if (data == NULL) return;
             b->framesReceived++;
-            // Fields after the image: metadata.timestamp, then the frame number to acknowledge.
-            const char* end = brDecodeFrame(b, data + 8, 0);
-            double ts = 0, ackId = 0;
-            brGetNum(end, "timestamp", &ts);
-            if (ts > 0) { pthread_mutex_lock(&b->mu); b->lastFrameLatencyMs = (brWall() - ts) * 1000; pthread_mutex_unlock(&b->mu); }
+            // After the image comes the frame number to acknowledge.
+            const char* end = brDecodeFrame(b, data + 8);
+            double ackId = 0;
             if (!brGetNum(end, "sessionId", &ackId)) return;
             // Chromium sends the next frame only after an ack: pacing the acks caps the
             // frame rate (and its encoding and our decoding work) at fps.
@@ -1114,7 +1112,7 @@ $cc code {
                 double due = b->lastUpload + 1.0 / b->fps;
                 now = brNow();
                 if (now >= due) {
-                    double t0 = now;
+                    double t0 = now, arrivedAt = b->frameDirty ? b->frameArrivedAt : 0;
                     b->frameDirty = false; b->cursorDirty = false;
                     memcpy(b->compose, b->frame, (size_t)b->w * b->h * 4);
                     pthread_mutex_unlock(&b->mu);
@@ -1124,6 +1122,8 @@ $cc code {
                     b->framesUploaded++;
                     pthread_mutex_lock(&b->mu);
                     b->lastUpload = brNow(); b->lastUploadMs = (b->lastUpload - t0) * 1000;
+                    // From a frame's arrival on the pipe to its pixels being in the texture.
+                    if (arrivedAt > 0) b->lastFrameLatencyMs = (b->lastUpload - arrivedAt) * 1000;
                     continue;
                 }
                 if (due < next) next = due;
