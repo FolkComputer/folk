@@ -1,0 +1,239 @@
+# Feeds builtin-programs/mouse.folk from an emulated USB mouse
+# (test/sim/hidemu writing evdev frames to a FIFO) and checks the
+# reports it emits against the emulator's log: after sorting by seq,
+# no seq is missing, dx/dy/wheel/hwheel add up, and every button edge
+# arrives exactly once, in order, at the right pointer position.
+# Three device rates: 125 Hz, 1000 Hz and an unthrottled burst (where
+# the reader coalesces motion).
+
+if {$::tcl_platform(os) ne "linux"} { Exit! 0 }
+
+Assert! when /__this/ has program code /__programCode/ {
+    SayWithSource $__this 1 0 {} {} \
+        when $__programCode with environment [list [list this $__this]]
+} with environment {}
+local proc LoadProgram! {programFilename} {
+    set fp [open $programFilename r]
+    Hold! -on test/mouse.folk -key [list $programFilename code] \
+        Claim $programFilename has program code [read $fp]
+    close $fp
+}
+LoadProgram! builtin-programs/collect.folk
+LoadProgram! builtin-programs/mouse.folk
+
+proc say {args} { puts $::realStdout [join $args " "]; flush $::realStdout }
+proc waitFor {ms cond} {
+    set deadline [expr {[clock milliseconds] + $ms}]
+    while {[clock milliseconds] < $deadline} {
+        if {[uplevel 1 [list expr $cond]]} { return 1 }
+        sleep 0.01
+    }
+    return 0
+}
+proc fail {msg} { say "test/mouse: FAIL: $msg"; Exit! 1 }
+
+exec make -C test/sim/hidemu >/dev/null 2>@1
+set dir /tmp/folk-test-mouse-[pid]
+file mkdir $dir
+set fifo $dir/mouse0
+exec mkfifo $fifo
+
+# Subscribe: handlers run on any thread, so the reports are collected
+# in C.
+set cc [C]
+$cc include <stdatomic.h>
+$cc code {
+    #define MAXREC 200000
+    typedef struct { int seq, dx, dy, wheel, hwheel, buttons; } Rec;
+    static Rec recs[MAXREC];
+    static atomic_int nrecs;
+}
+$cc proc rec {int seq int dx int dy int wheel int hwheel int buttons} void {
+    int i = atomic_fetch_add(&nrecs, 1);
+    if (i < MAXREC) recs[i] = (Rec) { seq, dx, dy, wheel, hwheel, buttons };
+}
+$cc proc count {} int { return atomic_load(&nrecs); }
+$cc proc reset {} void { atomic_store(&nrecs, 0); }
+$cc proc dump {} Jim_Obj* {
+    int n = atomic_load(&nrecs);
+    Jim_Obj* list = Jim_NewListObj(interp, NULL, 0);
+    for (int i = 0; i < n && i < MAXREC; i++) {
+        Jim_Obj* objs[6] = {
+            Jim_NewIntObj(interp, recs[i].seq), Jim_NewIntObj(interp, recs[i].dx),
+            Jim_NewIntObj(interp, recs[i].dy), Jim_NewIntObj(interp, recs[i].wheel),
+            Jim_NewIntObj(interp, recs[i].hwheel), Jim_NewIntObj(interp, recs[i].buttons)
+        };
+        Jim_ListAppendElement(interp, list, Jim_NewListObj(interp, objs, 6));
+    }
+    return list;
+}
+set rec [$cc compile]
+
+Claim $fifo is a mouse device
+When {
+    Subscribe: mouse $fifo claims report with /...r/ {
+        $rec rec [dict get $r seq] [dict get $r dx] [dict get $r dy] \
+            [dict get $r wheel] [dict get $r hwheel] [dict get $r buttons]
+    }
+}
+When /p/ has error /err/ with info /info/ {
+    puts $::realStdout "test/mouse: ERROR in $p: $err\n$info"; Exit! 1
+}
+When { sleep 100; puts $::realStdout "test/mouse: FAIL: timed out"; Exit! 2 }
+
+if {![waitFor 30000 {[llength [Query! $fifo has mouse reader /dev/]] > 0}]} { fail "mouse.folk never opened $fifo" }
+set dev [dict get [lindex [Query! $fifo has mouse reader /dev/] 0] dev]
+set mouseLib [dict get [lindex [Query! the mouse library is /lib/] 0] lib]
+if {![waitFor 30000 {[llength [Query! subscribe mouse $fifo claims report with /...r/ /body/ with environment /e/]] > 0}]} { fail "no subscription" }
+
+# What the emulated kernel wrote, from hidemu's log: totals, number of
+# frames, and for every button edge {bit value x y} (pointer position
+# after the frame the edge is in).
+proc groundTruth {logPath} {
+    set bits {BTN_MOUSE 0 BTN_LEFT 0 BTN_RIGHT 1 BTN_MIDDLE 2 BTN_SIDE 3 BTN_EXTRA 4}
+    set x 0; set y 0; set wheel 0; set hwheel 0; set frames 0
+    set edges [list]; set frameEdges [list]
+    set fd [open $logPath r]
+    foreach line [split [read $fd] "\n"] {
+        lassign [split $line "\t"] ts device kind type code value
+        if {$device ne "mouse" || $kind ne "event"} { continue }
+        if {$type eq "EV_REL"} {
+            switch $code {
+                REL_X { incr x $value }
+                REL_Y { incr y $value }
+                REL_WHEEL { incr wheel $value }
+                REL_HWHEEL { incr hwheel $value }
+            }
+        } elseif {$type eq "EV_KEY"} {
+            lappend frameEdges [list [dict get $bits $code] $value]
+        } elseif {$type eq "EV_SYN" && $code eq "SYN_REPORT"} {
+            incr frames
+            foreach e $frameEdges { lappend edges [list {*}$e $x $y] }
+            set frameEdges [list]
+        }
+    }
+    close $fd
+    return [dict create x $x y $y wheel $wheel hwheel $hwheel frames $frames edges $edges]
+}
+
+# The same, from the reports we received, applied in seq order.
+proc integrate {reports firstSeq} {
+    set x 0; set y 0; set wheel 0; set hwheel 0; set buttons 0
+    set edges [list]
+    set expectedSeq $firstSeq
+    foreach r [lsort -integer -index 0 $reports] {
+        lassign $r seq dx dy dwheel dhwheel newButtons
+        if {$seq != $expectedSeq} { error "seq $seq where $expectedSeq was expected (lost or duplicated report)" }
+        incr expectedSeq
+        incr x $dx; incr y $dy; incr wheel $dwheel; incr hwheel $dhwheel
+        for {set bit 0} {$bit < 5} {incr bit} {
+            set now [expr {($newButtons >> $bit) & 1}]
+            if {$now != (($buttons >> $bit) & 1)} { lappend edges [list $bit $now $x $y] }
+        }
+        set buttons $newButtons
+    }
+    return [dict create x $x y $y wheel $wheel hwheel $hwheel edges $edges buttons $buttons]
+}
+
+set commonScript {
+    move 300 -200 200
+    click left 20 2
+    move -1000 700
+    button right down
+    move 50 50
+    button right up
+    wheel 3
+    wheel -2
+    hwheel 1
+    click middle 5
+    button side down
+    button extra down
+    move -7 3
+    button side up
+    button extra up
+}
+# An unthrottled device: nothing in this script waits, so the frames
+# arrive as fast as the FIFO takes them.
+proc burstScript {n} {
+    expr {srand(42)}
+    set lines [list]
+    set buttonNames {left right middle side extra}
+    for {set i 0} {$i < $n} {incr i} {
+        set r [expr {int(rand() * 100)}]
+        if {$r < 60} {
+            lappend lines "move [expr {int(rand() * 3000) - 1500}] [expr {int(rand() * 2000) - 1000}]"
+        } elseif {$r < 75} {
+            lappend lines "click [lindex $buttonNames [expr {int(rand() * 3)}]] 0 [expr {1 + int(rand() * 2)}]"
+        } elseif {$r < 90} {
+            lappend lines "button [lindex $buttonNames [expr {int(rand() * 5)}]] [lindex {down up} [expr {int(rand() * 2)}]]"
+        } elseif {$r < 96} {
+            lappend lines "wheel [expr {int(rand() * 11) - 5}]"
+        } else {
+            lappend lines "hwheel [expr {int(rand() * 7) - 3}]"
+        }
+    }
+    lappend lines releaseall
+    return [join $lines "\n"]
+}
+
+set nextSeq 1
+set phase 0
+foreach {name rate extra} [list 125Hz 125 "fuzz 60 mouse" \
+                               1000Hz 1000 "fuzz 150 mouse" \
+                               burst 0 [burstScript 1500]] {
+    incr phase
+    set script $dir/script-$name
+    set log $dir/emu-$name.log
+    set fd [open $script w]
+    puts $fd "seed $phase\nrate mouse $rate\n$commonScript\n$extra\nmove 11 -13\nclick left 1"
+    close $fd
+
+    $rec reset
+    lassign [$mouseLib mouseStats $dev] framesBefore reportsBefore
+    set t0 [clock milliseconds]
+    exec test/sim/hidemu/hidemu --quiet --mouse $fifo --log $log --script $script
+    set emuMs [expr {[clock milliseconds] - $t0}]
+    set truth [groundTruth $log]
+
+    # Wait until the reader has taken every frame out of the FIFO and
+    # every report it emitted has reached our subscriber.
+    set ok [waitFor 20000 {
+        [lindex [$mouseLib mouseStats $dev] 0] - $framesBefore == [dict get $truth frames] &&
+        [$rec count] == [lindex [$mouseLib mouseStats $dev] 1] - $reportsBefore
+    }]
+    lassign [$mouseLib mouseStats $dev] framesAfter reportsAfter
+    set nFrames [expr {$framesAfter - $framesBefore}]
+    set nReports [expr {$reportsAfter - $reportsBefore}]
+    if {!$ok} {
+        fail "$name: emulator wrote [dict get $truth frames] frames, reader took $nFrames\
+              and emitted $nReports reports, subscriber got [$rec count]"
+    }
+
+    set reports [$rec dump]
+    try {
+        set got [integrate $reports $nextSeq]
+    } on error e {
+        fail "$name: $e"
+    }
+    set nextSeq [expr {$nextSeq + [llength $reports]}]
+    set inOrder 0; set prev 0
+    foreach r $reports { if {[lindex $r 0] > $prev} { incr inOrder }; set prev [lindex $r 0] }
+
+    foreach k {x y wheel hwheel} {
+        if {[dict get $got $k] != [dict get $truth $k]} {
+            fail "$name: sum of $k is [dict get $got $k], emulator says [dict get $truth $k]"
+        }
+    }
+    if {[dict get $got edges] ne [dict get $truth edges]} {
+        fail "$name: button edges differ:\n got  [dict get $got edges]\n want [dict get $truth edges]"
+    }
+    if {[dict get $got buttons] != 0} { fail "$name: buttons still down at the end" }
+    say "test/mouse: $name ok: [dict get $truth frames] frames in $emuMs ms ->\
+         $nReports reports ([llength $reports] received, $inOrder in arrival order),\
+         sum ([dict get $got x], [dict get $got y]) wheel [dict get $got wheel]/[dict get $got hwheel],\
+         [llength [dict get $got edges]] button edges"
+}
+
+file delete -force $dir
+say "test/mouse: PASS"
+Exit! 0

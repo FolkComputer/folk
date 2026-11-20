@@ -1,0 +1,391 @@
+# mouse.folk --
+#
+#     USB (evdev) mice. Mirrors keyboard.folk:
+#
+#       <path> is a mouse device
+#
+#     makes a reader that turns every evdev frame of that device into
+#     one event:
+#
+#       Notify: mouse <path> claims report with seq <n> timestamp <secs> \
+#           dx <int> dy <int> wheel <int> hwheel <int> buttons <bitmask>
+#
+#     seq counts from 1 per device (Notify: delivery isn't ordered, so
+#     consumers should apply reports in seq order). dx/dy are device
+#     units (+x right, +y towards the user), wheel is detents (+ is
+#     away from the user), buttons is the state _after_ the frame:
+#     bit 0 left, 1 right, 2 middle, 3 side, 4 extra.
+#
+#     A page binds a mouse like it binds a keyboard:
+#
+#       Claim $this is a mouse with path <path>
+#
+#     and then we claim `<page> is pointing into <target>` for a
+#     target that claims `<target> handles mouse input`. The pointer
+#     position belongs to the target: it gets relative reports only.
+
+# Function to check if the device is a mouse
+proc isMouse {device} {
+    try {
+        set properties [exec udevadm info --query=property --name=$device]
+    } on error e {
+        return false
+    }
+    return [string match *ID_INPUT_MOUSE=1* $properties]
+}
+
+# Goes through the /dev/input event devices (by-id names first, since
+# they survive replugging into another port) and returns the mice.
+proc walkMouseEventPaths {} {
+    set allDevices [list {*}[lsort [glob -nocomplain "/dev/input/by-id/*-event-*"]] \
+                        {*}[lsort [glob -nocomplain "/dev/input/by-path/*-event-*"]]]
+    set seen [dict create]
+    set mice [list]
+    foreach device $allDevices {
+        set canonicalName [file tail [file readlink $device]]
+        if {[dict exists $seen $canonicalName]} { continue }
+        dict set seen $canonicalName $device
+        if {[isMouse $device]} {
+            if {[file readable $device] == 0} {
+                puts stderr "mouse: Device $device is not readable. Attempting to change permissions."
+                catch { exec chmod +r $device }
+            }
+            lappend mice $device
+        }
+    }
+    return $mice
+}
+
+foreach mouse [walkMouseEventPaths] {
+    Claim $mouse is a mouse device
+}
+
+# The reader is in C: it assembles frames (everything up to
+# SYN_REPORT) and, when we're slower than the device, merges
+# motion-only frames that are already queued. It never merges across
+# a button change.
+#
+# We only compile it once some mouse device exists.
+When /mouse/ is a mouse device {
+    Claim a mouse reader is needed
+}
+When a mouse reader is needed {
+    set cc [C]
+    $cc include <linux/input.h>
+    $cc include <sys/ioctl.h>
+    $cc include <sys/stat.h>
+    $cc include <sys/time.h>
+    $cc include <fcntl.h>
+    $cc include <poll.h>
+    $cc include <errno.h>
+    $cc include <unistd.h>
+    $cc include <string.h>
+    $cc include <stdlib.h>
+    $cc include <stdbool.h>
+    $cc include <stdint.h>
+    $cc include <pthread.h>
+    $cc code {
+        #define MOUSE_BUF_EVENTS 256
+        typedef struct MouseDev {
+            pthread_mutex_t mutex; // guards fd against mouseStop from another thread
+            int fd;
+            bool stopped;
+
+            struct input_event buf[MOUSE_BUF_EVENTS];
+            size_t len;            // bytes in buf (a read can end mid-event)
+            size_t pos;            // first event not consumed yet
+
+            bool dropping;         // after SYN_DROPPED, until the next SYN_REPORT
+            bool hiResWheel, hiResHWheel; // device has no REL_WHEEL / REL_HWHEEL
+            int hiResAcc, hiResHAcc;      // 1/120ths of a detent not reported yet
+
+            int buttons;
+            uint32_t seq;
+            uint64_t frames, reports;
+        } MouseDev;
+
+        typedef struct MouseFrame {
+            int dx, dy, wheel, hwheel, buttons;
+            int hiResAcc, hiResHAcc;
+            bool buttonChange;
+            double timestamp;
+        } MouseFrame;
+
+        #define MOUSE_BITS_PER_LONG (sizeof(long) * 8)
+        #define MOUSE_TEST_BIT(bit, array) \
+            ((array[(bit) / MOUSE_BITS_PER_LONG] >> ((bit) % MOUSE_BITS_PER_LONG)) & 1)
+
+        static MouseDev* mouseDevOpen(const char* path, char* err, size_t errLen) {
+            struct stat st;
+            if (stat(path, &st) != 0) {
+                snprintf(err, errLen, "mouse: %s: %s", path, strerror(errno));
+                return NULL;
+            }
+            // A FIFO (an emulated device) is opened read-write so
+            // that open doesn't wait for a writer and a writer that
+            // goes away doesn't give us EOF.
+            int fd = open(path, (S_ISFIFO(st.st_mode) ? O_RDWR : O_RDONLY) |
+                          O_NONBLOCK | O_CLOEXEC);
+            if (fd < 0) {
+                snprintf(err, errLen, "mouse: open %s: %s", path, strerror(errno));
+                return NULL;
+            }
+            MouseDev* d = calloc(1, sizeof(MouseDev));
+            pthread_mutex_init(&d->mutex, NULL);
+            d->fd = fd;
+
+            // Mice that only report high-resolution scrolling: fall
+            // back to REL_WHEEL_HI_RES (120 units per detent).
+            unsigned long relBits[REL_CNT / MOUSE_BITS_PER_LONG + 1] = {0};
+            if (ioctl(fd, EVIOCGBIT(EV_REL, sizeof(relBits)), relBits) >= 0) {
+                d->hiResWheel = MOUSE_TEST_BIT(REL_WHEEL_HI_RES, relBits) &&
+                    !MOUSE_TEST_BIT(REL_WHEEL, relBits);
+                d->hiResHWheel = MOUSE_TEST_BIT(REL_HWHEEL_HI_RES, relBits) &&
+                    !MOUSE_TEST_BIT(REL_HWHEEL, relBits);
+            }
+            return d;
+        }
+
+        // Can be called from any thread; the reader notices the next
+        // time it wakes up (it never touches the fd again).
+        static void mouseDevStop(MouseDev* d) {
+            pthread_mutex_lock(&d->mutex);
+            if (!d->stopped) {
+                d->stopped = true;
+                close(d->fd);
+                d->fd = -1;
+            }
+            pthread_mutex_unlock(&d->mutex);
+        }
+
+        // Parses the next complete frame in the buffer, without
+        // consuming it. Returns the number of events in it (including
+        // the SYN_REPORT), or 0 if there's no complete frame yet.
+        static size_t mouseParseFrame(const MouseDev* d, MouseFrame* f) {
+            size_t n = d->len / sizeof(struct input_event);
+            memset(f, 0, sizeof(*f));
+            f->buttons = d->buttons;
+            f->hiResAcc = d->hiResAcc; f->hiResHAcc = d->hiResHAcc;
+            bool dropping = d->dropping;
+            for (size_t i = d->pos; i < n; i++) {
+                const struct input_event* e = &d->buf[i];
+                if (e->type == EV_SYN && e->code == SYN_DROPPED) {
+                    // The kernel threw events away: what we have of
+                    // this frame is garbage.
+                    dropping = true;
+                } else if (e->type == EV_SYN && e->code == SYN_REPORT) {
+                    if (dropping) {
+                        memset(f, 0, sizeof(*f));
+                        f->buttons = d->buttons;
+                        f->hiResAcc = d->hiResAcc; f->hiResHAcc = d->hiResHAcc;
+                    }
+                    if (d->hiResWheel) {
+                        f->wheel = f->hiResAcc / 120; f->hiResAcc %= 120;
+                    }
+                    if (d->hiResHWheel) {
+                        f->hwheel = f->hiResHAcc / 120; f->hiResHAcc %= 120;
+                    }
+                    f->buttonChange = f->buttons != d->buttons;
+                    f->timestamp = e->input_event_sec + e->input_event_usec / 1e6;
+                    return i - d->pos + 1;
+                } else if (dropping) {
+                    // skip
+                } else if (e->type == EV_REL) {
+                    switch (e->code) {
+                    case REL_X: f->dx += e->value; break;
+                    case REL_Y: f->dy += e->value; break;
+                    case REL_WHEEL: f->wheel += e->value; break;
+                    case REL_HWHEEL: f->hwheel += e->value; break;
+                    case REL_WHEEL_HI_RES: f->hiResAcc += e->value; break;
+                    case REL_HWHEEL_HI_RES: f->hiResHAcc += e->value; break;
+                    }
+                } else if (e->type == EV_KEY &&
+                           e->code >= BTN_LEFT && e->code <= BTN_EXTRA) {
+                    // BTN_LEFT, RIGHT, MIDDLE, SIDE, EXTRA are consecutive.
+                    int bit = 1 << (e->code - BTN_LEFT);
+                    if (e->value) f->buttons |= bit; else f->buttons &= ~bit;
+                }
+            }
+            return 0;
+        }
+
+        // After SYN_DROPPED the button state may have changed behind
+        // our back.
+        static void mouseResyncButtons(MouseDev* d, MouseFrame* f) {
+            unsigned long keyBits[KEY_CNT / MOUSE_BITS_PER_LONG + 1] = {0};
+            pthread_mutex_lock(&d->mutex);
+            int r = d->stopped ? -1 : ioctl(d->fd, EVIOCGKEY(sizeof(keyBits)), keyBits);
+            pthread_mutex_unlock(&d->mutex);
+            if (r < 0) return;
+            f->buttons = 0;
+            for (int b = 0; b < 5; b++) {
+                if (MOUSE_TEST_BIT(BTN_LEFT + b, keyBits)) f->buttons |= 1 << b;
+            }
+            f->buttonChange = f->buttons != d->buttons;
+        }
+
+        // Blocks until there's something to report (returns 1), the
+        // timeout passes or a signal arrives (0), or the device is
+        // gone or stopped (-1).
+        static int mouseDevRead(MouseDev* d, int timeoutMs, MouseFrame* out) {
+            bool have = false;
+            for (;;) {
+                MouseFrame f; size_t used;
+                while ((used = mouseParseFrame(d, &f)) > 0) {
+                    bool wasDropping = d->dropping;
+                    for (size_t i = d->pos; i < d->pos + used; i++) {
+                        if (d->buf[i].type == EV_SYN && d->buf[i].code == SYN_DROPPED) wasDropping = true;
+                    }
+                    if (wasDropping) mouseResyncButtons(d, &f);
+
+                    // Never merge across a button change: leave this
+                    // frame in the buffer for the next call.
+                    if (have && (out->buttonChange || f.buttonChange)) return 1;
+
+                    d->pos += used;
+                    d->dropping = false;
+                    d->buttons = f.buttons;
+                    d->hiResAcc = f.hiResAcc; d->hiResHAcc = f.hiResHAcc;
+                    d->frames++;
+                    if (!f.buttonChange && !f.dx && !f.dy && !f.wheel && !f.hwheel) continue;
+                    if (!have) { *out = f; have = true; }
+                    else {
+                        out->dx += f.dx; out->dy += f.dy;
+                        out->wheel += f.wheel; out->hwheel += f.hwheel;
+                        out->timestamp = f.timestamp;
+                    }
+                }
+
+                // Only an incomplete frame is left: move it to the front.
+                size_t posBytes = d->pos * sizeof(struct input_event);
+                memmove(d->buf, (char*)d->buf + posBytes, d->len - posBytes);
+                d->len -= posBytes; d->pos = 0;
+                if (d->len == sizeof(d->buf)) {
+                    // A "frame" longer than the buffer isn't a mouse talking.
+                    d->len = 0; d->dropping = true;
+                }
+
+                // If we have a report, only take what's already
+                // queued; don't wait for more.
+                struct pollfd p = { .fd = d->fd, .events = POLLIN };
+                int pr = d->stopped ? -1 : poll(&p, 1, have ? 0 : timeoutMs);
+                if (pr <= 0) {
+                    if (have) return 1;
+                    return (pr == 0 || errno == EINTR) && !d->stopped ? 0 : -1;
+                }
+
+                pthread_mutex_lock(&d->mutex);
+                ssize_t r = -1; errno = EBADF;
+                if (!d->stopped) r = read(d->fd, (char*)d->buf + d->len, sizeof(d->buf) - d->len);
+                int readErrno = errno;
+                pthread_mutex_unlock(&d->mutex);
+                if (r > 0) { d->len += r; continue; }
+                if (r < 0 && (readErrno == EAGAIN || readErrno == EINTR)) {
+                    if (have) return 1;
+                    return 0;
+                }
+                // EOF, ENODEV (unplugged), or stopped.
+                if (have) return 1;
+                return -1;
+            }
+        }
+
+        static Jim_Obj* mouseDevReadObj(Jim_Interp* interp, MouseDev* d, int timeoutMs) {
+            MouseFrame f;
+            int r = mouseDevRead(d, timeoutMs, &f);
+            if (r == 0) return Jim_NewEmptyStringObj(interp);
+            if (r < 0) return Jim_NewStringObj(interp, "eof", -1);
+
+            if (f.timestamp == 0) {
+                struct timeval tv; gettimeofday(&tv, NULL);
+                f.timestamp = tv.tv_sec + tv.tv_usec / 1e6;
+            }
+            d->reports++;
+            Jim_Obj* objs[7] = {
+                Jim_NewIntObj(interp, ++d->seq),
+                Jim_NewDoubleObj(interp, f.timestamp),
+                Jim_NewIntObj(interp, f.dx),
+                Jim_NewIntObj(interp, f.dy),
+                Jim_NewIntObj(interp, f.wheel),
+                Jim_NewIntObj(interp, f.hwheel),
+                Jim_NewIntObj(interp, f.buttons)
+            };
+            return Jim_NewListObj(interp, objs, 7);
+        }
+    }
+    $cc proc mouseOpen {char* path} MouseDev* {
+        char err[512];
+        MouseDev* d = mouseDevOpen(path, err, sizeof(err));
+        if (d == NULL) { FOLK_ERROR("%s", err); }
+        return d;
+    }
+    # Returns {seq timestamp dx dy wheel hwheel buttons}, or "" if
+    # there was nothing within timeoutMs (or a signal arrived), or
+    # "eof" if the device is gone.
+    $cc proc mouseRead {MouseDev* d int timeoutMs} Jim_Obj* {
+        return mouseDevReadObj(interp, d, timeoutMs);
+    }
+    $cc proc mouseStop {MouseDev* d} void {
+        mouseDevStop(d);
+    }
+    # {frames read from the device, reports emitted}
+    $cc proc mouseStats {MouseDev* d} Jim_Obj* {
+        Jim_Obj* objs[2] = {
+            Jim_NewIntObj(interp, d->frames), Jim_NewIntObj(interp, d->reports)
+        };
+        return Jim_NewListObj(interp, objs, 2);
+    }
+    Claim the mouse library is [$cc compile]
+}
+
+When the mouse library is /mouseLib/ & /mouse/ is a mouse device {
+    set dev [$mouseLib mouseOpen $mouse]
+    # The MouseDev itself is never freed (a few KB per device): this
+    # may run while the loop below is still in mouseRead.
+    On unmatch [list $mouseLib mouseStop $dev]
+    Claim $mouse has mouse reader $dev
+
+    while 1 {
+        set report [$mouseLib mouseRead $dev 1000]
+        if {$report eq ""} { continue }
+        if {$report eq "eof"} { break }
+
+        lassign $report seq timestamp dx dy wheel hwheel buttons
+        Notify: mouse $mouse claims report with seq $seq timestamp $timestamp \
+            dx $dx dy $dy wheel $wheel hwheel $hwheel buttons $buttons
+    }
+    puts stderr "mouse: Device $mouse is gone."
+}
+
+# Which target does a mouse page drive?
+When /page/ is a mouse with path /mouse/ {
+    # 1. If the page is also a keyboard, the mouse goes where its keys
+    #    go (if that target wants a mouse).
+    When $page is typing into /target/ & /target/ handles mouse input {
+        Claim $page has mouse target $target from its keyboard
+        Claim $page is pointing into $target
+    }
+
+    # 2. Otherwise it's like the editor's rule for keyboards: among
+    #    the things the page points up at, take the smallest one --
+    #    here, the smallest one that handles mouse input.
+    Wish $page points up with length 0.3
+    When $page points up with length 0.3 at /target/ &\
+         /target/ handles mouse input &\
+         /target/ has resolved geometry /geom/ {
+        Claim $page could point into $target with area \
+            [expr {[dict get $geom width] * [dict get $geom height]}]
+    }
+    When /nobody/ claims $page has mouse target /t/ from its keyboard &\
+         the collected results for [list $page could point into /target/ with area /area/] are /results/ {
+        set best ""
+        set smallestArea Inf
+        foreach result $results {
+            if {[dict get $result area] < $smallestArea} {
+                set best [dict get $result target]
+                set smallestArea [dict get $result area]
+            }
+        }
+        if {$best ne ""} { Claim $page is pointing into $best }
+    }
+}
