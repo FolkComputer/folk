@@ -1,0 +1,1697 @@
+# Web browser
+#
+# Turn a page (or anything with a quad) into a live web browser:
+#
+#   Wish $this is a web browser showing "https://folk.computer"
+#   Wish $this is a web browser showing $url with width 1280 height 800
+#
+# Options: width/height (viewport in CSS px; default width 1024,
+# height from the page's aspect ratio), fps (30), quality (JPEG
+# quality of the frame stream, 80), pointerSpeed (CSS px per mouse
+# unit, 1.0), reorderWindow (ms an out-of-order input event waits for
+# its predecessors, 50), keep (ms the browser survives without its
+# wish, 5000).
+#
+# A keyboard that `is typing into` the thing types into the page; a
+# mouse that `is pointing into` it moves the page's pointer.
+#
+# The browser is Chromium, driven through the DevTools protocol on a
+# pipe (--remote-debugging-pipe). Frames come from Page.startScreencast
+# as JPEGs; a reader thread decodes them; an uploader thread
+# composites the mouse cursor and updates one long-lived GPU texture
+# in place. Nothing changes in the database per frame.
+#
+# State (each is a held statement):
+#   web browser /thing/ has url /url/
+#   web browser /thing/ has title /title/
+#   web browser /thing/ has loading state /loading|complete|crashed/
+#   web browser /thing/ has viewport /w/ /h/
+#   web browser /thing/ has pointer /x/ /y/ buttons /bitmask/
+#   web browser /thing/ has frame count /n/
+#   web browser /thing/ handled dialog /type/ with message /m/ count /n/
+#   web browser /thing/ redirected popup /url/ count /n/
+#
+# For tests and automation (any thread):
+#   When the web browser library is /lib/ & /thing/ has web browser /b/ {
+#     $lib browserEval $b {document.title}      ;# -> JSON text
+#     $lib browserNavigate $b $url
+#     $lib browserScreenshot $b /tmp/shot.png
+#     $lib browserStats $b                      ;# -> dict
+#   }
+#
+# Environment: FOLK_BROWSER (path of a Chromium binary),
+# FOLK_BROWSER_FLAGS (extra command-line flags).
+
+When the image library is /imageLib/ & the GPU texture library is /gpuTextureLib/ {
+
+set cc [C]
+$cc cflags -D_GNU_SOURCE
+$cc endcflags -lturbojpeg -lpthread
+foreach header {unistd.h stdlib.h string.h stdarg.h errno.h fcntl.h poll.h signal.h sched.h
+                pthread.h time.h math.h ftw.h sys/wait.h sys/types.h sys/stat.h sys/prctl.h} {
+    $cc include <$header>
+}
+$cc extend $imageLib
+$cc typedef int GpuTextureHandle
+$cc import $gpuTextureLib copyImageToRawGpuTexture as brGpuCreateTexture
+$cc import $gpuTextureLib updateGpuTexture as brGpuUpdateTexture
+$cc import $gpuTextureLib freeGpuTexture as brGpuFreeTexture
+
+# All of the real C lives in this verbatim block. (It is inside a Tcl
+# braced word: keep braces balanced, also in string literals; LB/RB
+# stand in for lone braces.)
+$cc code {
+    #undef EXTERN
+    #include <turbojpeg.h>
+
+    #define LB "\x7b"
+    #define RB "\x7d"
+    #define BR_MAX 64
+    #define BR_WAITERS 16
+    #define BR_DEVICES 8
+    #define BR_QUEUE 128
+    #define BR_ACKS 8
+
+    // CDP modifier bits.
+    #define M_ALT 1
+    #define M_CTRL 2
+    #define M_META 4
+    #define M_SHIFT 8
+
+    // Published state: each kind has the generation of its last change.
+    enum { PUB_URL, PUB_TITLE, PUB_STATE, PUB_VIEWPORT, PUB_DIALOG, PUB_POPUP, PUB_FRAMES, PUB_POINTER, PUB_KINDS };
+
+    // Ids of our own commands (replies are handled by the reader).
+    #define ID_CREATE_TARGET 1
+    #define ID_ATTACH 2
+    #define ID_SETUP_DONE 4
+    #define ID_FRAME_SHOT 5
+    #define ID_NAVIGATE 6
+    #define ID_TITLE 7
+    #define ID_URL 8
+    #define ID_IGNORE 100              // 100..999: replies nobody waits for
+    #define ID_FIRST_CALL 1000
+
+    typedef struct BrEv {
+        long long seq;
+        double arrival;
+        int kind;                  // 0 key, 1 mouse
+        int a, b, c, d, e;         // key: state code mods shiftOpt; mouse: dx dy wheel hwheel buttons
+        char text[12];             // key: printable (UTF-8)
+        char name[24];             // key: Folk key name (fallback when there is no code)
+    } BrEv;
+
+    typedef struct BrDevice {
+        char path[160];
+        bool used;
+        long long lastSeq;         // last dispatched sequence number
+        double lastArrival;
+        BrEv q[BR_QUEUE]; int n;   // events waiting for their predecessors
+        int heldModKeys;           // bit per physical modifier key
+        int buttons;               // mouse buttons after the last dispatched report
+    } BrDevice;
+
+    typedef struct BrWaiter { int id; bool done; char* reply; } BrWaiter;
+
+    typedef struct Browser {
+        int id;
+        int refs;                          // API calls in flight (under brRegMu)
+        int w, h, fps, quality;
+        double pointerSpeed, quietS;
+        char** argv; char udd[128];
+        pid_t pid; int wfd, rfd;
+        pthread_t reader, worker; bool readerStarted, workerStarted;
+        _Atomic bool quit;
+
+        pthread_mutex_t wmu;               // pipe writes
+        pthread_mutex_t mu;                // everything below, up to the input section
+        pthread_cond_t replyCond, workCond;
+        bool ready, closed, reaped, focusEmulated;
+        char targetId[64], sessionId[80];
+        char popupId[64];
+        char* wantUrl; char* shownUrl;
+        char* url; char* title; const char* state;
+        char* dialogType; char* dialogMessage; int dialogCount;
+        char* popupUrl; int popupCount;
+        char lastError[256];
+        long pubGen, pubAcked, pubKind[PUB_KINDS];
+        int nextCallId;
+        BrWaiter waiters[BR_WAITERS];
+
+        uint8_t* frame;                    // latest decoded frame, RGBA, w*h*4
+        uint8_t* decodeBuf;                // the reader decodes into this, then swaps
+        uint8_t* compose;                  // frame + cursor, what gets uploaded
+        bool frameDirty, cursorDirty;
+        double lastUpload;
+        int ackIds[BR_ACKS]; double ackDue[BR_ACKS]; int nAcks; double lastAckDue;
+        long shotBase;
+        GpuTextureHandle tex;
+        tjhandle tj;
+        uint8_t* jpegBuf; size_t jpegCap;
+
+        // stats
+        _Atomic long framesReceived, framesDecoded, framesUploaded, decodeErrors;
+        _Atomic long inputSent, keysSent, mouseSent, eventsQueued, eventsLate, gapsSkipped;
+        _Atomic long msgsReceived, bytesReceived, ignoredIds;
+        double lastFrameLatencyMs, lastDecodeMs, lastUploadMs;
+        double createdAt, firstFrameAt;
+
+        // input
+        pthread_mutex_t inMu;
+        BrDevice* devices;                 // BR_DEVICES of them
+        double px, py; int buttons;        // pointer, viewport CSS px
+        int keyMods;                       // CDP modifiers after the last key event
+        int clickCount[5]; double clickTime[5]; double clickX[5], clickY[5];
+        _Atomic int curX, curY, curShown;
+        // publishing
+        int pubX, pubY, pubButtons; double pubPointerAt; long pubFrames; double pubFramesAt;
+    } Browser;
+
+    static pthread_mutex_t brRegMu = PTHREAD_MUTEX_INITIALIZER;
+    static pthread_cond_t brRegCond = PTHREAD_COND_INITIALIZER;
+    static Browser* brTable[BR_MAX];
+    static int brNextId = 1;
+
+    static double brNow(void) {
+        struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+        return ts.tv_sec + ts.tv_nsec / 1e9;
+    }
+    static double brWall(void) {
+        struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts);
+        return ts.tv_sec + ts.tv_nsec / 1e9;
+    }
+    static void brCondWait(pthread_cond_t* cond, pthread_mutex_t* mu, double until) {
+        struct timespec ts; ts.tv_sec = (time_t)until; ts.tv_nsec = (long)((until - (double)ts.tv_sec) * 1e9);
+        pthread_cond_timedwait(cond, mu, &ts);
+    }
+    static void brSetStr(char** dst, const char* s) {
+        free(*dst); *dst = strdup(s ? s : "");
+    }
+
+    // FOLK_BROWSER_TRACE=<file>: log every DevTools message (truncated) there.
+    static FILE* brTraceFile = NULL; static bool brTraceChecked = false;
+    static void brTrace(int id, const char* dir, const char* m, size_t len) {
+        if (!brTraceChecked) {
+            const char* path = getenv("FOLK_BROWSER_TRACE");
+            if (path != NULL && path[0]) brTraceFile = fopen(path, "a");
+            brTraceChecked = true;
+        }
+        if (brTraceFile == NULL) return;
+        fprintf(brTraceFile, "%.3f %d %s %.*s%s\n", brWall(), id, dir, (int)(len > 400 ? 400 : len), m, len > 400 ? "..." : "");
+        fflush(brTraceFile);
+    }
+
+    // Marks a kind of published state as changed (with mu held).
+    static void brPub(Browser* b, int kind) { b->pubKind[kind] = ++b->pubGen; }
+
+    // ---- registry: handles are ids, so a stale handle is an error, not a crash
+
+    static Browser* brAcquire(int id) {
+        Browser* b = NULL;
+        pthread_mutex_lock(&brRegMu);
+        for (int i = 0; i < BR_MAX; i++) {
+            if (brTable[i] != NULL && brTable[i]->id == id) { b = brTable[i]; b->refs++; break; }
+        }
+        pthread_mutex_unlock(&brRegMu);
+        return b;
+    }
+    static void brRelease(Browser* b) {
+        pthread_mutex_lock(&brRegMu);
+        b->refs--;
+        pthread_cond_broadcast(&brRegCond);
+        pthread_mutex_unlock(&brRegMu);
+    }
+
+    // ---- pipe transport: NUL-delimited JSON, child reads fd 3 and writes fd 4
+
+    static bool brSendRaw(Browser* b, const char* data, size_t len) {
+        if (b->wfd < 0) return false;
+        brTrace(b->id, ">", data, len);
+        // Folk leaves SIGPIPE at its default: a write to a dead browser must not kill us.
+        sigset_t pipeSet, old; sigemptyset(&pipeSet); sigaddset(&pipeSet, SIGPIPE);
+        pthread_sigmask(SIG_BLOCK, &pipeSet, &old);
+        bool ok = true;
+        pthread_mutex_lock(&b->wmu);
+        for (int pass = 0; pass < 2 && ok; pass++) {
+            const char* p = pass == 0 ? data : ""; size_t left = pass == 0 ? len : 1;
+            while (left > 0) {
+                ssize_t n = write(b->wfd, p, left);
+                if (n > 0) { p += n; left -= n; }
+                else if (n < 0 && errno == EINTR) { continue; }
+                else { ok = false; break; }
+            }
+        }
+        pthread_mutex_unlock(&b->wmu);
+        if (!ok) { struct timespec zero = {0, 0}; sigtimedwait(&pipeSet, NULL, &zero); }
+        pthread_sigmask(SIG_SETMASK, &old, NULL);
+        return ok;
+    }
+    // params is the inside of the params object (no outer braces), or NULL.
+    static bool brCmd(Browser* b, int id, bool session, const char* method, const char* params) {
+        if (params == NULL) params = "";
+        // Chromium refuses a command whose id is the same as one still in flight.
+        if (id == ID_IGNORE) id = ID_IGNORE + (int)(b->ignoredIds++ % 900);
+        size_t cap = strlen(method) + strlen(params) + 200;
+        char stackBuf[1024]; char* buf = cap <= sizeof(stackBuf) ? stackBuf : malloc(cap);
+        int len;
+        if (session) {
+            len = snprintf(buf, cap, "{\"id\":%d,\"method\":\"%s\",\"params\":{%s},\"sessionId\":\"%s\"}",
+                           id, method, params, b->sessionId);
+        } else {
+            len = snprintf(buf, cap, "{\"id\":%d,\"method\":\"%s\",\"params\":{%s}}", id, method, params);
+        }
+        bool ok = brSendRaw(b, buf, len);
+        if (buf != stackBuf) free(buf);
+        return ok;
+    }
+    static bool brCmdf(Browser* b, int id, bool session, const char* method, const char* fmt, ...) {
+        char params[2048];
+        va_list args; va_start(args, fmt); vsnprintf(params, sizeof(params), fmt, args); va_end(args);
+        return brCmd(b, id, session, method, params);
+    }
+
+    // ---- just enough JSON
+
+    // A quoted, escaped JSON string (malloc'd).
+    static char* brJsonStr(const char* s) {
+        size_t n = strlen(s); char* out = malloc(n * 6 + 3); char* o = out;
+        *o++ = '"';
+        for (const unsigned char* p = (const unsigned char*)s; *p; p++) {
+            if (*p == '"' || *p == '\\') { *o++ = '\\'; *o++ = *p; }
+            else if (*p == '\n') { *o++ = '\\'; *o++ = 'n'; }
+            else if (*p == '\r') { *o++ = '\\'; *o++ = 'r'; }
+            else if (*p == '\t') { *o++ = '\\'; *o++ = 't'; }
+            else if (*p < 0x20) { o += sprintf(o, "\\u%04x", *p); }
+            else { *o++ = *p; }
+        }
+        *o++ = '"'; *o = 0;
+        return out;
+    }
+    static int brHex4(const char* p) {
+        int v = 0;
+        for (int i = 0; i < 4; i++) {
+            char ch = p[i]; int d;
+            if (ch >= '0' && ch <= '9') d = ch - '0';
+            else if (ch >= 'a' && ch <= 'f') d = ch - 'a' + 10;
+            else if (ch >= 'A' && ch <= 'F') d = ch - 'A' + 10;
+            else return -1;
+            v = v * 16 + d;
+        }
+        return v;
+    }
+    // Unescapes the JSON string whose first character (after the quote) is p.
+    static void brUnescape(const char* p, char* out, size_t cap) {
+        size_t o = 0;
+        while (*p && *p != '"' && o + 5 < cap) {
+            if (*p != '\\') { out[o++] = *p++; continue; }
+            p++;
+            unsigned cp;
+            if (*p == 'n') { cp = '\n'; p++; }
+            else if (*p == 't') { cp = '\t'; p++; }
+            else if (*p == 'r') { cp = '\r'; p++; }
+            else if (*p == 'b') { cp = '\b'; p++; }
+            else if (*p == 'f') { cp = '\f'; p++; }
+            else if (*p == 'u') {
+                int v = brHex4(p + 1); if (v < 0) break;
+                p += 5; cp = v;
+                if (cp >= 0xD800 && cp < 0xDC00 && p[0] == '\\' && p[1] == 'u') {
+                    int lo = brHex4(p + 2);
+                    if (lo >= 0xDC00 && lo < 0xE000) { cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00); p += 6; }
+                }
+            }
+            else if (*p) { cp = (unsigned char)*p; p++; }
+            else break;
+            if (cp < 0x80) { out[o++] = cp; }
+            else if (cp < 0x800) { out[o++] = 0xC0 | (cp >> 6); out[o++] = 0x80 | (cp & 0x3F); }
+            else if (cp < 0x10000) { out[o++] = 0xE0 | (cp >> 12); out[o++] = 0x80 | ((cp >> 6) & 0x3F); out[o++] = 0x80 | (cp & 0x3F); }
+            else { out[o++] = 0xF0 | (cp >> 18); out[o++] = 0x80 | ((cp >> 12) & 0x3F); out[o++] = 0x80 | ((cp >> 6) & 0x3F); out[o++] = 0x80 | (cp & 0x3F); }
+        }
+        out[o] = 0;
+    }
+    // First "key":"value" in m; out gets the unescaped value.
+    static bool brGetStr(const char* m, const char* key, char* out, size_t cap) {
+        char pat[80]; snprintf(pat, sizeof(pat), "\"%s\":\"", key);
+        const char* p = strstr(m, pat);
+        if (p == NULL) { out[0] = 0; return false; }
+        brUnescape(p + strlen(pat), out, cap);
+        return true;
+    }
+    static bool brGetNum(const char* m, const char* key, double* out) {
+        char pat[80]; snprintf(pat, sizeof(pat), "\"%s\":", key);
+        const char* p = strstr(m, pat);
+        if (p == NULL) return false;
+        char* end; double v = strtod(p + strlen(pat), &end);
+        if (end == p + strlen(pat)) return false;
+        *out = v; return true;
+    }
+    // Returns the end of the JSON value that starts at p.
+    static const char* brSkipValue(const char* p) {
+        int depth = 0; bool inStr = false;
+        for (; *p; p++) {
+            char ch = *p;
+            if (inStr) {
+                if (ch == '\\' && p[1]) { p++; }
+                else if (ch == '"') { inStr = false; if (depth == 0) return p + 1; }
+                continue;
+            }
+            if (ch == '"') { inStr = true; }
+            else if (ch == 0x7b || ch == 0x5b) { depth++; }
+            else if (ch == 0x7d || ch == 0x5d) {
+                if (depth == 0) return p;
+                if (--depth == 0) return p + 1;
+            }
+            else if (ch == ',' && depth == 0) { return p; }
+        }
+        return p;
+    }
+    static signed char brB64[256]; static bool brB64Ready = false;
+    static void brB64Init(void) {
+        const char* alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        signed char t[256]; memset(t, -1, sizeof(t));
+        for (int i = 0; i < 64; i++) t[(unsigned char)alphabet[i]] = i;
+        memcpy(brB64, t, sizeof(t)); brB64Ready = true;
+    }
+    // Decodes until the closing quote; returns the number of bytes.
+    static size_t brB64Decode(const char* in, unsigned char* out, const char** endOut) {
+        unsigned acc = 0; int bits = 0; size_t o = 0;
+        const unsigned char* p = (const unsigned char*)in;
+        for (; *p && *p != '"'; p++) {
+            int v = brB64[*p]; if (v < 0) continue;
+            acc = (acc << 6) | (unsigned)v; bits += 6;
+            if (bits >= 8) { bits -= 8; out[o++] = (acc >> bits) & 0xff; }
+        }
+        if (endOut) *endOut = (const char*)p;
+        return o;
+    }
+
+    // ---- frames
+
+    static const char* brCursor[] = {
+        "X           ",
+        "XX          ",
+        "X.X         ",
+        "X..X        ",
+        "X...X       ",
+        "X....X      ",
+        "X.....X     ",
+        "X......X    ",
+        "X.......X   ",
+        "X........X  ",
+        "X.........X ",
+        "X......XXXXX",
+        "X...X..X    ",
+        "X..X X..X   ",
+        "X.X  X..X   ",
+        "XX    X..X  ",
+        "X     X..X  ",
+        "       XX   ",
+        NULL
+    };
+    static void brDrawCursor(uint8_t* px, int w, int h, int cx, int cy) {
+        for (int r = 0; brCursor[r] != NULL; r++) {
+            for (int c = 0; brCursor[r][c]; c++) {
+                char ch = brCursor[r][c]; if (ch == ' ') continue;
+                int x = cx + c, y = cy + r; if (x < 0 || y < 0 || x >= w || y >= h) continue;
+                uint8_t v = ch == 'X' ? 0 : 255;
+                uint8_t* p = px + ((size_t)y * w + x) * 4;
+                p[0] = p[1] = p[2] = v; p[3] = 255;
+            }
+        }
+    }
+    // b64 points at the first character of a base64 JPEG inside a JSON string.
+    // Runs on the reader thread only.
+    static const char* brDecodeFrame(Browser* b, const char* b64, double capturedAt) {
+        double t0 = brNow();
+        size_t b64len = strlen(b64);     // upper bound: the rest of the message
+        if (b->jpegCap < b64len) { free(b->jpegBuf); b->jpegCap = b64len + 4096; b->jpegBuf = malloc(b->jpegCap); }
+        const char* end; size_t n = brB64Decode(b64, b->jpegBuf, &end);
+        int fw, fh, subsamp, colorspace;
+        if (tjDecompressHeader3(b->tj, b->jpegBuf, n, &fw, &fh, &subsamp, &colorspace) != 0 || fw <= 0 || fh <= 0) {
+            b->decodeErrors++; return end;
+        }
+        int rc;
+        if (fw == b->w && fh == b->h) {
+            rc = tjDecompress2(b->tj, b->jpegBuf, n, b->decodeBuf, fw, fw * 4, fh, TJPF_RGBA, 0);
+        } else {
+            // A frame of another size (e.g. before the viewport override took effect): show what fits.
+            uint8_t* tmp = malloc((size_t)fw * fh * 4);
+            rc = tjDecompress2(b->tj, b->jpegBuf, n, tmp, fw, fw * 4, fh, TJPF_RGBA, 0);
+            memset(b->decodeBuf, 255, (size_t)b->w * b->h * 4);
+            int cw = fw < b->w ? fw : b->w, ch = fh < b->h ? fh : b->h;
+            for (int y = 0; y < ch; y++) memcpy(b->decodeBuf + (size_t)y * b->w * 4, tmp + (size_t)y * fw * 4, (size_t)cw * 4);
+            free(tmp);
+        }
+        if (rc != 0) { b->decodeErrors++; return end; }
+        double now = brNow();
+        pthread_mutex_lock(&b->mu);
+        uint8_t* t = b->frame; b->frame = b->decodeBuf; b->decodeBuf = t;
+        b->frameDirty = true;
+        b->lastDecodeMs = (now - t0) * 1000;
+        if (capturedAt > 0) b->lastFrameLatencyMs = (brWall() - capturedAt) * 1000;
+        if (b->firstFrameAt == 0) b->firstFrameAt = now;
+        b->framesDecoded++;
+        pthread_cond_signal(&b->workCond);
+        pthread_mutex_unlock(&b->mu);
+        return end;
+    }
+
+    // ---- input: keys
+
+    typedef struct BrKey { int ev; const char* code; const char* key; const char* shifted; int vk; int loc; } BrKey;
+    // evdev KEY_ code -> DOM code, key, shifted key, Windows virtual key code, location. US layout.
+    static const BrKey brKeys[] = {
+        {1, "Escape", "Escape", NULL, 27, 0},
+        {2, "Digit1", "1", "!", 49, 0}, {3, "Digit2", "2", "@", 50, 0}, {4, "Digit3", "3", "#", 51, 0},
+        {5, "Digit4", "4", "$", 52, 0}, {6, "Digit5", "5", "%", 53, 0}, {7, "Digit6", "6", "^", 54, 0},
+        {8, "Digit7", "7", "&", 55, 0}, {9, "Digit8", "8", "*", 56, 0}, {10, "Digit9", "9", "(", 57, 0},
+        {11, "Digit0", "0", ")", 48, 0}, {12, "Minus", "-", "_", 189, 0}, {13, "Equal", "=", "+", 187, 0},
+        {14, "Backspace", "Backspace", NULL, 8, 0}, {15, "Tab", "Tab", NULL, 9, 0},
+        {16, "KeyQ", "q", "Q", 81, 0}, {17, "KeyW", "w", "W", 87, 0}, {18, "KeyE", "e", "E", 69, 0},
+        {19, "KeyR", "r", "R", 82, 0}, {20, "KeyT", "t", "T", 84, 0}, {21, "KeyY", "y", "Y", 89, 0},
+        {22, "KeyU", "u", "U", 85, 0}, {23, "KeyI", "i", "I", 73, 0}, {24, "KeyO", "o", "O", 79, 0},
+        {25, "KeyP", "p", "P", 80, 0},
+        {26, "BracketLeft", "[", "\x7b", 219, 0}, {27, "BracketRight", "]", "\x7d", 221, 0},
+        {28, "Enter", "Enter", NULL, 13, 0}, {29, "ControlLeft", "Control", NULL, 17, 1},
+        {30, "KeyA", "a", "A", 65, 0}, {31, "KeyS", "s", "S", 83, 0}, {32, "KeyD", "d", "D", 68, 0},
+        {33, "KeyF", "f", "F", 70, 0}, {34, "KeyG", "g", "G", 71, 0}, {35, "KeyH", "h", "H", 72, 0},
+        {36, "KeyJ", "j", "J", 74, 0}, {37, "KeyK", "k", "K", 75, 0}, {38, "KeyL", "l", "L", 76, 0},
+        {39, "Semicolon", ";", ":", 186, 0}, {40, "Quote", "'", "\"", 222, 0}, {41, "Backquote", "`", "~", 192, 0},
+        {42, "ShiftLeft", "Shift", NULL, 16, 1}, {43, "Backslash", "\\", "|", 220, 0},
+        {44, "KeyZ", "z", "Z", 90, 0}, {45, "KeyX", "x", "X", 88, 0}, {46, "KeyC", "c", "C", 67, 0},
+        {47, "KeyV", "v", "V", 86, 0}, {48, "KeyB", "b", "B", 66, 0}, {49, "KeyN", "n", "N", 78, 0},
+        {50, "KeyM", "m", "M", 77, 0},
+        {51, "Comma", ",", "<", 188, 0}, {52, "Period", ".", ">", 190, 0}, {53, "Slash", "/", "?", 191, 0},
+        {54, "ShiftRight", "Shift", NULL, 16, 2}, {55, "NumpadMultiply", "*", "*", 106, 3},
+        {56, "AltLeft", "Alt", NULL, 18, 1}, {57, "Space", " ", " ", 32, 0}, {58, "CapsLock", "CapsLock", NULL, 20, 0},
+        {59, "F1", "F1", NULL, 112, 0}, {60, "F2", "F2", NULL, 113, 0}, {61, "F3", "F3", NULL, 114, 0},
+        {62, "F4", "F4", NULL, 115, 0}, {63, "F5", "F5", NULL, 116, 0}, {64, "F6", "F6", NULL, 117, 0},
+        {65, "F7", "F7", NULL, 118, 0}, {66, "F8", "F8", NULL, 119, 0}, {67, "F9", "F9", NULL, 120, 0},
+        {68, "F10", "F10", NULL, 121, 0}, {69, "NumLock", "NumLock", NULL, 144, 0},
+        {70, "ScrollLock", "ScrollLock", NULL, 145, 0},
+        {71, "Numpad7", "7", "7", 103, 3}, {72, "Numpad8", "8", "8", 104, 3}, {73, "Numpad9", "9", "9", 105, 3},
+        {74, "NumpadSubtract", "-", "-", 109, 3},
+        {75, "Numpad4", "4", "4", 100, 3}, {76, "Numpad5", "5", "5", 101, 3}, {77, "Numpad6", "6", "6", 102, 3},
+        {78, "NumpadAdd", "+", "+", 107, 3},
+        {79, "Numpad1", "1", "1", 97, 3}, {80, "Numpad2", "2", "2", 98, 3}, {81, "Numpad3", "3", "3", 99, 3},
+        {82, "Numpad0", "0", "0", 96, 3}, {83, "NumpadDecimal", ".", ".", 110, 3},
+        {86, "IntlBackslash", "<", ">", 226, 0},
+        {87, "F11", "F11", NULL, 122, 0}, {88, "F12", "F12", NULL, 123, 0},
+        {96, "NumpadEnter", "Enter", NULL, 13, 3}, {97, "ControlRight", "Control", NULL, 17, 2},
+        {98, "NumpadDivide", "/", "/", 111, 3}, {99, "PrintScreen", "PrintScreen", NULL, 44, 0},
+        {100, "AltRight", "Alt", NULL, 18, 2},
+        {102, "Home", "Home", NULL, 36, 0}, {103, "ArrowUp", "ArrowUp", NULL, 38, 0},
+        {104, "PageUp", "PageUp", NULL, 33, 0}, {105, "ArrowLeft", "ArrowLeft", NULL, 37, 0},
+        {106, "ArrowRight", "ArrowRight", NULL, 39, 0}, {107, "End", "End", NULL, 35, 0},
+        {108, "ArrowDown", "ArrowDown", NULL, 40, 0}, {109, "PageDown", "PageDown", NULL, 34, 0},
+        {110, "Insert", "Insert", NULL, 45, 0}, {111, "Delete", "Delete", NULL, 46, 0},
+        {119, "Pause", "Pause", NULL, 19, 0},
+        {125, "MetaLeft", "Meta", NULL, 91, 1}, {126, "MetaRight", "Meta", NULL, 92, 2},
+        {127, "ContextMenu", "ContextMenu", NULL, 93, 0},
+        {0, NULL, NULL, NULL, 0, 0}
+    };
+    // Folk key names (Linux console keysyms, see lib/keymap.tcl) for
+    // keyboards whose events carry no evdev code.
+    static const struct { const char* name; int ev; } brKeyNames[] = {
+        {"Return", 28}, {"Delete", 14}, {"BackSpace", 14}, {"Remove", 111}, {"Tab", 15}, {"Escape", 1},
+        {"Up", 103}, {"Down", 108}, {"Left", 105}, {"Right", 106},
+        {"Home", 102}, {"Find", 102}, {"End", 107}, {"Select", 107}, {"Prior", 104}, {"Next", 109},
+        {"Insert", 110}, {"space", 57}, {"Shift", 42}, {"Control", 29}, {"Alt", 56}, {"AltGr", 100},
+        {"Caps_Lock", 58}, {"KP_Enter", 96},
+        {"F1", 59}, {"F2", 60}, {"F3", 61}, {"F4", 62}, {"F5", 63}, {"F6", 64}, {"F7", 65}, {"F8", 66},
+        {"F9", 67}, {"F10", 68}, {"F11", 87}, {"F12", 88},
+        {NULL, 0}
+    };
+    static const BrKey* brKeyByCode(int ev) {
+        for (const BrKey* k = brKeys; k->code != NULL; k++) if (k->ev == ev) return k;
+        return NULL;
+    }
+    static bool brKeyPrintable(const BrKey* k) { return k->shifted != NULL; }
+    // Which main-block key types this character? Sets *shift.
+    static const BrKey* brKeyByChar(const char* ch, bool* shift) {
+        for (const BrKey* k = brKeys; k->code != NULL; k++) {
+            if (!brKeyPrintable(k) || k->loc == 3) continue;
+            if (strcmp(k->key, ch) == 0) { *shift = false; return k; }
+            if (strcmp(k->shifted, ch) == 0) { *shift = true; return k; }
+        }
+        return NULL;
+    }
+    static int brModKeyBit(int ev) {
+        switch (ev) {
+        case 42: return 1; case 54: return 2;       // shift
+        case 29: return 4; case 97: return 8;       // control
+        case 56: return 16; case 100: return 32;    // alt
+        case 125: return 64; case 126: return 128;  // meta
+        default: return 0;
+        }
+    }
+    static int brModsOfKeys(int held) {
+        return ((held & 3) ? M_SHIFT : 0) | ((held & 12) ? M_CTRL : 0) | ((held & 48) ? M_ALT : 0) | ((held & 192) ? M_META : 0);
+    }
+
+    // Called with inMu held, in sequence order.
+    static void brDispatchKey(Browser* b, BrDevice* dev, BrEv* ev) {
+        int state = ev->a, code = ev->b, folkMods = ev->c;
+        int extraMods = 0; bool shiftFromChar = false, haveShiftFromChar = false;
+        const BrKey* k = code > 0 ? brKeyByCode(code) : NULL;
+        if (k == NULL && code <= 0) {
+            // No evdev code: go by the Folk key name.
+            const char* name = ev->name;
+            for (;;) {
+                if (strncmp(name, "Control_", 8) == 0 && name[8]) { extraMods |= M_CTRL; name += 8; }
+                else if (strncmp(name, "Meta_", 5) == 0 && name[5]) { extraMods |= M_ALT; name += 5; }
+                else if (strncmp(name, "Shift_", 6) == 0 && name[6]) { extraMods |= M_SHIFT; name += 6; }
+                else break;
+            }
+            for (int i = 0; brKeyNames[i].name != NULL && k == NULL; i++) {
+                if (strcmp(brKeyNames[i].name, name) == 0) k = brKeyByCode(brKeyNames[i].ev);
+            }
+            if (k == NULL) {
+                const char* ch = ev->text[0] ? ev->text : name;
+                k = brKeyByChar(ch, &shiftFromChar);
+                if (k != NULL) haveShiftFromChar = true;
+            }
+            if (k == NULL) {
+                // Something we have no key for (another layout): at least insert the character.
+                if (state != 0 && ev->text[0]) {
+                    char* t = brJsonStr(ev->text);
+                    if (brCmdf(b, ID_IGNORE, true, "Input.dispatchKeyEvent", "\"type\":\"char\",\"text\":%s", t)) { b->inputSent++; b->keysSent++; }
+                    free(t);
+                }
+                return;
+            }
+        }
+        if (k == NULL) return;
+
+        int bit = brModKeyBit(k->ev);
+        if (bit) { if (state == 0) dev->heldModKeys &= ~bit; else dev->heldModKeys |= bit; }
+        int mods;
+        if (folkMods >= 0) {
+            // keyboard.folk's modifier weights, as they were before this event: shift 1, altgr 2, control 4, alt 8.
+            mods = ((folkMods & 1) ? M_SHIFT : 0) | ((folkMods & 4) ? M_CTRL : 0) | ((folkMods & 8) ? M_ALT : 0);
+            mods |= brModsOfKeys(dev->heldModKeys) & M_META;
+            if (bit) {
+                int own = brModsOfKeys(bit);
+                if (state == 0) mods &= ~own | brModsOfKeys(dev->heldModKeys); else mods |= own;
+            }
+        } else {
+            mods = brModsOfKeys(dev->heldModKeys) | extraMods;
+            if (ev->d > 0) mods |= M_SHIFT;
+            if (haveShiftFromChar && shiftFromChar) mods |= M_SHIFT;
+        }
+        b->keyMods = mods;
+
+        bool shift = (mods & M_SHIFT) != 0;
+        const char* key = k->key; const char* text = NULL;
+        if (brKeyPrintable(k)) {
+            key = shift ? k->shifted : k->key;
+            if (!(mods & (M_CTRL | M_ALT | M_META))) {
+                text = ev->text[0] ? ev->text : key;
+                key = text;
+            }
+        } else if (k->vk == 13 && !(mods & (M_CTRL | M_ALT | M_META))) {
+            text = "\r";
+        }
+        const char* type = state == 0 ? "keyUp" : (text != NULL ? "keyDown" : "rawKeyDown");
+        char* jkey = brJsonStr(key);
+        char textPart[160] = "";
+        if (text != NULL && state != 0) {
+            char* jtext = brJsonStr(text);
+            snprintf(textPart, sizeof(textPart), ",\"text\":%s,\"unmodifiedText\":%s", jtext, jtext);
+            free(jtext);
+        }
+        bool ok = brCmdf(b, ID_IGNORE, true, "Input.dispatchKeyEvent",
+                         "\"type\":\"%s\",\"key\":%s,\"code\":\"%s\",\"windowsVirtualKeyCode\":%d,\"nativeVirtualKeyCode\":%d,"
+                         "\"modifiers\":%d,\"autoRepeat\":%s,\"location\":%d,\"isKeypad\":%s%s",
+                         type, jkey, k->code, k->vk, k->vk, mods, state == 2 ? "true" : "false",
+                         k->loc, k->loc == 3 ? "true" : "false", textPart);
+        free(jkey);
+        if (ok) { b->inputSent++; b->keysSent++; }
+    }
+
+    // ---- input: mouse
+
+    static const char* brButtonNames[5] = { "left", "right", "middle", "back", "forward" };
+    static const char* brPrimaryButton(int buttons) {
+        for (int i = 0; i < 5; i++) if (buttons & (1 << i)) return brButtonNames[i];
+        return "none";
+    }
+    // Called with inMu held, in sequence order.
+    static void brDispatchMouse(Browser* b, BrDevice* dev, BrEv* ev) {
+        int dx = ev->a, dy = ev->b, wheel = ev->c, hwheel = ev->d, buttons = ev->e & 31;
+        int sent = 0;
+        if (dx != 0 || dy != 0) {
+            b->px += dx * b->pointerSpeed; b->py += dy * b->pointerSpeed;
+            if (b->px < 0) b->px = 0;
+            if (b->py < 0) b->py = 0;
+            if (b->px > b->w - 1) b->px = b->w - 1;
+            if (b->py > b->h - 1) b->py = b->h - 1;
+            sent += brCmdf(b, ID_IGNORE, true, "Input.dispatchMouseEvent",
+                           "\"type\":\"mouseMoved\",\"x\":%.1f,\"y\":%.1f,\"button\":\"%s\",\"buttons\":%d,\"modifiers\":%d",
+                           b->px, b->py, brPrimaryButton(dev->buttons), dev->buttons, b->keyMods);
+        }
+        int cur = dev->buttons;
+        for (int i = 0; i < 5; i++) {
+            int bit = 1 << i;
+            if (!((cur ^ buttons) & bit)) continue;
+            bool press = (buttons & bit) != 0;
+            cur = press ? (cur | bit) : (cur & ~bit);
+            if (press) {
+                double now = brNow();
+                if (b->clickCount[i] > 0 && now - b->clickTime[i] <= 0.5 &&
+                    fabs(b->px - b->clickX[i]) <= 4 && fabs(b->py - b->clickY[i]) <= 4) {
+                    b->clickCount[i]++;
+                } else {
+                    b->clickCount[i] = 1;
+                }
+                b->clickTime[i] = now; b->clickX[i] = b->px; b->clickY[i] = b->py;
+            }
+            sent += brCmdf(b, ID_IGNORE, true, "Input.dispatchMouseEvent",
+                           "\"type\":\"%s\",\"x\":%.1f,\"y\":%.1f,\"button\":\"%s\",\"buttons\":%d,\"clickCount\":%d,\"modifiers\":%d",
+                           press ? "mousePressed" : "mouseReleased", b->px, b->py, brButtonNames[i], cur,
+                           b->clickCount[i] > 0 ? b->clickCount[i] : 1, b->keyMods);
+        }
+        dev->buttons = cur; b->buttons = cur;
+        if (wheel != 0 || hwheel != 0) {
+            sent += brCmdf(b, ID_IGNORE, true, "Input.dispatchMouseEvent",
+                           "\"type\":\"mouseWheel\",\"x\":%.1f,\"y\":%.1f,\"button\":\"none\",\"buttons\":%d,"
+                           "\"deltaX\":%d,\"deltaY\":%d,\"modifiers\":%d",
+                           b->px, b->py, cur, hwheel * 100, -wheel * 100, b->keyMods);
+        }
+        b->inputSent += sent; b->mouseSent += sent;
+        int nx = (int)b->px, ny = (int)b->py;
+        if (nx != b->curX || ny != b->curY) {
+            b->curX = nx; b->curY = ny;
+            pthread_mutex_lock(&b->mu);
+            b->cursorDirty = true;
+            pthread_cond_signal(&b->workCond);
+            pthread_mutex_unlock(&b->mu);
+        }
+    }
+
+    // ---- input: restoring the order of events (Notify does not keep it)
+
+    static void brDispatch(Browser* b, BrDevice* dev, BrEv* ev) {
+        if (ev->kind == 0) brDispatchKey(b, dev, ev); else brDispatchMouse(b, dev, ev);
+    }
+    // Dispatches queued events for as long as they continue the sequence.
+    static void brDrain(Browser* b, BrDevice* dev) {
+        bool progress = true;
+        while (progress && dev->n > 0) {
+            progress = false;
+            for (int i = 0; i < dev->n; i++) {
+                if (dev->q[i].seq == dev->lastSeq + 1) {
+                    BrEv ev = dev->q[i]; dev->q[i] = dev->q[--dev->n];
+                    dev->lastSeq = ev.seq; brDispatch(b, dev, &ev);
+                    progress = true; break;
+                }
+            }
+        }
+    }
+    // Gives up on whatever is missing before the oldest queued event.
+    static void brSkipGap(Browser* b, BrDevice* dev) {
+        if (dev->n == 0) return;
+        int min = 0;
+        for (int i = 1; i < dev->n; i++) if (dev->q[i].seq < dev->q[min].seq) min = i;
+        if (dev->lastSeq > 0) b->gapsSkipped++;
+        BrEv ev = dev->q[min]; dev->q[min] = dev->q[--dev->n];
+        dev->lastSeq = ev.seq; brDispatch(b, dev, &ev);
+        brDrain(b, dev);
+    }
+    static BrDevice* brDevice(Browser* b, const char* path) {
+        BrDevice* freeDev = NULL; BrDevice* oldest = &b->devices[0];
+        for (int i = 0; i < BR_DEVICES; i++) {
+            BrDevice* d = &b->devices[i];
+            if (d->used && strcmp(d->path, path) == 0) return d;
+            if (!d->used && freeDev == NULL) freeDev = d;
+            if (d->lastArrival < oldest->lastArrival) oldest = d;
+        }
+        BrDevice* d = freeDev != NULL ? freeDev : oldest;
+        memset(d, 0, sizeof(*d));
+        d->used = true; snprintf(d->path, sizeof(d->path), "%s", path);
+        return d;
+    }
+    static void brSubmit(Browser* b, const char* path, BrEv* ev) {
+        pthread_mutex_lock(&b->inMu);
+        BrDevice* dev = brDevice(b, path);
+        double now = brNow();
+        ev->arrival = now; dev->lastArrival = now;
+        if (ev->seq <= 0) {
+            brDispatch(b, dev, ev);                       // unnumbered: arrival order is all we have
+        } else if (ev->seq == dev->lastSeq + 1) {
+            dev->lastSeq = ev->seq; brDispatch(b, dev, ev);
+            brDrain(b, dev);
+        } else if (ev->seq <= dev->lastSeq) {
+            if (dev->lastSeq - ev->seq > 4 * BR_QUEUE) {  // the device started counting again
+                while (dev->n > 0) brSkipGap(b, dev);
+                dev->lastSeq = ev->seq;
+            } else {
+                b->eventsLate++;
+            }
+            brDispatch(b, dev, ev);
+        } else {
+            if (dev->n == BR_QUEUE) brSkipGap(b, dev);
+            if (dev->n < BR_QUEUE) dev->q[dev->n++] = *ev;
+            b->eventsQueued++;
+            pthread_mutex_lock(&b->mu);
+            pthread_cond_signal(&b->workCond);            // the worker enforces the timeout
+            pthread_mutex_unlock(&b->mu);
+        }
+        pthread_mutex_unlock(&b->inMu);
+    }
+    // Worker: skip gaps that nothing filled in time. Returns the next deadline (or 0).
+    static double brInputTimeouts(Browser* b) {
+        double next = 0;
+        pthread_mutex_lock(&b->inMu);
+        for (int i = 0; i < BR_DEVICES; i++) {
+            BrDevice* dev = &b->devices[i];
+            while (dev->used && dev->n > 0) {
+                double oldest = dev->q[0].arrival;
+                for (int j = 1; j < dev->n; j++) if (dev->q[j].arrival < oldest) oldest = dev->q[j].arrival;
+                // Wait while events are still trickling in, but not forever.
+                double due = dev->lastArrival + b->quietS;
+                if (oldest + 8 * b->quietS < due) due = oldest + 8 * b->quietS;
+                if (brNow() >= due) { brSkipGap(b, dev); }
+                else { if (next == 0 || due < next) next = due; break; }
+            }
+        }
+        pthread_mutex_unlock(&b->inMu);
+        return next;
+    }
+
+    // ---- the reader thread: spawns the browser, reads its messages
+
+    static void brNavigateNow(Browser* b, const char* url) {
+        char* j = brJsonStr(url);
+        size_t n = strlen(j) + 16; char* params = malloc(n);
+        snprintf(params, n, "\"url\":%s", j);
+        brCmd(b, ID_NAVIGATE, true, "Page.navigate", params);
+        free(params); free(j);
+    }
+    static void brSetState(Browser* b, const char* state) {
+        pthread_mutex_lock(&b->mu);
+        if (strcmp(b->state, state) != 0 && strcmp(b->state, "crashed") != 0) { b->state = state; brPub(b, PUB_STATE); }
+        pthread_mutex_unlock(&b->mu);
+    }
+    static void brSendAck(Browser* b, int ackId) {
+        brCmdf(b, ID_IGNORE, true, "Page.screencastFrameAck", "\"sessionId\":%d", ackId);
+    }
+    // Title and URL as the page itself sees them. Target.targetInfoChanged does not report
+    // a <title> (only the file name) in the headless shell, and events can be missed.
+    static void brAskInfo(Browser* b) {
+        brCmd(b, ID_TITLE, true, "Runtime.evaluate", "\"expression\":\"document.title\"");
+        brCmd(b, ID_URL, true, "Runtime.evaluate", "\"expression\":\"location.href\"");
+    }
+    static void brOnLoaded(Browser* b) {
+        brSetState(b, "complete");
+        pthread_mutex_lock(&b->mu);
+        bool realPage = b->url != NULL && b->url[0] && strcmp(b->url, "about:blank") != 0;
+        pthread_mutex_unlock(&b->mu);
+        if (!b->focusEmulated && realPage) {
+            // Keeps the page focused whatever else happens. Not before the first load:
+            // enabled on the initial about:blank, the navigation away from it crashed the
+            // renderer in 2 of 3 runs (headless shell 157).
+            b->focusEmulated = true;
+            brCmd(b, ID_IGNORE, true, "Emulation.setFocusEmulationEnabled", "\"enabled\":true");
+        }
+        // The screencast only sends a frame when something changed: ask for a screenshot,
+        // so that a page that never changes still shows up.
+        b->shotBase = b->framesReceived;
+        brCmdf(b, ID_FRAME_SHOT, true, "Page.captureScreenshot", "\"format\":\"jpeg\",\"quality\":%d", b->quality);
+        brAskInfo(b);
+    }
+    static void brOnReply(Browser* b, int id, const char* m) {
+        bool isError = strstr(m, "\"error\":" LB) != NULL && strstr(m, "\"result\":") == NULL;
+        if (id == ID_CREATE_TARGET) {
+            // (Only if the browser came up without a page.) Its targetCreated event attaches.
+            return;
+        } else if (id == ID_ATTACH) {
+            char sid[80];
+            if (isError || !brGetStr(m, "sessionId", sid, sizeof(sid))) {
+                pthread_mutex_lock(&b->mu); snprintf(b->lastError, sizeof(b->lastError), "attach failed: %.200s", m); pthread_mutex_unlock(&b->mu);
+                brSetState(b, "crashed");
+                return;
+            }
+            pthread_mutex_lock(&b->mu); snprintf(b->sessionId, sizeof(b->sessionId), "%s", sid); pthread_mutex_unlock(&b->mu);
+            brCmd(b, ID_IGNORE, true, "Page.enable", NULL);
+            brCmd(b, ID_IGNORE, true, "Runtime.enable", NULL);
+            brCmdf(b, ID_IGNORE, true, "Emulation.setDeviceMetricsOverride",
+                   "\"width\":%d,\"height\":%d,\"deviceScaleFactor\":1,\"mobile\":false", b->w, b->h);
+            // The screencast has to be running BEFORE the first navigation: started right
+            // after one, it delivered no frames at all in tests.
+            brCmdf(b, ID_IGNORE, true, "Page.startScreencast",
+                   "\"format\":\"jpeg\",\"quality\":%d,\"everyNthFrame\":1,\"maxWidth\":%d,\"maxHeight\":%d",
+                   b->quality, b->w, b->h);
+            // And the renderer has to have seen all of the above before it: a navigation
+            // overtakes commands that are still on their way to the old renderer (we then
+            // never hear Page.frameNavigated or Page.loadEventFired). This reply is the barrier.
+            brCmd(b, ID_SETUP_DONE, true, "Runtime.evaluate", "\"expression\":\"1\"");
+        } else if (id == ID_SETUP_DONE) {
+            char* url = NULL;
+            pthread_mutex_lock(&b->mu);
+            b->ready = true;
+            if (b->wantUrl != NULL) url = strdup(b->wantUrl);
+            pthread_cond_broadcast(&b->replyCond);
+            pthread_mutex_unlock(&b->mu);
+            if (url != NULL) { brNavigateNow(b, url); free(url); }
+        } else if (id == ID_FRAME_SHOT) {
+            // A screenshot we asked for after a load, so that a page that never changes still
+            // shows up. Stale if screencast frames arrived in the meantime.
+            const char* data = strstr(m, "\"data\":\"");
+            if (data != NULL && b->framesReceived == b->shotBase) brDecodeFrame(b, data + 8, 0);
+        } else if (id == ID_TITLE || id == ID_URL) {
+            // Answers to the worker's periodic questions (see brAskInfo).
+            char v[2048];
+            if (!brGetStr(m, "value", v, sizeof(v))) return;
+            pthread_mutex_lock(&b->mu);
+            if (id == ID_TITLE) {
+                if (b->title == NULL || strcmp(b->title, v) != 0) { brSetStr(&b->title, v); brPub(b, PUB_TITLE); }
+            } else if (v[0]) {
+                if (b->url == NULL || strcmp(b->url, v) != 0) { brSetStr(&b->url, v); brPub(b, PUB_URL); }
+            }
+            pthread_mutex_unlock(&b->mu);
+        } else if (id == ID_NAVIGATE) {
+            char err[200];
+            if (brGetStr(m, "errorText", err, sizeof(err)) || brGetStr(m, "message", err, sizeof(err))) {
+                pthread_mutex_lock(&b->mu); snprintf(b->lastError, sizeof(b->lastError), "navigate: %s", err); pthread_mutex_unlock(&b->mu);
+            }
+        }
+    }
+    static void brOnEvent(Browser* b, const char* method, const char* m) {
+        if (strcmp(method, "Page.screencastFrame") == 0) {
+            const char* data = strstr(m, "\"data\":\"");
+            if (data == NULL) return;
+            b->framesReceived++;
+            // Fields after the image: metadata.timestamp, then the frame number to acknowledge.
+            const char* end = brDecodeFrame(b, data + 8, 0);
+            double ts = 0, ackId = 0;
+            brGetNum(end, "timestamp", &ts);
+            if (ts > 0) { pthread_mutex_lock(&b->mu); b->lastFrameLatencyMs = (brWall() - ts) * 1000; pthread_mutex_unlock(&b->mu); }
+            if (!brGetNum(end, "sessionId", &ackId)) return;
+            // Chromium sends the next frame only after an ack: pacing the acks caps the
+            // frame rate (and its encoding and our decoding work) at fps.
+            double now = brNow(); bool sendNow = false;
+            pthread_mutex_lock(&b->mu);
+            double due = b->lastAckDue + 1.0 / b->fps;
+            if (due <= now || b->nAcks == BR_ACKS) { b->lastAckDue = now; sendNow = true; }
+            else { b->ackIds[b->nAcks] = (int)ackId; b->ackDue[b->nAcks] = due; b->nAcks++; b->lastAckDue = due; pthread_cond_signal(&b->workCond); }
+            pthread_mutex_unlock(&b->mu);
+            if (sendNow) brSendAck(b, (int)ackId);
+            return;
+        }
+        if (strcmp(method, "Page.frameNavigated") == 0 || strcmp(method, "Page.navigatedWithinDocument") == 0) {
+            char url[2048], frag[512], fid[64];
+            bool within = method[5] == 'n';
+            if (within) { brGetStr(m, "frameId", fid, sizeof(fid)); if (strcmp(fid, b->targetId) != 0) return; }
+            else if (strstr(m, "\"parentId\":\"") != NULL) return;     // a subframe
+            if (!brGetStr(m, "url", url, sizeof(url))) return;
+            if (!within && brGetStr(m, "urlFragment", frag, sizeof(frag))) strncat(url, frag, sizeof(url) - strlen(url) - 1);
+            pthread_mutex_lock(&b->mu); brSetStr(&b->url, url); brPub(b, PUB_URL); pthread_mutex_unlock(&b->mu);
+        } else if (strcmp(method, "Page.frameStartedLoading") == 0 || strcmp(method, "Page.frameStoppedLoading") == 0) {
+            char fid[64]; brGetStr(m, "frameId", fid, sizeof(fid));
+            if (strcmp(fid, b->targetId) != 0) return;                      // a subframe
+            if (method[12] == 'a') {                                        // Started
+                brSetState(b, "loading");
+            } else if (b->ready) {                                          // (not for the initial about:blank)
+                brOnLoaded(b);
+            }
+        } else if (strcmp(method, "Page.javascriptDialogOpening") == 0) {
+            // alert(), confirm(), prompt(), beforeunload: never leave the page hanging.
+            char type[32], msg[1024];
+            brGetStr(m, "type", type, sizeof(type)); brGetStr(m, "message", msg, sizeof(msg));
+            brCmd(b, ID_IGNORE, true, "Page.handleJavaScriptDialog", "\"accept\":true");
+            pthread_mutex_lock(&b->mu);
+            brSetStr(&b->dialogType, type); brSetStr(&b->dialogMessage, msg); b->dialogCount++; brPub(b, PUB_DIALOG);
+            pthread_mutex_unlock(&b->mu);
+        } else if (strcmp(method, "Target.targetInfoChanged") == 0 || strcmp(method, "Target.targetCreated") == 0) {
+            char tid[64], type[32], url[2048], title[1024];
+            brGetStr(m, "targetId", tid, sizeof(tid)); brGetStr(m, "type", type, sizeof(type));
+            brGetStr(m, "url", url, sizeof(url)); brGetStr(m, "title", title, sizeof(title));
+            if (b->targetId[0] == 0 && strcmp(type, "page") == 0) {
+                // The browser's first page: ours.
+                pthread_mutex_lock(&b->mu); snprintf(b->targetId, sizeof(b->targetId), "%s", tid); pthread_mutex_unlock(&b->mu);
+                brCmdf(b, ID_ATTACH, false, "Target.attachToTarget", "\"targetId\":\"%s\",\"flatten\":true", tid);
+            } else if (strcmp(tid, b->targetId) == 0) {
+                pthread_mutex_lock(&b->mu);
+                if (url[0] && b->ready && (b->url == NULL || strcmp(b->url, url) != 0)) { brSetStr(&b->url, url); brPub(b, PUB_URL); }
+                pthread_mutex_unlock(&b->mu);
+            } else if (strcmp(type, "page") == 0 && b->ready) {
+                // window.open() or target=_blank made another tab. We show one page: load its
+                // URL in ours and close it.
+                if (url[0] == 0 || strcmp(url, "about:blank") == 0) return;   // wait for its URL
+                brCmdf(b, ID_IGNORE, false, "Target.closeTarget", "\"targetId\":\"%s\"", tid);
+                if (strcmp(tid, b->popupId) == 0) return;                     // already redirected
+                snprintf(b->popupId, sizeof(b->popupId), "%s", tid);
+                brNavigateNow(b, url);
+                pthread_mutex_lock(&b->mu);
+                brSetStr(&b->popupUrl, url); b->popupCount++; brPub(b, PUB_POPUP);
+                pthread_mutex_unlock(&b->mu);
+            }
+        } else if (strcmp(method, "Inspector.targetCrashed") == 0) {
+            brSetState(b, "crashed");
+        } else if (strcmp(method, "Target.targetCrashed") == 0 || strcmp(method, "Target.targetDestroyed") == 0) {
+            char tid[64]; brGetStr(m, "targetId", tid, sizeof(tid));
+            if (strcmp(tid, b->targetId) == 0) brSetState(b, "crashed");
+        }
+    }
+    static void brOnMessage(Browser* b, const char* m, size_t len) {
+        b->msgsReceived++; b->bytesReceived += len;
+        brTrace(b->id, "<", m, len);
+        if (strncmp(m, LB "\"id\":", 6) == 0) {
+            int id = atoi(m + 6);
+            if (id < ID_FIRST_CALL) { brOnReply(b, id, m); return; }
+            pthread_mutex_lock(&b->mu);
+            for (int i = 0; i < BR_WAITERS; i++) {
+                if (b->waiters[i].id == id && !b->waiters[i].done) {
+                    b->waiters[i].reply = malloc(len + 1); memcpy(b->waiters[i].reply, m, len + 1);
+                    b->waiters[i].done = true;
+                }
+            }
+            pthread_cond_broadcast(&b->replyCond);
+            pthread_mutex_unlock(&b->mu);
+        } else if (strncmp(m, LB "\"method\":\"", 11) == 0) {
+            char method[64]; size_t i = 0;
+            for (const char* p = m + 11; *p && *p != '"' && i + 1 < sizeof(method); p++) method[i++] = *p;
+            method[i] = 0;
+            brOnEvent(b, method, m);
+        }
+    }
+    static bool brSpawn(Browser* b) {
+        int toChild[2], fromChild[2];
+        if (pipe2(toChild, O_CLOEXEC) != 0) return false;
+        if (pipe2(fromChild, O_CLOEXEC) != 0) { close(toChild[0]); close(toChild[1]); return false; }
+        char logPath[200]; snprintf(logPath, sizeof(logPath), "%s.log", b->udd);
+        int logfd = open(logPath, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
+        int nullfd = open("/dev/null", O_RDONLY | O_CLOEXEC);
+        pid_t parent = getpid();
+        pid_t pid = fork();
+        if (pid == 0) {
+            // Only async-signal-safe calls from here to exec. Folk owns fds 3 and 4 itself,
+            // so move our pipe ends out of the way before putting them there.
+            int in = fcntl(toChild[0], F_DUPFD, 100), out = fcntl(fromChild[1], F_DUPFD, 100);
+            dup2(nullfd, 0); dup2(logfd, 1); dup2(logfd, 2);
+            dup2(in, 3); dup2(out, 4);
+            close_range(5, ~0U, 0);
+            signal(SIGPIPE, SIG_DFL); signal(SIGUSR1, SIG_DFL);
+            sigset_t none; sigemptyset(&none); sigprocmask(SIG_SETMASK, &none, NULL);
+            // Folk pins itself (and so its children) off CPU 0.
+            cpu_set_t all; CPU_ZERO(&all); for (int i = 0; i < CPU_SETSIZE; i++) CPU_SET(i, &all);
+            sched_setaffinity(0, sizeof(all), &all);
+            setpgid(0, 0);
+            // Die with Folk. (This follows the forking THREAD, which is why the browser's
+            // own reader thread does the fork, not a Folk worker.)
+            prctl(PR_SET_PDEATHSIG, SIGKILL);
+            if (getppid() != parent) _exit(1);
+            execvp(b->argv[0], b->argv);
+            _exit(127);
+        }
+        close(toChild[0]); close(fromChild[1]);
+        if (logfd >= 0) close(logfd);
+        if (nullfd >= 0) close(nullfd);
+        if (pid < 0) { close(toChild[1]); close(fromChild[0]); return false; }
+        setpgid(pid, pid);
+        pthread_mutex_lock(&b->mu);
+        b->pid = pid; b->wfd = toChild[1]; b->rfd = fromChild[0];
+        pthread_mutex_unlock(&b->mu);
+        return true;
+    }
+    static void brBlockSignals(void) {
+        sigset_t set; sigfillset(&set);
+        sigdelset(&set, SIGSEGV); sigdelset(&set, SIGBUS); sigdelset(&set, SIGFPE); sigdelset(&set, SIGILL); sigdelset(&set, SIGABRT);
+        pthread_sigmask(SIG_BLOCK, &set, NULL);
+    }
+    static void brClosed(Browser* b) {
+        pthread_mutex_lock(&b->mu);
+        b->closed = true;
+        if (!b->quit && strcmp(b->state, "crashed") != 0) { b->state = "crashed"; brPub(b, PUB_STATE); }
+        pthread_cond_broadcast(&b->replyCond);
+        pthread_mutex_unlock(&b->mu);
+    }
+    static void* brReaderMain(void* arg) {
+        Browser* b = arg;
+        brBlockSignals();
+        if (!brSpawn(b)) {
+            pthread_mutex_lock(&b->mu); snprintf(b->lastError, sizeof(b->lastError), "could not start %s", b->argv[0]); pthread_mutex_unlock(&b->mu);
+            brClosed(b); return NULL;
+        }
+        // Existing targets (the initial about:blank page) and future ones (popups) are
+        // announced as Target.targetCreated events; the first page becomes ours.
+        brCmd(b, ID_IGNORE, false, "Target.setDiscoverTargets", "\"discover\":true");
+        double spawnedAt = brNow(); bool askedForPage = false;
+        size_t cap = 1 << 20, len = 0; char* buf = malloc(cap);
+        while (!b->quit) {
+            struct pollfd pfd = { .fd = b->rfd, .events = POLLIN };
+            int pr = poll(&pfd, 1, 200);
+            if (b->targetId[0] == 0 && !askedForPage && brNow() - spawnedAt > 3.0) {
+                askedForPage = true;
+                brCmd(b, ID_CREATE_TARGET, false, "Target.createTarget", "\"url\":\"about:blank\"");
+            }
+            if (pr == 0 || (pr < 0 && errno == EINTR)) continue;
+            if (pr < 0) break;
+            if (len == cap) { cap *= 2; buf = realloc(buf, cap); }
+            ssize_t n = read(b->rfd, buf + len, cap - len);
+            if (n == 0) break;
+            if (n < 0) { if (errno == EINTR || errno == EAGAIN) continue; break; }
+            size_t start = 0, scan = len;
+            len += n;
+            for (;;) {
+                char* nul = memchr(buf + scan, 0, len - scan);
+                if (nul == NULL) break;
+                brOnMessage(b, buf + start, nul - (buf + start));
+                start = scan = (nul - buf) + 1;
+            }
+            if (start > 0) { memmove(buf, buf + start, len - start); len -= start; }
+        }
+        free(buf);
+        if (!b->quit) {
+            int status;
+            pthread_mutex_lock(&b->mu);
+            if (waitpid(b->pid, &status, WNOHANG) == b->pid) {
+                b->reaped = true;
+                if (WIFEXITED(status) && WEXITSTATUS(status) == 127) {
+                    snprintf(b->lastError, sizeof(b->lastError), "could not exec %s", b->argv[0]);
+                }
+            }
+            pthread_mutex_unlock(&b->mu);
+        }
+        brClosed(b);
+        return NULL;
+    }
+
+    // ---- the worker thread: paced acks, input timeouts, texture uploads
+
+    static void* brWorkerMain(void* arg) {
+        Browser* b = arg;
+        brBlockSignals();
+        double inputDue = 0, lastInfo = brNow();
+        pthread_mutex_lock(&b->mu);
+        while (!b->quit) {
+            double now = brNow(), next = now + 0.5;
+            // 1. frame acks that are due
+            while (b->nAcks > 0 && b->ackDue[0] <= now) {
+                int ackId = b->ackIds[0];
+                b->nAcks--;
+                memmove(b->ackIds, b->ackIds + 1, b->nAcks * sizeof(int));
+                memmove(b->ackDue, b->ackDue + 1, b->nAcks * sizeof(double));
+                pthread_mutex_unlock(&b->mu);
+                brSendAck(b, ackId);
+                pthread_mutex_lock(&b->mu);
+            }
+            if (b->nAcks > 0 && b->ackDue[0] < next) next = b->ackDue[0];
+            // 2. queued input whose predecessors never came
+            pthread_mutex_unlock(&b->mu);
+            inputDue = brInputTimeouts(b);
+            pthread_mutex_lock(&b->mu);
+            if (inputDue > 0 && inputDue < next) next = inputDue;
+            // 2b. once a second: what are the title and the URL now?
+            if (b->ready && !b->closed && brNow() - lastInfo >= 1.0) {
+                lastInfo = brNow();
+                pthread_mutex_unlock(&b->mu);
+                brAskInfo(b);
+                pthread_mutex_lock(&b->mu);
+            }
+            // 3. upload
+            if (b->frameDirty || b->cursorDirty) {
+                double due = b->lastUpload + 1.0 / b->fps;
+                now = brNow();
+                if (now >= due) {
+                    double t0 = now;
+                    b->frameDirty = false; b->cursorDirty = false;
+                    memcpy(b->compose, b->frame, (size_t)b->w * b->h * 4);
+                    pthread_mutex_unlock(&b->mu);
+                    if (b->curShown > 0) brDrawCursor(b->compose, b->w, b->h, b->curX, b->curY);
+                    Image im = { .width = b->w, .height = b->h, .components = 4, .bytesPerRow = b->w * 4, .uniq = 0, .data = b->compose };
+                    brGpuUpdateTexture(b->tex, im);
+                    b->framesUploaded++;
+                    pthread_mutex_lock(&b->mu);
+                    b->lastUpload = brNow(); b->lastUploadMs = (b->lastUpload - t0) * 1000;
+                    continue;
+                }
+                if (due < next) next = due;
+            }
+            if (b->quit) break;
+            // CLOCK_MONOTONIC deadline (the condvars are made with that clock)
+            brCondWait(&b->workCond, &b->mu, next);
+        }
+        pthread_mutex_unlock(&b->mu);
+        return NULL;
+    }
+
+    // ---- API, called from Folk workers
+
+    static int brRemoveCb(const char* path, const struct stat* sb, int flag, struct FTW* ftw) {
+        remove(path); return 0;
+    }
+    static int brCreate(int w, int h, int fps, int quality, double pointerSpeed, int quietMs, Jim_Obj* argvObj) {
+        int argc = Jim_ListLength(interp, argvObj);
+        FOLK_ENSURE(argc >= 1);
+        FOLK_ENSURE(w >= 16 && h >= 16 && w <= 8192 && h <= 8192);
+        Browser* b = calloc(1, sizeof(Browser));
+        b->w = w; b->h = h;
+        b->fps = fps < 1 ? 1 : (fps > 120 ? 120 : fps);
+        b->quality = quality < 1 ? 1 : (quality > 100 ? 100 : quality);
+        b->pointerSpeed = pointerSpeed; b->quietS = (quietMs < 1 ? 1 : quietMs) / 1000.0;
+        b->wfd = b->rfd = -1; b->state = "loading";
+        b->nextCallId = ID_FIRST_CALL;
+        b->px = w / 2; b->py = h / 2; b->curX = w / 2; b->curY = h / 2;
+        b->pubX = -1; b->pubFrames = -1;
+        brPub(b, PUB_STATE); brPub(b, PUB_VIEWPORT);
+        b->createdAt = brNow();
+
+        snprintf(b->udd, sizeof(b->udd), "/tmp/folk-browser-%d-XXXXXX", (int)getpid());
+        if (mkdtemp(b->udd) == NULL) { free(b); FOLK_ERROR("browser: mkdtemp failed: %s", strerror(errno)); }
+        b->argv = calloc(argc + 5, sizeof(char*));
+        int n = 0;
+        for (int i = 0; i < argc; i++) b->argv[n++] = strdup(Jim_String(Jim_ListGetIndex(interp, argvObj, i)));
+        char arg[200];
+        snprintf(arg, sizeof(arg), "--user-data-dir=%s", b->udd); b->argv[n++] = strdup(arg);
+        snprintf(arg, sizeof(arg), "--window-size=%d,%d", w, h); b->argv[n++] = strdup(arg);
+        b->argv[n++] = strdup("about:blank");
+
+        size_t bytes = (size_t)w * h * 4;
+        b->frame = malloc(bytes); b->decodeBuf = malloc(bytes); b->compose = malloc(bytes);
+        memset(b->frame, 255, bytes);
+        b->tj = tjInitDecompress();
+        b->devices = calloc(BR_DEVICES, sizeof(BrDevice));
+        Image blank = { .width = w, .height = h, .components = 4, .bytesPerRow = w * 4, .uniq = 0, .data = b->frame };
+        b->tex = brGpuCreateTexture(blank);
+
+        pthread_condattr_t ca; pthread_condattr_init(&ca); pthread_condattr_setclock(&ca, CLOCK_MONOTONIC);
+        pthread_mutex_init(&b->wmu, NULL); pthread_mutex_init(&b->mu, NULL); pthread_mutex_init(&b->inMu, NULL);
+        pthread_cond_init(&b->replyCond, &ca); pthread_cond_init(&b->workCond, &ca);
+
+        pthread_mutex_lock(&brRegMu);
+        if (!brB64Ready) brB64Init();
+        b->id = brNextId++;
+        int slot = -1;
+        for (int i = 0; i < BR_MAX; i++) if (brTable[i] == NULL) { slot = i; break; }
+        if (slot >= 0) brTable[slot] = b;
+        pthread_mutex_unlock(&brRegMu);
+        if (slot < 0) FOLK_ERROR("browser: too many browsers");      // (leaks b; 64 browsers is absurd)
+
+        b->readerStarted = pthread_create(&b->reader, NULL, brReaderMain, b) == 0;
+        b->workerStarted = pthread_create(&b->worker, NULL, brWorkerMain, b) == 0;
+        return b->id;
+    }
+    static void brDestroy(int id) {
+        Browser* b = NULL;
+        pthread_mutex_lock(&brRegMu);
+        for (int i = 0; i < BR_MAX; i++) {
+            if (brTable[i] != NULL && brTable[i]->id == id) { b = brTable[i]; brTable[i] = NULL; break; }
+        }
+        pthread_mutex_unlock(&brRegMu);
+        if (b == NULL) return;
+
+        pthread_mutex_lock(&b->mu);
+        b->quit = true; b->closed = true;
+        pid_t pid = b->pid;
+        pthread_cond_broadcast(&b->replyCond); pthread_cond_broadcast(&b->workCond);
+        pthread_mutex_unlock(&b->mu);
+        if (b->readerStarted) pthread_join(b->reader, NULL);     // (after this, b->pid cannot change)
+        if (b->workerStarted) pthread_join(b->worker, NULL);
+        pid = b->pid;
+        if (pid > 0) {
+            // The whole process group: zygotes, renderers, the GPU process.
+            kill(-pid, SIGKILL);
+            while (!b->reaped && waitpid(pid, NULL, 0) < 0 && errno == EINTR) {}
+        }
+        // Calls that were in flight have been woken up; wait for them to leave.
+        pthread_mutex_lock(&brRegMu);
+        while (b->refs > 0) pthread_cond_wait(&brRegCond, &brRegMu);
+        pthread_mutex_unlock(&brRegMu);
+
+        if (b->wfd >= 0) close(b->wfd);
+        if (b->rfd >= 0) close(b->rfd);
+        brGpuFreeTexture(b->tex);
+        nftw(b->udd, brRemoveCb, 16, FTW_DEPTH | FTW_PHYS);
+        char logPath[200]; snprintf(logPath, sizeof(logPath), "%s.log", b->udd); remove(logPath);
+        tjDestroy(b->tj);
+        for (int i = 0; b->argv[i] != NULL; i++) free(b->argv[i]);
+        free(b->argv);
+        for (int i = 0; i < BR_WAITERS; i++) free(b->waiters[i].reply);
+        free(b->frame); free(b->decodeBuf); free(b->compose); free(b->jpegBuf); free(b->devices);
+        free(b->wantUrl); free(b->shownUrl); free(b->url); free(b->title);
+        free(b->dialogType); free(b->dialogMessage); free(b->popupUrl);
+        pthread_mutex_destroy(&b->wmu); pthread_mutex_destroy(&b->mu); pthread_mutex_destroy(&b->inMu);
+        pthread_cond_destroy(&b->replyCond); pthread_cond_destroy(&b->workCond);
+        free(b);
+    }
+    // Sends a command and waits for its reply (malloc'd, the whole message), or NULL.
+    static char* brCall(Browser* b, bool session, const char* method, const char* params, double timeoutS) {
+        double deadline = brNow() + timeoutS;
+        pthread_mutex_lock(&b->mu);
+        while (!b->ready && !b->closed && brNow() < deadline) brCondWait(&b->replyCond, &b->mu, deadline);
+        BrWaiter* w = NULL;
+        if (b->ready && !b->closed) {
+            for (int i = 0; i < BR_WAITERS; i++) if (b->waiters[i].id == 0) { w = &b->waiters[i]; break; }
+        }
+        if (w == NULL) { pthread_mutex_unlock(&b->mu); return NULL; }
+        w->id = b->nextCallId++; w->done = false; w->reply = NULL;
+        int id = w->id;
+        pthread_mutex_unlock(&b->mu);
+        brCmd(b, id, session, method, params);
+        pthread_mutex_lock(&b->mu);
+        while (!w->done && !b->closed && brNow() < deadline) brCondWait(&b->replyCond, &b->mu, deadline);
+        char* reply = w->reply;
+        w->reply = NULL; w->id = 0; w->done = false;
+        pthread_mutex_unlock(&b->mu);
+        return reply;
+    }
+    #define BR_ACQUIRE(b, id) Browser* b = brAcquire(id); if (b == NULL) FOLK_ERROR("browser: no browser %d", id)
+    #define BR_FAIL(b, ...) do { brRelease(b); FOLK_ERROR(__VA_ARGS__); } while (0)
+
+    static Jim_Obj* brEval(int id, const char* js, int timeoutMs) {
+        BR_ACQUIRE(b, id);
+        char* expr = brJsonStr(js);
+        size_t n = strlen(expr) + 120; char* params = malloc(n);
+        snprintf(params, n, "\"expression\":%s,\"returnByValue\":true,\"awaitPromise\":true,\"userGesture\":true", expr);
+        char* reply = brCall(b, true, "Runtime.evaluate", params, timeoutMs / 1000.0);
+        free(params); free(expr);
+        if (reply == NULL) BR_FAIL(b, "browserEval: no reply (timeout, or the browser is gone)");
+        Jim_Obj* result = NULL; char err[600] = "";
+        const char* ex = strstr(reply, "\"exceptionDetails\":");
+        const char* res = strstr(reply, "\"result\":" LB "\"result\":" LB);
+        if (ex != NULL) {
+            char desc[400], text[120];
+            brGetStr(ex, "text", text, sizeof(text));
+            if (!brGetStr(ex, "description", desc, sizeof(desc))) brGetStr(ex, "value", desc, sizeof(desc));
+            snprintf(err, sizeof(err), "browserEval: %s %s", text, desc);
+        } else if (res != NULL) {
+            const char* v = strstr(res, "\"value\":");
+            if (v != NULL) { v += 8; result = Jim_NewStringObj(interp, v, brSkipValue(v) - v); }
+            else { result = Jim_NewStringObj(interp, "null", -1); }     // undefined, NaN, a function...
+        } else {
+            snprintf(err, sizeof(err), "browserEval: %.500s", reply);
+        }
+        free(reply);
+        brRelease(b);
+        if (result == NULL) FOLK_ERROR("%s", err);
+        return result;
+    }
+    static Jim_Obj* brSendForReply(int id, const char* method, const char* paramsJson, int timeoutMs) {
+        BR_ACQUIRE(b, id);
+        // paramsJson is a JSON object: strip its braces.
+        const char* p = paramsJson; while (*p == ' ') p++;
+        size_t n = strlen(p);
+        while (n > 0 && p[n - 1] == ' ') n--;
+        char* inner = NULL;
+        if (n >= 2 && p[0] == 0x7b && p[n - 1] == 0x7d) inner = strndup(p + 1, n - 2);
+        else if (n == 0) inner = strdup("");
+        if (inner == NULL) BR_FAIL(b, "browserSend: params must be a JSON object");
+        char* reply = brCall(b, strncmp(method, "Target.", 7) != 0 && strncmp(method, "Browser.", 8) != 0, method, inner, timeoutMs / 1000.0);
+        free(inner);
+        if (reply == NULL) BR_FAIL(b, "browserSend: no reply to %s", method);
+        Jim_Obj* result = Jim_NewStringObj(interp, reply, -1);
+        free(reply);
+        brRelease(b);
+        return result;
+    }
+    static void brScreenshot(int id, const char* path) {
+        BR_ACQUIRE(b, id);
+        char* reply = brCall(b, true, "Page.captureScreenshot", "\"format\":\"png\"", 10.0);
+        if (reply == NULL) BR_FAIL(b, "browserScreenshot: no reply");
+        const char* data = strstr(reply, "\"data\":\"");
+        if (data == NULL) { free(reply); BR_FAIL(b, "browserScreenshot: no image in the reply"); }
+        unsigned char* png = malloc(strlen(data));
+        size_t n = brB64Decode(data + 8, png, NULL);
+        FILE* f = fopen(path, "wb");
+        bool ok = f != NULL && fwrite(png, 1, n, f) == n;
+        if (f != NULL) fclose(f);
+        free(png); free(reply);
+        if (!ok) BR_FAIL(b, "browserScreenshot: could not write %s", path);
+        brRelease(b);
+    }
+    // show: from the wish (repeating the same URL does nothing). Otherwise always navigates.
+    static void brNavigate(int id, const char* urlIn, bool show) {
+        BR_ACQUIRE(b, id);
+        char* url;
+        if (urlIn[0] == '/') { url = malloc(strlen(urlIn) + 8); sprintf(url, "file://%s", urlIn); }
+        else if (strchr(urlIn, ':') == NULL) { url = malloc(strlen(urlIn) + 9); sprintf(url, "https://%s", urlIn); }
+        else { url = strdup(urlIn); }
+        bool go = false;
+        pthread_mutex_lock(&b->mu);
+        if (!show || b->shownUrl == NULL || strcmp(b->shownUrl, url) != 0) {
+            if (show) brSetStr(&b->shownUrl, url);
+            brSetStr(&b->wantUrl, url);
+            go = b->ready;
+        }
+        pthread_mutex_unlock(&b->mu);
+        if (go) brNavigateNow(b, url);
+        free(url);
+        brRelease(b);
+    }
+    static Jim_Obj* brStats(int id) {
+        BR_ACQUIRE(b, id);
+        pthread_mutex_lock(&b->mu);
+        double now = brNow();
+        Jim_Obj* r = Jim_ObjPrintf(
+            "pid %d width %d height %d fps %d ready %d state %s texture %d "
+            "framesReceived %ld framesDecoded %ld framesUploaded %ld decodeErrors %ld "
+            "inputEventsSent %ld keyEventsSent %ld mouseEventsSent %ld "
+            "eventsReordered %ld eventsLate %ld gapsSkipped %ld "
+            "messagesReceived %ld bytesReceived %ld "
+            "lastFrameLatencyMs %.1f lastDecodeMs %.2f lastUploadMs %.2f "
+            "uptimeS %.3f firstFrameAfterS %.3f dialogs %d popups %d",
+            (int)b->pid, b->w, b->h, b->fps, (int)b->ready, b->state, (int)b->tex,
+            (long)b->framesReceived, (long)b->framesDecoded, (long)b->framesUploaded, (long)b->decodeErrors,
+            (long)b->inputSent, (long)b->keysSent, (long)b->mouseSent,
+            (long)b->eventsQueued, (long)b->eventsLate, (long)b->gapsSkipped,
+            (long)b->msgsReceived, (long)b->bytesReceived,
+            b->lastFrameLatencyMs, b->lastDecodeMs, b->lastUploadMs,
+            now - b->createdAt, b->firstFrameAt > 0 ? b->firstFrameAt - b->createdAt : -1.0,
+            b->dialogCount, b->popupCount);
+        Jim_ListAppendElement(interp, r, Jim_NewStringObj(interp, "lastError", -1));
+        Jim_ListAppendElement(interp, r, Jim_NewStringObj(interp, b->lastError, -1));
+        pthread_mutex_unlock(&b->mu);
+        brRelease(b);
+        return r;
+    }
+    static void brAppend(Jim_Obj* list, const char* key, Jim_Obj* value) {
+        Jim_ListAppendElement(interp, list, Jim_NewStringObj(interp, key, -1));
+        Jim_ListAppendElement(interp, list, value);
+    }
+    // What changed since the last acknowledged poll: a generation number, then keys and
+    // values. Nothing is forgotten until browserPolled says that the statements were made
+    // (a body on the clock can be cancelled half way through).
+    static Jim_Obj* brPoll(int id) {
+        Jim_Obj* r = Jim_NewListObj(interp, NULL, 0);
+        Browser* b = brAcquire(id);
+        if (b == NULL) return r;
+        double now = brNow();
+        pthread_mutex_lock(&b->inMu);
+        int x = (int)b->px, y = (int)b->py, buttons = b->buttons;
+        pthread_mutex_unlock(&b->inMu);
+        pthread_mutex_lock(&b->mu);
+        // Pointer and frame count change all the time: publish them at a low rate.
+        if ((x != b->pubX || y != b->pubY || buttons != b->pubButtons) && now - b->pubPointerAt >= 0.05) {
+            b->pubX = x; b->pubY = y; b->pubButtons = buttons; b->pubPointerAt = now;
+            brPub(b, PUB_POINTER);
+        }
+        long frames = b->framesDecoded;
+        if (frames != b->pubFrames && now - b->pubFramesAt >= 0.2) {
+            b->pubFrames = frames; b->pubFramesAt = now;
+            brPub(b, PUB_FRAMES);
+        }
+        if (b->pubGen == b->pubAcked) { pthread_mutex_unlock(&b->mu); brRelease(b); return r; }
+        Jim_ListAppendElement(interp, r, Jim_NewIntObj(interp, b->pubGen));
+        #define CHANGED(kind) (b->pubKind[kind] > b->pubAcked)
+        if (CHANGED(PUB_URL)) brAppend(r, "url", Jim_NewStringObj(interp, b->url ? b->url : "", -1));
+        if (CHANGED(PUB_TITLE)) brAppend(r, "title", Jim_NewStringObj(interp, b->title ? b->title : "", -1));
+        if (CHANGED(PUB_STATE)) brAppend(r, "state", Jim_NewStringObj(interp, b->state, -1));
+        if (CHANGED(PUB_VIEWPORT)) brAppend(r, "viewport", Jim_ObjPrintf("%d %d", b->w, b->h));
+        if (CHANGED(PUB_DIALOG)) {
+            Jim_Obj* d = Jim_NewListObj(interp, NULL, 0);
+            Jim_ListAppendElement(interp, d, Jim_NewStringObj(interp, b->dialogType ? b->dialogType : "", -1));
+            Jim_ListAppendElement(interp, d, Jim_NewStringObj(interp, b->dialogMessage ? b->dialogMessage : "", -1));
+            Jim_ListAppendElement(interp, d, Jim_NewIntObj(interp, b->dialogCount));
+            brAppend(r, "dialog", d);
+        }
+        if (CHANGED(PUB_POPUP)) {
+            Jim_Obj* d = Jim_NewListObj(interp, NULL, 0);
+            Jim_ListAppendElement(interp, d, Jim_NewStringObj(interp, b->popupUrl ? b->popupUrl : "", -1));
+            Jim_ListAppendElement(interp, d, Jim_NewIntObj(interp, b->popupCount));
+            brAppend(r, "popup", d);
+        }
+        if (CHANGED(PUB_FRAMES)) brAppend(r, "frames", Jim_NewIntObj(interp, b->pubFrames));
+        if (CHANGED(PUB_POINTER)) brAppend(r, "pointer", Jim_ObjPrintf("%d %d %d", b->pubX, b->pubY, b->pubButtons));
+        #undef CHANGED
+        pthread_mutex_unlock(&b->mu);
+        brRelease(b);
+        return r;
+    }
+    static void brPolled(int id, long gen) {
+        Browser* b = brAcquire(id);
+        if (b == NULL) return;
+        pthread_mutex_lock(&b->mu);
+        if (gen > b->pubAcked && gen <= b->pubGen) b->pubAcked = gen;
+        pthread_mutex_unlock(&b->mu);
+        brRelease(b);
+    }
+    static const char* brOpt(Jim_Obj* opts, const char* key) {
+        int n = Jim_ListLength(interp, opts);
+        for (int i = 0; i + 1 < n; i += 2) {
+            if (strcmp(Jim_String(Jim_ListGetIndex(interp, opts, i)), key) == 0) {
+                return Jim_String(Jim_ListGetIndex(interp, opts, i + 1));
+            }
+        }
+        return NULL;
+    }
+    static long long brOptInt(Jim_Obj* opts, const char* key, long long def) {
+        const char* s = brOpt(opts, key);
+        return s != NULL && s[0] ? atoll(s) : def;
+    }
+    static void brKey(int id, const char* dev, const char* key, const char* direction, Jim_Obj* opts) {
+        Browser* b = brAcquire(id);
+        if (b == NULL) return;
+        BrEv ev = {0};
+        ev.kind = 0;
+        ev.seq = brOptInt(opts, "seq", 0);
+        ev.a = strcmp(direction, "up") == 0 ? 0 : (strcmp(direction, "repeat") == 0 ? 2 : 1);
+        ev.b = (int)brOptInt(opts, "code", 0);
+        ev.c = (int)brOptInt(opts, "mods", -1);
+        ev.d = (int)brOptInt(opts, "shift", 0);
+        const char* printable = brOpt(opts, "printable");
+        if (printable != NULL && strlen(printable) < sizeof(ev.text)) strcpy(ev.text, printable);
+        snprintf(ev.name, sizeof(ev.name), "%s", key);
+        brSubmit(b, dev, &ev);
+        brRelease(b);
+    }
+    static void brMouse(int id, const char* dev, Jim_Obj* opts) {
+        Browser* b = brAcquire(id);
+        if (b == NULL) return;
+        BrEv ev = {0};
+        ev.kind = 1;
+        ev.seq = brOptInt(opts, "seq", 0);
+        ev.a = (int)brOptInt(opts, "dx", 0); ev.b = (int)brOptInt(opts, "dy", 0);
+        ev.c = (int)brOptInt(opts, "wheel", 0); ev.d = (int)brOptInt(opts, "hwheel", 0);
+        ev.e = (int)brOptInt(opts, "buttons", 0);
+        brSubmit(b, dev, &ev);
+        brRelease(b);
+    }
+    static void brPointerShown(int id, int delta) {
+        Browser* b = brAcquire(id);
+        if (b == NULL) return;
+        b->curShown += delta;
+        pthread_mutex_lock(&b->mu);
+        b->cursorDirty = true; pthread_cond_signal(&b->workCond);
+        pthread_mutex_unlock(&b->mu);
+        brRelease(b);
+    }
+    static int brTexture(int id) {
+        BR_ACQUIRE(b, id);
+        int tex = b->tex;
+        brRelease(b);
+        return tex;
+    }
+    // Is anything left of process group pgid? (For tests.)
+    static bool brGroupAlive(int pgid) {
+        return pgid > 1 && (kill(-pgid, 0) == 0 || errno == EPERM);
+    }
+}
+
+# argv: the command line up to (not including) --user-data-dir,
+# --window-size and the URL, which browserCreate adds.
+$cc proc browserCreate {int w int h int fps int quality double pointerSpeed int reorderWindowMs Jim_Obj* argv} int {
+    return brCreate(w, h, fps, quality, pointerSpeed, reorderWindowMs, argv);
+}
+$cc proc browserDestroy {int b} void { brDestroy(b); }
+# JSON text of the value of a JavaScript expression (awaits promises).
+$cc proc browserEval {int b char* js} Jim_Obj* { return brEval(b, js, 5000); }
+$cc proc browserEvalTimeout {int b char* js int timeoutMs} Jim_Obj* { return brEval(b, js, timeoutMs); }
+# Any DevTools command; params is a JSON object; returns the whole reply.
+$cc proc browserSend {int b char* method char* params} Jim_Obj* { return brSendForReply(b, method, params, 5000); }
+$cc proc browserNavigate {int b char* url} void { brNavigate(b, url, false); }
+$cc proc browserShow {int b char* url} void { brNavigate(b, url, true); }
+$cc proc browserScreenshot {int b char* path} void { brScreenshot(b, path); }
+$cc proc browserStats {int b} Jim_Obj* { return brStats(b); }
+$cc proc browserPoll {int b} Jim_Obj* { return brPoll(b); }
+$cc proc browserPolled {int b int generation} void { brPolled(b, generation); }
+$cc proc browserTexture {int b} int { return brTexture(b); }
+$cc proc browserKey {int b char* device char* key char* direction Jim_Obj* options} void {
+    brKey(b, device, key, direction, options);
+}
+$cc proc browserMouse {int b char* device Jim_Obj* options} void { brMouse(b, device, options); }
+$cc proc browserPointerShown {int b int delta} void { brPointerShown(b, delta); }
+$cc proc browserGroupAlive {int pgid} bool { return brGroupAlive(pgid); }
+
+set browserLib [$cc compile]
+Claim the web browser library is $browserLib
+
+# Which Chromium? (First that exists.)
+set browserBinary ""
+set candidates [list]
+if {[info exists ::env(FOLK_BROWSER)]} { lappend candidates $::env(FOLK_BROWSER) }
+lappend candidates chromium-headless-shell \
+    {*}[lsort -decreasing [glob -nocomplain /opt/pw-browsers/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell]] \
+    chromium chromium-browser google-chrome \
+    {*}[lsort -decreasing [glob -nocomplain /opt/pw-browsers/chromium-*/chrome-linux64/chrome]]
+foreach candidate $candidates {
+    if {[string first / $candidate] >= 0} {
+        if {[file executable $candidate]} { set browserBinary $candidate; break }
+    } else {
+        foreach dir [split $::env(PATH) :] {
+            if {$dir ne "" && [file executable $dir/$candidate] && ![file isdirectory $dir/$candidate]} {
+                set browserBinary $dir/$candidate; break
+            }
+        }
+        if {$browserBinary ne ""} { break }
+    }
+}
+set browserArgv [list $browserBinary]
+# The headless shell is the lighter one (starts in 60 ms instead of
+# 350 ms, half the processes) and has a working clipboard; a full
+# Chrome needs to be told to be headless.
+if {![string match *headless?shell* $browserBinary]} { lappend browserArgv --headless=new }
+lappend browserArgv --remote-debugging-pipe --hide-scrollbars --force-device-scale-factor=1 \
+    --disable-background-timer-throttling --disable-renderer-backgrounding \
+    --disable-backgrounding-occluded-windows --no-first-run --no-default-browser-check \
+    --disable-features=Translate --autoplay-policy=no-user-gesture-required
+if {[exec id -u] == 0} { lappend browserArgv --no-sandbox }
+if {[info exists ::env(FOLK_BROWSER_FLAGS)]} { lappend browserArgv {*}$::env(FOLK_BROWSER_FLAGS) }
+
+# Profile directories of Folks that are gone (a killed Folk cannot
+# clean up after itself).
+foreach stale [glob -nocomplain /tmp/folk-browser-*] {
+    if {[regexp {^/tmp/folk-browser-(\d+)-} $stale -> stalePid] && ![file exists /proc/$stalePid]} {
+        catch { exec rm -rf -- $stale }
+    }
+}
+unset -nocomplain candidates candidate dir stale stalePid
+
+When /someone/ wishes /thing/ is a web browser showing /url/ {
+    Wish $thing is a web browser showing $url with width 1024
+}
+
+# One browser per thing and size; the URL is not part of its identity.
+When /someone/ wishes /thing/ is a web browser showing /url/ with /...options/ {
+    if {![info exists options]} { return }
+    set settings [dict create fps 30 quality 80 pointerSpeed 1.0 reorderWindow 50 keep 5000]
+    foreach k [dict keys $settings] {
+        if {[dict exists $options $k]} { dict set settings $k [string map {ms ""} [dict get $options $k]] }
+    }
+    set keep [dict get $settings keep]ms
+    set w [dict getdef $options width 1024]
+    if {[dict exists $options height]} {
+        Claim -keep $keep $thing is a web browser with width $w height [dict get $options height] settings $settings
+    } else {
+        When $thing has resolved geometry /geom/ {
+            set h [expr {int(round($w * double([dict get $geom height]) / [dict get $geom width]))}]
+            Claim -keep $keep $thing is a web browser with width $w height $h settings $settings
+        }
+        When /nobody/ claims $thing has resolved geometry /geom/ {
+            Claim -keep $keep $thing is a web browser with width $w height [expr {$w * 3 / 4}] settings $settings
+        }
+    }
+}
+
+When /thing/ is a web browser with width /w/ height /h/ settings /settings/ {
+    if {$browserBinary eq ""} {
+        error "browser: no Chromium found (install chromium or set FOLK_BROWSER)"
+    }
+    set b [$browserLib browserCreate $w $h [dict get $settings fps] [dict get $settings quality] \
+               [dict get $settings pointerSpeed] [dict get $settings reorderWindow] $browserArgv]
+    Claim -destructor [list $browserLib browserDestroy $b] $thing has web browser $b
+}
+
+When /thing/ has web browser /b/ {
+    Wish tag $thing is stabilized
+    Claim $thing handles keyboard input
+    Claim $thing handles mouse input
+    Claim web browser $thing has texture [$browserLib browserTexture $b]
+
+    When /someone/ wishes $thing is a web browser showing /url/ with /...options/ {
+        $browserLib browserShow $b $url
+    }
+
+    # Slow-changing state becomes statements; the C side says what changed.
+    When -serially the clock time is /t/ {
+        set changes [$browserLib browserPoll $b]
+        if {[llength $changes] == 0} { return }
+        foreach {k v} [lrange $changes 1 end] {
+            set key [list web browser $thing $k]
+            switch $k {
+                url { Hold! -key $key Claim web browser $thing has url $v }
+                title { Hold! -key $key Claim web browser $thing has title $v }
+                state { Hold! -key $key Claim web browser $thing has loading state $v }
+                viewport { Hold! -key $key Claim web browser $thing has viewport {*}$v }
+                frames { Hold! -key $key Claim web browser $thing has frame count $v }
+                pointer {
+                    lassign $v x y buttons
+                    Hold! -key $key Claim web browser $thing has pointer $x $y buttons $buttons
+                }
+                dialog {
+                    lassign $v type message count
+                    Hold! -key $key Claim web browser $thing handled dialog $type with message $message count $count
+                }
+                popup {
+                    lassign $v popupUrl count
+                    Hold! -key $key Claim web browser $thing redirected popup $popupUrl count $count
+                }
+            }
+        }
+        $browserLib browserPolled $b [lindex $changes 0]
+    }
+    On unmatch {
+        foreach k {url title state viewport frames pointer dialog popup} {
+            Hold! -key [list web browser $thing $k] {}
+        }
+    }
+
+    # Keys arrive as events, in no particular order: the C side sorts
+    # them by their sequence numbers.
+    When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
+         /keyboard/ is typing into $thing {
+        Subscribe: keyboard $kbPath claims key /key/ is /direction/ with /...options/ {
+            $browserLib browserKey $b $kbPath $key $direction $options
+        }
+    }
+    When /keyboard/ is a keyboard with path /kbPath/ &\
+         /keyboard/ is typing into $thing {
+        Subscribe: keyboard $kbPath claims key /key/ is /direction/ with /...options/ {
+            $browserLib browserKey $b $kbPath $key $direction $options
+        }
+    }
+
+    When /mouse/ is a mouse with path /mousePath/ &\
+         /mouse/ is pointing into $thing {
+        $browserLib browserPointerShown $b 1
+        On unmatch { $browserLib browserPointerShown $b -1 }
+        Subscribe: mouse $mousePath claims report with /...options/ {
+            $browserLib browserMouse $b $mousePath $options
+        }
+    }
+    When /mouse/ is a mouse with path /mousePath/ /...anything/ &\
+         /mouse/ is pointing into $thing {
+        $browserLib browserPointerShown $b 1
+        On unmatch { $browserLib browserPointerShown $b -1 }
+        Subscribe: mouse $mousePath claims report with /...options/ {
+            $browserLib browserMouse $b $mousePath $options
+        }
+    }
+}
+
+# Draw the browser's texture straight onto the display, on the thing's
+# quad (like tags-to-quads.folk composites a canvas, but without the
+# detour of drawing it into the page's canvas first: that would be a
+# second full-size pass per frame). Layer 1 puts it over the page's
+# own canvas.
+When the quad library is /quadLib/ & the pose library is /poseLib/ &\
+     the quad changer is /quadChange/ &\
+     web browser /thing/ has texture /gim/ &\
+     display /disp/ has width /displayWidth/ height /displayHeight/ &\
+     display /disp/ has intrinsics /displayIntrinsics/ {
+    fn quadChange
+    set displayToClip [list \
+        [list [expr {2.0/$displayWidth}] 0 -1] \
+        [list 0 [expr {2.0/$displayHeight}] -1] \
+        [list 0 0 1]]
+    When -atomically $thing has quad /quad/ {
+        lassign [lmap v [$quadLib vertices [quadChange $quad "display $disp"]] {
+            $poseLib project $displayIntrinsics $displayWidth $displayHeight $v
+        }] a b c d
+        Wish the GPU draws pipeline "image" with arguments \
+            [list [list $displayWidth $displayHeight] $displayToClip $gim $a $b $c $d] \
+            layer 1 key [list web browser $thing]
+    }
+}
+
+}
