@@ -4,38 +4,85 @@ When the image library is /imageLib/ {
     $aecc include <stdint.h>
 
     $aecc struct TagLocalContrast {
-        int darkest;
-        int brightest;
+        int count;
+        double white;
+        double black;
+        double satFrac;
     }
 
+    # Measures how bright the white cells and how dark the black cells
+    # of one detected tag are.
+    #
+    #   count:   how many pixels we managed to sample (0 if the tag is
+    #            entirely off-frame)
+    #   white:   mean of the brightest quarter of the samples
+    #   black:   mean of the darkest quarter of the samples
+    #   satFrac: fraction of that brightest quarter that is clipped
+    #            (>= 250)
     $aecc proc getTagLocalContrast {Image grayFrame double[4][2] corners} TagLocalContrast {
         FOLK_ENSURE(grayFrame.components == 1);
-    
-        int minX = INT_MAX;
-        int maxX = INT_MIN;
-        int minY = INT_MAX;
-        int maxY = INT_MIN;
 
-        TagLocalContrast minMax = {.darkest=255, .brightest=0};
-        
-        for (int i = 0; i < 4; i++) {
-            double x = corners[i][0];
-            double y = corners[i][1];
-            if (x < minX) minX = x;
-            if (x > maxX) maxX = x;
-            if (y < minY) minY = y;
-            if (y > maxY) maxY = y;
-        }
+        uint32_t histogram[256] = {0};
+        uint32_t n = 0;
 
-        for (int y = minY; y < maxY; y++) {
-            for (int x = minX; x < maxX; x++) {
-                uint8_t pixelValue = grayFrame.data[y * grayFrame.bytesPerRow + x];
-                if (pixelValue > minMax.brightest) minMax.brightest = pixelValue;
-                if (pixelValue < minMax.darkest) minMax.darkest = pixelValue;
+        // Sample a 64x64 grid in tag-local coordinates (bilinear
+        // interpolation between the 4 corners), so that we stay
+        // inside the tag even when it is rotated. The axis-aligned
+        // bounding box of a rotated tag is up to half paper & table.
+        const int samples = 64;
+        for (int sy = 0; sy < samples; sy++) {
+            double v = (sy + 0.5) / samples;
+            for (int sx = 0; sx < samples; sx++) {
+                double u = (sx + 0.5) / samples;
+
+                double topX = corners[0][0] + u * (corners[1][0] - corners[0][0]);
+                double topY = corners[0][1] + u * (corners[1][1] - corners[0][1]);
+                double botX = corners[3][0] + u * (corners[2][0] - corners[3][0]);
+                double botY = corners[3][1] + u * (corners[2][1] - corners[3][1]);
+                int x = (int)(topX + v * (botX - topX) + 0.5);
+                int y = (int)(topY + v * (botY - topY) + 0.5);
+
+                // A tag can hang off the edge of the frame (and the
+                // corners may be from a slightly older frame).
+                if (x < 0 || y < 0 ||
+                    x >= (int)grayFrame.width || y >= (int)grayFrame.height) {
+                    continue;
+                }
+
+                histogram[grayFrame.data[y * grayFrame.bytesPerRow + x]]++;
+                n++;
             }
         }
 
-        return minMax;
+        TagLocalContrast ret = {.count = (int)n, .white = 0, .black = 0, .satFrac = 0};
+        if (n == 0) return ret;
+
+        // Quartile means, not the single brightest/darkest pixel: one
+        // noisy pixel or one specular glint should not decide the
+        // exposure of the whole camera.
+        uint32_t quarter = n / 4;
+        if (quarter == 0) quarter = 1;
+
+        uint32_t whiteCount = 0, clippedCount = 0; uint64_t whiteSum = 0;
+        for (int i = 255; i >= 0 && whiteCount < quarter; i--) {
+            uint32_t take = histogram[i];
+            if (take > quarter - whiteCount) take = quarter - whiteCount;
+            whiteSum += (uint64_t)i * take;
+            whiteCount += take;
+            if (i >= 250) clippedCount += take;
+        }
+        uint32_t blackCount = 0; uint64_t blackSum = 0;
+        for (int i = 0; i < 256 && blackCount < quarter; i++) {
+            uint32_t take = histogram[i];
+            if (take > quarter - blackCount) take = quarter - blackCount;
+            blackSum += (uint64_t)i * take;
+            blackCount += take;
+        }
+
+        ret.white = (double)whiteSum / whiteCount;
+        ret.black = (double)blackSum / blackCount;
+        ret.satFrac = (double)clippedCount / whiteCount;
+        return ret;
     }
 
     set autoExpLib [$aecc compile]
@@ -64,9 +111,7 @@ When the image library is /imageLib/ {
                 set stats [$autoExpLib getTagLocalContrast $grayFrame [dict get $tag p]]
                 puts $stats
             }
-            # get darkest pixel
-            # get lightest pixel
-            # compare contrast
+            # compare white to target white
             # set contrast to target contrast value
                 # gain?
                 # exposure time?
