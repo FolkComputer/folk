@@ -44,7 +44,9 @@ python3 test/sim/audio/analyze.py /tmp/aud/out.wav --tone 440:0.9 --silence 0:0.
   capture with the right frequency and length. Xvfb is not needed.
 - Default autoplay policy: the AudioContext is `suspended` and `audio.play()` rejects with
   `NotAllowedError` without a gesture; `element.click()` from script does not help; a CDP
-  `Input.dispatchMouseEvent` press/release is a trusted click and unlocks both.
+  `Input.dispatchMouseEvent` press/release is a trusted click and unlocks both. The same holds
+  for a launch without any of Playwright's switches (`drive-page.js --bare`: only `--headless
+  --no-sandbox --remote-debugging-pipe --user-data-dir`), which is how browser.folk starts it.
 - Click to first captured sample, 15 clicks: WebAudio 28-44 ms (median 34), `<audio>` 60-81 ms
   (median 70). The capture timestamp itself is good to about one 10 ms fragment.
 - `Wish to play audio` in Folk: miniaudio picks its PulseAudio backend (it tries PulseAudio

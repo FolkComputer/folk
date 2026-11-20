@@ -4,14 +4,16 @@
 //
 //   node drive-page.js [--browser shell|chrome|<path>] [--headed] [--url URL] [--query 'f1=440&..']
 //                      [--no-click] [--js-click] [--only tones|audio] [--repeat N]
-//                      [--settle MS] [--hold MS] [--flag=--chromium-flag ...]
+//                      [--settle MS] [--hold MS] [--bare] [--flag=--chromium-flag ...]
 //
 // Clicks are raw CDP Input.dispatchMouseEvent (mouseMoved, mousePressed, mouseReleased), the
 // events browser.folk sends for a USB mouse. The page is only ever read with CDP
 // Runtime.evaluate WITHOUT userGesture: Playwright's own page.evaluate() passes
 // userGesture=true, which is a user activation by itself and would hide what the autoplay
 // policy does. --js-click calls element.click() from script instead (no activation: a control).
-// Playwright adds --mute-audio to every headless launch; it is removed here.
+// Playwright adds --mute-audio to every headless launch; it is removed here. --bare drops ALL
+// of Playwright's default switches (the launch then looks like browser.folk's: --headless,
+// --remote-debugging-pipe, --user-data-dir, --no-sandbox as root, and nothing else).
 "use strict";
 const fs = require("fs");
 const path = require("path");
@@ -41,7 +43,7 @@ function findBrowser(which) {
 }
 
 const opt = { browser: null, headed: false, url: null, query: "", click: true, jsClick: false,
-              only: null, repeat: 1, settle: 300, hold: 0, flags: [] };
+              only: null, repeat: 1, settle: 300, hold: 0, bare: false, flags: [] };
 const argv = process.argv.slice(2);
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
@@ -55,6 +57,7 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === "--repeat") opt.repeat = parseInt(argv[++i]);
   else if (a === "--settle") opt.settle = parseInt(argv[++i]);
   else if (a === "--hold") opt.hold = parseInt(argv[++i]);
+  else if (a === "--bare") opt.bare = true;
   else if (a.startsWith("--flag=")) opt.flags.push(a.slice(7));
   else { console.error("drive-page.js: unknown argument " + a); process.exit(2); }
 }
@@ -69,8 +72,13 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const steps = [];
   const step = (name, extra) => steps.push(Object.assign({ step: name, t: Date.now() }, extra || {}));
 
+  let profile = null;
+  if (opt.bare) {
+    profile = fs.mkdtempSync(path.join(require("os").tmpdir(), "drive-page-profile-"));
+    args.push("--headless", "--remote-debugging-pipe", "--user-data-dir=" + profile, "about:blank");
+  }
   const browser = await chromium.launch({ executablePath: exe, headless: !opt.headed, args: args,
-                                          ignoreDefaultArgs: ["--mute-audio"] });
+                                          ignoreDefaultArgs: opt.bare ? true : ["--mute-audio"] });
   let code = 0;
   try {
     const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
@@ -137,6 +145,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     code = 1;
   } finally {
     await browser.close().catch(() => {});
+    if (profile) fs.rmSync(profile, { recursive: true, force: true });
   }
   process.exit(code);
 })();
