@@ -27,7 +27,8 @@
 #   step       meters of dot travel per increment (default 0.005)
 #   reach      how far a dot can be from a number, in meters (0.03)
 #   dwell      how long a dot must hold still to grab, in ms (350)
-#   highlight  color of the highlight (yellow)
+#   highlight  color of the highlight (yellow). Dots of this color
+#              are ignored, so don't use it for your dots.
 #
 # To throw the patch away and go back to the program as printed:
 #
@@ -394,12 +395,17 @@ When /page/ is scrubbed with options /options/ &\
 
         if {[llength $tracks] == 0 && [llength $dots] == 0} { return }
 
-        if {$colorFilter ne "any"} {
-            set dots [lmap dot $dots {
-                if {[dict get $dot name] ne $colorFilter} { continue }
-                set dot
-            }]
-        }
+        # Our own highlight, projected onto the page, can look like
+        # dots to the camera (yellow light on printed letters makes
+        # letter-sized yellow blobs). Those must never scrub anything,
+        # or the highlight would drive the numbers by itself.
+        set highlightColor [dict get $options highlight]
+        set dots [lmap dot $dots {
+            set name [dict get $dot name]
+            if {$name eq $highlightColor} { continue }
+            if {$colorFilter ne "any" && $name ne $colorFilter} { continue }
+            set dot
+        }]
 
         # Follow each dot we already know about to wherever it
         # went.

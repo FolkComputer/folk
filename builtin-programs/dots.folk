@@ -161,8 +161,11 @@ When the image library is /imageLib/ {
                 int bh = maxY - minY + 1;
                 int longSide = bw > bh ? bw : bh;
                 int shortSide = bw > bh ? bh : bw;
-                // Right size?
-                if (longSide < minDiameter || longSide > maxDiameter) continue;
+                // Right size? (Big enough by area, so that a wisp
+                // of a few pixels doesn't count; small enough by
+                // extent.)
+                if (2.0 * sqrt((double)n / M_PI) < minDiameter ||
+                    longSide > maxDiameter) continue;
                 // Whole dot in view?
                 if (minX == 0 || minY == 0 || maxX == w - 1 || maxY == h - 1) continue;
                 // Roughly round (not a line, not a finger)?

@@ -253,6 +253,17 @@ When the number scrubbing library is /lib/ &\
         set targets [dict get [lindex [Query! $page has scrub targets /targets/] 0] targets]
         check "targets" [lmap t $targets { dict get $t text }] {0.03 4}
 
+        # A dot the color of the highlight is ignored (it's probably
+        # the highlight itself).
+        for {set i 0} {$i < 7} {incr i} {
+            Hold! -key test-dots Claim $page has dots \
+                [list [dict create x $x y $y diameter 0.004 color {1 1 0} hue 60 name yellow \
+                           frame [clock milliseconds]]]
+            sleep 0.1
+        }
+        eventually "highlight-colored dots are ignored" {highlights} {}
+        for {set i 0} {$i < 9} {incr i} { noDots }
+
         # A dot passing by doesn't grab anything.
         dotAt [expr {$x - 0.02}] $y
         dotAt [expr {$x - 0.01}] $y
