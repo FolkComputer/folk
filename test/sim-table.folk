@@ -1,0 +1,141 @@
+# The emulated tabletop (test/sim/programs/table.folk) on the headless
+# display, with only the rendering stack loaded: a virtual page runs
+# its code and draws exactly on its pixel rect, can be moved without
+# restarting its program, and goes away with its wish; a keyboard page
+# below it points up at it.
+
+if {$::tcl_platform(os) eq "darwin"} {
+    # gpu.folk and draw.folk need to be on the main thread there.
+    Exit! 0
+}
+
+Assert! when /__this/ has program code /__programCode/ {
+    SayWithSource $__this 1 0 {} {} \
+        when $__programCode with environment [list [list this $__this]]
+} with environment {}
+local proc LoadProgram! {programFilename} {
+    set fp [open $programFilename r]
+    Hold! -on test/sim-table.folk -key [list $programFilename code] \
+        Claim $programFilename has program code [read $fp]
+    close $fp
+}
+foreach programFilename [list builtin-programs/collect.folk \
+                             builtin-programs/quad-lib.folk \
+                             builtin-programs/apriltags.folk \
+                             builtin-programs/tags-to-quads.folk \
+                             builtin-programs/calibrate/load-calibration.folk \
+                             builtin-programs/geometric/points-at.folk \
+                             builtin-programs/image/image-lib.folk \
+                             {*}[glob builtin-programs/gpu/*.folk] \
+                             builtin-programs/draw/color-map.folk \
+                             builtin-programs/draw/fill.folk \
+                             builtin-programs/draw/line.folk \
+                             builtin-programs/draw/circle.folk \
+                             test/sim/programs/sim-setup.folk \
+                             test/sim/programs/table.folk] {
+    LoadProgram! $programFilename
+}
+
+proc say {args} { puts $::realStdout [join $args " "]; flush $::realStdout }
+proc waitFor {ms cond} {
+    set deadline [expr {[clock milliseconds] + $ms}]
+    while {[clock milliseconds] < $deadline} {
+        if {[uplevel 1 [list expr $cond]]} { return 1 }
+        sleep 0.02
+    }
+    return 0
+}
+proc fail {msg} { say "test/sim-table: FAIL: $msg"; Exit! 1 }
+proc pass {msg} { say "test/sim-table: ok: $msg" }
+
+When /p/ has error /err/ with info /info/ {
+    puts $::realStdout "test/sim-table: ERROR in $p: $err\n$info"; Exit! 1
+}
+When { sleep 110; puts $::realStdout "test/sim-table: FAIL: timed out"; Exit! 2 }
+
+Wish $::thisNode uses display headless with width 640 height 360 refreshRate 60000
+Wish display headless is captured
+When $::thisNode has had displays enumerated {
+    if {[llength [Query! $::thisNode has display headless with /...any/]] == 0} {
+        puts $::realStdout "test/sim-table: No VK_EXT_headless_surface; skipping"
+        Exit! 0
+    }
+}
+if {![waitFor 60000 {[llength [Query! the image library is /lib/]] > 0}]} { fail "no image library" }
+set imageLib [dict get [lindex [Query! the image library is /lib/] 0] lib]
+
+# Is every {x y color} in the current frame? (ForEach! holds on to the
+# frame while we look at it.)
+proc frameHas {checks} {
+    upvar imageLib imageLib
+    set ok false
+    ForEach! display headless has frame /frame/ at timestamp /timestamp/ {
+        set ok true
+        foreach {x y color} $checks {
+            if {[$imageLib get $frame $x $y] ne $color} { set ok false; break }
+        }
+    }
+    return $ok
+}
+# The pixels just inside and just outside the corners of a rect.
+proc rectChecks {x y w h inside outside} {
+    set x1 [expr {$x + $w - 1}]; set y1 [expr {$y + $h - 1}]
+    set checks [list]
+    foreach {cx cy dx dy} [list $x $y -1 -1  $x1 $y 1 -1  $x1 $y1 1 1  $x $y1 -1 1] {
+        lappend checks $cx $cy $inside  [expr {$cx + $dx}] $cy $outside  $cx [expr {$cy + $dy}] $outside
+    }
+    lappend checks [expr {$x + $w/2}] [expr {$y + $h/2}] $inside
+    return $checks
+}
+
+set dir /tmp/folk-test-sim-table-[pid]
+file mkdir $dir
+set red "1 0 0"; set black "0 0 0"
+set pageCode {
+    Wish $this is filled with color red
+    Assert! $this started at [clock microseconds]
+}
+
+# 1. A page draws on its pixel rect, to the pixel.
+Hold! -on test/sim-table.folk -key p1 Wish the simulated table has page p1 at 100 50 200 100 with code $pageCode
+if {![waitFor 60000 {[frameHas [rectChecks 100 50 200 100 $red $black]]}]} {
+    fail "p1 isn't drawn (exactly) on 100 50 200 100"
+}
+pass "p1 runs and fills exactly its pixel rect"
+
+# 2. A keyboard page below it points up at it (what the editor asks for).
+Hold! -on test/sim-table.folk -key k1 Wish the simulated table has keyboard k1 at 150 155 100 40 with path $dir/kbd0
+Wish k1 points up with length 0.3
+if {![waitFor 20000 {[llength [Query! k1 is a keyboard with path $dir/kbd0]] == 1 &&
+                     [llength [Query! $dir/kbd0 is a keyboard device]] == 1 &&
+                     [file exists $dir/kbd0] && [file type $dir/kbd0] eq "fifo" &&
+                     [llength [Query! k1 points up with length 0.3 at p1]] == 1}]} {
+    fail "k1 isn't a keyboard page pointing up at p1"
+}
+pass "k1 is a keyboard page (FIFO made) and points up at p1"
+
+# 3. Moving the page: drawn at the new rect only, same program run,
+# and the keyboard doesn't point at it anymore.
+Hold! -on test/sim-table.folk -key p1 Wish the simulated table has page p1 at 400 220 200 100 with code $pageCode
+if {![waitFor 20000 {[frameHas [list {*}[rectChecks 400 220 200 100 $red $black] 200 100 $black]]}]} {
+    fail "p1 isn't drawn (exactly) on 400 220 200 100 after moving"
+}
+if {![waitFor 5000 {[llength [Query! k1 points up with length 0.3 at p1]] == 0}]} {
+    fail "k1 still points at p1 after it moved away"
+}
+sleep 0.5
+set starts [llength [Query! p1 started at /t/]]
+if {$starts != 1} { fail "p1's program ran $starts times (moving restarted it)" }
+pass "p1 moved without restarting its program"
+
+# 4. Removing the wish removes the page.
+Hold! -on test/sim-table.folk -key p1 {}
+if {![waitFor 20000 {[llength [Query! p1 has program code /c/]] == 0 && [llength [Query! p1 has quad /q/]] == 0 &&
+                     [frameHas [list 500 270 $black 401 221 $black]]}]} {
+    fail "p1 is still there after its wish was removed"
+}
+pass "p1 is gone with its wish"
+
+file delete -force $dir
+say "test/sim-table: PASS"
+Exit! 0
