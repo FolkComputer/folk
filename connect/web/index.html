@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Folk Connect">
+  <meta name="theme-color" content="#14213d">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="style.css">
+  <title>Folk Connect</title>
+</head>
+<body>
+  <header>
+    <h1>Folk Connect</h1>
+    <div id="status" data-state="connecting">
+      <span class="dot"></span><span id="status-text">Connecting…</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- Home: who is in the room -->
+    <section id="home">
+      <label class="field">
+        <span>This device is called</span>
+        <input id="name" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="40">
+      </label>
+
+      <h2>Folk machines</h2>
+      <ul id="machines" class="cards"></ul>
+      <p id="no-machines" class="hint">
+        No Folk machines here yet. A machine shows up when it runs
+        <code>Assert! the connect server is "…"</code> on the same network as
+        this device. You can also simulate one in another tab.
+      </p>
+
+      <h2>People</h2>
+      <ul id="people" class="cards"></ul>
+      <p id="no-people" class="hint">
+        Nobody else is here. Open this page on another device on the same
+        network to share a screen, camera or microphone with it.
+      </p>
+
+      <h2>Room</h2>
+      <p class="hint">
+        You are in <strong id="room-label">…</strong>.
+        <span id="room-explain"></span>
+      </p>
+      <form id="room-form" class="row">
+        <input id="room-name" placeholder="room name" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="48">
+        <button type="submit">Join a named room</button>
+      </form>
+
+      <p><button id="become-sim" class="secondary">Simulate a Folk machine in this tab</button></p>
+    </section>
+
+    <!-- Scratchpad: talking to one Folk machine -->
+    <section id="pad" hidden>
+      <div class="row">
+        <button id="pad-back" class="secondary">Back</button>
+        <h2 id="pad-title"></h2>
+        <span id="pad-status" class="pill"></span>
+      </div>
+      <p id="pad-problem" class="problem" hidden></p>
+
+      <div id="surface" aria-label="The table. Drag the program to move it; touch anywhere else to send touches.">
+        <div id="program" hidden><span id="program-label">program</span></div>
+      </div>
+      <p class="hint">
+        This rectangle is the machine's display. Drag the program to place it.
+        Touches anywhere else are sent as statements.
+      </p>
+
+      <textarea id="code" rows="5" spellcheck="false" autocapitalize="off" autocomplete="off">Wish $this is labelled "Hello from my phone"
+Wish $this is outlined blue</textarea>
+      <div class="row">
+        <button id="run">Run on the table</button>
+        <button id="remove" class="secondary">Remove</button>
+        <label class="inline">angle
+          <input id="angle" type="range" min="0" max="360" step="1" value="0">
+        </label>
+      </div>
+      <pre id="error" hidden></pre>
+
+      <h3>Send from this device</h3>
+      <div class="toggles">
+        <label><input type="checkbox" id="send-touches" checked> Touches</label>
+        <label><input type="checkbox" id="send-tilt"> Tilt</label>
+        <label><input type="checkbox" id="send-mic"> Mic level</label>
+      </div>
+      <details>
+        <summary>What the machine sees</summary>
+        <pre id="pad-statements"></pre>
+      </details>
+    </section>
+
+    <!-- Simulator: this tab pretends to be a Folk machine -->
+    <section id="sim" hidden>
+      <div class="row">
+        <button id="sim-stop" class="secondary">Stop simulating</button>
+        <h2>Simulated Folk machine</h2>
+      </div>
+      <p class="hint">
+        Other devices in this room see this tab as a Folk machine. It does not
+        run Tcl; it draws the statements that the scratchpad sends.
+      </p>
+      <canvas id="table" width="960" height="540"></canvas>
+      <div id="sim-media"></div>
+      <h3>Statements</h3>
+      <pre id="sim-statements"></pre>
+      <details>
+        <summary>Raw messages</summary>
+        <pre id="sim-log"></pre>
+      </details>
+    </section>
+  </main>
+
+  <template id="peer-card">
+    <li class="card">
+      <div class="card-head">
+        <span class="kind"></span>
+        <strong class="peer-name"></strong>
+        <span class="pill link-state" hidden></span>
+      </div>
+      <div class="row actions"></div>
+      <div class="media"></div>
+    </li>
+  </template>
+
+  <script src="folk.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "name": "Folk Connect",
+  "short_name": "Folk Connect",
+  "description": "Find and talk to the Folk machines on your network.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#14213d",
+  "theme_color": "#14213d",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

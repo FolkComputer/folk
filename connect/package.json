@@ -1,0 +1,16 @@
+{
+  "name": "folk-connect",
+  "private": true,
+  "type": "module",
+  "description": "Signaling server and scratchpad page for reaching Folk machines over WebRTC",
+  "scripts": {
+    "dev": "node server/dev-server.js",
+    "build": "cp ../lib/folk.js web/folk.js",
+    "test": "node --test test/room.test.js",
+    "test:e2e": "node test/e2e.mjs",
+    "deploy": "npm run build && wrangler deploy"
+  },
+  "devDependencies": {
+    "ws": "^8.18.0"
+  }
+}
