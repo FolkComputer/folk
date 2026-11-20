@@ -1,3 +1,18 @@
+# Folk-level autoexposure, driven by AprilTags.
+#
+# This is different from the camera's built-in autoexposure (which
+# looks at the whole frame, so a bright projection or a dark table
+# drags it around). We look only at the pixels inside each detected
+# tag and adjust exposure time so that the tags' white cells sit at
+# ~200/255: bright enough for a solid black/white split, with
+# headroom so they don't clip.
+#
+# Turn it on with:
+#
+#     Wish camera /dev/video0 uses AprilTag-based autoexposure
+#
+# (or the checkbox on the /camera web page).
+
 When the image library is /imageLib/ {
     set aecc [C]
     $aecc extend $imageLib
@@ -170,36 +185,140 @@ When the image library is /imageLib/ {
         return [list $next $dir]
     }
 
-    puts "Before when"
+    When /someone/ wishes camera /camera/ uses AprilTag-based autoexposure {
+        # $camera may be a virtual (cropped) camera {/dev/videoN i}:
+        # tags are detected on it, but exposure belongs to the device.
+        set exposureCamera [lindex $camera 0]
 
-    When camera /camera/ has width /width/ height /height/ &\
-    /someone/ wishes camera /camera/ detects tags {
-        puts "Immediately after when"
-        set n 0
-        while true {
-            sleep 1
-            # get local apriltag slices
-            puts "start [incr n]"
-            Expect! /detector/ detects tags /tags/ on camera $camera \
-            at timestamp /frameTs/ in time /time/
-            try {
-                Require! camera $camera has gray frame /grayFrame/ at timestamp $frameTs
-            } on error e {
-                puts $e
-                continue
+        # Allowed exposure range in microseconds. 300us is about as
+        # short as UVC cameras go (needed in direct sun); 15ms is the
+        # longest that still fits in a frame at the 60fps we request.
+        set lo 300
+        set hi 15000
+
+        On unmatch {
+            Hold! -key [list autoexposure-state $camera] {}
+        }
+
+        When -serially camera $camera has gray frame /grayFrame/ at timestamp /frameTs/ {
+            # All state lives in a held statement, because a When body
+            # starts from a fresh copy of its environment every time.
+            set state {lastRunTs 0 lostSince {} lastSweepTs 0 sweepDir 1
+                       sweepHome {} sweepBounces 0 restUntil 0}
+            foreach r [Query! camera $camera has autoexposure state /state/] {
+                set state [dict get $r state]
             }
-            # puts $tags
-            # puts $grayFrame
-            foreach tag $tags {
-                set stats [$autoExpLib getTagLocalContrast $grayFrame [dict get $tag p]]
-                puts $stats
+
+            # Run at most ~10 times a second. That gives the camera the
+            # 1-3 frames it needs to apply a new exposure before we
+            # measure again. We do it by returning early rather than
+            # sleeping, so we never hold on to a worker thread or a
+            # stale frame.
+            if {$frameTs - [dict get $state lastRunTs] < 0.1} { return }
+            dict set state lastRunTs $frameTs
+
+            # Calibration temporarily takes over the exposure; don't
+            # fight it (and don't measure its frames).
+            if {[llength [Query! /someone/ wishes camera $exposureCamera \
+                              temporarily uses exposure time /us/ us]] > 0} {
+                return
             }
-            # compare white to target white
-            # set contrast to target contrast value
-                # gain?
-                # exposure time?
+
+            # What exposure is wished for right now? (This is the same
+            # statement the manual slider on the /camera page holds.)
+            set cur 0
+            foreach r [Query! /someone/ wishes camera $exposureCamera \
+                           uses exposure time /us/ us] {
+                set cur [dict get $r us]
+            }
+            if {$cur < $lo || $cur > $hi} {
+                # Nobody has set a manual exposure (or it is 0 = the
+                # camera's built-in auto mode, or out of our range).
+                # Start from a middling value; the law below takes it
+                # from there.
+                set cur [expr {$cur > $hi ? $hi : 3000}]
+                Hold! -on builtin-programs/web/setup.folk -key "exposure $exposureCamera" \
+                    Wish camera $exposureCamera uses exposure time $cur us
+                Hold! -key [list autoexposure-state $camera] \
+                    Claim camera $camera has autoexposure state $state
+                return
+            }
+
+            # Collect the most recent corners for each tag, from both
+            # the entire-frame and the incremental detector. They may
+            # be a frame or two older than $grayFrame; tags move
+            # slowly compared to that, and getTagLocalContrast is
+            # bounds-checked.
+            set corners [dict create]
+            foreach r [Query! /detector/ detects tags /tags/ on camera $camera \
+                           at timestamp /detTs/ in time /detTime/] {
+                # Ignore a detector that has stalled.
+                if {$frameTs - [dict get $r detTs] > 0.5} { continue }
+                foreach tag [dict get $r tags] {
+                    dict set corners [dict get $tag id] [dict get $tag p]
+                }
+            }
+
+            set stats [list]
+            dict for {id p} $corners {
+                set s [$autoExpLib getTagLocalContrast $grayFrame $p]
+                if {[dict get $s count] == 0} { continue }
+                lappend stats $s
+            }
+
+            set next $cur
+            if {[llength $stats] > 0} {
+                dict set state lostSince {}
+                dict set state sweepHome {}
+                dict set state sweepBounces 0
+                dict set state restUntil 0
+                set next [aeNextExposure $cur $stats $lo $hi]
+            } elseif {[dict get $state lostSince] eq ""} {
+                dict set state lostSince $frameTs
+            } elseif {$frameTs - [dict get $state lostSince] > 0.5 &&
+                      $frameTs >= [dict get $state restUntil] &&
+                      $frameTs - [dict get $state lastSweepTs] >= 0.4} {
+                # No tag for half a second. Either there are no tags
+                # on the table, or the exposure is so far off that
+                # they can't be seen (direct sun, dark room). Sweep
+                # through the range, one step every 0.4s, until a tag
+                # shows up; then the normal law takes over.
+                if {[dict get $state sweepHome] eq ""} {
+                    dict set state sweepHome $cur
+                    dict set state sweepBounces 0
+                }
+                dict set state lastSweepTs $frameTs
+                if {[dict get $state sweepBounces] >= 2} {
+                    # We have been to both ends of the range and found
+                    # nothing, so the table is probably just empty. Go
+                    # back to where we were and rest for 5s, so the
+                    # picture isn't pulsing forever for everyone else
+                    # who uses the camera.
+                    set next [dict get $state sweepHome]
+                    dict set state sweepHome {}
+                    dict set state restUntil [expr {$frameTs + 5.0}]
+                } else {
+                    lassign [aeSweepExposure $cur [dict get $state sweepDir] $lo $hi] \
+                        next sweepDir
+                    if {$sweepDir != [dict get $state sweepDir]} {
+                        dict incr state sweepBounces
+                    }
+                    dict set state sweepDir $sweepDir
+                }
+            }
+            dict set state tagCount [llength $stats]
+            Hold! -key [list autoexposure-state $camera] \
+                Claim camera $camera has autoexposure state $state
+
+            if {$next != $cur} {
+                # Same -on and -key as the manual slider in
+                # web/camera.folk, so there is only ever one exposure
+                # wish, and when autoexposure is switched off the
+                # camera simply stays where we left it. Not -save'd:
+                # that would rewrite the hold file ~10 times a second.
+                Hold! -on builtin-programs/web/setup.folk -key "exposure $exposureCamera" \
+                    Wish camera $exposureCamera uses exposure time $next us
+            }
         }
     }
 }
-
-
