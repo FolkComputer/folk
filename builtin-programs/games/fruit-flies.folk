@@ -1,0 +1,408 @@
+# Fruit fly zapper.
+#
+# A game inspired by how much we all loathe fruit flies.
+#
+# Put this on two (or more) programs/cubes:
+#
+#   Claim $this is a fly zapper
+#
+# Each zapper shoots a beam out of the top of its tag. Wherever two
+# beams cross, a targeting ring appears. Steer the ring over a fruit
+# fly to zap it into a cloud of particles. Every zap lights up one
+# more segment of the score bar on the left edge of the table.
+
+set cc [C]
+$cc cflags -O2 -Wall
+$cc include <math.h>
+$cc include <stdlib.h>
+$cc include <string.h>
+$cc include <pthread.h>
+
+$cc code {
+    #define MAX_ZAPPERS 8
+    #define MAX_FLIES 6
+    #define MAX_PARTICLES 600
+    #define RING_RADIUS 55.0
+    #define MARGIN 40.0
+
+    typedef struct { double x, y; } V2;
+
+    typedef struct {
+        int used;
+        int gen;
+        char name[128];
+        V2 origin;
+        V2 dir; // unit vector
+    } Zapper;
+
+    typedef struct {
+        int alive;
+        double x, y, heading, speed, size;
+        double wanderPhase;
+        double respawnAt;
+        double bornAt;
+    } Fly;
+
+    typedef struct {
+        double x, y, vx, vy, life, maxLife, radius;
+        float r, g, b;
+    } Particle;
+
+    static pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER;
+    static Zapper zappers[MAX_ZAPPERS];
+    static Fly flies[MAX_FLIES];
+    static Particle particles[MAX_PARTICLES];
+    static int nParticles = 0;
+    static int initialized = 0;
+    static double lastT = 0;
+    static int score = 0;
+    static double lastZapAt = -100;
+    static unsigned int seed = 12345;
+
+    static double frand(void) { return (double)rand_r(&seed) / (double)RAND_MAX; }
+    static double frange(double a, double b) { return a + (b - a) * frand(); }
+
+    static void spawnFly(Fly* f, double w, double h, double t) {
+        f->alive = 1;
+        f->x = frange(MARGIN + 60, w - MARGIN - 60);
+        f->y = frange(MARGIN + 60, h - MARGIN - 60);
+        f->heading = frange(0, 2 * M_PI);
+        f->speed = frange(50, 110);
+        f->size = frange(1.3, 2.2);
+        f->wanderPhase = frange(0, 100);
+        f->bornAt = t;
+    }
+
+    static void explode(double x, double y, double size) {
+        int n = (int)(70 * size);
+        for (int i = 0; i < n && nParticles < MAX_PARTICLES; i++) {
+            Particle* p = &particles[nParticles++];
+            double a = frange(0, 2 * M_PI);
+            double s = frange(60, 320) * size;
+            p->x = x + cos(a) * frange(0, 8);
+            p->y = y + sin(a) * frange(0, 8);
+            p->vx = cos(a) * s;
+            p->vy = sin(a) * s;
+            p->maxLife = p->life = frange(0.6, 1.4);
+            p->radius = frange(2.0, 5.0);
+            double c = frand();
+            if (c < 0.4) { p->r = 1.0f; p->g = 0.25f; p->b = 0.3f; }        // red
+            else if (c < 0.75) { p->r = 0.35f; p->g = 0.6f; p->b = 1.0f; }  // blue
+            else { p->r = 1.0f; p->g = 1.0f; p->b = 1.0f; }                 // white
+        }
+    }
+
+    static Jim_Obj* v2(double x, double y) {
+        Jim_Obj* l = Jim_NewListObj(interp, NULL, 0);
+        Jim_ListAppendElement(interp, l, Jim_NewDoubleObj(interp, x));
+        Jim_ListAppendElement(interp, l, Jim_NewDoubleObj(interp, y));
+        return l;
+    }
+    static Jim_Obj* rgba(double r, double g, double b, double a) {
+        Jim_Obj* l = Jim_NewListObj(interp, NULL, 0);
+        Jim_ListAppendElement(interp, l, Jim_NewDoubleObj(interp, r));
+        Jim_ListAppendElement(interp, l, Jim_NewDoubleObj(interp, g));
+        Jim_ListAppendElement(interp, l, Jim_NewDoubleObj(interp, b));
+        Jim_ListAppendElement(interp, l, Jim_NewDoubleObj(interp, a));
+        return l;
+    }
+
+    // Instance builders, matching the "line" and "circle" pipelines.
+    static Jim_Obj *gRes, *gProj;
+    static void addLine(Jim_Obj* out, double x0, double y0, double x1, double y1,
+                        double width, double r, double g, double b, double a) {
+        Jim_Obj* inst = Jim_NewListObj(interp, NULL, 0);
+        Jim_ListAppendElement(interp, inst, gRes);
+        Jim_ListAppendElement(interp, inst, gProj);
+        Jim_ListAppendElement(interp, inst, v2(x0, y0));
+        Jim_ListAppendElement(interp, inst, v2(x1, y1));
+        Jim_ListAppendElement(interp, inst, Jim_NewDoubleObj(interp, width));
+        Jim_ListAppendElement(interp, inst, rgba(r, g, b, a));
+        Jim_ListAppendElement(interp, inst, Jim_NewDoubleObj(interp, 0.0));
+        Jim_ListAppendElement(interp, inst, Jim_NewDoubleObj(interp, 0.0));
+        Jim_ListAppendElement(interp, out, inst);
+    }
+    static void addCircle(Jim_Obj* out, double x, double y, double inner, double outer,
+                          double r, double g, double b, double a) {
+        Jim_Obj* inst = Jim_NewListObj(interp, NULL, 0);
+        Jim_ListAppendElement(interp, inst, gRes);
+        Jim_ListAppendElement(interp, inst, gProj);
+        Jim_ListAppendElement(interp, inst, v2(x, y));
+        Jim_ListAppendElement(interp, inst, Jim_NewDoubleObj(interp, inner));
+        Jim_ListAppendElement(interp, inst, Jim_NewDoubleObj(interp, outer));
+        Jim_ListAppendElement(interp, inst, rgba(r, g, b, a));
+        Jim_ListAppendElement(interp, out, inst);
+    }
+
+    // Transform a fly-local point (x forward, y sideways) to display space.
+    static V2 flyPt(Fly* f, double lx, double ly) {
+        double s = f->size, c = cos(f->heading), sn = sin(f->heading);
+        V2 p = { f->x + (lx * c - ly * sn) * s, f->y + (lx * sn + ly * c) * s };
+        return p;
+    }
+
+    static void drawFly(Fly* f, double t, Jim_Obj* lines, Jim_Obj* circles) {
+        double s = f->size;
+        double fade = fmin(1.0, (t - f->bornAt) / 0.4);
+        // Wings flap: sweep tips back and forth.
+        double flap = sin(t * 45.0 + f->wanderPhase) * 3.0;
+        for (int side = -1; side <= 1; side += 2) {
+            V2 a = flyPt(f, 1, side * 3);
+            V2 b = flyPt(f, -8 + flap, side * (14 + flap * 0.5));
+            addLine(lines, a.x, a.y, b.x, b.y, 12 * s, 0.25, 0.5, 1.0, 0.85 * fade);
+        }
+        // Body.
+        V2 tail = flyPt(f, -11, 0), nose = flyPt(f, 8, 0);
+        addLine(lines, tail.x, tail.y, nose.x, nose.y, 10 * s, 1.0, 1.0, 1.0, fade);
+        // Red stripes.
+        for (int i = 0; i < 3; i++) {
+            double lx = -8 + i * 5;
+            V2 a = flyPt(f, lx, -3), b = flyPt(f, lx, 3);
+            addLine(lines, a.x, a.y, b.x, b.y, 2.2 * s, 1.0, 0.2, 0.25, fade);
+        }
+        // Head + eyes.
+        V2 head = flyPt(f, 11, 0);
+        addCircle(circles, head.x, head.y, 0, 5 * s, 1.0, 0.2, 0.25, fade);
+    }
+
+    static Jim_Obj* stepGame(double t, double w, double h) {
+        Jim_Obj* lines = Jim_NewListObj(interp, NULL, 0);
+        Jim_Obj* circles = Jim_NewListObj(interp, NULL, 0);
+
+        if (!initialized) {
+            for (int i = 0; i < MAX_FLIES; i++) spawnFly(&flies[i], w, h, t);
+            lastT = t;
+            initialized = 1;
+        }
+        double dt = t - lastT;
+        if (dt < 0 || dt > 0.1) dt = 0.016;
+        lastT = t;
+
+        // --- Beams and their crossing points ---------------------------
+        V2 rings[MAX_ZAPPERS * MAX_ZAPPERS]; int nRings = 0;
+        double beamLen[MAX_ZAPPERS];
+        for (int i = 0; i < MAX_ZAPPERS; i++) beamLen[i] = 4000;
+        for (int i = 0; i < MAX_ZAPPERS; i++) {
+            if (!zappers[i].used) continue;
+            for (int j = i + 1; j < MAX_ZAPPERS; j++) {
+                if (!zappers[j].used) continue;
+                V2 p = zappers[i].origin, r = zappers[i].dir;
+                V2 q = zappers[j].origin, s = zappers[j].dir;
+                double rxs = r.x * s.y - r.y * s.x;
+                if (fabs(rxs) < 1e-6) continue; // parallel
+                double qpx = q.x - p.x, qpy = q.y - p.y;
+                double tA = (qpx * s.y - qpy * s.x) / rxs;
+                double tB = (qpx * r.y - qpy * r.x) / rxs;
+                if (tA <= 0 || tB <= 0) continue; // beams don't actually meet
+                V2 x = { p.x + r.x * tA, p.y + r.y * tA };
+                rings[nRings++] = x;
+                // Beams stop at the edge of the ring.
+                if (tA - RING_RADIUS < beamLen[i]) beamLen[i] = fmax(0, tA - RING_RADIUS);
+                if (tB - RING_RADIUS < beamLen[j]) beamLen[j] = fmax(0, tB - RING_RADIUS);
+            }
+        }
+        for (int i = 0; i < MAX_ZAPPERS; i++) {
+            if (!zappers[i].used) continue;
+            Zapper* z = &zappers[i];
+            addLine(lines, z->origin.x, z->origin.y,
+                    z->origin.x + z->dir.x * beamLen[i],
+                    z->origin.y + z->dir.y * beamLen[i],
+                    3, 1.0, 1.0, 1.0, 0.8);
+        }
+
+        // --- Flies -----------------------------------------------------
+        for (int i = 0; i < MAX_FLIES; i++) {
+            Fly* f = &flies[i];
+            if (!f->alive) {
+                if (t >= f->respawnAt) spawnFly(f, w, h, t);
+                continue;
+            }
+            // Erratic fruit-fly wandering: smooth turning plus random darts.
+            f->wanderPhase += dt;
+            f->heading += (sin(f->wanderPhase * 2.3) * 1.5 + frange(-4, 4)) * dt;
+            if (frand() < 0.6 * dt) f->speed = frange(20, 180);
+            f->x += cos(f->heading) * f->speed * dt;
+            f->y += sin(f->heading) * f->speed * dt;
+            // Stay inside the board.
+            double m = MARGIN + 20;
+            if (f->x < m) { f->x = m; f->heading = M_PI - f->heading; }
+            if (f->x > w - m) { f->x = w - m; f->heading = M_PI - f->heading; }
+            if (f->y < m) { f->y = m; f->heading = -f->heading; }
+            if (f->y > h - m) { f->y = h - m; f->heading = -f->heading; }
+
+            // Zapped?
+            for (int k = 0; k < nRings; k++) {
+                double dx = f->x - rings[k].x, dy = f->y - rings[k].y;
+                if (dx * dx + dy * dy < RING_RADIUS * RING_RADIUS) {
+                    explode(f->x, f->y, f->size);
+                    f->alive = 0;
+                    f->respawnAt = t + frange(1.5, 3.5);
+                    score++;
+                    lastZapAt = t;
+                    break;
+                }
+            }
+            if (f->alive) drawFly(f, t, lines, circles);
+        }
+
+        // --- Rings -----------------------------------------------------
+        double flash = fmax(0, 1.0 - (t - lastZapAt) / 0.3);
+        for (int k = 0; k < nRings; k++) {
+            double pulse = 1.0 + 0.04 * sin(t * 8);
+            double r = RING_RADIUS * pulse;
+            addCircle(circles, rings[k].x, rings[k].y, r + 6, r + 16, 0.3, 0.55, 1.0, 0.25);
+            addCircle(circles, rings[k].x, rings[k].y, r, r + 5,
+                      0.4 + 0.6 * flash, 0.65 + 0.35 * flash, 1.0, 0.95);
+        }
+
+        // --- Particles -------------------------------------------------
+        int alive = 0;
+        for (int i = 0; i < nParticles; i++) {
+            Particle* p = &particles[i];
+            p->life -= dt;
+            if (p->life <= 0) continue;
+            double drag = exp(-2.5 * dt);
+            p->vx *= drag; p->vy *= drag;
+            p->x += p->vx * dt; p->y += p->vy * dt;
+            double k = p->life / p->maxLife;
+            addCircle(circles, p->x, p->y, 0, p->radius * (0.4 + 0.6 * k),
+                      p->r, p->g, p->b, k);
+            particles[alive++] = *p;
+        }
+        nParticles = alive;
+
+        // --- Board: outline with corner dots, score bar on the left ----
+        double x0 = MARGIN, y0 = MARGIN, x1 = w - MARGIN, y1 = h - MARGIN;
+        addLine(lines, x0, y0, x1, y0, 2, 1, 1, 1, 0.5);
+        addLine(lines, x1, y0, x1, y1, 2, 1, 1, 1, 0.5);
+        addLine(lines, x1, y1, x0, y1, 2, 1, 1, 1, 0.5);
+        addLine(lines, x0, y1, x0, y0, 2, 1, 1, 1, 0.5);
+        addCircle(circles, x0, y0, 0, 6, 1, 1, 1, 0.8);
+        addCircle(circles, x1, y0, 0, 6, 1, 1, 1, 0.8);
+        addCircle(circles, x1, y1, 0, 6, 1, 1, 1, 0.8);
+        addCircle(circles, x0, y1, 0, 6, 1, 1, 1, 0.8);
+
+        int segments = 20;
+        double barX = MARGIN / 2.0, top = y0 + 20, bottom = y1 - 20;
+        double segH = (bottom - top) / segments;
+        int lit = score % (segments + 1);
+        for (int i = 0; i < segments; i++) {
+            double sy0 = bottom - (i + 1) * segH + 4, sy1 = bottom - i * segH - 4;
+            int on = i < lit;
+            addLine(lines, barX, sy0, barX, sy1, 8,
+                    0.25, 0.5, 1.0, on ? 1.0 : 0.15);
+        }
+
+        Jim_Obj* result = Jim_NewListObj(interp, NULL, 0);
+        Jim_ListAppendElement(interp, result, lines);
+        Jim_ListAppendElement(interp, result, circles);
+        Jim_ListAppendElement(interp, result, Jim_NewIntObj(interp, score));
+        return result;
+    }
+}
+
+# Each match of a zapper's quad gets a fresh generation number, so that
+# a stale unmatch (which can arrive after the next match) doesn't remove
+# the zapper's newer beam.
+$cc proc setZapper {char* name double ox double oy double dx double dy} int {
+    pthread_mutex_lock(&mu);
+    static int nextGen = 1;
+    int gen = nextGen++;
+    double len = sqrt(dx * dx + dy * dy);
+    if (len > 1e-9) { dx /= len; dy /= len; }
+    int slot = -1, empty = -1;
+    for (int i = 0; i < MAX_ZAPPERS; i++) {
+        if (zappers[i].used && strcmp(zappers[i].name, name) == 0) { slot = i; break; }
+        if (!zappers[i].used && empty < 0) empty = i;
+    }
+    if (slot < 0) slot = empty;
+    if (slot >= 0) {
+        Zapper* z = &zappers[slot];
+        z->used = 1;
+        z->gen = gen;
+        snprintf(z->name, sizeof(z->name), "%s", name);
+        z->origin.x = ox; z->origin.y = oy;
+        z->dir.x = dx; z->dir.y = dy;
+    }
+    pthread_mutex_unlock(&mu);
+    return gen;
+}
+
+$cc proc removeZapper {char* name int gen} void {
+    pthread_mutex_lock(&mu);
+    for (int i = 0; i < MAX_ZAPPERS; i++) {
+        if (zappers[i].used && zappers[i].gen == gen &&
+            strcmp(zappers[i].name, name) == 0) {
+            zappers[i].used = 0;
+        }
+    }
+    pthread_mutex_unlock(&mu);
+}
+
+$cc proc step {double t double w double h Jim_Obj* res Jim_Obj* proj} Jim_Obj* {
+    pthread_mutex_lock(&mu);
+    gRes = res; gProj = proj;
+    Jim_Obj* result = stepGame(t, w, h);
+    pthread_mutex_unlock(&mu);
+    return result;
+}
+
+set flyLib [$cc compile]
+
+# Track each zapper's beam (origin + direction) in display pixels.
+When the quad library is /quadLib/ &\
+     the pose library is /poseLib/ &\
+     the quad changer is /quadChange/ &\
+     display /disp/ has width /displayWidth/ height /displayHeight/ &\
+     display /disp/ has intrinsics /displayIntrinsics/ &\
+     /zapper/ is a fly zapper &\
+     /zapper/ has quad /quad/ {
+
+    package require linalg
+    namespace import \
+        ::math::linearalgebra::add \
+        ::math::linearalgebra::scale
+
+    fn quadChange
+    set quad [quadChange $quad "display $disp"]
+    lassign [$quadLib vertices $quad] topLeft topRight bottomRight bottomLeft
+
+    set topCenter [scale 0.5 [add $topLeft $topRight]]
+    set bottomCenter [scale 0.5 [add $bottomLeft $bottomRight]]
+
+    lassign [$poseLib project $displayIntrinsics $displayWidth $displayHeight \
+                 $topCenter] fx fy
+    lassign [$poseLib project $displayIntrinsics $displayWidth $displayHeight \
+                 $bottomCenter] bx by
+
+    set gen [$flyLib setZapper $zapper $fx $fy [- $fx $bx] [- $fy $by]]
+
+    On unmatch {
+        $flyLib removeZapper $zapper $gen
+    }
+}
+
+# Run the game whenever at least one zapper is on the table. (We
+# collect the zappers so the game steps once per frame no matter how
+# many zappers there are.)
+When the collected results for [list /someone/ claims /zapper/ is a fly zapper] are /zappers/ &\
+     display /disp/ has width /displayWidth/ height /displayHeight/ &\
+     $disp has canvas /id/ with /...wiOptions/ &\
+     $disp has canvas projection /surfaceToClip/ &\
+     the clock time is /t/ {
+
+    if {[llength $zappers] == 0} { return }
+
+    set res [list [dict get $wiOptions width] [dict get $wiOptions height]]
+    lassign [$flyLib step $t $displayWidth $displayHeight $res $surfaceToClip] \
+        lines circles score
+
+    Wish the GPU draws pipeline "line" onto canvas $id \
+        with instances $lines layer 0
+    Wish the GPU draws pipeline "circle" onto canvas $id \
+        with instances $circles layer 1
+
+    Wish to draw text onto $disp with \
+        x [- $displayWidth 60] y 70 anchor topright \
+        text "flies zapped: $score" color white scale 32
+}
