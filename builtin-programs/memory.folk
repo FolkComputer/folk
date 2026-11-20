@@ -1,0 +1,281 @@
+# Memory: the table remembers where it last saw the things you've
+# named, so you can ask it later.
+#
+# Name a thing (from its own program, or from any other program by
+# using its tag number in place of $this):
+#
+#   Claim $this is named "red book"
+#
+# While a named thing is on the table, its position is remembered:
+#
+#   When /thing/ was last seen with /...memory/ { ... }
+#
+# where memory has keys `name`, `quad` and `timestamp` (Unix time, in
+# seconds). Memories are saved to disk, so they survive a restart.
+#
+# Ask where something was last seen, from a program:
+#
+#   Wish $this recalls "where did you last see the red book?"
+#
+# or make a page you can type questions into (point a keyboard at it):
+#
+#   Wish $this is a question box
+#
+# The place where each matching thing was last seen gets outlined on
+# the table, with a line leading to it from the asker.
+#
+# Only things that have been named are remembered. To make the table
+# forget (and stop remembering) a thing:
+#
+#   Wish $thing is forgotten
+
+# How often (in seconds) we refresh the memory of a thing that is
+# sitting on the table, unless it moves by more than this many meters.
+set recordInterval 0.5
+set recordDistance 0.005
+# We only write a memory to disk if the thing has moved by this many
+# meters, or this many seconds have passed since we last wrote it.
+set saveDistance 0.02
+set saveInterval 60
+
+fn memoryNormalize {s} {
+    set s [string tolower $s]
+    regsub -all {[^a-z0-9]+} $s " " s
+    return [string trim $s]
+}
+
+# Does this question ask about the thing with this name? True if the
+# name appears (as whole words) in the question, or if the question
+# is itself just part of the name (so `book` finds the `red book`).
+fn memoryMatches {question name} {
+    set q [memoryNormalize $question]
+    set n [memoryNormalize $name]
+    if {$q eq "" || $n eq ""} { return false }
+    if {[string first " $n " " $q "] >= 0} { return true }
+    if {[string length $q] >= 3 && [string first " $q " " $n "] >= 0} {
+        return true
+    }
+    return false
+}
+
+fn memoryQuadDistance {q1 q2} {
+    if {[lindex $q1 0] ne [lindex $q2 0]} { return Inf }
+    set maxDist 0
+    foreach v1 [lindex $q1 1] v2 [lindex $q2 1] {
+        set sum 0
+        foreach a $v1 b $v2 { set sum $($sum + ($a - $b) * ($a - $b)) }
+        set dist $(sqrt($sum))
+        if {$dist > $maxDist} { set maxDist $dist }
+    }
+    return $maxDist
+}
+
+fn memoryAge {timestamp} {
+    set age $([clock seconds] - int($timestamp))
+    if {$age < 5} { return "last seen just now" }
+    if {$age < 60} { return "last seen $age seconds ago" }
+    if {$age < 120} { return "last seen a minute ago" }
+    if {$age < 3600} { return "last seen $($age / 60) minutes ago" }
+    if {$age < 7200} { return "last seen an hour ago" }
+    if {$age < 86400} { return "last seen $($age / 3600) hours ago" }
+    return "last seen [clock format [expr {int($timestamp)}] -format {%a %d %b, %I:%M %p}]"
+}
+
+### Remembering
+
+fn memoryRecord {thing name quad} {
+    if {[llength [Query! /someone/ wishes $thing is forgotten]] > 0} { return }
+
+    set now $([clock milliseconds] / 1000.0)
+    set prev [Query! $thing was last seen with /...memory/]
+    if {[llength $prev] > 0} {
+        set memory [dict get [lindex $prev 0] memory]
+        if {[dict get $memory name] eq $name &&
+            $now - [dict get $memory timestamp] < $recordInterval &&
+            [memoryQuadDistance [dict get $memory quad] $quad] < $recordDistance} {
+            return
+        }
+    }
+
+    set shouldSave true
+    set saved [Query! $thing has saved memory with /...savedMemory/]
+    if {[llength $saved] > 0} {
+        set savedMemory [dict get [lindex $saved 0] savedMemory]
+        set shouldSave [expr {
+            [dict get $savedMemory name] ne $name ||
+            $now - [dict get $savedMemory timestamp] > $saveInterval ||
+            [memoryQuadDistance [dict get $savedMemory quad] $quad] > $saveDistance
+        }]
+    }
+
+    set holdOptions [list -key [list last-seen $thing]]
+    if {$shouldSave} {
+        lappend holdOptions -save
+        Hold! -key [list saved-memory $thing] \
+            Claim $thing has saved memory with \
+            name $name quad $quad timestamp $now
+    }
+    Hold! {*}$holdOptions \
+        Claim $thing was last seen with \
+        name $name quad $quad timestamp $now
+}
+
+When /thing/ is named /name/ &\
+     /thing/ has quad /quad/ {
+    memoryRecord $thing $name $quad
+    # The quad may sit unchanged for a long time (if the thing is
+    # still), so also note the moment that it goes away.
+    On unmatch { memoryRecord $thing $name $quad }
+}
+
+When /someone/ wishes /thing/ is forgotten {
+    Hold! -save -key [list last-seen $thing] {}
+    Hold! -key [list saved-memory $thing] {}
+}
+
+### Recalling
+
+When /someone/ wishes /asker/ recalls /question/ {
+    if {[memoryNormalize $question] eq ""} { return }
+
+    When the collected results for [list /thing/ was last seen with /...memory/] are /results/ {
+        set found false
+        foreach result $results {
+            set memory [dict get $result memory]
+            if {[memoryMatches $question [dict get $memory name]]} {
+                set found true
+                Claim $asker recalls [dict get $result thing] with {*}$memory
+            }
+        }
+        if {!$found} {
+            Claim $asker recalls nothing for $question
+        }
+    }
+}
+
+# Show where the recalled thing was last seen.
+When the quad library is /quadLib/ &\
+     the pose library is /poseLib/ &\
+     the quad changer is /quadChange/ &\
+     display /disp/ has width /displayWidth/ height /displayHeight/ &\
+     display /disp/ has intrinsics /displayIntrinsics/ &\
+     /asker/ recalls /thing/ with /...memory/ {
+
+    fn quadChange
+    fn memoryProject {quad} {
+        lmap v [$quadLib vertices [quadChange $quad "display $disp"]] {
+            $poseLib project $displayIntrinsics \
+                $displayWidth $displayHeight $v
+        }
+    }
+    fn memoryCenter {points} {
+        set x 0; set y 0
+        foreach p $points {
+            set x $($x + [lindex $p 0]); set y $($y + [lindex $p 1])
+        }
+        list $($x / [llength $points]) $($y / [llength $points])
+    }
+
+    set name [dict get $memory name]
+    set timestamp [dict get $memory timestamp]
+    set rememberedQuad [dict get $memory quad]
+
+    # timestamp is empty if the thing is at this quad right now.
+    fn memoryHighlight {quad timestamp} {
+        set points [memoryProject $quad]
+        set center [memoryCenter $points]
+        lassign $points topLeft topRight
+        set top [vec2 sub $topRight $topLeft]
+        set radians [expr {-atan2([lindex $top 1], [lindex $top 0])}]
+
+        When the clock time is /t/ {
+            # Pulse so that it stands out from whatever else is on the table.
+            set color [expr {int($t * 2) % 2 == 0 ? "gold" : "white"}]
+            set caption [expr {$timestamp eq "" ? "is right here" : [memoryAge $timestamp]}]
+            Wish to draw a line onto $disp with \
+                points [list {*}$points [lindex $points 0]] width 6 \
+                color $color layer 99
+            Wish to draw text onto $disp with \
+                position $center scale 30 radians $radians anchor center \
+                color $color layer 99 text "$name\n$caption"
+        }
+        When $asker has quad /askerQuad/ {
+            if {$asker eq $thing} { return }
+            Wish to draw a line onto $disp with \
+                points [list [memoryCenter [memoryProject $askerQuad]] $center] \
+                width 3 color gold layer 99
+        }
+    }
+
+    # If the thing is on the table right now, point at where it is;
+    # otherwise, at where it was.
+    When $thing has quad /liveQuad/ {
+        memoryHighlight $liveQuad ""
+    }
+    When /nobody/ claims $thing has quad /anything/ {
+        memoryHighlight $rememberedQuad $timestamp
+    }
+}
+
+### Question box
+
+When /someone/ wishes /box/ is a question box {
+    Wish tag $box is stabilized
+    Claim $box handles keyboard input
+
+    When /nobody/ claims $box has question /anything/ {
+        Wish $box is labelled "Point a keyboard here and ask:\nWhere did you last see ...?"
+    }
+    When $box has question /question/ {
+        Wish $box recalls $question
+
+        When the collected results for [list $box recalls /thing/ with /...memory/] are /recalled/ &\
+             the collected results for [list /thing/ was last seen with /...memory/] are /known/ {
+            set lines [list "> $question"]
+            foreach r $recalled {
+                lappend lines "Look for: [dict get [dict get $r memory] name]"
+            }
+            if {[llength $recalled] == 0} {
+                set names [lsort -unique [lmap k $known {
+                    dict get [dict get $k memory] name
+                }]]
+                if {[llength $names] == 0} {
+                    lappend lines "I don't remember anything yet."
+                } else {
+                    lappend lines "I remember: [join $names {, }]"
+                }
+            }
+            Wish $box is labelled [join $lines "\n"]
+        }
+    }
+
+    When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
+         /keyboard/ is typing into $box {
+        Subscribe: keyboard $kbPath claims key /key/ is /direction/ with /...options/ {
+            if {$direction eq "up"} { return }
+
+            set question ""
+            set results [Query! $box has question /question/]
+            if {[llength $results] > 0} {
+                set question [dict get [lindex $results 0] question]
+            }
+
+            if {[dict exists $options printable]} {
+                append question [dict get $options printable]
+            } elseif {$key eq "Delete" || $key eq "BackSpace"} {
+                set question [string range $question 0 end-1]
+            } elseif {$key eq "Return" || $key eq "Escape"} {
+                set question ""
+            } else {
+                return
+            }
+
+            if {$question eq ""} {
+                Hold! -key [list question $box] {}
+            } else {
+                Hold! -key [list question $box] \
+                    Claim $box has question $question
+            }
+        }
+    }
+}

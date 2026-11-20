@@ -1,0 +1,75 @@
+When { source builtin-programs/collect.folk }
+When { source builtin-programs/memory.folk }
+
+set quadA [list cam {{0 0 1} {0.1 0 1} {0.1 0.1 1} {0 0.1 1}}]
+set quadB [list cam {{0.5 0 1} {0.6 0 1} {0.6 0.1 1} {0.5 0.1 1}}]
+
+Assert! 7 is named "red book"
+Assert! 8 is named "blue book"
+Assert! 7 has quad $quadA
+Assert! 8 has quad $quadA
+sleep 0.3
+
+set seen [Query! 7 was last seen with /...memory/]
+assert {[llength $seen] == 1}
+assert {[dict get [dict get [lindex $seen 0] memory] name] eq "red book"}
+assert {[dict get [dict get [lindex $seen 0] memory] quad] eq $quadA}
+
+# Move the red book, then take it off the table. We should remember
+# where it was when it was last there.
+Retract! 7 has quad $quadA
+Assert! 7 has quad $quadB
+sleep 0.8
+Retract! 7 has quad $quadB
+sleep 0.3
+
+set seen [Query! 7 was last seen with /...memory/]
+assert {[llength $seen] == 1}
+assert {[dict get [dict get [lindex $seen 0] memory] quad] eq $quadB}
+
+Assert! someone wishes asker recalls "Where did you last see the red book?"
+Assert! someone wishes vague recalls "book"
+Assert! someone wishes lost recalls "where are my keys"
+sleep 0.5
+
+set recalled [Query! asker recalls /thing/ with /...memory/]
+assert {[llength $recalled] == 1}
+assert {[dict get [lindex $recalled 0] thing] == 7}
+assert {[dict get [dict get [lindex $recalled 0] memory] quad] eq $quadB}
+
+assert {[llength [Query! vague recalls /thing/ with /...memory/]] == 2}
+assert {[llength [Query! lost recalls nothing for /question/]] == 1}
+assert {[llength [Query! lost recalls /thing/ with /...memory/]] == 0}
+
+# Forgetting: the memory goes away and doesn't come back, even though
+# the blue book is still on the table.
+Assert! someone wishes 8 is forgotten
+sleep 0.8
+assert {[llength [Query! 8 was last seen with /...memory/]] == 0}
+assert {[llength [Query! vague recalls /thing/ with /...memory/]] == 1}
+
+# Typing a question into a question box.
+Assert! someone wishes box is a question box
+Assert! kb is a keyboard with path /dev/kb locale us
+Assert! kb is typing into box
+sleep 0.3
+foreach ch [split "red bookx" ""] {
+    Notify: keyboard /dev/kb claims key $ch is down with printable $ch
+    sleep 0.05
+}
+Notify: keyboard /dev/kb claims key Delete is down with timestamp 0
+sleep 0.5
+assert {[llength [Query! box has question "red book"]] == 1}
+set recalled [Query! box recalls /thing/ with /...memory/]
+assert {[llength $recalled] == 1}
+assert {[dict get [lindex $recalled 0] thing] == 7}
+set labels [Query! /someone/ wishes box is labelled /text/]
+assert {[llength $labels] == 1}
+assert {[string match "*Look for: red book*" [dict get [lindex $labels 0] text]]}
+
+Notify: keyboard /dev/kb claims key Return is down with timestamp 0
+sleep 0.3
+assert {[llength [Query! box has question /q/]] == 0}
+assert {[llength [Query! box recalls /thing/ with /...memory/]] == 0}
+
+Exit! 0
