@@ -46,19 +46,21 @@ Claim 45008 has demo code {
 Claim 45009 has demo code {
     # Dock ruler.
     #
-    # This page projects a dashed square (the "dock") just to the left
-    # of its own AprilTag. Slide another program up to the dock so
-    # that its AprilTag sits inside the square, and that tag gets
-    # registered as a piece of this program. The two most recently
-    # docked tags (A and B) stay registered after they leave the dock:
-    # wherever they go on the table, we draw a dashed line between
-    # them and report the distance between their centers in mm.
+    # This page projects two dashed squares ("docks"), one off its
+    # left edge and one off its right edge. Slide another program up
+    # to a dock so that its AprilTag sits inside the square, and that
+    # tag gets registered as a piece of this program: piece A for the
+    # left dock, piece B for the right dock. The tags stay registered
+    # after they leave the docks: wherever they go on the table, we
+    # draw a dashed line between them and report the distance between
+    # their centers in mm. Docking a different tag replaces the piece.
 
-    set dockSize 0.06 ;# side length of the dock square, in meters
-    set dockGap 0.01 ;# gap between the dock and the left edge of this page
+    set dockSize 0.06 ;# side length of each dock square, in meters
+    set dockGap 0.01 ;# gap between each dock and the edge of this page
+    set docks {left {name A color gold} right {name B color skyblue}}
 
     Wish $this is outlined white
-    Wish $this is labelled "Dock ruler\ndock two tags, then move them apart"
+    Wish $this is labelled "Dock ruler\ndock a tag on each side, then move them"
 
     When the quad library is /quadLib/ &\
          the pose library is /poseLib/ &\
@@ -68,125 +70,129 @@ Claim 45009 has demo code {
 
         fn quadChange
 
-        # The dock: draw it, and register any AprilTag that enters it.
+        # The docks: draw them, and register any AprilTag that enters one.
         When $this has quad /q/ & $this has resolved geometry /geom/ {
             set q [quadChange $q "display $disp"]
 
-            # Dock rectangle in page coordinates (meters from the
+            # Dock rectangles are in page coordinates (meters from the
             # top-left corner of this page), level with our own tag.
-            set x1 [expr {-$dockGap}]
-            set x0 [expr {$x1 - $dockSize}]
             set yc [expr {[dict get $geom top] + [dict get $geom tagSize] / 2.0}]
             set y0 [expr {$yc - $dockSize / 2.0}]
             set y1 [expr {$yc + $dockSize / 2.0}]
 
-            set dockPx [lmap xy [list [list $x0 $y0] [list $x1 $y0] \
-                                     [list $x1 $y1] [list $x0 $y1] \
-                                     [list $x0 $y0]] {
-                $poseLib project $intr $w $h [$quadLib xyToPoint $q $xy]
-            }]
-            Wish to draw a dashed line onto $disp with \
-                points $dockPx width 3 color white dashlength 10
-
-            # Caption under the dock, reading the same way as this page.
-            lassign [lrange $dockPx 2 3] bottomRightPx bottomLeftPx
-            set right [vec2 sub $bottomRightPx $bottomLeftPx]
-            Wish to draw text onto $disp with \
-                position [vec2 scale [vec2 add $bottomLeftPx $bottomRightPx] 0.5] \
-                scale 22 anchor top text "dock" color white \
-                radians [expr {-atan2([lindex $right 1], [lindex $right 0])}]
-
-            When tag /tag/ has quad /tq/ {
-                if {$tag eq $this} { return }
-
-                set center [$quadLib centroid [quadChange $tq "display $disp"]]
-                lassign [$quadLib pointToXY $q $center] x y
-                if {$x < $x0 || $x > $x1 || $y < $y0 || $y > $y1} { return }
-
-                # A tag is sitting in the dock: light the dock up.
-                Wish to draw a line onto $disp with \
-                    points $dockPx width 6 color green layer 1
-
-                # Register it, keeping only the two newest pieces.
-                set pieces [list]
-                foreach result [Query! $this has dock pieces /pieces/] {
-                    set pieces [dict get $result pieces]
+            dict for {side dock} $docks {
+                if {$side eq "left"} {
+                    set x1 [expr {-$dockGap}]
+                    set x0 [expr {$x1 - $dockSize}]
+                } else {
+                    set x0 [expr {[dict get $geom width] + $dockGap}]
+                    set x1 [expr {$x0 + $dockSize}]
                 }
-                if {[lsearch -exact $pieces $tag] < 0} {
-                    lappend pieces $tag
-                    Hold! -key dock-pieces \
-                        Claim $this has dock pieces [lrange $pieces end-1 end]
+                set name [dict get $dock name]
+                set color [dict get $dock color]
+
+                set dockPx [lmap xy [list [list $x0 $y0] [list $x1 $y0] \
+                                         [list $x1 $y1] [list $x0 $y1] \
+                                         [list $x0 $y0]] {
+                    $poseLib project $intr $w $h [$quadLib xyToPoint $q $xy]
+                }]
+                Wish to draw a dashed line onto $disp with \
+                    points $dockPx width 3 color $color dashlength 10
+
+                # Caption under the dock, reading the same way as this page.
+                lassign [lrange $dockPx 2 3] bottomRightPx bottomLeftPx
+                set right [vec2 sub $bottomRightPx $bottomLeftPx]
+                Wish to draw text onto $disp with \
+                    position [vec2 scale [vec2 add $bottomLeftPx $bottomRightPx] 0.5] \
+                    scale 22 anchor top text "dock $name" color $color \
+                    radians [expr {-atan2([lindex $right 1], [lindex $right 0])}]
+
+                When tag /tag/ has quad /tq/ {
+                    if {$tag eq $this} { return }
+
+                    set center [$quadLib centroid [quadChange $tq "display $disp"]]
+                    lassign [$quadLib pointToXY $q $center] x y
+                    if {$x < $x0 || $x > $x1 || $y < $y0 || $y > $y1} { return }
+
+                    # A tag is sitting in this dock: light the dock up
+                    # and register the tag as this dock's piece.
+                    Wish to draw a line onto $disp with \
+                        points $dockPx width 6 color green layer 1
+                    Hold! -key [list dock-piece $side] \
+                        Claim $this has dock $side piece $tag
                 }
             }
         }
 
-        # The ruler: mark the registered tags and measure between them.
-        When $this has dock pieces /pieces/ & $this has quad /q/ {
-            # Direction of this page's top edge on the display, so that
-            # our text reads the same way as the page does.
+        # Mark each registered tag with a ring and its letter.
+        When $this has dock /side/ piece /piece/ &\
+             $this has quad /q/ & tag /piece/ has quad /tq/ {
+            set name [dict get $docks $side name]
+            set color [dict get $docks $side color]
+
+            # Tags are blacked out on the display out to ~2x their
+            # size (so that the camera can still see them), so draw
+            # the ring outside that.
+            set ring [$quadLib scale [quadChange $tq "display $disp"] 2.6]
+            set ringPx [lmap v [$quadLib vertices $ring] {
+                $poseLib project $intr $w $h $v
+            }]
+            Wish to draw a line onto $disp with \
+                points [list {*}$ringPx [lindex $ringPx 0]] \
+                width 4 color $color
+
+            # Letter above the ring, reading the same way as this page.
             lassign [lmap v [$quadLib vertices [quadChange $q "display $disp"]] {
                 $poseLib project $intr $w $h $v
             }] topLeftPx topRightPx
             set pageRight [vec2 sub $topRightPx $topLeftPx]
-            set pageRadians [expr {-atan2([lindex $pageRight 1], [lindex $pageRight 0])}]
+            lassign $ringPx tl tr
+            Wish to draw text onto $disp with \
+                position [vec2 scale [vec2 add $tl $tr] 0.5] \
+                scale 30 anchor bottom text $name color $color \
+                radians [expr {-atan2([lindex $pageRight 1], [lindex $pageRight 0])}]
+        }
 
-            foreach piece $pieces name {A B} color {gold skyblue} {
-                if {$piece eq ""} { continue }
-                When tag $piece has quad /tq/ {
-                    # Ring around the tag. Tags are blacked out on the
-                    # display out to ~2x their size (so that the
-                    # camera can still see them), so draw outside that.
-                    set ring [$quadLib scale [quadChange $tq "display $disp"] 2.6]
-                    set ringPx [lmap v [$quadLib vertices $ring] {
-                        $poseLib project $intr $w $h $v
-                    }]
-                    Wish to draw a line onto $disp with \
-                        points [list {*}$ringPx [lindex $ringPx 0]] \
-                        width 4 color $color
+        # The ruler: measure between piece A and piece B.
+        When $this has dock left piece /a/ & $this has dock right piece /b/ &\
+             $this has quad /q/ &\
+             tag /a/ has quad /qa/ & tag /b/ has quad /qb/ {
+            if {$a eq $b} { return }
 
-                    lassign $ringPx tl tr
-                    Wish to draw text onto $disp with \
-                        position [vec2 scale [vec2 add $tl $tr] 0.5] \
-                        scale 30 anchor bottom text $name color $color \
-                        radians $pageRadians
-                }
+            # Tag centers in display space, which is in meters.
+            set ca [$quadLib centroid [quadChange $qa "display $disp"]]
+            set cb [$quadLib centroid [quadChange $qb "display $disp"]]
+            lassign $ca ax ay az
+            lassign $cb bx by bz
+            set mm [expr {1000.0 * sqrt(($bx-$ax)*($bx-$ax) +
+                                        ($by-$ay)*($by-$ay) +
+                                        ($bz-$az)*($bz-$az))}]
+
+            set pa [$poseLib project $intr $w $h $ca]
+            set pb [$poseLib project $intr $w $h $cb]
+            if {[vec2 distance $pa $pb] < 1} { return }
+
+            Wish to draw a dashed line onto $disp with \
+                points [list $pa $pb] width 4 color white dashlength 12
+
+            # Distance report at the midpoint, running along the line
+            # (flipped if needed so it isn't upside down relative to
+            # this page) and sitting just above it.
+            lassign [lmap v [$quadLib vertices [quadChange $q "display $disp"]] {
+                $poseLib project $intr $w $h $v
+            }] topLeftPx topRightPx
+            set dir [vec2 normalize [vec2 sub $pb $pa]]
+            if {[vec2 dot $dir [vec2 sub $topRightPx $topLeftPx]] < 0} {
+                set dir [vec2 scale $dir -1]
             }
-
-            if {[llength $pieces] < 2} { return }
-            lassign $pieces a b
-            When tag $a has quad /qa/ & tag $b has quad /qb/ {
-                # Tag centers in display space, which is in meters.
-                set ca [$quadLib centroid [quadChange $qa "display $disp"]]
-                set cb [$quadLib centroid [quadChange $qb "display $disp"]]
-                lassign $ca ax ay az
-                lassign $cb bx by bz
-                set mm [expr {1000.0 * sqrt(($bx-$ax)*($bx-$ax) +
-                                            ($by-$ay)*($by-$ay) +
-                                            ($bz-$az)*($bz-$az))}]
-
-                set pa [$poseLib project $intr $w $h $ca]
-                set pb [$poseLib project $intr $w $h $cb]
-                if {[vec2 distance $pa $pb] < 1} { return }
-
-                Wish to draw a dashed line onto $disp with \
-                    points [list $pa $pb] width 4 color white dashlength 12
-
-                # Distance report at the midpoint, running along the
-                # line (flipped if needed so it isn't upside down
-                # relative to this page) and sitting just above it.
-                set dir [vec2 normalize [vec2 sub $pb $pa]]
-                if {[vec2 dot $dir $pageRight] < 0} {
-                    set dir [vec2 scale $dir -1]
-                }
-                lassign $dir dx dy
-                set up [list $dy [expr {-$dx}]]
-                Wish to draw text onto $disp with \
-                    position [vec2 add [vec2 scale [vec2 add $pa $pb] 0.5] \
-                                  [vec2 scale $up 10]] \
-                    scale 36 anchor bottom color white \
-                    text [format "%.0f mm" $mm] \
-                    radians [expr {-atan2($dy, $dx)}]
-            }
+            lassign $dir dx dy
+            set up [list $dy [expr {-$dx}]]
+            Wish to draw text onto $disp with \
+                position [vec2 add [vec2 scale [vec2 add $pa $pb] 0.5] \
+                              [vec2 scale $up 10]] \
+                scale 36 anchor bottom color white \
+                text [format "%.0f mm" $mm] \
+                radians [expr {-atan2($dy, $dx)}]
         }
     }
 }
