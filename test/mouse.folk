@@ -69,7 +69,7 @@ $cc proc dump {} Jim_Obj* {
 }
 set rec [$cc compile]
 
-Claim $fifo is a mouse device
+Hold! -on test/mouse.folk -key device Claim $fifo is a mouse device
 When {
     Subscribe: mouse $fifo claims report with /...r/ {
         $rec rec [dict get $r seq] [dict get $r dx] [dict get $r dy] \
@@ -233,6 +233,34 @@ foreach {name rate extra} [list 125Hz 125 "fuzz 60 mouse" \
          sum ([dict get $got x], [dict get $got y]) wheel [dict get $got wheel]/[dict get $got hwheel],\
          [llength [dict get $got edges]] button edges"
 }
+
+# Unplug and replug: the reader stops, a new one starts at seq 1.
+Hold! -on test/mouse.folk -key device {}
+if {![waitFor 10000 {[llength [Query! $fifo has mouse reader /dev/]] == 0}]} { fail "replug: the reader is still claimed" }
+# Nobody has the FIFO open now, so this motion is lost. (If the old
+# reader still had it open, the new reader would get it.)
+exec test/sim/hidemu/hidemu --quiet --mouse $fifo << "rate mouse 0\nmove 5 5\n"
+sleep 1.2 ;# longer than the reader's poll timeout
+$rec reset
+Hold! -on test/mouse.folk -key device Claim $fifo is a mouse device
+if {![waitFor 10000 {[llength [Query! $fifo has mouse reader /dev/]] == 1}]} { fail "replug: no new reader" }
+set newDev [dict get [lindex [Query! $fifo has mouse reader /dev/] 0] dev]
+if {$newDev eq $dev} { fail "replug: same reader as before" }
+exec test/sim/hidemu/hidemu --quiet --mouse $fifo << "rate mouse 500\nmove 300 -200 20\nclick right 5\n"
+if {![waitFor 10000 {[lindex [$mouseLib mouseStats $newDev] 0] >= 3 &&
+                     [$rec count] == [lindex [$mouseLib mouseStats $newDev] 1]}]} {
+    fail "replug: reports of the new reader didn't arrive"
+}
+try {
+    set got [integrate [$rec dump] 1]
+} on error e {
+    fail "replug: $e"
+}
+if {[dict get $got x] != 300 || [dict get $got y] != -200 || [llength [dict get $got edges]] != 2} {
+    fail "replug: got $got"
+}
+if {[lindex [$mouseLib mouseStats $dev] 0] != $framesAfter} { fail "replug: the old reader read more frames" }
+say "test/mouse: replug ok: old reader stopped, new reader starts at seq 1"
 
 file delete -force $dir
 say "test/mouse: PASS"
