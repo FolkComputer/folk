@@ -1,0 +1,138 @@
+# Closed-loop test of builtin-programs/camera/autoexposure.folk with a
+# fake camera: we publish gray frames whose brightness depends on the
+# exposure that is currently wished for (like a real sensor), plus a
+# fake tag detection, and check that the autoexposure program drives
+# the tag's white cells to ~200/255 from several bad starting points.
+
+When { source builtin-programs/image/image-lib.folk }
+When { source builtin-programs/camera/autoexposure.folk }
+
+When the image library is /imageLib/ {
+    set cc [C]
+    $cc extend $imageLib
+    # A 640x480 frame with one "tag": a checkerboard of 10px cells
+    # spanning (100,100)-(260,260), on a mid-gray table.
+    $cc proc makeFrame {int white int black} Image {
+        Image im = imageNew(640, 480, 1, 0);
+        for (int y = 0; y < 480; y++) {
+            for (int x = 0; x < 640; x++) {
+                uint8_t v = white / 2;
+                if (x >= 100 && x < 260 && y >= 100 && y < 260) {
+                    v = (((x / 10) + (y / 10)) % 2) ? white : black;
+                }
+                im.data[y * im.bytesPerRow + x] = v;
+            }
+        }
+        return im;
+    }
+    set lib [$cc compile]
+
+    set camera fake-camera
+    set light 1.0
+    set tagsVisible true
+
+    # What the sensor would output for a surface of this reflectance.
+    fn pixel {reflectance light exposureUs} {
+        set lin [expr {$reflectance * $light * $exposureUs * 0.75 / (0.85 * 4000.0)}]
+        if {$lin > 1.0} { set lin 1.0 }
+        expr {int(255 * pow($lin, 1 / 2.2))}
+    }
+    fn currentExposure {} {
+        set us 0
+        foreach r [Query! /someone/ wishes camera $camera uses exposure time /us/ us] {
+            set us [dict get $r us]
+        }
+        return $us
+    }
+    # Publishes fake frames for `seconds`; returns the last white level.
+    fn runCamera {seconds light tagsVisible} {
+        set white 0
+        set end [expr {[clock milliseconds] + int($seconds * 1000)}]
+        while {[clock milliseconds] < $end} {
+            set ts [expr {[clock milliseconds] / 1000.0}]
+            set us [currentExposure]
+            # 0 = camera's built-in auto; pretend it picked 8ms.
+            if {$us == 0} { set us 8000 }
+            set white [pixel 0.85 $light $us]
+            set black [pixel 0.10 $light $us]
+            set im [$lib makeFrame $white $black]
+            Hold! -key frame \
+                Claim camera $camera has gray frame $im at timestamp $ts \
+                -destructor [list $imageLib imageFree $im]
+            set tags [list]
+            if {$tagsVisible} {
+                # One tag partly off-frame too: must not crash.
+                set tags [list \
+                    [dict create id 1 p {{100 100} {260 100} {260 260} {100 260}}] \
+                    [dict create id 2 p {{600 -40} {700 -40} {700 60} {600 60}}]]
+            }
+            Hold! -key detections \
+                Claim fake-detector detects tags $tags on camera $camera \
+                at timestamp $ts in time 0
+            sleep 0.033
+        }
+        return $white
+    }
+
+    When {
+        try {
+        Hold! -key ae Wish camera $camera uses AprilTag-based autoexposure
+
+        # 1. Nobody has set an exposure: should seed one and converge.
+        set white [runCamera 3 1.0 true]
+        puts "1. normal light:  white=$white exposure=[currentExposure]us"
+        assert {abs($white - 200) <= 14}
+
+        # 2. Sun comes out (8x): whites clip at first; must come down.
+        set white [runCamera 3 8.0 true]
+        puts "2. bright light:  white=$white exposure=[currentExposure]us"
+        assert {abs($white - 200) <= 14}
+
+        # 3. Dusk (0.3x): must go up, but not past the 15ms cap.
+        set white [runCamera 4 0.3 true]
+        puts "3. dim light:     white=$white exposure=[currentExposure]us"
+        assert {abs($white - 200) <= 14}
+        assert {[currentExposure] <= 15000}
+
+        # 4. Calibration takes over: we must leave the exposure alone.
+        Hold! -key temp Wish camera $camera temporarily uses exposure time 2000 us
+        sleep 0.3
+        set before [currentExposure]
+        runCamera 1.5 8.0 true
+        puts "4. temp exposure: exposure stayed [currentExposure]us"
+        assert {[currentExposure] == $before}
+        Hold! -key temp {}
+        sleep 0.3
+
+        # 5. Tags vanish: should sweep (exposure changes), then give
+        # up and come back home once it has been to both ends (~5s),
+        # and rest there for 5s.
+        runCamera 1 0.3 true
+        set home [currentExposure]
+        set seen [dict create]
+        for {set i 0} {$i < 13} {incr i} {
+            runCamera 0.5 0.3 false
+            dict set seen [currentExposure] 1
+        }
+        puts "5. no tags:       swept through [lsort -integer [dict keys $seen]]"
+        assert {[dict size $seen] >= 8}
+        assert {[dict exists $seen 300] && [dict exists $seen 15000]}
+        puts "   resting at [currentExposure]us (home was ${home}us)"
+        assert {[currentExposure] == $home}
+
+        # 6. Switch autoexposure off: exposure stays put.
+        Hold! -key ae {}
+        sleep 0.3
+        set before [currentExposure]
+        runCamera 1 8.0 true
+        puts "6. switched off:  exposure stayed [currentExposure]us"
+        assert {[currentExposure] == $before}
+
+        } on error {e opts} {
+            puts stderr "FAILED: $e"
+            Exit! 1
+        }
+        Exit! 0
+    }
+    sleep 1000 ;# to force When to run on other thread
+}
