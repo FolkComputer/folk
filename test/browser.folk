@@ -87,8 +87,11 @@ Claim test-mouse-page is pointing into $::page
 proc wishUrl {url} {
     if {$url eq ""} { Hold! -on test/browser.folk -key browser-wish {}; return }
     Hold! -on test/browser.folk -key browser-wish \
-        Wish $::page is a web browser showing $url with width $::viewW height $::viewH keep 300ms
+        Wish $::page is a web browser showing $url with width $::viewW height $::viewH keep 300ms \
+        {*}$::extraOptions
 }
+# For experiments, e.g. FOLK_TEST_BROWSER_OPTIONS="fps 60 quality 90".
+set ::extraOptions [expr {[info exists ::env(FOLK_TEST_BROWSER_OPTIONS)] ? $::env(FOLK_TEST_BROWSER_OPTIONS) : ""}]
 wishUrl $::assets/main.html
 
 # ---- reading pixels of captured display frames
@@ -133,8 +136,11 @@ proc waitUntil {name script {timeout 10.0}} {
 }
 proc js {expr} { json::decode [$::lib browserEval $::b $expr] }
 # Waits until the JavaScript expression has the given value.
+# (An exception counts as "not yet": right after a navigation the old document may answer.)
 proc waitJs {name expr expected {timeout 10.0}} {
-    waitUntil "$name: $expr == $expected" { set __last [js $expr]; expr {$__last eq $expected} } $timeout
+    waitUntil "$name: $expr == $expected" {
+        expr {![catch { js $expr } __last] && $__last eq $expected}
+    } $timeout
 }
 proc stat {key} { dict get [$::lib browserStats $::b] $key }
 proc statement {args} {

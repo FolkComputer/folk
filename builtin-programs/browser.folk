@@ -1109,7 +1109,9 @@ $cc code {
             }
             // 3. upload
             if (b->frameDirty || b->cursorDirty) {
-                double due = b->lastUpload + 1.0 / b->fps;
+                // Frames are already paced (by the acks): show a new one as soon as it is
+                // there. A cursor that merely moved is redrawn at most fps times a second.
+                double due = b->lastUpload + (b->frameDirty ? 0.5 : 1.0) / b->fps;
                 now = brNow();
                 if (now >= due) {
                     double t0 = now, arrivedAt = b->frameDirty ? b->frameArrivedAt : 0;
