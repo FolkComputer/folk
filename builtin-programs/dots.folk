@@ -1,0 +1,294 @@
+# Dots: small solid patches of color on a page (a sticker, a marker
+# blob, a painted fingernail), usable as a tangible pointer.
+#
+#   When $this has dots /dots/ { ... }
+#
+# Each dot is a dict:
+#   x, y      center, in meters from the page's top-left corner
+#             (same coordinate system as drawing onto the page)
+#   diameter  in meters
+#   color     {r g b}, each 0..1 (mean color of the dot)
+#   hue       in degrees, 0..360
+#   name      red / orange / yellow / green / cyan / blue / purple /
+#             pink (or `dark` on a grayscale camera)
+#
+# Tuning (all optional; wish with options and match the same options):
+#
+#   Wish $this has dots with minSaturation 0.5 maxDiameter 0.02
+#   When $this has dots /dots/ with minSaturation 0.5 maxDiameter 0.02 { ... }
+#
+# To see what the detector sees:
+#
+#   Wish $this shows its dots
+#
+# On a grayscale camera, there's no color to go by, so dots are solid
+# blobs much darker than the rest of the page instead.
+
+When the image library is /imageLib/ {
+    set cc [C]
+    $cc extend $imageLib
+    $cc include <stdlib.h>
+    $cc include <string.h>
+    $cc include <math.h>
+    $cc code {
+        static double dotHue(double r, double g, double b) {
+            double mx = fmax(r, fmax(g, b));
+            double mn = fmin(r, fmin(g, b));
+            double d = mx - mn;
+            if (d <= 0) return 0;
+            double h;
+            if (mx == r) h = fmod((g - b) / d, 6.0);
+            else if (mx == g) h = (b - r) / d + 2.0;
+            else h = (r - g) / d + 4.0;
+            h *= 60.0;
+            if (h < 0) h += 360.0;
+            return h;
+        }
+        static int dotHueDistance(int a, int b) {
+            int d = abs(a - b) % 360;
+            return d > 180 ? 360 - d : d;
+        }
+    }
+
+    # Finds dots in `im` and returns a Tcl list of
+    # {x y diameter r g b hue} (x, y, diameter in pixels).
+    #
+    # A pixel is a candidate if it is saturated (>= minSaturation)
+    # and not too dark (>= minValue); candidates of similar hue that
+    # touch each other form a blob, and a blob is a dot if it is the
+    # right size, roughly as wide as it is tall, and solid.
+    #
+    # Pixels inside the exclusion rectangle are never candidates (we
+    # use this to ignore the page's AprilTag).
+    $cc proc findDots {Image im double minSaturation double minValue
+                       double darkRatio
+                       double minDiameter double maxDiameter
+                       double exX0 double exY0 double exX1 double exY1} Jim_Obj* {
+        int w = (int)im.width;
+        int h = (int)im.height;
+        Jim_Obj *result = Jim_NewListObj(interp, NULL, 0);
+        if (w < 3 || h < 3) return result;
+
+        const int hueTolerance = 40;
+        int isColor = im.components >= 3;
+
+        // -1: not a candidate. 0: unvisited candidate. >0: blob id.
+        int *labels = malloc(sizeof(int) * (size_t)w * (size_t)h);
+        short *hues = malloc(sizeof(short) * (size_t)w * (size_t)h);
+        int *stack = malloc(sizeof(int) * (size_t)w * (size_t)h);
+
+        double darkThreshold = 0;
+        if (!isColor) {
+            double sum = 0;
+            for (int y = 0; y < h; y++) {
+                uint8_t *row = im.data + (size_t)y * im.bytesPerRow;
+                for (int x = 0; x < w; x++) sum += row[x * im.components];
+            }
+            darkThreshold = darkRatio * sum / ((double)w * h);
+        }
+
+        for (int y = 0; y < h; y++) {
+            uint8_t *row = im.data + (size_t)y * im.bytesPerRow;
+            for (int x = 0; x < w; x++) {
+                int i = y * w + x;
+                uint8_t *px = row + x * im.components;
+                int candidate;
+                if (x >= exX0 && x <= exX1 && y >= exY0 && y <= exY1) {
+                    candidate = 0;
+                    hues[i] = 0;
+                } else if (isColor) {
+                    double r = px[0], g = px[1], b = px[2];
+                    double mx = fmax(r, fmax(g, b));
+                    double mn = fmin(r, fmin(g, b));
+                    double saturation = mx > 0 ? (mx - mn) / mx : 0;
+                    candidate = saturation >= minSaturation &&
+                        mx / 255.0 >= minValue;
+                    hues[i] = candidate ? (short)dotHue(r, g, b) : 0;
+                } else {
+                    candidate = px[0] < darkThreshold;
+                    hues[i] = 0;
+                }
+                labels[i] = candidate ? 0 : -1;
+            }
+        }
+
+        int nextId = 0;
+        for (int sy = 0; sy < h; sy++) {
+            for (int sx = 0; sx < w; sx++) {
+                int seed = sy * w + sx;
+                if (labels[seed] != 0) continue;
+
+                int id = ++nextId;
+                int seedHue = hues[seed];
+                int top = 0;
+                stack[top++] = seed;
+                labels[seed] = id;
+
+                long n = 0;
+                double sumX = 0, sumY = 0, sumR = 0, sumG = 0, sumB = 0;
+                int minX = sx, maxX = sx, minY = sy, maxY = sy;
+                while (top > 0) {
+                    int i = stack[--top];
+                    int x = i % w, y = i / w;
+                    uint8_t *px = im.data + (size_t)y * im.bytesPerRow +
+                        x * im.components;
+                    n++;
+                    sumX += x; sumY += y;
+                    sumR += px[0];
+                    sumG += isColor ? px[1] : px[0];
+                    sumB += isColor ? px[2] : px[0];
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+
+                    int neighbors[4] = {
+                        x > 0 ? i - 1 : -1,
+                        x < w - 1 ? i + 1 : -1,
+                        y > 0 ? i - w : -1,
+                        y < h - 1 ? i + w : -1
+                    };
+                    for (int k = 0; k < 4; k++) {
+                        int j = neighbors[k];
+                        if (j < 0 || labels[j] != 0) continue;
+                        if (dotHueDistance(hues[j], seedHue) > hueTolerance) continue;
+                        labels[j] = id;
+                        stack[top++] = j;
+                    }
+                }
+
+                int bw = maxX - minX + 1;
+                int bh = maxY - minY + 1;
+                int longSide = bw > bh ? bw : bh;
+                int shortSide = bw > bh ? bh : bw;
+                // Right size?
+                if (longSide < minDiameter || longSide > maxDiameter) continue;
+                // Whole dot in view?
+                if (minX == 0 || minY == 0 || maxX == w - 1 || maxY == h - 1) continue;
+                // Roughly round (not a line, not a finger)?
+                if (shortSide < 0.45 * longSide) continue;
+                // Solid (not an outline, not text)? A disc fills
+                // pi/4 = 0.785 of its bounding box.
+                if ((double)n < 0.5 * bw * bh) continue;
+                int cx = (int)(sumX / n + 0.5);
+                int cy = (int)(sumY / n + 0.5);
+                if (labels[cy * w + cx] != id) continue;
+
+                double r = sumR / n / 255.0;
+                double g = sumG / n / 255.0;
+                double b = sumB / n / 255.0;
+                Jim_ListAppendElement(interp, result,
+                    Jim_ObjPrintf("%g %g %g %g %g %g %g",
+                                  sumX / n + 0.5, sumY / n + 0.5,
+                                  // Diameter of the disc of equal area.
+                                  2.0 * sqrt((double)n / M_PI),
+                                  r, g, b,
+                                  isColor ? dotHue(r, g, b) : 0.0));
+            }
+        }
+
+        free(labels);
+        free(hues);
+        free(stack);
+        return result;
+    }
+
+    Claim the dot library is [$cc compile]
+}
+
+set dotDefaults {
+    minSaturation 0.4
+    minValue 0.2
+    darkRatio 0.5
+    minDiameter 0.003
+    maxDiameter 0.03
+}
+
+fn dotColorName {hue} {
+    if {$hue < 15 || $hue >= 345} { return red }
+    if {$hue < 45} { return orange }
+    if {$hue < 70} { return yellow }
+    if {$hue < 170} { return green }
+    if {$hue < 200} { return cyan }
+    if {$hue < 260} { return blue }
+    if {$hue < 290} { return purple }
+    return pink
+}
+
+When the dot library is /dotLib/ &\
+     /someone/ wishes /p/ has dots with /...opts/ {
+    # HACK: because we partial match
+    if {![info exists opts]} { return }
+
+    Wish $p has camera slice
+    When $p has resolved geometry /geom/ &\
+         $p has camera slice /slice/ {
+        set o [dict merge $dotDefaults $opts]
+        set sliceWidth [dict get $slice width]
+        set sliceHeight [dict get $slice height]
+        if {$sliceWidth < 3 || $sliceHeight < 3} { return }
+
+        set pxPerMeterX [expr {$sliceWidth / double([dict get $geom width])}]
+        set pxPerMeterY [expr {$sliceHeight / double([dict get $geom height])}]
+        set pxPerMeter [expr {($pxPerMeterX + $pxPerMeterY) / 2.0}]
+
+        # Don't look for dots on the AprilTag.
+        set exclusion {-1 -1 -1 -1}
+        if {[dict exists $geom tagSize] &&
+            [dict exists $geom left] && [dict exists $geom top]} {
+            set tagSize [dict get $geom tagSize]
+            set pad [expr {$tagSize * 0.4}]
+            set exclusion [list \
+                [expr {([dict get $geom left] - $pad) * $pxPerMeterX}] \
+                [expr {([dict get $geom top] - $pad) * $pxPerMeterY}] \
+                [expr {([dict get $geom left] + $tagSize + $pad) * $pxPerMeterX}] \
+                [expr {([dict get $geom top] + $tagSize + $pad) * $pxPerMeterY}]]
+        }
+
+        set isColor [expr {[dict get $slice components] >= 3}]
+        set dots [list]
+        foreach found [$dotLib findDots $slice \
+                           [dict get $o minSaturation] [dict get $o minValue] \
+                           [dict get $o darkRatio] \
+                           [expr {[dict get $o minDiameter] * $pxPerMeter}] \
+                           [expr {[dict get $o maxDiameter] * $pxPerMeter}] \
+                           {*}$exclusion] {
+            lassign $found x y diameter r g b hue
+            lappend dots [dict create \
+                x [expr {$x / $pxPerMeterX}] \
+                y [expr {$y / $pxPerMeterY}] \
+                diameter [expr {$diameter / $pxPerMeter}] \
+                color [list $r $g $b] \
+                hue $hue \
+                name [expr {$isColor ? [dotColorName $hue] : "dark"}]]
+        }
+        Claim $p has dots $dots with {*}$opts
+    }
+}
+
+When /someone/ wishes /p/ has dots {
+    Wish $p has dots with _ {}
+}
+When /p/ has dots /dots/ with _ {} {
+    Claim $p has dots $dots
+}
+
+When when /p/ has dots /dots/ /lambda/ with environment /e/ {
+    if {[string match "/*" $p]} { return }
+    Wish $p has dots
+}
+
+# Debugging aid: ring and name every dot that the detector sees.
+When /someone/ wishes /p/ shows its dots &\
+     /p/ has dots /dots/ {
+    foreach dot $dots {
+        dict with dot {
+            Wish to draw a circle onto $p with \
+                center [list $x $y] radius [expr {$diameter * 0.75}] \
+                thickness 0.001 color white layer 20
+            Wish to draw text onto $p with \
+                position [list $x [expr {$y - $diameter * 1.2}]] \
+                text $name scale 0.006 anchor bottom color white layer 20
+        }
+    }
+}

@@ -43,3 +43,16 @@ Claim 45008 has demo code {
     Wish $this displays camera slice $slice
     }
 }
+# Number scrubbing: put a dot of color (a sticker on your fingertip, a
+# painted nail) next to a number in the circle's code, hold still
+# until it lights up, then slide right or left.
+Claim 45009 has demo code {
+    # simple circle
+    Wish $this draws a circle with radius 0.03 thickness 0.004 color {1.0 0.8 0.2 1.0}
+}
+Claim 45010 has demo code {
+    Wish $this is labelled "Scrub numbers on the page I point at"
+    When $this points up at /page/ {
+        Wish $page has scrubbable numbers
+    }
+}

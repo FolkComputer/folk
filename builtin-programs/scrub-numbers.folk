@@ -1,0 +1,600 @@
+# Scrub the numbers in a program by pointing at them with a dot of
+# color (a sticker on a fingertip, a painted nail, a marker cap).
+#
+#   Wish $page has scrubbable numbers
+#
+# Hold a dot still next to a number in the page's code and the number
+# lights up; slide the dot right to increase it, left to decrease
+# it. The program is patched live as you go. Take the dot away to let
+# go of the number.
+#
+# The numbers are found where they were printed on the page. (A page
+# that doesn't have its code printed on it gets its code projected
+# onto it instead.)
+#
+# Usually you'd print a page that makes whatever it points at
+# scrubbable:
+#
+#   When $this points up at /page/ {
+#       Wish $page has scrubbable numbers
+#   }
+#
+# Options:
+#
+#   Wish $page has scrubbable numbers with color blue step 0.01
+#
+#   color      only dots with this color name scrub (default: any)
+#   step       meters of dot travel per increment (default 0.005)
+#   reach      how far a dot can be from a number, in meters (0.03)
+#   dwell      how long a dot must hold still to grab, in ms (350)
+#   highlight  color of the highlight (yellow)
+#
+# To throw the patch away and go back to the program as printed:
+#
+#   Wish $page has its numbers reverted
+#
+# (After Bret Victor's number scrubber and Andrés Cuervo's
+# fingernail-dot scrubbing at Dynamicland.)
+
+set scrubLib [library create scrubLib {
+    # Returns the numbers in `code`, in order, as a list of dicts:
+    #   start, end  character range in code (inclusive), including sign
+    #   line, col   position of the first character, 0-indexed
+    #   text        e.g. 0.25 or -3
+    #   plus        whether a non-negative value needs an explicit +
+    #               to keep the code meaning the same thing
+    proc findNumbers {code} {
+        set numbers [list]
+        set offset 0
+        set lineNumber -1
+        foreach line [split $code "\n"] {
+            incr lineNumber
+            set lineStart $offset
+            set offset [expr {$offset + [string length $line] + 1}]
+
+            if {[string index [string trimleft $line] 0] eq "#"} { continue }
+            set commentAt [string first ";#" $line]
+            set n [expr {$commentAt >= 0 ? $commentAt : [string length $line]}]
+
+            set i 0
+            while {$i < $n} {
+                set c [string index $line $i]
+                set startsNumber [expr {
+                    [string is digit -strict $c] ||
+                    ($c eq "." && [string is digit -strict [string index $line [expr {$i + 1}]]])
+                }]
+                if {!$startsNumber} { incr i; continue }
+
+                # Scan digits, then optionally a point and more digits.
+                set j $i
+                while {$j < $n && [string is digit -strict [string index $line $j]]} { incr j }
+                if {[string index $line $j] eq "."} {
+                    incr j
+                    while {$j < $n && [string is digit -strict [string index $line $j]]} { incr j }
+                }
+                set prev [expr {$i > 0 ? [string index $line [expr {$i - 1}]] : ""}]
+                set next [string index $line $j]
+
+                # Not a number on its own: x1, vec2, $1, #ff0000,
+                # %5d, 100ms, 0x1F, 1e5, 1.2.3
+                if {[string match {[A-Za-z0-9_.$#%]} $prev] ||
+                    [string match {[A-Za-z0-9_.]} $next]} {
+                    while {$j < $n && [string match {[A-Za-z0-9_.]} [string index $line $j]]} { incr j }
+                    set i $j
+                    continue
+                }
+
+                # Does a sign right before the number belong to it?
+                # (-3 on its own does; the minus in $x-3 doesn't.)
+                set start $i
+                set plus 0
+                if {$prev eq "-" || $prev eq "+"} {
+                    set beforeSign [expr {$i > 1 ? [string index $line [expr {$i - 2}]] : ""}]
+                    if {$beforeSign eq "" || [string is space $beforeSign] ||
+                        [string first $beforeSign {([\{,=*/<>:;"+-!&|?^%}] >= 0} {
+                        set start [expr {$i - 1}]
+                        # In `$x -3`, we can't turn -3 into 2, or
+                        # we'd lose the operator; it has to be +2.
+                        if {[string is space -strict $beforeSign]} {
+                            set word [lindex [split [string trimright [string range $line 0 [expr {$start - 1}]]] " \t"] end]
+                            set word [string trimleft $word "\{\[(\""]
+                            set plus [expr {
+                                [string index $word 0] eq "\$" ||
+                                [string match {*[\])]} $word] ||
+                                [string is double -strict $word]
+                            }]
+                        }
+                    }
+                }
+
+                lappend numbers [dict create \
+                    start [expr {$lineStart + $start}] \
+                    end [expr {$lineStart + $j - 1}] \
+                    line $lineNumber col $start \
+                    text [string range $line $start [expr {$j - 1}]] \
+                    plus $plus]
+                set i $j
+            }
+        }
+        return $numbers
+    }
+
+    # Everything in the code that isn't a number. Two programs with
+    # the same skeleton differ only in the values of their numbers.
+    proc skeleton {code numbers} {
+        set parts [list]
+        set at 0
+        foreach number $numbers {
+            lappend parts [string range $code $at [expr {[dict get $number start] - 1}]]
+            set at [expr {[dict get $number end] + 1}]
+        }
+        lappend parts [string range $code $at end]
+        return $parts
+    }
+
+    # `replacements` is a dict from index in `numbers` to new text.
+    proc replaceNumbers {code numbers replacements} {
+        foreach index [lsort -integer -decreasing [dict keys $replacements]] {
+            set number [lindex $numbers $index]
+            set code [string replace $code \
+                          [dict get $number start] [dict get $number end] \
+                          [dict get $replacements $index]]
+        }
+        return $code
+    }
+
+    # The number `text`, moved by `steps` increments. An increment is
+    # one unit of the number's last decimal place (0.25 moves by 0.01);
+    # big whole numbers move faster (250 moves by 10).
+    #
+    # This is all done with whole numbers so that we never print
+    # something like 0.30000000000000004.
+    proc scrub {text steps plus} {
+        set negative [expr {[string index $text 0] eq "-"}]
+        set body [string trimleft $text "+-"]
+        set trailingPoint [expr {[string index $body end] eq "."}]
+
+        set point [string first "." $body]
+        if {$point < 0} {
+            set whole $body
+            set fraction ""
+        } else {
+            set whole [string range $body 0 [expr {$point - 1}]]
+            set fraction [string range $body [expr {$point + 1}] end]
+        }
+        set places [string length $fraction]
+
+        # Trim leading zeros so that 010 doesn't get read as octal.
+        set digits [string trimleft "$whole$fraction" 0]
+        if {$digits eq ""} { set digits 0 }
+        set value [expr {$negative ? -$digits : $digits}]
+
+        set unit 1
+        if {$places == 0} {
+            for {set k [string length $digits]} {$k > 2} {incr k -1} {
+                set unit [expr {$unit * 10}]
+            }
+        }
+        set value [expr {$value + $steps * $unit}]
+
+        set magnitude [expr {abs($value)}]
+        if {$places > 0} {
+            set padded [format "%0[expr {$places + 1}]d" $magnitude]
+            set out "[string range $padded 0 end-$places].[string range $padded end-[expr {$places - 1}] end]"
+        } else {
+            set out $magnitude
+            if {$trailingPoint} { append out "." }
+        }
+
+        if {$value < 0} { return "-$out" }
+        if {$plus} { return "+$out" }
+        return $out
+    }
+
+    # Where the code sits on the page: the position of the top-left
+    # of the character at line `firstLine`, column `firstCol`, and
+    # the size of a character cell. All in meters.
+    proc layout {geom code} {
+        if {[dict exists $geom lineHeight] && [dict exists $geom marginTop] &&
+            [dict exists $geom marginLeft]} {
+            # A printed program (see codeToPostScript in print.folk).
+            set lineHeight [dict get $geom lineHeight]
+            set advance [dict getdef $geom advance [expr {0.5859375 * $lineHeight}]]
+            return [dict create printed 1 firstLine 0 firstCol 0 \
+                x [expr {[dict get $geom marginLeft] + $advance * 2.5}] \
+                y [expr {[dict get $geom marginTop] + $lineHeight * 0.2}] \
+                advance $advance lineHeight $lineHeight]
+        }
+
+        # No printed code to point at, so we'll project the code and
+        # need to find room for it: below the tag or beside it,
+        # whichever lets the text be bigger.
+        set width [dict get $geom width]
+        set height [dict get $geom height]
+        set margin 0.008
+
+        # Leave out blank lines at the top and bottom and any
+        # indentation that every line has, so the text can be bigger.
+        set lines [split $code "\n"]
+        set firstLine -1
+        set lastLine -1
+        set firstCol -1
+        set columns 1
+        for {set i 0} {$i < [llength $lines]} {incr i} {
+            set line [lindex $lines $i]
+            if {[string trim $line] eq ""} { continue }
+            if {$firstLine < 0} { set firstLine $i }
+            set lastLine $i
+            set indent [expr {[string length $line] - [string length [string trimleft $line]]}]
+            if {$firstCol < 0 || $indent < $firstCol} { set firstCol $indent }
+            if {[string length $line] > $columns} { set columns [string length $line] }
+        }
+        if {$firstLine < 0} { set firstLine 0; set lastLine 0; set firstCol 0 }
+        set text [join [lmap line [lrange $lines $firstLine $lastLine] {
+            string range $line $firstCol end
+        }] "\n"]
+        set columns [max 1 [expr {$columns - $firstCol}]]
+        set rows [expr {$lastLine - $firstLine + 1}]
+
+        set regions [list [list $margin $margin \
+                               [expr {$width - 2 * $margin}] [expr {$height - 2 * $margin}]]]
+        if {[dict exists $geom tagSize] && [dict exists $geom top] && [dict exists $geom left]} {
+            set tagSize [dict get $geom tagSize]
+            set below [expr {[dict get $geom top] + $tagSize * 1.5}]
+            set beside [expr {[dict get $geom left] - $tagSize * 0.5}]
+            set regions [list \
+                [list $margin $below [expr {$width - 2 * $margin}] [expr {$height - $below - $margin}]] \
+                [list $margin $margin [expr {$beside - $margin}] [expr {$height - 2 * $margin}]]]
+        }
+
+        set best ""
+        set bestScale 0
+        foreach region $regions {
+            lassign $region x y w h
+            if {$w <= 0 || $h <= 0} { continue }
+            set scale [min 0.01 [expr {$w / ($columns * 0.5859375)}] [expr {$h / double($rows)}]]
+            if {$scale > $bestScale} { set bestScale $scale; set best $region }
+        }
+        if {$best eq ""} { set best [list $margin $margin 0 0]; set bestScale 0.004 }
+        lassign $best x y
+        return [dict create printed 0 text $text \
+            firstLine $firstLine firstCol $firstCol x $x y $y \
+            advance [expr {0.5859375 * $bestScale}] lineHeight $bestScale]
+    }
+
+    # {x y width height} of a number on the page.
+    proc rect {layout number} {
+        dict with layout {
+            return [list \
+                [expr {$x + ([dict get $number col] - $firstCol) * $advance}] \
+                [expr {$y + ([dict get $number line] - $firstLine) * $lineHeight}] \
+                [expr {[string length [dict get $number text]] * $advance}] \
+                $lineHeight]
+        }
+    }
+
+    proc distanceToRect {px py rect} {
+        lassign $rect x y w h
+        set dx [max [expr {$x - $px}] 0 [expr {$px - ($x + $w)}]]
+        set dy [max [expr {$y - $py}] 0 [expr {$py - ($y + $h)}]]
+        return [expr {sqrt($dx * $dx + $dy * $dy)}]
+    }
+}]
+Claim the number scrubbing library is $scrubLib
+
+set scrubDefaults {
+    color any
+    step 0.005
+    reach 0.03
+    dwell 350
+    highlight yellow
+}
+
+When /someone/ wishes /page/ has scrubbable numbers {
+    Wish $page has scrubbable numbers with step [dict get $scrubDefaults step]
+}
+
+# However many things wish for a page to be scrubbable, we scrub it
+# once.
+When the collected results for [list /someone/ wishes /page/ has scrubbable numbers with /...options/] are /results/ {
+    set pages [dict create]
+    foreach result $results {
+        set page [dict get $result page]
+        dict set pages $page [dict merge [dict getdef $pages $page $scrubDefaults] \
+                                  [dict get $result options]]
+    }
+    dict for {page options} $pages {
+        Claim $page is scrubbed with options $options
+    }
+}
+
+# The program as it's currently running: the original, or whatever it
+# has been patched with.
+fn scrubCurrentCode {page originalCode} {
+    set replacements [Query! /someone/ wishes program $page is replaced with /...replacement/]
+    if {[llength $replacements] > 0} {
+        return [dict get [dict get [lindex $replacements 0] replacement] code]
+    }
+    return $originalCode
+}
+
+When /page/ is scrubbed with options /options/ &\
+     /page/ has program code /originalCode/ &\
+     /page/ has resolved geometry /geom/ {
+
+    When the collected results for [list /someone/ wishes program $page is replaced with /...replacement/] are /replacements/ {
+        set code $originalCode
+        if {[llength $replacements] > 0} {
+            set code [dict get [dict get [lindex $replacements 0] replacement] code]
+        }
+
+        set layout [$scrubLib layout $geom $code]
+        set numbers [$scrubLib findNumbers $code]
+        if {[dict get $layout printed]} {
+            # The paper shows the original program, so that's where
+            # the numbers are -- as long as the patched program is
+            # still the same program with different numbers in it.
+            set originalNumbers [$scrubLib findNumbers $originalCode]
+            if {[$scrubLib skeleton $code $numbers] eq
+                [$scrubLib skeleton $originalCode $originalNumbers]} {
+                set positions $originalNumbers
+            } else {
+                set positions $numbers
+            }
+        } else {
+            set positions $numbers
+            Wish to draw text onto $page with \
+                position [list [dict get $layout x] [dict get $layout y]] \
+                text [dict get $layout text] scale [dict get $layout lineHeight] \
+                anchor topleft font NeomatrixCode color white layer 9
+        }
+
+        # Each scrubbable number: where it is on the page, and what it
+        # currently says.
+        set targets [list]
+        set height [dict get $geom height]
+        foreach position $positions number $numbers {
+            set rect [$scrubLib rect $layout $position]
+            lassign $rect x y w h
+            # Not on this side of the page (or not on this page at all).
+            if {$y < 0 || $y + $h > $height} { lappend targets {}; continue }
+            lappend targets [dict create rect $rect \
+                                 text [dict get $number text] plus [dict get $number plus]]
+
+            Wish to draw a line onto $page with \
+                points [list [list $x [expr {$y + $h}]] [list [expr {$x + $w}] [expr {$y + $h}]]] \
+                width [expr {$h * 0.06}] color {0.5 0.5 0.5 1} layer 9
+        }
+        Claim $page has scrub targets $targets
+    }
+
+    # Every camera frame: follow the dots, and patch the program if
+    # one of them has dragged a number somewhere new.
+    #
+    # (This isn't nested in a `When $page has scrub targets`, so that
+    # it doesn't get torn down and set back up every time a patch
+    # changes the targets.)
+    set colorFilter [dict get $options color]
+    When -serially $page has dots /dots/ {
+        set targetResults [Query! $page has scrub targets /targets/]
+        if {[llength $targetResults] == 0} { return }
+        set targets [dict get [lindex $targetResults 0] targets]
+
+        set now [clock milliseconds]
+        set step [dict get $options step]
+        set reach [dict get $options reach]
+        set dwell [dict get $options dwell]
+
+        set tracks [list]
+        set shown [list]
+        foreach state [Query! $page has scrub tracks /tracks/ showing /shown/] {
+            set tracks [dict get $state tracks]
+            set shown [dict get $state shown]
+        }
+
+        if {[llength $tracks] == 0 && [llength $dots] == 0} { return }
+
+        if {$colorFilter ne "any"} {
+            set dots [lmap dot $dots {
+                if {[dict get $dot name] ne $colorFilter} { continue }
+                set dot
+            }]
+        }
+
+        # Follow each dot we already know about to wherever it
+        # went.
+        set nextTracks [list]
+        set used [dict create]
+        foreach track $tracks {
+            # The dot's been gone a while; let go.
+            if {$now - [dict get $track seen] > 600} { continue }
+
+            set nearest -1
+            set nearestDistance 0.02
+            for {set i 0} {$i < [llength $dots]} {incr i} {
+                if {[dict exists $used $i]} { continue }
+                set dot [lindex $dots $i]
+                set dx [expr {[dict get $dot x] - [dict get $track x]}]
+                set dy [expr {[dict get $dot y] - [dict get $track y]}]
+                set distance [expr {sqrt($dx * $dx + $dy * $dy)}]
+                if {$distance < $nearestDistance} {
+                    set nearest $i
+                    set nearestDistance $distance
+                }
+            }
+            if {$nearest >= 0} {
+                dict set used $nearest 1
+                set dot [lindex $dots $nearest]
+                dict set track x [dict get $dot x]
+                dict set track y [dict get $dot y]
+                dict set track seen $now
+            }
+            lappend nextTracks $track
+        }
+        for {set i 0} {$i < [llength $dots]} {incr i} {
+            if {[dict exists $used $i]} { continue }
+            set dot [lindex $dots $i]
+            lappend nextTracks [dict create \
+                x [dict get $dot x] y [dict get $dot y] seen $now \
+                restX [dict get $dot x] restY [dict get $dot y] restSince $now \
+                index -1]
+        }
+
+        set grabbed [dict create]
+        foreach track $nextTracks {
+            if {[dict get $track index] >= 0} { dict set grabbed [dict get $track index] 1 }
+        }
+
+        set tracks [list]
+        set changed 0
+        foreach track $nextTracks {
+            dict with track {}
+            if {$index >= [llength $targets] ||
+                ($index >= 0 && [lindex $targets $index] eq "")} {
+                # The program changed out from under us.
+                set index -1
+                set restSince $now
+                dict set track index -1
+                dict set track restSince $now
+            }
+
+            if {$index < 0} {
+                # Not holding a number yet. Which one is closest?
+                set hover -1
+                set hoverDistance $reach
+                for {set i 0} {$i < [llength $targets]} {incr i} {
+                    set target [lindex $targets $i]
+                    if {$target eq "" || [dict exists $grabbed $i]} { continue }
+                    set distance [$scrubLib distanceToRect $x $y [dict get $target rect]]
+                    if {$distance < $hoverDistance} {
+                        set hover $i
+                        set hoverDistance $distance
+                    }
+                }
+                dict set track hover $hover
+
+                # Grab it once the dot has held still for a bit
+                # (so that a dot just passing by doesn't).
+                set dx [expr {$x - $restX}]
+                set dy [expr {$y - $restY}]
+                if {sqrt($dx * $dx + $dy * $dy) > 0.004} {
+                    dict set track restX $x
+                    dict set track restY $y
+                    dict set track restSince $now
+                } elseif {$hover >= 0 && $seen == $now && $now - $restSince >= $dwell} {
+                    set text [dict get [lindex $targets $hover] text]
+                    dict set track index $hover
+                    dict set track plus [dict get [lindex $targets $hover] plus]
+                    dict set track anchor $x
+                    dict set track startText $text
+                    dict set track text $text
+                    dict set track steps 0
+                    dict set grabbed $hover 1
+                }
+            } else {
+                # Holding a number: how far has the dot slid?
+                set raw [expr {($x - $anchor) / $step}]
+                if {abs($raw - $steps) > 0.7} {
+                    set steps [expr {int(round($raw))}]
+                    dict set track steps $steps
+                    set newText [$scrubLib scrub $startText $steps $plus]
+                    if {$newText ne $text} {
+                        dict set track text $newText
+                        set changed 1
+                    }
+                }
+            }
+            lappend tracks $track
+        }
+
+        if {$changed} {
+            # Patch the program. We start from whatever is running
+            # right now (not from what we saw when we computed
+            # `targets`, which may be a moment out of date).
+            set code [scrubCurrentCode $page $originalCode]
+            set numbers [$scrubLib findNumbers $code]
+            if {[llength $numbers] == [llength $targets]} {
+                set replacements [dict create]
+                foreach track $tracks {
+                    if {[dict get $track index] < 0} { continue }
+                    dict set replacements [dict get $track index] [dict get $track text]
+                }
+                set newCode [$scrubLib replaceNumbers $code $numbers $replacements]
+                if {$newCode ne $code} {
+                    Hold! -on builtin-programs/programs.folk -key new-code-for:$page \
+                        Wish program $page is replaced with \
+                        code $newCode editedTime [clock seconds]
+                }
+            }
+        }
+
+        # What to highlight. (Kept apart from the tracks, which
+        # change every frame, so that we only redraw when what's
+        # highlighted changes.)
+        set show [list]
+        foreach track $tracks {
+            if {[dict get $track index] >= 0} {
+                lappend show [list grabbed [dict get $track index] [dict get $track text]]
+            } elseif {[dict get $track hover] >= 0} {
+                lappend show [list hover [dict get $track hover] ""]
+            }
+        }
+        Hold! -key [list scrub $page] \
+            Claim $page has scrub tracks $tracks showing $show
+        if {$show ne $shown} {
+            Hold! -key [list scrub-highlights $page] \
+                Claim $page has scrub highlights $show
+        }
+    }
+
+    When $page has scrub targets /targets/ &\
+         $page has scrub highlights /highlights/ {
+        set color [dict get $options highlight]
+        foreach highlight $highlights {
+            lassign $highlight kind index text
+            set target [lindex $targets $index]
+            if {$target eq ""} { continue }
+            lassign [dict get $target rect] x y w h
+            set bottom [expr {$y + $h}]
+            set right [expr {$x + $w}]
+
+            if {$kind eq "hover"} {
+                Wish to draw a line onto $page with \
+                    points [list [list $x $bottom] [list $right $bottom]] \
+                    width [expr {$h * 0.12}] color $color layer 10
+                continue
+            }
+
+            # An outline, not a filled box: a solid patch of yellow
+            # light would look like a dot to the camera.
+            set pad [expr {$h * 0.15}]
+            Wish to draw a line onto $page with \
+                points [list [list [expr {$x - $pad}] [expr {$y - $pad}]] \
+                            [list [expr {$right + $pad}] [expr {$y - $pad}]] \
+                            [list [expr {$right + $pad}] [expr {$bottom + $pad}]] \
+                            [list [expr {$x - $pad}] [expr {$bottom + $pad}]] \
+                            [list [expr {$x - $pad}] [expr {$y - $pad}]]] \
+                width [expr {$h * 0.12}] color $color layer 10
+
+            # The value, big, above the number (or below it, if
+            # there's no room above).
+            set scale [max [expr {$h * 2.5}] 0.012]
+            set centerX [expr {$x + $w / 2.0}]
+            if {$y - $pad * 2 - $scale > 0} {
+                Wish to draw text onto $page with \
+                    position [list $centerX [expr {$y - $pad * 2}]] \
+                    text $text scale $scale anchor bottom color $color layer 10
+            } else {
+                Wish to draw text onto $page with \
+                    position [list $centerX [expr {$bottom + $pad * 2}]] \
+                    text $text scale $scale anchor top color $color layer 10
+            }
+        }
+    }
+}
+
+When /someone/ wishes /page/ has its numbers reverted {
+    Hold! -on builtin-programs/programs.folk -key new-code-for:$page {}
+    Hold! -key [list scrub $page] {}
+    Hold! -key [list scrub-highlights $page] {}
+}

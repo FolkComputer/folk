@@ -1,0 +1,315 @@
+# Tests for builtin-programs/dots.folk and
+# builtin-programs/scrub-numbers.folk: finding dots of color in an
+# image, finding and rewriting numbers in code, and the whole
+# point-hold-slide interaction (with made-up dots; no camera needed).
+
+Assert! when /__this/ has program code /__programCode/ {
+    SayWithSource $__this 1 0 {} {} \
+        when $__programCode with environment [list [list this $__this]]
+} with environment {}
+local proc LoadProgram! {programFilename} {
+    set fp [open $programFilename r]
+    Hold! -on boot.folk -key [list $programFilename code] \
+        Claim $programFilename has program code [read $fp]
+    close $fp
+}
+LoadProgram! builtin-programs/collect.folk
+LoadProgram! builtin-programs/image/image-lib.folk
+LoadProgram! builtin-programs/dots.folk
+LoadProgram! builtin-programs/scrub-numbers.folk
+
+fn check {what got expected} {
+    if {$got ne $expected} {
+        puts $::realStderr "FAILED: $what\n  expected: $expected\n       got: $got"
+        Exit! 1
+    }
+    puts $::realStderr "ok: $what"
+}
+
+# For things that happen reactively: wait for it.
+fn eventually {what script expected} {
+    for {set tries 0} {$tries < 60} {incr tries} {
+        set got [uplevel 1 $script]
+        if {$got eq $expected} { break }
+        sleep 0.05
+    }
+    check $what $got $expected
+}
+
+# A stand-in for the camera: paints a page with discs on it.
+When the image library is /imageLib/ {
+    set cc [C]
+    $cc extend $imageLib
+    $cc proc blankPage {int width int height int components} Image {
+        Image im = imageNew(width, height, components, 0);
+        memset(im.data, 235, (size_t)im.bytesPerRow * height);
+        return im;
+    }
+    $cc proc paintDisc {Image im int cx int cy int radius int r int g int b} void {
+        for (int y = cy - radius; y <= cy + radius; y++) {
+            for (int x = cx - radius; x <= cx + radius; x++) {
+                if (x < 0 || y < 0 || x >= im.width || y >= im.height) continue;
+                if ((x - cx) * (x - cx) + (y - cy) * (y - cy) > radius * radius) continue;
+                uint8_t *px = im.data + y * im.bytesPerRow + x * im.components;
+                px[0] = r;
+                if (im.components >= 3) { px[1] = g; px[2] = b; }
+            }
+        }
+    }
+    $cc proc paintRect {Image im int x0 int y0 int x1 int y1 int r int g int b} void {
+        for (int y = y0; y <= y1; y++) {
+            for (int x = x0; x <= x1; x++) {
+                uint8_t *px = im.data + y * im.bytesPerRow + x * im.components;
+                px[0] = r;
+                if (im.components >= 3) { px[1] = g; px[2] = b; }
+            }
+        }
+    }
+    Claim the test painter is [$cc compile]
+}
+
+When the number scrubbing library is /lib/ &\
+     the image library is /imageLib/ &\
+     the dot library is /dotLib/ &\
+     the test painter is /painter/ {
+
+    # Only run once, even if one of the libraries gets reclaimed.
+    if {[llength [Query! the scrub test has started]] > 0} { return }
+    Hold! -key started Claim the scrub test has started
+
+    ### Finding numbers ###
+
+    fn texts {code} { lmap n [$lib findNumbers $code] { dict get $n text } }
+
+    check "plain numbers" \
+        [texts {Wish $this draws a circle with radius 0.03 thickness 4 color {1 .5 0 1.}}] \
+        {0.03 4 1 .5 0 1.}
+    check "not numbers" \
+        [texts {set p0 [vec2 add $x1 #ff0000]; after 100ms; format %5d 0x1F 1e5 1.2.3 $1}] \
+        {}
+    check "percent is scrubbable" [texts {x 50% y 25%}] {50 25}
+    check "comments are skipped" \
+        [texts "# radius 5\nset r 6 ;# was 7\n  # 8"] \
+        {6}
+    check "signs" \
+        [texts {offset -0.5 [expr {$x-3}] {-1 2} [expr {$y * -4}] $z -7}] \
+        {-0.5 3 -1 2 -4 -7}
+    check "explicit plus needed after an operand" \
+        [lmap n [$lib findNumbers {offset -5 $z -7 {1 -2}}] { dict get $n plus }] \
+        {0 1 0 1}
+    check "line and column" \
+        [lmap n [$lib findNumbers "a 1\n  b 22"] { list [dict get $n line] [dict get $n col] }] \
+        {{0 2} {1 4}}
+
+    ### Changing numbers ###
+
+    check "decimal up" [$lib scrub 0.03 2 0] 0.05
+    check "decimal carries" [$lib scrub 0.9 3 0] 1.2
+    check "decimal through zero" [$lib scrub 0.2 -5 0] -0.3
+    check "decimal back to zero" [$lib scrub -0.1 1 0] 0.0
+    check "integer" [$lib scrub 4 -6 0] -2
+    check "big integers move faster" [$lib scrub 250 3 0] 280
+    check "leading point" [$lib scrub .5 1 0] 0.6
+    check "trailing point is kept" [$lib scrub 1. 2 0] 3.
+    check "leading zeros aren't octal" [$lib scrub 0.08 1 0] 0.09
+    check "explicit plus" [$lib scrub -7 9 1] +2
+    check "no steps, no change" [$lib scrub 0.50 0 0] 0.50
+
+    set code "circle 0.03 4\nthen \$x-3 and -1"
+    set numbers [$lib findNumbers $code]
+    set patched [$lib replaceNumbers $code $numbers {0 0.125 2 -10 3 5}]
+    check "replace" $patched "circle 0.125 4\nthen \$x--10 and 5"
+    check "same skeleton after replacing" \
+        [$lib skeleton $patched [$lib findNumbers $patched]] \
+        [$lib skeleton $code $numbers]
+    check "numbers survive a round trip" \
+        [texts $patched] {0.125 4 -10 5}
+
+    ### Finding the code on the page ###
+
+    set printed {width 0.2 height 0.14 lineHeight 0.003 advance 0.00176 marginTop 0.01 marginLeft 0.012}
+    set layout [$lib layout $printed "a 1\n  b 22"]
+    check "printed layout" [dict get $layout printed] 1
+    check "printed number position" \
+        [lmap v [$lib rect $layout [lindex [$lib findNumbers "a 1\n  b 22"] 1]] { format %.5f $v }] \
+        {0.02344 0.01360 0.00352 0.00300}
+
+    # No printed code: it gets projected, clear of the tag.
+    set unprinted {width 0.2 height 0.14 tagSize 0.03 left 0.15 top 0.02}
+    set layout [$lib layout $unprinted "Wish \$this draws a circle with radius 0.03"]
+    check "projected layout" [dict get $layout printed] 0
+    check "projected text fits beside or below the tag" \
+        [expr {[dict get $layout lineHeight] > 0.003 &&
+               ([dict get $layout y] >= 0.065 ||
+                [dict get $layout x] + 43 * [dict get $layout advance] <= 0.135 + 1e-9)}] 1
+    set demo "\n    # simple circle\n    Wish \$this draws a circle with radius 0.03\n"
+    set layout [$lib layout $unprinted $demo]
+    check "projected text is trimmed" [dict get $layout text] \
+        "# simple circle\nWish \$this draws a circle with radius 0.03"
+    check "number position follows the trimmed text" \
+        [lmap v [lrange [$lib rect $layout [lindex [$lib findNumbers $demo] 0]] 0 1] { format %.5f $v }] \
+        [list [format %.5f [expr {[dict get $layout x] + 38 * [dict get $layout advance]}]] \
+              [format %.5f [expr {[dict get $layout y] + [dict get $layout lineHeight]}]]]
+    check "distance to a number" \
+        [format %.3f [$lib distanceToRect 0.05 0.05 {0.01 0.01 0.01 0.01}]] 0.042
+
+    ### Finding dots ###
+
+    fn roundedDots {im args} {
+        lmap dot [$dotLib findDots $im {*}$args] {
+            lassign $dot x y diameter r g b hue
+            list [expr {int($x)}] [expr {int($y)}] [expr {round($diameter)}] \
+                [expr {round($hue / 10.0) * 10}]
+        }
+    }
+
+    set im [$painter blankPage 400 300 3]
+    $painter paintDisc $im 100 80 10 30 60 220 ;# blue dot
+    $painter paintDisc $im 250 200 12 220 40 40 ;# red dot
+    $painter paintDisc $im 300 60 2 30 200 30 ;# too small
+    $painter paintDisc $im 60 230 60 30 200 30 ;# too big
+    $painter paintRect $im 150 20 230 26 240 220 20 ;# a line, not a dot
+    $painter paintDisc $im 350 250 10 90 90 90 ;# gray: not colorful
+    $painter paintDisc $im 370 40 10 200 30 200 ;# on the tag: ignored
+    # A fingertip with a painted nail: the nail is a dot, the finger isn't.
+    $painter paintRect $im 180 130 200 299 210 150 120
+    $painter paintDisc $im 190 135 9 40 70 230
+    check "dots in color" \
+        [roundedDots $im 0.4 0.2 0.5 8 50 340 10 399 70] \
+        {{100 80 20 230} {190 135 18 230} {250 200 24 0}}
+
+    # The same picture as a camera's view of a 20cm x 15cm page: dots
+    # come out in meters from the page's corner, with names.
+    Claim dotpage has resolved geometry {width 0.2 height 0.15 tagSize 0.02 left 0.175 top 0.01}
+    Claim dotpage has camera slice $im
+    Wish dotpage has dots
+    fn dotsOnPage {} {
+        set results [Query! dotpage has dots /dots/]
+        if {[llength $results] == 0} { return "" }
+        lmap dot [dict get [lindex $results 0] dots] {
+            list [dict get $dot name] \
+                [format %.3f [dict get $dot x]] [format %.3f [dict get $dot y]] \
+                [format %.3f [dict get $dot diameter]]
+        }
+    }
+    eventually "dots on a page" {dotsOnPage} {{blue 0.050 0.040 0.010} {blue 0.095 0.068 0.009} {red 0.125 0.100 0.012}}
+
+    set im [$painter blankPage 400 300 1]
+    $painter paintDisc $im 100 80 10 20 0 0 ;# dark dot
+    $painter paintRect $im 150 20 230 23 0 0 0 ;# text-ish stroke
+    $painter paintDisc $im 250 200 10 200 0 0 ;# faint smudge
+    check "dots in grayscale" \
+        [roundedDots $im 0.4 0.2 0.5 8 50 -1 -1 -1 -1] \
+        {{100 80 20 0}}
+    $imageLib imageFree $im
+
+    ### Scrubbing ###
+
+    set page testpage
+    set programCode "Wish \$this draws a circle with radius 0.03 thickness 4"
+    Claim $page has program code $programCode
+    # A page printed with 3mm text.
+    Claim $page has resolved geometry {
+        width 0.2 height 0.14 tagSize 0.03 left 0.15 top 0.02
+        lineHeight 0.003 advance 0.0017578125 marginTop 0.01 marginLeft 0.01
+    }
+    Wish $page has scrubbable numbers
+
+    fn currentCode {} {
+        set replacements [Query! /someone/ wishes program $page is replaced with /...opts/]
+        if {[llength $replacements] == 0} { return "" }
+        dict get [dict get [lindex $replacements 0] opts] code
+    }
+    fn highlights {} {
+        set results [Query! $page has scrub highlights /highlights/]
+        if {[llength $results] == 0} { return "" }
+        dict get [lindex $results 0] highlights
+    }
+    # (The real dot detector makes a fresh claim for every camera
+    # frame. Here, holding the same claim twice wouldn't count as
+    # news, so we make every frame's claim different.)
+    fn dotAt {x y} {
+        Hold! -key test-dots Claim $page has dots \
+            [list [dict create x $x y $y diameter 0.008 color {0 0 1} hue 240 name blue \
+                       frame [clock milliseconds]]]
+        sleep 0.1
+    }
+    fn noDots {} {
+        Hold! -key test-dots Claim $page has dots {}
+        sleep 0.05
+        Hold! -key test-dots Claim $page has dots [list]
+        Hold! -key test-dots {}
+        sleep 0.05
+    }
+
+    When {
+        while {[llength [Query! $page has scrub targets /targets/]] == 0} { sleep 0.05 }
+
+        # `0.03` starts at column 38 of line 0, and `4` is at column 53.
+        set advance 0.0017578125
+        set x [expr {0.01 + $advance * 2.5 + 40 * $advance}]
+        set y [expr {0.01 + 0.003 * 0.2 + 0.0015}]
+
+        set targets [dict get [lindex [Query! $page has scrub targets /targets/] 0] targets]
+        check "targets" [lmap t $targets { dict get $t text }] {0.03 4}
+
+        # A dot passing by doesn't grab anything.
+        dotAt [expr {$x - 0.02}] $y
+        dotAt [expr {$x - 0.01}] $y
+        dotAt $x $y
+        eventually "hovering" {highlights} {{hover 0 {}}}
+        eventually "nothing patched yet" {currentCode} ""
+
+        # Holding still does.
+        for {set i 0} {$i < 6} {incr i} { dotAt $x $y }
+        eventually "grabbed" {highlights} {{grabbed 0 0.03}}
+        eventually "still nothing patched" {currentCode} ""
+
+        # Slide right by 2 steps (a step is 5mm).
+        dotAt [expr {$x + 0.005}] $y
+        dotAt [expr {$x + 0.0102}] $y
+        eventually "scrubbed up" {currentCode} \
+            "Wish \$this draws a circle with radius 0.05 thickness 4"
+        eventually "highlight shows the value" {highlights} {{grabbed 0 0.05}}
+
+        # A little jitter doesn't change it.
+        dotAt [expr {$x + 0.0115}] $y
+        eventually "jitter is ignored" {highlights} {{grabbed 0 0.05}}
+
+        # Slide left past where we started.
+        dotAt [expr {$x - 0.0}] $y
+        dotAt [expr {$x - 0.01}] $y
+        dotAt [expr {$x - 0.02}] $y
+        eventually "scrubbed down" {currentCode} \
+            "Wish \$this draws a circle with radius -0.01 thickness 4"
+
+        # Let go.
+        for {set i 0} {$i < 9} {incr i} { noDots }
+        eventually "let go" {highlights} {}
+
+        # Grab the other number. It's still where it was printed,
+        # even though the patched code is a character longer.
+        set x4 [expr {0.01 + $advance * 2.5 + 53.5 * $advance}]
+        for {set i 0} {$i < 7} {incr i} { dotAt $x4 $y }
+        eventually "grabbed the second number" {highlights} {{grabbed 1 4}}
+        dotAt [expr {$x4 + 0.016}] $y
+        eventually "scrubbed the second number" {currentCode} \
+            "Wish \$this draws a circle with radius -0.01 thickness 7"
+
+        Hold! -key revert Wish $page has its numbers reverted
+        sleep 0.2
+        eventually "reverted" {currentCode} ""
+
+        Exit! 0
+    }
+}
+
+When {
+    sleep 30
+    puts $::realStderr "FAILED: timed out"
+    Exit! 1
+}
+When /p/ has error /err/ with info /info/ {
+    puts $::realStderr "FAILED: error in $p: $err"
+    Exit! 1
+}

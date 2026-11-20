@@ -582,6 +582,41 @@ When the clock time is /t/ {
 }
 ```
 
+### Dots and number scrubbing
+
+A _dot_ is a small solid patch of color on a page: a sticker, a
+marker blob, a painted fingernail. Any page can ask where its dots
+are:
+
+```
+When $this has dots /dots/ {
+    foreach dot $dots {
+        Wish $this is labelled "[dict get $dot name] dot at [dict get $dot x] [dict get $dot y]"
+    }
+}
+```
+
+Each dot has `x`, `y`, and `diameter` (in meters from the page's
+top-left corner), a `color`, a `hue`, and a color `name`. `Wish $this
+shows its dots` rings the dots that the camera can see, which is handy
+when tuning (see builtin-programs/dots.folk for the options). With a
+grayscale camera, dots are solid dark blobs instead.
+
+Dots can be used to scrub the numbers in a program:
+
+```
+When $this points up at /page/ {
+    Wish $page has scrubbable numbers
+}
+```
+
+Hold a dot still next to a number in the code printed on `$page`
+until the number lights up, then slide the dot right to increase the
+number or left to decrease it. The program is patched live as you
+go. Take the dot away to let go. `Wish $page has its numbers reverted`
+throws the patch away. (See builtin-programs/scrub-numbers.folk for
+options, like only responding to dots of one color.)
+
 ### You usually won't need these
 
 #### When when
