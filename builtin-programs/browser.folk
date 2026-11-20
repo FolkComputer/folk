@@ -89,8 +89,9 @@ $cc code {
     #define ID_NAVIGATE 6
     #define ID_TITLE 7
     #define ID_URL 8
-    #define ID_IGNORE 100              // 100..999: replies nobody waits for
-    #define ID_FIRST_CALL 1000
+    #define ID_IGNORE 100              // stands for a fresh id >= ID_IGNORE_BASE: nobody waits for the reply
+    #define ID_FIRST_CALL 1000         // ids of brCall count up from here
+    #define ID_IGNORE_BASE 0x40000000
 
     typedef struct BrEv {
         long long seq;
@@ -250,7 +251,7 @@ $cc code {
     static bool brCmd(Browser* b, int id, bool session, const char* method, const char* params) {
         if (params == NULL) params = "";
         // Chromium refuses a command whose id is the same as one still in flight.
-        if (id == ID_IGNORE) id = ID_IGNORE + (int)(b->ignoredIds++ % 900);
+        if (id == ID_IGNORE) id = ID_IGNORE_BASE + (int)(b->ignoredIds++ & 0x3fffffff);
         size_t cap = strlen(method) + strlen(params) + 200;
         char stackBuf[1024]; char* buf = cap <= sizeof(stackBuf) ? stackBuf : malloc(cap);
         int len;
@@ -691,6 +692,7 @@ $cc code {
     // ---- input: restoring the order of events (Notify does not keep it)
 
     static void brDispatch(Browser* b, BrDevice* dev, BrEv* ev) {
+        if (!b->ready) return;                            // no page to send it to yet
         if (ev->kind == 0) brDispatchKey(b, dev, ev); else brDispatchMouse(b, dev, ev);
     }
     // Dispatches queued events for as long as they continue the sequence.
@@ -957,6 +959,7 @@ $cc code {
         if (strncmp(m, LB "\"id\":", 6) == 0) {
             int id = atoi(m + 6);
             if (id < ID_FIRST_CALL) { brOnReply(b, id, m); return; }
+            if (id >= ID_IGNORE_BASE) return;
             pthread_mutex_lock(&b->mu);
             for (int i = 0; i < BR_WAITERS; i++) {
                 if (b->waiters[i].id == id && !b->waiters[i].done) {
@@ -1202,6 +1205,7 @@ $cc code {
         }
         pthread_mutex_unlock(&brRegMu);
         if (b == NULL) return;
+        brTrace(id, "destroy", "begin", 5);
 
         pthread_mutex_lock(&b->mu);
         b->quit = true; b->closed = true;
@@ -1236,6 +1240,7 @@ $cc code {
         pthread_mutex_destroy(&b->wmu); pthread_mutex_destroy(&b->mu); pthread_mutex_destroy(&b->inMu);
         pthread_cond_destroy(&b->replyCond); pthread_cond_destroy(&b->workCond);
         free(b);
+        brTrace(id, "destroy", "end", 3);
     }
     // Sends a command and waits for its reply (malloc'd, the whole message), or NULL.
     static char* brCall(Browser* b, bool session, const char* method, const char* params, double timeoutS) {
