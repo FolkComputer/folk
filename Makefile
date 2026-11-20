@@ -128,13 +128,12 @@ sync:
 	git ls-files --exclude-standard -oi --directory >> "$$ignores_tmp"; \
 	rsync --timeout=15 -e "ssh -o StrictHostKeyChecking=no" \
 		--archive --delete --itemize-changes \
-		--exclude='/.git' \
+			--exclude='/.git' \
 			--exclude-from="$$ignores_tmp" \
 			--exclude='vendor/tracy/public/TracyClient.o' \
-		--include='vendor/tracy/public/***' \
-		--exclude='vendor/tracy/*' \
-		--exclude-from='.git/ignores.tmp' \
-		./ $(FOLK_REMOTE_NODE):~/folk/
+			--include='vendor/tracy/public/***' \
+			--exclude='vendor/tracy/*' \
+			./ $(FOLK_REMOTE_NODE):~/folk/
 
 remote-setup:
 	ssh-copy-id $(FOLK_REMOTE_NODE)

@@ -41,8 +41,13 @@ assert {[string first "Copy Removal Command" $body] >= 0}
 assert {[string first "security add-trusted-cert -r trustRoot -p ssl -k" $body] >= 0}
 assert {[string first "security delete-certificate -Z" $body] >= 0}
 assert {[string first "login.keychain-db" $body] >= 0}
+assert {[string first "update-ca-certificates" $body] >= 0}
+assert {[string first "update-ca-trust" $body] >= 0}
+assert {[string first "certutil -d" $body] >= 0}
+assert {[string first "libnss3-tools" $body] >= 0}
 assert {[string first "Copy Stale CA Cleanup Command" $body] >= 0}
 assert {[string first "<details class=\"device-panel\" id=\"device-macos\"" $body] >= 0}
+assert {[string first "<details class=\"device-panel\" id=\"device-linux\"" $body] >= 0}
 assert {[string first "<details class=\"device-panel\" id=\"device-ios\"" $body] >= 0}
 assert {[string first "<details class=\"device-panel\" id=\"device-windows\"" $body] >= 0}
 assert {[string first "<h3>Removing CA</h3>" $body] >= 0}

@@ -28,10 +28,20 @@ tmp_leaf="$(mktemp)"
 trap 'rm -f "$tmp_ca" "$tmp_leaf" "$dir/cert.csr"' EXIT
 
 names=""
+ips="127.0.0.1"
 add_name() {
-    name="$1"
-    if [ -n "$name" ]; then
-        case " $names " in *" $name "*) ;; *) names="$names $name";; esac
+    candidate_name="$1"
+    if [ -n "$candidate_name" ]; then
+        case " $names " in *" $candidate_name "*) ;; *) names="$names $candidate_name";; esac
+    fi
+}
+add_ip() {
+    candidate_ip="$1"
+    if [ -n "$candidate_ip" ]; then
+        case "$candidate_ip" in
+            127.*|169.254.*|0.0.0.0) return ;;
+        esac
+        case " $ips " in *" $candidate_ip "*) ;; *) ips="$ips $candidate_ip";; esac
     fi
 }
 add_host_name() {
@@ -40,15 +50,37 @@ add_host_name() {
     add_name "$name"
     case "$name" in
         localhost) ;;
-        *.local) add_name "${name%.local}" ;;
+        *.local)
+            base="${name%.local}"
+            add_name "$base"
+            add_name "$base.lan"
+            ;;
+        *.lan)
+            base="${name%.lan}"
+            add_name "$base"
+            add_name "$base.local"
+            ;;
         *.*) ;;
-        *) add_name "$name.local" ;;
+        *)
+            add_name "$name.local"
+            add_name "$name.lan"
+            ;;
     esac
 }
 add_host_name "$cert_host"
 add_host_name "$unix_host"
 add_host_name "$unix_short"
 add_name localhost
+if command -v hostname >/dev/null 2>&1; then
+    for ip in $(hostname -I 2>/dev/null || true); do
+        case "$ip" in *:*) ;; *) add_ip "$ip" ;; esac
+    done
+fi
+if command -v ip >/dev/null 2>&1; then
+    for ip in $(ip -o -4 addr show scope global 2>/dev/null | awk '{split($4, a, "/"); print a[1]}'); do
+        add_ip "$ip"
+    done
+fi
 
 cat > "$tmp_ca" <<EOF_CA
 [req]
@@ -94,7 +126,11 @@ for name in $names; do
     printf 'DNS.%s = %s\n' "$dns_i" "$name" >> "$tmp_leaf"
     dns_i=$((dns_i + 1))
 done
-printf 'IP.1 = 127.0.0.1\n' >> "$tmp_leaf"
+ip_i=1
+for ip in $ips; do
+    printf 'IP.%s = %s\n' "$ip_i" "$ip" >> "$tmp_leaf"
+    ip_i=$((ip_i + 1))
+done
 
 ca_needs_regen=0
 if [ ! -f "$dir/ca.key" ] || [ ! -f "$dir/ca.pem" ]; then

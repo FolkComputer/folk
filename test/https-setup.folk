@@ -23,13 +23,25 @@ assert {$caFp1 ne ""}
 set sans [httpsSetupSans "$tmp/cert.pem"]
 assert {[lsearch -exact $sans localhost] >= 0}
 assert {[lsearch -exact $sans 127.0.0.1] >= 0}
+set rawHost [string trim [exec hostname]]
+regsub {\.local$} $rawHost "" hostNoLocal
+set shortHost [lindex [split $hostNoLocal .] 0]
+if {$shortHost ne ""} {
+    assert {[lsearch -exact $sans "$shortHost.lan"] >= 0}
+}
 set hasLocalName 0
+set hasLanName 0
 foreach san $sans {
     if {[string match "*.local" $san]} {
         set hasLocalName 1
     }
+    assert {![string match "*.local.lan" $san]}
+    if {[string match "*.lan" $san]} {
+        set hasLanName 1
+    }
 }
 assert {$hasLocalName}
+assert {$hasLanName}
 
 set dates [httpsSetupDates "$tmp/cert.pem"]
 assert {[dict get $dates notBefore] ne ""}

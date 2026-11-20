@@ -27,8 +27,10 @@ assert {[screenshareNameTaken race-active race-active-2]}
 set pageFp [open builtin-programs/web/screenshare.folk r]
 set pageSource [read $pageFp]
 close $pageFp
-assert {[string first "unsupported || !wsReady" $pageSource] >= 0}
+assert {[string first "unsupported || !wsReady || !receiverReady" $pageSource] >= 0}
 assert {[string first "connecting to Folk" $pageSource] >= 0}
+assert {[string first "starting receiver" $pageSource] >= 0}
+assert {[string first "FolkWS is not defined" $pageSource] >= 0}
 
 set started [clock milliseconds]
 while {[llength [Query! /someone/ claims the screenshare frame bridge is /bridge/]] == 0} {

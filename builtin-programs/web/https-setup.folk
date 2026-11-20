@@ -628,6 +628,35 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
         </div>
       </details>
 
+      <details class="device-panel" id="device-linux" data-platform="linux">
+        <summary><span>Linux</span><span class="muted">Terminal trust command</span></summary>
+        <div class="device-body">
+          <p>Run this in Terminal to install the Folk CA into the system trust store and your Chromium/Chrome NSS database.</p>
+          <pre id="linux-command" class="command"></pre>
+          <p class="row">
+            <button id="copy-linux-command" type="button">Copy Terminal Command</button>
+            <span id="copy-linux-status" class="muted copy-status"></span>
+          </p>
+          <ol>
+            <li>Confirm the printed SHA-256 fingerprint matches this page.</li>
+            <li>Approve the sudo prompt for the system trust store update.</li>
+            <li>If the command says <code>certutil</code> is missing, install <code>libnss3-tools</code> on Debian/Ubuntu or <code>nss-tools</code> on Fedora/RHEL, then run the command again.</li>
+            <li>If this page says Folk must be restarted, click Restart Folk above before opening HTTPS.</li>
+            <li>Quit and reopen Chrome or Chromium if it still says Not secure. Firefox may need manual CA import or enterprise root trust enabled.</li>
+          </ol>
+
+          <div class="remove-ca">
+            <h3>Removing CA</h3>
+            <p>To remove this Folk CA from the Linux system trust store and Chromium/Chrome NSS database, run this in Terminal.</p>
+            <pre id="linux-remove-command" class="command"></pre>
+            <p class="row">
+              <button id="copy-linux-remove-command" type="button">Copy Removal Command</button>
+              <span id="copy-linux-remove-status" class="muted copy-status"></span>
+            </p>
+          </div>
+        </div>
+      </details>
+
       <details class="device-panel" id="device-ios" data-platform="ios">
         <summary><span>iPhone/iPad</span><span class="muted">Profile install and full trust</span></summary>
         <div class="device-body">
@@ -742,6 +771,10 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
     return `${location.protocol}//${location.host}${path}`;
   }
 
+  function sameHostHttpsUrl(path) {
+    return `https://${location.host}${path}`;
+  }
+
   function shellSingleQuote(value) {
     return "'" + String(value).replaceAll("'", "'\\''") + "'";
   }
@@ -761,7 +794,7 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
     const command = [
       `FOLK_HOST=${shellSingleQuote(server.host)}`,
       `FOLK_CA_URL=${shellSingleQuote(sameOriginUrl("/folk-ca.cer"))}`,
-      `FOLK_SETUP_URL=${shellSingleQuote(server.httpsUrl)}`,
+      `FOLK_SETUP_URL=${shellSingleQuote(sameHostHttpsUrl("/setup/https"))}`,
       `EXPECTED_FINGERPRINT=${shellSingleQuote(server.caFingerprint)}`,
       `FOLK_CA="/tmp/folk-ca-$FOLK_HOST.cer"`,
       `curl -fsSk "$FOLK_CA_URL" -o "$FOLK_CA"`,
@@ -798,6 +831,47 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
       `FOLK_LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"`,
       `security find-certificate -a -c "$FOLK_CA_CN" -Z "$FOLK_LOGIN_KEYCHAIN" | awk '/SHA-256 hash:/ {print $3}' | while read FP; do if [ "$FP" != "$FOLK_CA_SHA256" ]; then security delete-certificate -Z "$FP" "$FOLK_LOGIN_KEYCHAIN" 2>/dev/null && echo "Removed stale Folk CA $FP"; fi; done`,
       `echo "Stale Folk CA cleanup complete. Quit and reopen Chrome before testing trust again."`
+    ];
+    return shellCommand(command);
+  }
+
+  function linuxTrustCommand() {
+    if (!server.caFingerprint) {
+      return "Generate HTTPS certificates first, then reload this page.";
+    }
+    const command = [
+      `FOLK_HOST=${shellSingleQuote(server.host)}`,
+      `FOLK_CA_URL=${shellSingleQuote(sameOriginUrl("/folk-ca.pem"))}`,
+      `FOLK_SETUP_URL=${shellSingleQuote(sameHostHttpsUrl("/setup/https"))}`,
+      `EXPECTED_FINGERPRINT=${shellSingleQuote(server.caFingerprint)}`,
+      `FOLK_CA="/tmp/folk-ca-$FOLK_HOST.pem"`,
+      `curl -fsSk "$FOLK_CA_URL" -o "$FOLK_CA"`,
+      `ACTUAL_FINGERPRINT="$(openssl x509 -in "$FOLK_CA" -noout -fingerprint -sha256 | sed 's/^.*=//')"`,
+      `echo "Folk CA SHA-256: $ACTUAL_FINGERPRINT"`,
+      `[ "$ACTUAL_FINGERPRINT" = "$EXPECTED_FINGERPRINT" ]`,
+      `if command -v update-ca-certificates >/dev/null 2>&1; then sudo install -m 0644 "$FOLK_CA" "/usr/local/share/ca-certificates/folk-local-ca-$FOLK_HOST.crt" && sudo update-ca-certificates; elif command -v update-ca-trust >/dev/null 2>&1; then sudo install -m 0644 "$FOLK_CA" "/etc/pki/ca-trust/source/anchors/folk-local-ca-$FOLK_HOST.pem" && sudo update-ca-trust extract; else echo "No update-ca-certificates or update-ca-trust found; install $FOLK_CA through your distro trust settings."; fi`,
+      `NSS_DB="\${FOLK_NSSDB:-$HOME/.local/share/pki/nssdb}"`,
+      `if command -v certutil >/dev/null 2>&1; then mkdir -p "$NSS_DB" && certutil -d "sql:$NSS_DB" -N --empty-password 2>/dev/null || true; fi`,
+      `if command -v certutil >/dev/null 2>&1; then certutil -d "sql:$NSS_DB" -D -n "Folk Local CA for $FOLK_HOST" 2>/dev/null || true; certutil -d "sql:$NSS_DB" -A -t "C,," -n "Folk Local CA for $FOLK_HOST" -i "$FOLK_CA"; else echo "Install libnss3-tools or nss-tools for certutil if Chrome/Chromium still does not trust the CA."; fi`,
+      `echo "If Folk was just generated in HTTP setup mode, restart Folk before opening HTTPS."`,
+      `echo "Trusted Folk CA. Quit and reopen Chrome/Chromium, then open $FOLK_SETUP_URL"`
+    ];
+    return shellCommand(command);
+  }
+
+  function linuxRemoveTrustCommand() {
+    if (!server.caFingerprint) {
+      return "No Folk CA fingerprint is available on this page.";
+    }
+    const command = [
+      `FOLK_HOST=${shellSingleQuote(server.host)}`,
+      `FOLK_CA_NICKNAME="Folk Local CA for $FOLK_HOST"`,
+      `sudo rm -f "/usr/local/share/ca-certificates/folk-local-ca-$FOLK_HOST.crt" "/etc/pki/ca-trust/source/anchors/folk-local-ca-$FOLK_HOST.pem"`,
+      `if command -v update-ca-certificates >/dev/null 2>&1; then sudo update-ca-certificates --fresh; fi`,
+      `if command -v update-ca-trust >/dev/null 2>&1; then sudo update-ca-trust extract; fi`,
+      `NSS_DB="\${FOLK_NSSDB:-$HOME/.local/share/pki/nssdb}"`,
+      `if command -v certutil >/dev/null 2>&1 && [ -d "$NSS_DB" ]; then certutil -d "sql:$NSS_DB" -D -n "$FOLK_CA_NICKNAME" 2>/dev/null || true; fi`,
+      `echo "Removed this Folk CA where found. Quit and reopen Chrome/Chromium before testing trust again."`
     ];
     return shellCommand(command);
   }
@@ -861,6 +935,7 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
     }
     if (/Mac/i.test(platform)) return "macos";
     if (/Win/i.test(platform)) return "windows";
+    if (/Linux/i.test(platform) || /Linux/i.test(ua)) return "linux";
     return "";
   }
 
@@ -895,7 +970,7 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
     const ready = checks.protocolHttps && checks.secureContext && checks.displayMedia && wsConnected && checks.certMaterialPresent && checks.hostnameCovered && server.status === "https-active";
     const next = document.getElementById("next-step");
     if (ready) {
-      next.innerHTML = `Ready for <a href="${server.screenshareUrl}">screenshare</a>.`;
+      next.innerHTML = `Ready for <a href="${sameHostHttpsUrl("/screenshare")}">screenshare</a>.`;
     } else if (!server.sslAvailable) {
       next.textContent = "Build Jim Tcl with SSL support, then restart Folk.";
     } else if (!server.certExists || !server.keyExists) {
@@ -903,9 +978,9 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
     } else if (server.status === "cert-ready-restart") {
       next.textContent = "Restart Folk, then open the HTTPS setup URL.";
     } else if (server.status === "cert-hostname-mismatch" || (checks.protocolHttps && !checks.hostnameCovered)) {
-      next.textContent = `Open ${server.httpsUrl} or regenerate certificates for this host.`;
+      next.textContent = `Open ${sameHostHttpsUrl("/setup/https")} or regenerate certificates for this host.`;
     } else if (!checks.protocolHttps) {
-      next.textContent = `Open ${server.httpsUrl} after trusting the CA.`;
+      next.textContent = `Open ${sameHostHttpsUrl("/setup/https")} after trusting the CA.`;
     } else if (!checks.secureContext) {
       next.textContent = "Trust the Folk Local CA on this device. On iPhone/iPad, enable full trust. In Chrome, restart the browser if trust was just changed.";
     } else if (!checks.displayMedia) {
@@ -924,13 +999,15 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
     serverStatus.className = `status ${statusClass[server.status] || "warn"}`;
     const caCerUrl = sameOriginUrl("/folk-ca.cer");
     const caPemUrl = sameOriginUrl("/folk-ca.pem");
+    const setupHttpsUrl = sameHostHttpsUrl("/setup/https");
+    const screenshareHttpsUrl = sameHostHttpsUrl("/screenshare");
     document.getElementById("download-cer").href = caCerUrl;
     document.getElementById("download-pem").href = caPemUrl;
-    document.getElementById("open-https").href = server.httpsUrl;
+    document.getElementById("open-https").href = setupHttpsUrl;
     document.getElementById("ca-qr").src = `/setup/https/qr.svg?text=${encodeURIComponent(caCerUrl)}`;
     setText("ca-fingerprint", server.caFingerprint ? `Root SHA-256: ${server.caFingerprint}` : "Root CA has not been generated yet.");
-    setText("covered-url", `Setup URL: ${server.httpsUrl}`);
-    setText("screenshare-url", `Screenshare URL: ${server.screenshareUrl}`);
+    setText("covered-url", `Setup URL: ${setupHttpsUrl}`);
+    setText("screenshare-url", `Screenshare URL: ${screenshareHttpsUrl}`);
     setText("sans", server.sans.length ? server.sans.join(", ") : "No certificate hostnames yet.");
     setText("leaf-fingerprint", server.leafFingerprint || "No leaf certificate yet.");
     setText("not-before", server.notBefore);
@@ -938,9 +1015,13 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
     setText("macos-command", macosTrustCommand());
     setText("macos-remove-command", macosRemoveTrustCommand());
     setText("macos-cleanup-command", macosStaleCleanupCommand());
+    setText("linux-command", linuxTrustCommand());
+    setText("linux-remove-command", linuxRemoveTrustCommand());
     document.getElementById("copy-macos-command").disabled = !server.caFingerprint;
     document.getElementById("copy-macos-remove-command").disabled = !server.caFingerprint;
     document.getElementById("copy-macos-cleanup-command").disabled = !server.caFingerprint;
+    document.getElementById("copy-linux-command").disabled = !server.caFingerprint;
+    document.getElementById("copy-linux-remove-command").disabled = !server.caFingerprint;
     openDetectedDeviceSection();
     renderChecks();
     renderSummary();
@@ -1048,6 +1129,8 @@ Wish the web server handles route "/setup/https" with nav "<button>HTTPS setup</
   document.getElementById("copy-macos-command").addEventListener("click", () => copyTextFrom("macos-command", "copy-macos-status"));
   document.getElementById("copy-macos-remove-command").addEventListener("click", () => copyTextFrom("macos-remove-command", "copy-macos-remove-status"));
   document.getElementById("copy-macos-cleanup-command").addEventListener("click", () => copyTextFrom("macos-cleanup-command", "copy-macos-cleanup-status"));
+  document.getElementById("copy-linux-command").addEventListener("click", () => copyTextFrom("linux-command", "copy-linux-status"));
+  document.getElementById("copy-linux-remove-command").addEventListener("click", () => copyTextFrom("linux-remove-command", "copy-linux-remove-status"));
 
   renderStatic();
 </script>

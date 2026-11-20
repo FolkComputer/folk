@@ -42,6 +42,7 @@ while true {
 assert {[string first "HTTPS is active" $body] >= 0}
 assert {[string first "Restart Folk" $body] >= 0}
 assert {[string first "<details class=\"device-panel\" id=\"device-macos\"" $body] >= 0}
+assert {[string first "<details class=\"device-panel\" id=\"device-linux\"" $body] >= 0}
 set status [exec curl -ks -o /dev/null -w "%{http_code}" "$httpsBaseUrl/folk-ca.cer"]
 assert {$status eq "200"}
 set httpBody [exec curl -sf "$httpBaseUrl/setup/https"]

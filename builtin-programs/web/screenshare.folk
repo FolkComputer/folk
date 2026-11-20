@@ -67,6 +67,7 @@ Wish the web server handles route "/screenshare$" with nav "<button>Screenshare<
     let availableResults = [];
     let reservedResults = [];
     let stopping = false;
+    let receiverReady = false;
 
     function showToast(message) {
       toast.textContent = message;
@@ -99,9 +100,17 @@ Wish the web server handles route "/screenshare$" with nav "<button>Screenshare<
 
     function updateStartEnabled() {
       const unsupported = !window.isSecureContext || !navigator.mediaDevices?.getDisplayMedia;
-      startButton.disabled = unsupported || !wsReady || !!validateName() || !!pc;
+      startButton.disabled = unsupported || !wsReady || !receiverReady || !!validateName() || !!pc;
       if (!sessionId && !pc && !["failed", "disconnected", "closed"].includes(sessionStatus.textContent)) {
-        sessionStatus.textContent = wsReady && !unsupported ? "ready" : "connecting to Folk";
+        if (unsupported) {
+          sessionStatus.textContent = "";
+        } else if (!wsReady) {
+          sessionStatus.textContent = "connecting to Folk";
+        } else if (!receiverReady) {
+          sessionStatus.textContent = "starting receiver";
+        } else {
+          sessionStatus.textContent = "ready";
+        }
       }
     }
 
@@ -114,6 +123,12 @@ Wish the web server handles route "/screenshare$" with nav "<button>Screenshare<
       support.innerHTML = 'Screen sharing needs HTTPS. <a href="/setup/https">Open HTTPS setup</a> to generate and install the Folk local certificate on this device, then return to /screenshare over HTTPS.';
     } else if (!navigator.mediaDevices?.getDisplayMedia) {
       support.textContent = "This browser does not support WebRTC screen sharing.";
+    }
+
+    if (typeof FolkWS === "undefined") {
+      support.textContent = "Folk's browser client did not load. Reload this page after Folk finishes restarting.";
+      startButton.disabled = true;
+      throw new Error("FolkWS is not defined");
     }
 
     function refreshActiveScreens() {
@@ -132,6 +147,11 @@ Wish the web server handles route "/screenshare$" with nav "<button>Screenshare<
     folk = new FolkWS(document.getElementById("ws-status"));
     folk.connected.then(() => {
       wsReady = true;
+      folk.send("Wish to load the screenshare receiver");
+      updateStartEnabled();
+    });
+    folk.watchCollected("/someone/ claims the screenshare receiver is /receiver/", results => {
+      receiverReady = results.length > 0;
       updateStartEnabled();
     });
     folk.watchCollected("/someone/ claims screen /name/ is reserved on /node/ with session /session/", results => {

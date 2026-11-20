@@ -169,9 +169,11 @@ local HTTPS before using `/screenshare` from another LAN device.
 
 1. Reopen `https://<your-remote-hostname>.local:4273/setup/https`,
    download the Folk CA, and trust it on each laptop, phone, or tablet
-   that should use secure Folk pages. On iPhone/iPad, after installing
-   the profile, enable full trust in Settings > General > About >
-   Certificate Trust Settings.
+   that should use secure Folk pages. The setup page has Terminal
+   commands for macOS and Linux that download the CA, verify its
+   SHA-256 fingerprint, and install it into the local trust store. On
+   iPhone/iPad, after installing the profile, enable full trust in
+   Settings > General > About > Certificate Trust Settings.
 
 1. If Chrome still says the site is not secure after the CA is trusted,
    restart Chrome and reload the HTTPS page.
