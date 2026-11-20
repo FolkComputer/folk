@@ -1,0 +1,18 @@
+# sim-setup.folk -- make a headless boot quiet and deterministic.
+
+# No "Welcome to Folk / <hostname>" overlay (display-saver.folk).
+Claim $this has a display saver
+
+# An ideal synthetic calibration, so that load-calibration.folk doesn't
+# draw its "hasn't been calibrated" warning, and so that the geometry
+# is exactly known: pinhole projector, fx = fy = display width, principal
+# point at the display center, camera == projector.
+When display /disp/ has width /w/ height /h/ {
+    set intr [dict create width $w height $h fx $w fy $w \
+                  cx [/ $w 2.0] cy [/ $h 2.0] s 0 k1 0 k2 0 p1 0 p2 0]
+    Claim a calibration from camera sim-camera to display $disp is \
+        [dict create camera [dict create intrinsics $intr] \
+             projector [dict create intrinsics $intr] \
+             R_cameraToProjector {{1 0 0} {0 1 0} {0 0 1}} \
+             t_cameraToProjector {0 0 0}]
+}
