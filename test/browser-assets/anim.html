@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Animation</title>
+<style>
+  html, body { margin: 0; background: #ffffff; overflow: hidden; }
+  /* A bar that is somewhere else in every frame, and a strip that
+     shows the frame number in binary (16 blocks of 20x20, bit 0 left). */
+  #bar { position: absolute; top: 100px; left: 0; width: 40px; height: 200px; background: #ff0000;
+         animation: slide 2s linear infinite; }
+  @keyframes slide { from { transform: translateX(0); } to { transform: translateX(600px); } }
+  .bit { position: absolute; top: 0; width: 20px; height: 20px; background: #000000; }
+  .bit.on { background: #ffffff; }
+  #strip { position: absolute; left: 0; top: 0; width: 320px; height: 20px; background: #000000; }
+</style>
+</head>
+<body>
+<div id="strip"></div>
+<div id="bar"></div>
+<script>
+  var bits = [], n = 0;
+  for (var i = 0; i < 16; i++) {
+    var d = document.createElement('div'); d.className = 'bit'; d.style.left = (i * 20) + 'px';
+    document.getElementById('strip').appendChild(d); bits.push(d);
+  }
+  function tick() {
+    n++;
+    for (var i = 0; i < 16; i++) bits[i].className = ((n >> i) & 1) ? 'bit on' : 'bit';
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+</script>
+</body>
+</html>

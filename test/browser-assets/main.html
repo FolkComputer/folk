@@ -1,0 +1,73 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Folk browser test</title>
+<style>
+  /* Laid out for a 640x400 viewport. Sharp-edged blocks of exact colours, on
+     multiples of 16 px so that JPEG chroma subsampling does not smear their edges. */
+  html, body { margin: 0; padding: 0; background: #ffffff; overflow: hidden; font: 14px/1.2 sans-serif; }
+  .block { position: absolute; top: 0; width: 80px; height: 64px; }
+  #red { left: 0; background: #ff0000; }
+  #green { left: 80px; background: #00ff00; }
+  #blue { left: 160px; background: #0000ff; }
+  #gray { left: 240px; background: #808080; }
+  #black { left: 320px; background: #000000; }
+  #btn { position: absolute; left: 20px; top: 80px; width: 120px; height: 40px; background: #ffcc00; border: 0; padding: 0; outline: 0; }
+  #ind { position: absolute; left: 160px; top: 80px; width: 60px; height: 40px; background: #404040; }
+  #ind.on { background: #ff00ff; }
+  #form { margin: 0; }
+  #text { position: absolute; left: 20px; top: 140px; width: 300px; height: 24px; box-sizing: border-box; font: 14px monospace; }
+  #text2 { position: absolute; left: 20px; top: 180px; width: 300px; height: 24px; box-sizing: border-box; font: 14px monospace; }
+  #pad { position: absolute; left: 360px; top: 80px; background: #eeeeee; }
+  #scroll { position: absolute; left: 20px; top: 230px; width: 200px; height: 120px; overflow: auto; background: #ddffdd; }
+  #scroll div { height: 2000px; }
+  #dbl { position: absolute; left: 240px; top: 230px; width: 100px; height: 60px; background: #ffdddd; }
+  #ctx { position: absolute; left: 240px; top: 300px; width: 100px; height: 60px; background: #ddddff; }
+</style>
+</head>
+<body>
+<div class="block" id="red"></div><div class="block" id="green"></div><div class="block" id="blue"></div>
+<div class="block" id="gray"></div><div class="block" id="black"></div>
+<button id="btn" type="button"></button><div id="ind"></div>
+<form id="form"><input id="text" autocomplete="off" spellcheck="false"></form>
+<input id="text2" autocomplete="off" spellcheck="false">
+<canvas id="pad" width="240" height="140"></canvas>
+<div id="scroll"><div></div></div>
+<div id="dbl"></div><div id="ctx"></div>
+<script>
+  // Everything the test wants to know ends up in S.
+  var S = { clicks: 0, submitted: null, submits: 0, strokes: 0, path: [], dbl: 0, ctx: 0,
+            mouse: null, moves: 0, downs: [], ups: [], keys: [] };
+  var $ = function (id) { return document.getElementById(id); };
+  $('btn').addEventListener('click', function () {
+    S.clicks++; $('ind').className = (S.clicks % 2) ? 'on' : '';
+  });
+  $('form').addEventListener('submit', function (e) {
+    e.preventDefault(); S.submits++; S.submitted = $('text').value;
+  });
+  var pad = $('pad'), g = pad.getContext('2d'), drawing = false;
+  g.strokeStyle = '#0000ff'; g.lineWidth = 4; g.lineCap = 'round';
+  function padXY(e) { var r = pad.getBoundingClientRect(); return [Math.round(e.clientX - r.left), Math.round(e.clientY - r.top)]; }
+  pad.addEventListener('mousedown', function (e) {
+    if (e.button !== 0) return;
+    drawing = true; var p = padXY(e); S.path = [p]; g.beginPath(); g.moveTo(p[0], p[1]);
+  });
+  window.addEventListener('mousemove', function (e) {
+    S.moves++; S.mouse = [e.clientX, e.clientY, e.buttons];
+    if (drawing) { var p = padXY(e); S.path.push(p); g.lineTo(p[0], p[1]); g.stroke(); }
+  });
+  window.addEventListener('mousedown', function (e) { S.downs.push([e.button, e.buttons, e.detail]); });
+  window.addEventListener('mouseup', function (e) {
+    S.ups.push([e.button, e.buttons, e.detail]);
+    if (drawing && e.button === 0) { drawing = false; S.strokes++; }
+  });
+  $('dbl').addEventListener('dblclick', function () { S.dbl++; });
+  $('ctx').addEventListener('contextmenu', function (e) { e.preventDefault(); S.ctx++; });
+  window.addEventListener('keydown', function (e) {
+    S.keys.push(e.key + '/' + e.code + (e.repeat ? '/repeat' : '') +
+                (e.ctrlKey ? '/ctrl' : '') + (e.shiftKey ? '/shift' : '') + (e.altKey ? '/alt' : ''));
+  });
+</script>
+</body>
+</html>

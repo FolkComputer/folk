@@ -1,0 +1,525 @@
+# Drives builtin-programs/browser.folk end to end, headless: a virtual
+# page on the "headless" display is wished to be a web browser showing
+# test/browser-assets/main.html; keyboard and mouse input is
+# synthesized as the events keyboard.folk and mouse.folk emit; captured
+# display frames and the page's own state are checked.
+#
+#   TERM=dumb timeout 120 ./folk test/browser.folk     (exit code 0 = pass)
+
+if {$::tcl_platform(os) eq "darwin"} {
+    # gpu.folk and draw.folk need to be on the main thread there.
+    Exit! 0
+}
+set out $::realStdout
+set ::t0 [clock milliseconds]
+proc say {msg} { puts $::realStdout [format "%6.2f  %s" [expr {([clock milliseconds] - $::t0) / 1000.0}] $msg] }
+
+Assert! when /__this/ has program code /__programCode/ {
+    SayWithSource $__this 1 0 {} {} \
+        when $__programCode with environment [list [list this $__this]]
+} with environment {}
+local proc LoadProgram! {programFilename} {
+    set fp [open $programFilename r]
+    Hold! -on test/browser.folk -key [list $programFilename code] \
+        Claim $programFilename has program code [read $fp]
+    close $fp
+}
+foreach programFilename [list builtin-programs/collect.folk \
+                             builtin-programs/quad-lib.folk \
+                             builtin-programs/apriltags.folk \
+                             builtin-programs/tags-to-quads.folk \
+                             builtin-programs/calibrate/load-calibration.folk \
+                             builtin-programs/image/image-lib.folk \
+                             builtin-programs/image/png-lib.folk \
+                             builtin-programs/image/jpeg-lib.folk \
+                             {*}[glob builtin-programs/gpu/*.folk] \
+                             builtin-programs/draw/color-map.folk \
+                             builtin-programs/draw/image.folk \
+                             test/sim/programs/sim-setup.folk \
+                             builtin-programs/browser.folk] {
+    LoadProgram! $programFilename
+}
+
+# ---- the emulated table: a 960x540 projector, one page at (160,70), 640x400 px
+
+set dispW 960; set dispH 540
+set pageX 160; set pageY 70; set viewW 640; set viewH 400
+set page browser-test-page
+# (Rules capture the variables above by name; the procs below, which only
+# run on this thread, use them as globals.)
+foreach name {dispW dispH pageX pageY viewW viewH page} { set ::$name [set $name] }
+Wish $::thisNode uses display headless with width $dispW height $dispH refreshRate 60000
+Wish display headless is captured
+
+set ::assets file://[pwd]/test/browser-assets
+Claim $::page has resolved geometry [dict create width 0.64 height 0.4]
+When the quad library is /quadLib/ &\
+     display /disp/ has width /dispW/ height /dispH/ &\
+     display /disp/ has intrinsics /intr/ {
+    # pixel -> point on the z = 1 m plane of display space
+    # (globals of the main thread are captured here under their plain names)
+    set q [list]
+    foreach {px py} [list $pageX $pageY \
+                         [+ $pageX $viewW] $pageY \
+                         [+ $pageX $viewW] [+ $pageY $viewH] \
+                         $pageX [+ $pageY $viewH]] {
+        lappend q [list [expr {($px - [dict get $intr cx]) / [dict get $intr fx]}] \
+                       [expr {($py - [dict get $intr cy]) / [dict get $intr fy]}] 1.0]
+    }
+    Claim $page has quad [$quadLib create "display $disp" $q]
+}
+
+# What keyboard.folk, mouse.folk and the editor would claim:
+set ::kb /dev/input/test-keyboard
+set ::mouse /dev/input/test-mouse
+Claim test-keyboard-page is a keyboard with path $::kb locale us
+Claim test-keyboard-page is typing into $::page
+# A second keyboard whose events have no seq, code or mods (keyboard.folk
+# before the input track), and whose claim has no locale:
+set ::oldKb /dev/input/test-old-keyboard
+Claim test-old-keyboard-page is a keyboard with path $::oldKb
+Claim test-old-keyboard-page is typing into $::page
+Claim test-mouse-page is a mouse with path $::mouse
+Claim test-mouse-page is pointing into $::page
+
+# keep: do not let the browser outlive its wish for long (step 8 checks that it dies).
+# (-on: Hold! keys are per program, and a proc does not know which program it is in.)
+proc wishUrl {url} {
+    if {$url eq ""} { Hold! -on test/browser.folk -key browser-wish {}; return }
+    Hold! -on test/browser.folk -key browser-wish \
+        Wish $::page is a web browser showing $url with width $::viewW height $::viewH keep 300ms
+}
+wishUrl $::assets/main.html
+
+# ---- reading pixels of captured display frames
+# (Only inside a When on the frame is its image guaranteed to be alive.)
+
+proc setProbes {points} { Hold! -on test/browser.folk -key probes Claim the test probes are $points }
+setProbes {}
+When -serially the image library is /imageLib/ & the test probes are /points/ &\
+     display headless has frame /frame/ at timestamp /ts/ {
+    set values [list]
+    foreach p $points {
+        lappend values [lmap c [$imageLib get $frame {*}$p] { expr {int(round($c * 255))} }]
+    }
+    Hold! -key samples Claim the test sampled $points as $values at $ts
+}
+
+# ---- helpers
+
+set ::failures 0
+proc fail {msg} {
+    say "FAIL: $msg"
+    catch { say "stats: [$::lib browserStats $::b]" }
+    foreach r [Query! /p/ has error /e/ with info /i/] { say "error in [dict get $r p]: [dict get $r e]" }
+    Exit! 1
+}
+proc check {name cond} {
+    if {![uplevel 1 [list expr $cond]]} {
+        fail "$name: expected $cond; got [uplevel 1 [list subst -nocommands $cond]]"
+    }
+}
+# Polls until script (evaluated in the caller) is true.
+proc waitUntil {name script {timeout 10.0}} {
+    set deadline [expr {[clock milliseconds] + int($timeout * 1000)}]
+    while {![uplevel 1 $script]} {
+        if {[clock milliseconds] > $deadline} {
+            set detail ""
+            catch { set detail [uplevel 1 { set __last }] }
+            fail "$name (timed out after $timeout s) $detail"
+        }
+        sleep 0.02
+    }
+}
+proc js {expr} { json::decode [$::lib browserEval $::b $expr] }
+# Waits until the JavaScript expression has the given value.
+proc waitJs {name expr expected {timeout 10.0}} {
+    waitUntil "$name: $expr == $expected" { set __last [js $expr]; expr {$__last eq $expected} } $timeout
+}
+proc stat {key} { dict get [$::lib browserStats $::b] $key }
+proc statement {args} {
+    set results [Query! {*}$args]
+    if {[llength $results] == 0} { return "" }
+    return [lindex $results 0]
+}
+# Display pixels at the given viewport coordinates, from a frame drawn after this call.
+proc pixels {points} {
+    set dpoints [lmap p $points { list [expr {$::pageX + [lindex $p 0]}] [expr {$::pageY + [lindex $p 1]}] }]
+    setProbes $dpoints
+    set since [expr {[clock milliseconds] / 1000.0}]
+    set values ""
+    waitUntil "a display frame" {
+        set r [statement the test sampled $dpoints as /values/ at /ts/]
+        expr {$r ne "" && [dict get $r ts] >= $since && [set values [dict get $r values]] ne "---"}
+    }
+    return $values
+}
+proc near {rgb expected {tolerance 12}} {
+    foreach a $rgb b $expected { if {abs($a - $b) > $tolerance} { return 0 } }
+    return 1
+}
+# Waits until the display shows the expected colours: {x y {r g b}} ...
+proc waitPixels {name expectations {timeout 10.0} {tolerance 12}} {
+    set points [lmap {x y rgb} $expectations { list $x $y }]
+    waitUntil "pixels: $name" {
+        set __last [pixels $points]
+        set ok 1
+        foreach value $__last {x y rgb} $expectations { if {![near $value $rgb $tolerance]} { set ok 0 } }
+        set __last "want $expectations got $__last"
+        set ok
+    } $timeout
+}
+
+# -- keyboard: events as keyboard.folk emits them (with seq, code, mods of the input track)
+
+set ::kseq 0; set ::heldMods 0
+array set ::modWeight {42 1 54 1 29 4 97 4 56 8}
+proc keyEvent {code name state {printable ""}} {
+    set options [list timestamp [expr {[clock milliseconds] / 1000.0}] \
+                     seq [incr ::kseq] code $code mods $::heldMods]
+    if {$::heldMods & 1} { lappend options shift 1 }
+    if {$printable ne "" && $::heldMods <= 1} { lappend options printable $printable }
+    if {[info exists ::modWeight($code)]} {
+        if {$state eq "up"} { set ::heldMods [expr {$::heldMods & ~$::modWeight($code)}] } \
+            else { set ::heldMods [expr {$::heldMods | $::modWeight($code)}] }
+    }
+    if {$::collect} { lappend ::collected [list $name $state $options]; return }
+    Notify: keyboard $::kb claims key $name is $state with {*}$options
+}
+set ::collect 0
+proc tap {code name {printable ""}} { keyEvent $code $name down $printable; keyEvent $code $name up $printable }
+# US layout, the test's own table (ground truth independent of browser.folk's).
+set ::plain {a 30 b 48 c 46 d 32 e 18 f 33 g 34 h 35 i 23 j 36 k 37 l 38 m 50 n 49 o 24 p 25 q 16 r 19 s 31
+    t 20 u 22 v 47 w 17 x 45 y 21 z 44 1 2 2 3 3 4 4 5 5 6 6 7 7 8 8 9 9 10 0 11 - 12 = 13 , 51 . 52 / 53
+    ; 39 ' 40 ` 41 [ 26 ] 27 \\ 43 " " 57}
+set ::shifted {A 30 B 48 C 46 D 32 E 18 F 33 G 34 H 35 I 23 J 36 K 37 L 38 M 50 N 49 O 24 P 25 Q 16 R 19 S 31
+    T 20 U 22 V 47 W 17 X 45 Y 21 Z 44 ! 2 @ 3 # 4 $ 5 % 6 ^ 7 & 8 * 9 ( 10 ) 11 _ 12 + 13 < 51 > 52 ? 53
+    : 39 \" 40 ~ 41 \{ 26 \} 27 | 43}
+proc typeText {text {withPrintable 1}} {
+    foreach ch [split $text ""] {
+        if {[dict exists $::plain $ch]} {
+            tap [dict get $::plain $ch] $ch [expr {$withPrintable ? $ch : ""}]
+        } elseif {[dict exists $::shifted $ch]} {
+            keyEvent 42 Shift down
+            tap [dict get $::shifted $ch] $ch [expr {$withPrintable ? $ch : ""}]
+            keyEvent 42 Shift up
+        } else {
+            error "typeText: no key for '$ch'"
+        }
+    }
+}
+proc withKeyHeld {code name body} {
+    keyEvent $code $name down
+    uplevel 1 $body
+    keyEvent $code $name up
+}
+
+# -- mouse: reports as mouse.folk emits them. The test keeps its own idea of the pointer.
+
+set ::mseq 0; set ::mbuttons 0
+set ::px [expr {$::viewW / 2}]; set ::py [expr {$::viewH / 2}]
+proc clamp {v lo hi} { expr {$v < $lo ? $lo : ($v > $hi ? $hi : $v)} }
+proc mouseReport {dx dy {wheel 0}} {
+    Notify: mouse $::mouse claims report with seq [incr ::mseq] \
+        timestamp [expr {[clock milliseconds] / 1000.0}] \
+        dx $dx dy $dy wheel $wheel hwheel 0 buttons $::mbuttons
+    set ::px [clamp [expr {$::px + $dx}] 0 [expr {$::viewW - 1}]]
+    set ::py [clamp [expr {$::py + $dy}] 0 [expr {$::viewH - 1}]]
+}
+proc moveTo {x y {steps 4}} {
+    for {set i $steps} {$i >= 1} {incr i -1} {
+        mouseReport [expr {($x - $::px) / $i}] [expr {($y - $::py) / $i}]
+    }
+    waitJs "pointer at $x $y" {S.mouse && S.mouse.slice(0, 2).join(" ")} "$x $y"
+}
+proc buttons {mask} { set ::mbuttons $mask; mouseReport 0 0 }
+proc click {{mask 1}} { buttons $mask; buttons 0 }
+
+# ---- the test
+
+When /program/ has error /err/ with info /info/ {
+    puts $out "FAIL: error in $program: $err"
+    Exit! 1
+}
+When $::thisNode has had displays enumerated {
+    if {[llength [Query! $::thisNode has display headless with /...any/]] == 0} {
+        puts $out "test/browser: No VK_EXT_headless_surface; skipping"
+        Exit! 0
+    }
+}
+When { sleep 110; puts $out "FAIL: test/browser timed out"; Exit! 1 }
+
+try {
+
+waitUntil "browser library" { expr {[statement the web browser library is /lib/] ne ""} } 60
+set ::lib [dict get [statement the web browser library is /lib/] lib]
+waitUntil "browser handle" { expr {[statement $::page has web browser /b/] ne ""} } 30
+set ::b [dict get [statement $::page has web browser /b/] b]
+say "browser $::b is up ([stat pid])"
+
+# (7a) state statements
+waitUntil "loading state complete" { expr {[statement web browser $::page has loading state complete] ne ""} }
+waitUntil "url statement" { expr {[statement web browser $::page has url $::assets/main.html] ne ""} }
+waitUntil "title statement" { expr {[statement web browser $::page has title "Folk browser test"] ne ""} }
+waitUntil "viewport statement" { expr {[statement web browser $::page has viewport 640 400] ne ""} }
+check "handles input" {[statement $::page handles keyboard input] ne "" && [statement $::page handles mouse input] ne ""}
+check "page viewport" {[js {innerWidth + "x" + innerHeight + "@" + devicePixelRatio}] eq "640x400@1"}
+check "page has focus" {[js {document.hasFocus()}] eq "true"}
+say "ok: url, title, loading state, viewport statements; page is 640x400 and focused"
+
+# (1) the page's colour blocks at the expected display pixels
+#     (the first frame can take seconds: shader pipelines compile at boot)
+waitPixels "colour blocks" {
+    40 30 {255 0 0}   120 30 {0 255 0}   200 30 {0 0 255}   280 30 {128 128 128}   360 30 {0 0 0}
+    600 30 {255 255 255}
+    2 2 {255 0 0}   77 61 {255 0 0}   82 61 {0 255 0}   157 2 {0 255 0}   162 2 {0 0 255}
+    237 61 {0 0 255}   242 61 {128 128 128}   322 2 {0 0 0}   397 61 {0 0 0}   402 61 {255 255 255}
+    40 67 {255 255 255}
+    80 100 {255 204 0}   190 100 {64 64 64}   480 150 {238 238 238}
+    637 397 {255 255 255}
+} 40
+# ... and nothing outside the page
+check "outside the page is black" {[pixels {{-3 30} {642 30} {300 -3} {300 402}}] eq {{0 0 0} {0 0 0} {0 0 0} {0 0 0}}}
+waitUntil "frame count statement" {
+    set r [statement web browser $::page has frame count /n/]
+    expr {$r ne "" && [dict get $r n] >= 1}
+}
+say "ok: colour blocks are where they should be on the display"
+
+# (3a) the cursor starts in the middle of the viewport (black outline on the white page)
+waitPixels "cursor outline at 320,200" {320 200 {0 0 0}   320 210 {0 0 0}   325 205 {0 0 0}   330 212 {255 255 255}   316 212 {255 255 255}}
+check "pointer statement" {[statement web browser $::page has pointer 320 200 buttons 0] ne ""}
+
+# (2) move to the button, click it
+moveTo 80 100
+check "pointer is where the test thinks" {"$::px $::py" eq "80 100"}
+waitUntil "pointer statement follows" { expr {[statement web browser $::page has pointer 80 100 buttons 0] ne ""} }
+check "no click yet" {[js S.clicks] == 0}
+set clickedAt [clock milliseconds]
+click
+waitJs "button clicked" S.clicks 1
+check "press and release seen" {[js {JSON.stringify([S.downs, S.ups])}] eq {[[[0,1,1]],[[0,0,1]]]}}
+waitPixels "indicator turned magenta" {190 100 {255 0 255}}
+say "ok: mouse move + click changed the page, and the display shows it ([expr {[clock milliseconds] - $clickedAt}] ms after the click event)"
+
+# (3b) the cursor sprite is at the pointer (over the yellow button) and moves with it
+waitPixels "cursor at 80,100" {80 105 {0 0 0}   82 105 {255 255 255}   85 105 {0 0 0}   90 105 {255 204 0}   100 105 {255 204 0}}
+moveTo 90 100 1
+waitPixels "cursor at 90,100" {90 105 {0 0 0}   92 105 {255 255 255}   95 105 {0 0 0}   80 105 {255 204 0}   100 105 {255 204 0}}
+moveTo 340 20
+waitPixels "white cursor fill over the black block" {340 25 {0 0 0}   342 25 {255 255 255}   344 28 {255 255 255}   352 25 {0 0 0}}
+say "ok: cursor sprite is drawn at the pointer and follows it"
+
+# (4) typing
+moveTo 170 152
+click
+waitJs "input focused" document.activeElement.id text
+typeText "Hello, Folk! 123"
+waitJs "typed text" {$('text').value} "Hello, Folk! 123"
+tap 14 Delete                                   ;# (the console keymap calls Backspace "Delete")
+waitJs "backspace" {$('text').value} "Hello, Folk! 12"
+tap 105 Left; tap 105 Left
+typeText x
+waitJs "arrows move the caret" {$('text').value} "Hello, Folk! x12"
+withKeyHeld 42 Shift { tap 105 Left; tap 105 Left; tap 105 Left }
+waitJs "shift+arrows select" {$('text').value.substring($('text').selectionStart, $('text').selectionEnd)} "! x"
+typeText ?
+waitJs "typing replaces the selection" {$('text').value} "Hello, Folk?12"
+tap 102 Home
+withKeyHeld 54 Shift { tap 107 Select }
+waitJs "home, shift+end" {$('text').selectionStart + "-" + $('text').selectionEnd} "0-14"
+tap 111 Remove
+waitJs "delete removes the selection" {$('text').value} ""
+typeText "abc def"
+withKeyHeld 29 Control { tap 30 Control_a }
+waitJs "ctrl+a selects all" {$('text').selectionStart + "-" + $('text').selectionEnd} "0-7"
+typeText "new"
+waitJs "typing replaces all" {$('text').value} "new"
+withKeyHeld 29 Control { tap 30 Control_a; tap 46 Control_c }
+tap 107 Select
+withKeyHeld 97 Control { tap 47 Control_v }
+waitJs "ctrl+c, end, ctrl+v" {$('text').value} "newnew"
+withKeyHeld 29 Control { tap 44 Control_z }
+waitJs "ctrl+z" {$('text').value} "new"
+tap 28 Return "\r"
+waitJs "enter submits" {S.submits + ":" + S.submitted} "1:new"
+tap 15 Tab
+waitJs "tab moves focus" document.activeElement.id text2
+typeText "tab ok"
+waitJs "typing after tab" {$('text2').value} "tab ok"
+withKeyHeld 42 Shift { tap 15 Tab }
+waitJs "shift+tab moves focus back" document.activeElement.id text
+tap 15 Tab
+withKeyHeld 29 Control { tap 30 Control_a }
+# key repeat
+keyEvent 44 z down z; keyEvent 44 z repeat z; keyEvent 44 z repeat z; keyEvent 44 z up z
+waitJs "key repeat" {$('text2').value} "zzz"
+check "repeat flag" {[js {S.keys.slice(-3).join(" ")}] eq "z/KeyZ z/KeyZ/repeat z/KeyZ/repeat"}
+# no `printable` in the events: the browser's own key table has to produce the text
+withKeyHeld 29 Control { tap 30 Control_a }
+typeText {az09 -=[]\;',./`~!@#$%^&*()_+{}|:"<>?AZ} 0
+waitJs "text from key codes alone" {$('text2').value} {az09 -=[]\;',./`~!@#$%^&*()_+{}|:"<>?AZ}
+check "key and code of the events" {[js {S.keys.slice(-2).join(" ")}] eq "Shift/ShiftLeft/shift Z/KeyZ/shift"}
+# events without seq, code and mods (keyboard.folk before the input track): by key name
+withKeyHeld 29 Control { tap 30 Control_a }
+waitJs "selected" {$('text2').selectionEnd - $('text2').selectionStart} [string length {az09 -=[]\;',./`~!@#$%^&*()_+{}|:"<>?AZ}]
+foreach {name options} {h {printable h}  I {shift 1 printable I}  ! {shift 1 printable !}  space {printable " "}
+                        x {printable x}  y {printable y}  Delete {}  Left {}  Control_a {}  q {printable q}
+                        Return {}} {
+    foreach state {down up} {
+        Notify: keyboard $::oldKb claims key $name is $state with timestamp [expr {[clock milliseconds] / 1000.0}] {*}$options
+        sleep 0.03           ;# unnumbered events are not reordered: pace them
+    }
+}
+waitJs "events by key name" {$('text2').value} "q"
+waitJs "by key name: keys seen" {S.keys.slice(-11).join(" ")} "h/KeyH I/KeyI/shift !/Digit1/shift  /Space x/KeyX y/KeyY Backspace/Backspace ArrowLeft/ArrowLeft a/KeyA/ctrl q/KeyQ Enter/Enter"
+say "ok: typing, backspace/delete, arrows, selection, ctrl+a/c/v/z, enter, tab, repeat, fallbacks"
+
+# (6) a burst of 60 key events delivered in a shuffled order
+withKeyHeld 29 Control { tap 30 Control_a }
+tap 14 Delete
+waitJs "cleared" {$('text2').value} ""
+set burstText "the5quick8brown2fox1jumps0over"
+set ::collected [list]; set ::collect 1
+typeText $burstText
+set ::collect 0
+check "60 events" {[llength $::collected] == 60}
+set seed 12345; set shuffled [list]
+foreach event $::collected {
+    set seed [expr {($seed * 1103515245 + 12345) & 0x7fffffff}]
+    lappend shuffled [list $seed $event]
+}
+set shuffled [lmap pair [lsort -integer -index 0 $shuffled] { lindex $pair 1 }]
+set displaced 0
+foreach a $shuffled b $::collected { if {$a ne $b} { incr displaced } }
+check "really shuffled" {$displaced > 50}
+set queuedBefore [stat eventsReordered]; set skippedBefore [stat gapsSkipped]
+foreach event $shuffled {
+    lassign $event name state options
+    Notify: keyboard $::kb claims key $name is $state with {*}$options
+}
+waitJs "shuffled burst" {$('text2').value} $burstText
+check "events were held back" {[stat eventsReordered] - $queuedBefore > 20}
+check "no gap was given up on" {[stat gapsSkipped] == $skippedBefore}
+say "ok: 60 key events delivered out of order ($displaced displaced) still type '$burstText'"
+
+# (5) drag on the canvas, wheel, double click, right click
+moveTo 380 100
+buttons 1
+# (Chromium coalesces mouse moves that arrive within one frame, as it does
+# for a real mouse: pace them so the page sees every point.)
+for {set i 1} {$i <= 5} {incr i} { mouseReport 20 12; sleep 0.05 }
+waitJs "dragging" {S.mouse.join(" ")} "480 160 1"
+buttons 0
+waitJs "stroke finished" S.strokes 1
+set path [js {JSON.stringify(S.path)}]
+check "path of the drag" {$path eq {[[20,20],[40,32],[60,44],[80,56],[100,68],[120,80]]}}
+moveTo 300 380                                  ;# cursor out of the way
+# (a thin antialiased line through JPEG chroma subsampling: only roughly blue)
+waitPixels "the stroke is on the display" {430 130 {0 0 255}   460 148 {0 0 255}   400 150 {238 238 238}   460 110 {238 238 238}} 10 48
+moveTo 120 290
+mouseReport 0 0 -3
+waitJs "wheel scrolls down" {$('scroll').scrollTop} 300
+mouseReport 0 0 1
+waitJs "wheel scrolls up" {$('scroll').scrollTop} 200
+moveTo 290 260
+click; click
+waitJs "double click" S.dbl 1
+check "click counts" {[js {JSON.stringify(S.downs.slice(-2))}] eq {[[0,1,1],[0,1,2]]}}
+moveTo 290 330
+click 2
+waitJs "right click" S.ctx 1
+waitJs "right button" {JSON.stringify([S.downs.slice(-1), S.ups.slice(-1)])} {[[[2,2,1]],[[2,0,1]]]}
+say "ok: drag draws on the canvas ($path), wheel scrolls, double click, right click"
+
+# (7b) changing the wish navigates the same browser; alert() and confirm() do not hang
+set pid [stat pid]
+wishUrl $::assets/second.html
+waitUntil "url of the second page" { expr {[statement web browser $::page has url $::assets/second.html] ne ""} }
+waitUntil "title of the second page" { expr {[statement web browser $::page has title "Second page"] ne ""} }
+waitUntil "second page loaded" { expr {[statement web browser $::page has loading state complete] ne ""} }
+waitUntil "dialogs were answered" {
+    expr {[statement web browser $::page handled dialog confirm with message really? count 2] ne ""}
+}
+check "dialogs did not block for long" {[js {confirmed + " " + (dialogMs < 3000)}] eq "true true"}
+check "same browser" {[dict get [statement $::page has web browser /b/] b] eq $::b && [stat pid] == $pid}
+waitPixels "second page on the display" {20 20 {0 255 255}   200 150 {255 128 0}   450 125 {128 0 255}   620 380 {0 255 255}}
+say "ok: wish change navigated the same browser; alert()/confirm() answered; url/title follow"
+
+# target=_blank: the new tab's URL is loaded in ours instead
+moveTo 450 125
+click
+waitUntil "popup redirected" { expr {[statement web browser $::page redirected popup $::assets/main.html count 1] ne ""} }
+waitUntil "url after popup" { expr {[statement web browser $::page has url $::assets/main.html] ne ""} }
+waitJs "main page again" {typeof S} object
+say "ok: target=_blank link opened in the same browser"
+
+# frame rates with a page that changes every frame
+$::lib browserNavigate $::b $::assets/anim.html
+waitUntil "url of the animation" { expr {[statement web browser $::page has url $::assets/anim.html] ne ""} }
+waitJs "animation running" {n > 10} true
+set bitPoints [list]
+for {set i 0} {$i < 16} {incr i} { lappend bitPoints [list [expr {$::pageX + 10 + 20 * $i}] [expr {$::pageY + 10}]] }
+setProbes $bitPoints
+sleep 0.5
+set s0 [$::lib browserStats $::b]; set n0 [js n]; set tStart [clock milliseconds]
+set displayFrames [dict create]; set pageFrames [dict create]
+while {[clock milliseconds] - $tStart < 3000} {
+    set r [statement the test sampled $bitPoints as /values/ at /ts/]
+    if {$r ne ""} {
+        dict set displayFrames [dict get $r ts] 1
+        set number 0; set i 0
+        foreach value [dict get $r values] { if {[lindex $value 0] > 127} { incr number [expr {1 << $i}] }; incr i }
+        dict set pageFrames $number 1
+    }
+    sleep 0.004
+}
+set seconds [expr {([clock milliseconds] - $tStart) / 1000.0}]
+set s1 [$::lib browserStats $::b]; set n1 [js n]
+set rates [list]
+foreach key {framesReceived framesDecoded framesUploaded} {
+    lappend rates [format "%s %.1f/s" $key [expr {([dict get $s1 $key] - [dict get $s0 $key]) / $seconds}]]
+}
+say [format "frame rates: page rAF %.1f/s; %s; display frames sampled %.1f/s; distinct page frames seen on the display %.1f/s; frame latency %s ms, decode %s ms, upload %s ms" \
+         [expr {($n1 - $n0) / $seconds}] [join $rates "; "] \
+         [expr {[dict size $displayFrames] / $seconds}] [expr {[dict size $pageFrames] / $seconds}] \
+         [dict get $s1 lastFrameLatencyMs] [dict get $s1 lastDecodeMs] [dict get $s1 lastUploadMs]]
+check "frames keep coming" {[dict get $s1 framesUploaded] - [dict get $s0 framesUploaded] >= 15}
+check "the display shows the animation" {[dict size $pageFrames] >= 10}
+check "no decode errors" {[dict get $s1 decodeErrors] == 0}
+
+# browserScreenshot
+set shot /tmp/folk-test-browser-[pid].png
+$::lib browserScreenshot $::b $shot
+check "screenshot written" {[file exists $shot] && [file size $shot] > 500}
+file delete $shot
+
+# (8) removing the wish kills Chromium and frees the texture
+set texture [stat texture]
+set profile [glob -nocomplain /tmp/folk-browser-[pid]-*]
+check "profile directory exists" {[llength $profile] >= 1}
+check "chromium is running" {[$::lib browserGroupAlive $pid]}
+set gpuTextureLib [dict get [statement the GPU texture library is /l/] l]
+set imageLib [dict get [statement the image library is /l/] l]
+wishUrl ""
+waitUntil "handle statement gone" { expr {[statement $::page has web browser /b/] eq ""} } 5
+waitUntil "chromium process group gone" { expr {![$::lib browserGroupAlive $pid]} } 5
+waitUntil "profile directory removed" { expr {[llength [glob -nocomplain /tmp/folk-browser-[pid]-*]] == 0} } 5
+# (updateGpuTexture refuses a texture that is dead or being retired)
+set probe [$imageLib imageNew $::viewW $::viewH 4 0]
+waitUntil "texture freed" {
+    set __last ""
+    expr {[catch { $gpuTextureLib updateGpuTexture $texture $probe } __last] && [string match *alive* $__last]}
+} 5
+$imageLib imageFree $probe
+waitUntil "state statements gone" { expr {[statement web browser $::page has /...anything/] eq ""} } 5
+check "a stale handle is an error, not a crash" {[catch { $::lib browserEval $::b 1 }] == 1}
+check "nothing is drawn any more" {[pixels {{20 20} {320 200} {620 380}}] eq {{0 0 0} {0 0 0} {0 0 0}}}
+say "ok: removing the wish killed chromium ($pid), removed its profile, freed texture $texture"
+
+say "PASS test/browser"
+Exit! 0
+
+} on error {message options} {
+    fail "error in the test script: $message\n[dict get $options -errorinfo]"
+}

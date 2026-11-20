@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Second page</title>
+<style>
+  html, body { margin: 0; background: #00ffff; overflow: hidden; }
+  #box { position: absolute; left: 100px; top: 100px; width: 200px; height: 100px; background: #ff8000; }
+</style>
+</head>
+<body>
+<div id="box"></div>
+<a id="blank" href="main.html" target="_blank" style="position:absolute;left:400px;top:100px;width:100px;height:50px;background:#8000ff"></a>
+<script>
+  // Must not hang the page: the browser answers dialogs by itself.
+  var before = Date.now();
+  alert('hello from second.html');
+  var confirmed = confirm('really?');
+  var dialogMs = Date.now() - before;
+  var S = { mouse: null };
+  window.addEventListener('mousemove', function (e) { S.mouse = [e.clientX, e.clientY, e.buttons]; });
+</script>
+</body>
+</html>
