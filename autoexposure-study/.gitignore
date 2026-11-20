@@ -1,0 +1,4 @@
+sim/libatshim.so
+sim/__pycache__/
+sim/results*/*.json
+sim/*.log
