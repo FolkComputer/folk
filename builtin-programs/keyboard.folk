@@ -124,6 +124,10 @@ When /keyboard/ is a keyboard device {
     foreach k [dict keys $modifiers] {
         dict set modifiers $k 0
     }
+    # Notify: delivery isn't ordered under bursts, so every key event
+    # carries a per-device sequence number (1, 2, ...) that consumers
+    # can use to restore the order.
+    set seq 0
     while 1 {
         binary scan [read $keyboardChannel $evtBytes] $evtFormat \
             tvSec tvUsec type code value
@@ -149,7 +153,12 @@ When /keyboard/ is a keyboard device {
             }
 
             set now $([clock milliseconds] / 1000.0)
-            set options [dict create timestamp $now]
+            # code is the raw evdev key code; mods is the keymap
+            # modifier bitmask (shift=1, altgr=2, control=4, alt=8)
+            # as it was _before_ this event.
+            incr seq
+            set options [dict create timestamp $now \
+                             seq $seq code $code mods $mods]
             if {$mods & 1} { dict set options shift 1 }
             set modKeyNotHeld [expr {$mods <= 1}] ;# excluding Shift
             if {$keychar ne "" && $modKeyNotHeld} {

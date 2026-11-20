@@ -1,0 +1,210 @@
+# Types on an emulated USB keyboard (test/sim/hidemu writing evdev
+# events to a FIFO) into builtin-programs/keyboard.folk and checks the
+# seq, code and mods options of the key events: seq is 1, 2, 3, ...
+# with nothing missing, code is the evdev code the emulated kernel
+# sent, mods is the modifier state before the event, and applying the
+# events in seq order reproduces the typed text exactly at 20, 200
+# and 1000 characters per second (Notify: delivery itself isn't
+# ordered).
+
+if {$::tcl_platform(os) ne "linux"} { Exit! 0 }
+
+Assert! when /__this/ has program code /__programCode/ {
+    SayWithSource $__this 1 0 {} {} \
+        when $__programCode with environment [list [list this $__this]]
+} with environment {}
+local proc LoadProgram! {programFilename} {
+    set fp [open $programFilename r]
+    Hold! -on test/keyboard-seq.folk -key [list $programFilename code] \
+        Claim $programFilename has program code [read $fp]
+    close $fp
+}
+LoadProgram! builtin-programs/collect.folk
+LoadProgram! builtin-programs/keyboard.folk
+
+proc say {args} { puts $::realStdout [join $args " "]; flush $::realStdout }
+proc waitFor {ms cond} {
+    set deadline [expr {[clock milliseconds] + $ms}]
+    while {[clock milliseconds] < $deadline} {
+        if {[uplevel 1 [list expr $cond]]} { return 1 }
+        sleep 0.01
+    }
+    return 0
+}
+proc fail {msg} { say "test/keyboard-seq: FAIL: $msg"; Exit! 1 }
+
+exec make -C test/sim/hidemu >/dev/null 2>@1
+set dir /tmp/folk-test-keyboard-seq-[pid]
+file mkdir $dir
+set fifo $dir/kbd0
+exec mkfifo $fifo
+# keyboard.folk opens the device read-only: keep a writer around so
+# that its open doesn't block and it never reads EOF between emulator
+# runs.
+set keepAlive [open $fifo r+]
+
+# Subscribe: handlers run on any thread, so the events are collected
+# in C.
+set cc [C]
+$cc include <stdatomic.h>
+$cc include <string.h>
+$cc include <stdio.h>
+$cc code {
+    #define MAXREC 100000
+    typedef struct { int seq, code, mods, shift, hasPrintable; char key[24], state[8], printable[8]; } Rec;
+    static Rec recs[MAXREC];
+    static atomic_int nrecs;
+}
+$cc proc rec {int seq int code int mods int shift int hasPrintable char* key char* state char* printable} void {
+    int i = atomic_fetch_add(&nrecs, 1);
+    if (i >= MAXREC) return;
+    Rec* r = &recs[i];
+    r->seq = seq; r->code = code; r->mods = mods; r->shift = shift; r->hasPrintable = hasPrintable;
+    snprintf(r->key, sizeof(r->key), "%s", key);
+    snprintf(r->state, sizeof(r->state), "%s", state);
+    snprintf(r->printable, sizeof(r->printable), "%s", printable);
+}
+$cc proc count {} int { return atomic_load(&nrecs); }
+$cc proc reset {} void { atomic_store(&nrecs, 0); }
+$cc proc dump {} Jim_Obj* {
+    int n = atomic_load(&nrecs);
+    Jim_Obj* list = Jim_NewListObj(interp, NULL, 0);
+    for (int i = 0; i < n && i < MAXREC; i++) {
+        Rec* r = &recs[i];
+        Jim_Obj* objs[8] = {
+            Jim_NewIntObj(interp, r->seq), Jim_NewIntObj(interp, r->code),
+            Jim_NewIntObj(interp, r->mods), Jim_NewIntObj(interp, r->shift),
+            Jim_NewIntObj(interp, r->hasPrintable), Jim_NewStringObj(interp, r->key, -1),
+            Jim_NewStringObj(interp, r->state, -1), Jim_NewStringObj(interp, r->printable, -1)
+        };
+        Jim_ListAppendElement(interp, list, Jim_NewListObj(interp, objs, 8));
+    }
+    return list;
+}
+set rec [$cc compile]
+
+Claim $fifo is a keyboard device
+When {
+    Subscribe: keyboard $fifo claims key /key/ is /state/ with /...o/ {
+        # An event without seq/code/mods is recorded as seq -1 and
+        # fails the test below.
+        $rec rec [dict getdef $o seq -1] [dict getdef $o code -1] [dict getdef $o mods -1] \
+            [dict exists $o shift] [dict exists $o printable] $key $state [dict getdef $o printable ""]
+    }
+}
+When /p/ has error /err/ with info /info/ {
+    puts $::realStdout "test/keyboard-seq: ERROR in $p: $err\n$info"; Exit! 1
+}
+When { sleep 100; puts $::realStdout "test/keyboard-seq: FAIL: timed out"; Exit! 2 }
+
+if {![waitFor 30000 {[llength [Query! $fifo has keymaps /m/]] > 0}]} { fail "keyboard.folk never got ready" }
+if {![waitFor 30000 {[llength [Query! subscribe keyboard $fifo claims key /k/ is /s/ with /...o/ /body/ with environment /e/]] > 0}]} { fail "no subscription" }
+
+# KEY_A -> 30, ... from the kernel header (hidemu logs names).
+set keyCodes [dict create]
+set fd [open /usr/include/linux/input-event-codes.h r]
+foreach line [split [read $fd] "\n"] {
+    if {[regexp {^#define\s+(KEY_\w+)\s+(0x[0-9a-fA-F]+|\d+)\s*($|/)} $line -> name value]} {
+        dict set keyCodes $name [expr {$value}]
+    }
+}
+close $fd
+
+# The EV_KEY events the emulated kernel wrote, in order: {code value}.
+proc groundTruth {logPath keyCodes} {
+    set events [list]
+    set fd [open $logPath r]
+    foreach line [split [read $fd] "\n"] {
+        lassign [split $line "\t"] ts device kind type code value
+        if {$device eq "kbd" && $kind eq "event" && $type eq "EV_KEY"} {
+            lappend events [list [dict get $keyCodes $code] $value]
+        }
+    }
+    close $fd
+    return $events
+}
+
+set alphabet "abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789 `-=\[\];',./ ~!@#$%^&*()_+{}|:<>?"
+proc makeText {n} {
+    upvar alphabet alphabet
+    expr {srand($n)}
+    set text ""
+    for {set i 0} {$i < $n} {incr i} {
+        if {$i % 37 == 36} { append text "\n"; continue }
+        append text [string index $alphabet [expr {int(rand() * [string length $alphabet])}]]
+    }
+    return $text
+}
+# hidemu's `type "..."`: \n, \" and \\ are escapes.
+proc typeCommand {text} {
+    return "type \"[string map [list "\\" "\\\\" "\"" "\\\"" "\n" "\\n"] $text]\""
+}
+
+set modWeights {Shift 1 AltGr 2 Control 4 Alt 8}
+set states {up down repeat}
+set nextSeq 1
+foreach {name cps rate nChars} {20cps 20 125 80  200cps 200 1000 400  1000cps 1000 0 1000} {
+    set text [makeText $nChars]
+    set script $dir/script-$name
+    set log $dir/emu-$name.log
+    set fd [open $script w]
+    # A Ctrl+S at the end: a non-printable key with a modifier held.
+    puts $fd "rate kbd $rate\ncps $cps\n[typeCommand $text]\nchord CTRL+S 1"
+    close $fd
+
+    $rec reset
+    set t0 [clock milliseconds]
+    exec test/sim/hidemu/hidemu --quiet --kbd $fifo --log $log --script $script
+    set emuMs [expr {[clock milliseconds] - $t0}]
+    set truth [groundTruth $log $keyCodes]
+    if {![waitFor 30000 {[$rec count] >= [llength $truth]}]} {
+        fail "$name: emulator sent [llength $truth] key events, got [$rec count]"
+    }
+    sleep 0.2 ;# anything extra?
+    set events [$rec dump]
+    if {[llength $events] != [llength $truth]} {
+        fail "$name: emulator sent [llength $truth] key events, got [llength $events]"
+    }
+
+    set inOrder 0; set prev 0
+    foreach e $events { if {[lindex $e 0] > $prev} { incr inOrder }; set prev [lindex $e 0] }
+
+    set typed ""
+    set held [dict create]
+    set expectedSeq $nextSeq
+    set i 0
+    set sawControlS 0
+    foreach e [lsort -integer -index 0 $events] {
+        lassign $e seq code mods shift hasPrintable key state printable
+        if {$seq != $expectedSeq} { fail "$name: seq $seq where $expectedSeq was expected" }
+        incr expectedSeq
+
+        lassign [lindex $truth $i] wantCode wantValue
+        incr i
+        if {$code != $wantCode || $state ne [lindex $states $wantValue]} {
+            fail "$name: event seq $seq is code $code $state ($key), emulator sent code $wantCode [lindex $states $wantValue]"
+        }
+
+        set wantMods 0
+        foreach w [dict values $held] { incr wantMods $w }
+        if {$mods != $wantMods} { fail "$name: event seq $seq ($key $state) has mods $mods, expected $wantMods" }
+        if {$shift != ($mods & 1)} { fail "$name: event seq $seq: shift option doesn't agree with mods $mods" }
+        if {[dict exists $modWeights $key]} {
+            if {$state eq "up"} { dict unset held $key } else { dict set held $key [dict get $modWeights $key] }
+        }
+
+        if {$state eq "down"} {
+            if {$hasPrintable} { append typed $printable } elseif {$key eq "Return"} { append typed "\n" }
+            if {$key eq "Control_s" && $mods == 4 && $code == [dict get $keyCodes KEY_S]} { set sawControlS 1 }
+        }
+    }
+    set nextSeq $expectedSeq
+    if {$typed ne $text} { fail "$name: typed\n$text\nbut the events in seq order spell\n$typed" }
+    if {!$sawControlS} { fail "$name: no Control_s down with mods 4" }
+    say "test/keyboard-seq: $name ok: $nChars chars in $emuMs ms, [llength $events] key events\
+         ($inOrder in arrival order), text reproduced in seq order"
+}
+
+file delete -force $dir
+say "test/keyboard-seq: PASS"
+Exit! 0
