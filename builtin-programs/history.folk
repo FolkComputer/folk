@@ -1,0 +1,295 @@
+# History: an archive of where every object has been, and how big it
+# was, so that you can reconstruct how things travelled around the
+# table over long stretches of time.
+#
+# Everything with a quad (every tag) is archived automatically, in
+# the camera's frame (meters, relative to the camera). Objects found
+# some other way can be archived by claiming an observation:
+#
+#   Claim $thing is observed with space $space \
+#       position {x y z} size {width height} angle $degrees
+#
+# (`space` names the coordinate frame; `position` may be 2D or 3D;
+# `angle` is optional.) Objects tracked by SAM2 are archived this way,
+# in the space of the page that is tracking them.
+#
+# To get the path that a thing took:
+#
+#   Wish $this retraces $thing over 3600 seconds
+#   Wish $this retraces $thing from $t0 to $t1    ;# Unix times
+#
+#   When $this retraces /thing/ with /...path/ { ... }
+#
+# where path has keys `space` and `samples`. Each sample is a list
+# {timestamp position size angle}; a sample with only a timestamp
+# means that the thing went out of view at that time. A retraced path
+# in camera space is also drawn on the table.
+#
+# `Wish $thing is forgotten` stops a thing from being archived.
+#
+# Cost. The archive is an append-only log on disk (one file per day
+# in ~/folk-data/history), and nothing but the latest sample of each
+# object that is currently in view is kept in memory. A sample is
+# only written when an object appears, disappears, or has moved,
+# turned or changed size by more than the thresholds below, so an
+# object that is sitting still costs nothing no matter how long it
+# sits there. Each sample is about 60 bytes. Once the archive is
+# bigger than its budget, the oldest days are deleted.
+
+# An object has to move by this fraction of its own size (or change
+# size by this fraction, or turn by this many degrees) for a new
+# sample to be written.
+set moveThreshold 0.1
+set sizeThreshold 0.15
+set angleThreshold 10
+# Even a fast-moving (or badly jittering) object will not write
+# samples more often than this (seconds).
+set minSampleInterval 0.2
+# Total size of the archive on disk.
+set maxArchiveBytes 50000000
+# The most samples that a retraced path will hold in memory; longer
+# paths are thinned out evenly.
+set maxPathSamples 400
+
+fn historyFormat {numbers} {
+    lmap n $numbers { format %.4g $n }
+}
+
+fn historySub {a b} {
+    lmap x $a y $b { expr {$x - $y} }
+}
+fn historyNorm {a} {
+    set sum 0
+    foreach x $a { set sum $($sum + $x * $x) }
+    expr {sqrt($sum)}
+}
+
+fn historyFilename {dir t} {
+    return "$dir/[clock format [expr {int($t)}] -format %Y-%m-%d].log"
+}
+
+# Deletes the oldest days of the archive until it fits in the budget.
+fn historyPrune {dir} {
+    set files [lsort [glob -nocomplain $dir/*.log]]
+    set total 0
+    foreach f $files { incr total [file size $f] }
+    # (Never delete the newest file, which we're still writing.)
+    foreach f [lrange $files 0 end-1] {
+        if {$total <= $maxArchiveBytes} { break }
+        incr total -[file size $f]
+        file delete $f
+    }
+}
+
+fn historyAppend {dir t line} {
+    set filename [historyFilename $dir $t]
+    set isNewDay [expr {![file exists $filename]}]
+    set fd [open $filename a]
+    puts $fd $line
+    close $fd
+    if {$isNewDay} { historyPrune $dir }
+}
+
+# Called every time that we see a thing (i.e., on every camera
+# frame); almost always decides that nothing has changed and returns.
+fn historyObserve {dir thing space position size angle} {
+    set now $([clock milliseconds] / 1000.0)
+
+    set prev [Query! $thing has latest history sample /sample/]
+    if {[llength $prev] > 0} {
+        lassign [dict get [lindex $prev 0] sample] \
+            prevTime prevSpace prevPosition prevSize prevAngle
+        if {$now - $prevTime < $minSampleInterval} { return }
+
+        if {$prevSpace eq $space} {
+            set extent 0
+            foreach s $prevSize { if {$s > $extent} { set extent $s } }
+
+            set distSq 0
+            foreach a $position b $prevPosition {
+                set distSq $($distSq + ($a - $b) * ($a - $b))
+            }
+            set moved $(sqrt($distSq) > $moveThreshold * $extent)
+
+            set resized false
+            foreach a $size b $prevSize {
+                if {abs($a - $b) > $sizeThreshold * $extent} { set resized true }
+            }
+
+            set turned false
+            if {$angle ne "" && $prevAngle ne ""} {
+                set d $(abs($angle - $prevAngle))
+                if {$d > 180} { set d $(360 - $d) }
+                set turned $($d > $angleThreshold)
+            }
+
+            if {!$moved && !$resized && !$turned} { return }
+        }
+    }
+    if {[llength [Query! /someone/ wishes $thing is forgotten]] > 0} { return }
+
+    set position [historyFormat $position]
+    set size [historyFormat $size]
+    if {$angle ne ""} { set angle [expr {round($angle)}] }
+
+    # The space is almost always the same (the camera), so we don't
+    # repeat it in every sample; we only write it down when it's
+    # different from that of the sample written before.
+    set logSpace [Query! the history log is in space /logSpace/]
+    if {[llength $logSpace] == 0 ||
+        [dict get [lindex $logSpace 0] logSpace] ne $space} {
+        Hold! -key log-space Claim the history log is in space $space
+        historyAppend $dir $now [list [format %.1f $now] @space $space]
+    }
+
+    Hold! -key [list latest $thing] \
+        Claim $thing has latest history sample \
+        [list $now $space $position $size $angle]
+    historyAppend $dir $now \
+        [list [format %.1f $now] $thing $position $size $angle]
+}
+
+# Reads the samples of thing between times t0 and t1 back from disk.
+fn historyRead {dir thing t0 t1} {
+    set samples [list]
+    set space ""
+    set lineSpace ""
+    set first [file tail [historyFilename $dir $t0]]
+    set last [file tail [historyFilename $dir $t1]]
+    foreach f [lsort [glob -nocomplain $dir/*.log]] {
+        set name [file tail $f]
+        if {[string compare $name $first] < 0 ||
+            [string compare $name $last] > 0} { continue }
+
+        set fd [open $f r]
+        while {[gets $fd line] >= 0} {
+            # (Skip a line that was cut short by a crash.)
+            if {![info complete $line] || [llength $line] < 2} { continue }
+            set id [lindex $line 1]
+            if {$id eq "@space"} { set lineSpace [lindex $line 2]; continue }
+            if {$id ne $thing} { continue }
+            set t [lindex $line 0]
+            if {$t < $t0 || $t > $t1} { continue }
+            if {[llength $line] > 2} { set space $lineSpace }
+            lappend samples [lreplace $line 1 1]
+        }
+        close $fd
+    }
+
+    # Thin out a very long path.
+    set n [llength $samples]
+    if {$n > $maxPathSamples} {
+        set thinned [list]
+        for {set i 0} {$i < $maxPathSamples} {incr i} {
+            lappend thinned [lindex $samples \
+                [expr {int($i * ($n - 1.0) / ($maxPathSamples - 1))}]]
+        }
+        set samples $thinned
+    }
+    return [dict create space $space samples $samples]
+}
+
+### Archiving
+
+When the history save directory is /dir/ {
+    historyPrune $dir
+
+    When the quad library is /quadLib/ &\
+         /thing/ has quad /quad/ {
+        Claim -keep 500ms $thing is in view of the history
+
+        lassign [$quadLib vertices $quad] topLeft topRight bottomRight bottomLeft
+        set top [historySub $topRight $topLeft]
+        historyObserve $dir $thing [$quadLib space $quad] \
+            [$quadLib centroid $quad] \
+            [list [historyNorm $top] [historyNorm [historySub $bottomLeft $topLeft]]] \
+            [expr {atan2([lindex $top 1], [lindex $top 0]) * 180 / 3.14159265}]
+    }
+
+    When /thing/ is observed with /...observation/ {
+        Claim -keep 500ms $thing is in view of the history
+        historyObserve $dir $thing \
+            [dict get $observation space] \
+            [dict get $observation position] \
+            [dict get $observation size] \
+            [dict getdef $observation angle ""]
+    }
+
+    # Note the moment that a thing goes out of view.
+    When /thing/ is in view of the history {
+        On unmatch {
+            if {[llength [Query! $thing has latest history sample /sample/]] > 0} {
+                set now $([clock milliseconds] / 1000.0)
+                Hold! -key [list latest $thing] {}
+                historyAppend $dir $now [list [format %.1f $now] $thing]
+            }
+        }
+    }
+
+    When /someone/ wishes /asker/ retraces /thing/ over /seconds/ seconds {
+        set now [clock seconds]
+        Wish $asker retraces $thing from $($now - $seconds) to $($now + 1)
+    }
+    When /someone/ wishes /asker/ retraces /thing/ from /t0/ to /t1/ {
+        Claim $asker retraces $thing with {*}[historyRead $dir $thing $t0 $t1]
+    }
+}
+
+# Objects tracked by SAM2 (which don't have a quad).
+When /obj/ has mask /mask/ in /page/ with /...maskOpts/ {
+    Wish $obj has contours in $page
+}
+When /obj/ has contours /contours/ in /page/ {
+    set points [concat {*}$contours]
+    if {[llength $points] == 0} { return }
+
+    lassign [lindex $points 0] minX minY
+    set maxX $minX; set maxY $minY
+    foreach p $points {
+        lassign $p x y
+        if {$x < $minX} { set minX $x }; if {$x > $maxX} { set maxX $x }
+        if {$y < $minY} { set minY $y }; if {$y > $maxY} { set maxY $y }
+    }
+    Claim $obj is observed with space [list page $page] \
+        position [list $(($minX + $maxX) / 2.0) $(($minY + $maxY) / 2.0)] \
+        size [list $($maxX - $minX) $($maxY - $minY)]
+}
+
+### Drawing a retraced path on the table
+
+When the quad library is /quadLib/ &\
+     the pose library is /poseLib/ &\
+     the quad changer is /quadChange/ &\
+     display /disp/ has width /displayWidth/ height /displayHeight/ &\
+     display /disp/ has intrinsics /displayIntrinsics/ &\
+     /asker/ retraces /thing/ with /...path/ {
+
+    fn quadChange
+
+    set positions [list]
+    foreach sample [dict get $path samples] {
+        set position [lindex $sample 1]
+        if {[llength $position] == 3} { lappend positions $position }
+    }
+    if {[llength $positions] == 0} { return }
+
+    # (quadChange will change the space of any list of vertices.)
+    set positions [$quadLib vertices \
+        [quadChange [$quadLib create [dict get $path space] $positions] \
+             "display $disp"]]
+    set points [lmap v $positions {
+        $poseLib project $displayIntrinsics $displayWidth $displayHeight $v
+    }]
+
+    if {[llength $points] > 1} {
+        Wish to draw a line onto $disp with \
+            points $points width 3 color deepskyblue layer 98
+    }
+    # Mark where it started and where it ended up.
+    Wish to draw a circle onto $disp with \
+        center [lindex $points 0] radius 8 thickness 3 \
+        color deepskyblue filled false layer 98
+    Wish to draw a circle onto $disp with \
+        center [lindex $points end] radius 8 thickness 3 \
+        color deepskyblue filled true layer 98
+}

@@ -22,7 +22,9 @@
 #   Wish $this is a question box
 #
 # The place where each matching thing was last seen gets outlined on
-# the table, with a line leading to it from the asker.
+# the table, with a line leading to it from the asker. If you ask
+# where a thing has `been` (or about its `path` or `history`), the
+# path that it took over the last day is drawn too (see history.folk).
 #
 # Only things that have been named are remembered. To make the table
 # forget (and stop remembering) a thing:
@@ -232,8 +234,17 @@ When /someone/ wishes /box/ is a question box {
         When the collected results for [list $box recalls /thing/ with /...memory/] are /recalled/ &\
              the collected results for [list /thing/ was last seen with /...memory/] are /known/ {
             set lines [list "> $question"]
+            # Asking where a thing has been (rather than where it
+            # is) also retraces its path over the last day.
+            set wantsPath [regexp -nocase {\m(been|path|travel\w*|went|moved?|history)\M} $question]
             foreach r $recalled {
                 lappend lines "Look for: [dict get [dict get $r memory] name]"
+                if {$wantsPath} {
+                    Wish $box retraces [dict get $r thing] over 86400 seconds
+                }
+            }
+            if {$wantsPath && [llength $recalled] > 0} {
+                lappend lines "(its path over the last day is in blue)"
             }
             if {[llength $recalled] == 0} {
                 set names [lsort -unique [lmap k $known {

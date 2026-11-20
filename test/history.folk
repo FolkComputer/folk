@@ -1,0 +1,112 @@
+When { source builtin-programs/collect.folk }
+When { source builtin-programs/quad-lib.folk }
+When { source builtin-programs/history.folk }
+
+set dir "/tmp/folk-history-test-[pid]"
+file delete -force $dir
+file mkdir $dir
+Assert! the history save directory is $dir
+
+proc quadAt {x} {
+    list cam [list [list $x 0 1] [list $(0.1 + $x) 0 1] \
+                  [list $(0.1 + $x) 0.2 1] [list $x 0.2 1]]
+}
+proc logLines {dir} {
+    set lines [list]
+    foreach f [lsort [glob -nocomplain $dir/*.log]] {
+        set fd [open $f r]
+        lappend lines {*}[split [string trim [read $fd]] "\n"]
+        close $fd
+    }
+    return $lines
+}
+
+set tStart [clock seconds]
+
+# A thing appears: one sample (plus a note of which space we're in).
+Assert! 7 has quad [quadAt 0]
+sleep 0.4
+set lines [logLines $dir]
+assert {[llength $lines] == 2}
+assert {[lindex $lines 0 1] eq "@space" && [lindex $lines 0 2] eq "cam"}
+lassign [lindex $lines 1] t id position size angle
+assert {$id == 7}
+assert {abs([lindex $position 0] - 0.05) < 0.001}
+assert {abs([lindex $position 1] - 0.1) < 0.001}
+assert {abs([lindex $position 2] - 1) < 0.001}
+assert {abs([lindex $size 0] - 0.1) < 0.001 && abs([lindex $size 1] - 0.2) < 0.001}
+assert {$angle == 0}
+
+# It jitters by less than the threshold, many times: nothing is written.
+set x 0
+for {set i 0} {$i < 20} {incr i} {
+    Retract! 7 has quad [quadAt $x]
+    set x $(($i % 2) * 0.004)
+    Assert! 7 has quad [quadAt $x]
+    sleep 0.05
+}
+sleep 0.3
+assert {[llength [logLines $dir]] == 2}
+
+# It really moves, twice: two more samples.
+foreach newX {0.3 0.6} {
+    Retract! 7 has quad [quadAt $x]
+    set x $newX
+    Assert! 7 has quad [quadAt $x]
+    sleep 0.4
+}
+assert {[llength [logLines $dir]] == 4}
+
+# Another object, found some other way and in some other space.
+Assert! detector claims blob is observed with space pixels position {100 200} size {50 40}
+sleep 0.4
+assert {[llength [logLines $dir]] == 6}
+
+# The first thing goes away: its departure is noted.
+Retract! 7 has quad [quadAt $x]
+sleep 1.2
+set lines [logLines $dir]
+assert {[llength $lines] == 7}
+assert {[lindex $lines end] eq [list [lindex $lines end 0] 7]}
+assert {[llength [Query! 7 has latest history sample /s/]] == 0}
+
+# Retrace its path.
+Assert! someone wishes asker retraces 7 over 3600 seconds
+Assert! someone wishes asker retraces blob from $tStart to $([clock seconds] + 1)
+Assert! someone wishes asker retraces 99 over 3600 seconds
+sleep 0.5
+
+set path [dict get [lindex [Query! asker retraces 7 with /...path/] 0] path]
+assert {[dict get $path space] eq "cam"}
+set samples [dict get $path samples]
+assert {[llength $samples] == 4}
+set xs [lmap s [lrange $samples 0 2] { lindex $s 1 0 }]
+assert {abs([lindex $xs 0] - 0.05) < 0.01}
+assert {abs([lindex $xs 1] - 0.35) < 0.01}
+assert {abs([lindex $xs 2] - 0.65) < 0.01}
+assert {[llength [lindex $samples 3]] == 1}
+
+set path [dict get [lindex [Query! asker retraces blob with /...path/] 0] path]
+assert {[dict get $path space] eq "pixels"}
+assert {[llength [dict get $path samples]] == 1}
+assert {[lindex [dict get $path samples] 0 1] eq {100 200}}
+
+set path [dict get [lindex [Query! asker retraces 99 with /...path/] 0] path]
+assert {[llength [dict get $path samples]] == 0}
+
+# A thing that's forgotten isn't archived.
+Assert! someone wishes 8 is forgotten
+Assert! 8 has quad [quadAt 0]
+sleep 0.4
+assert {[llength [logLines $dir]] == 7}
+
+# An object tracked by SAM2 is archived by the bounds of its contours.
+Assert! tracker claims mug has contours {{{0.1 0.1} {0.3 0.1} {0.3 0.2} {0.1 0.2}}} in 12
+sleep 0.4
+set lines [logLines $dir]
+assert {[llength $lines] == 9}
+assert {[lindex $lines end-1 2] eq {page 12}}
+assert {[lrange [lindex $lines end] 1 3] eq {mug {0.2 0.15} {0.2 0.1}}}
+
+file delete -force $dir
+Exit! 0
