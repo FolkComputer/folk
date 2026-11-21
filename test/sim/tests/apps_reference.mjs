@@ -74,6 +74,9 @@ function keyName(name) {
   return name;   // already a DOM key/code name
 }
 function pointOf(layout, spec) {
+  // a target may also be a literal viewport point {x, y} (what the fuzzer records)
+  const lit = spec && typeof spec === 'object' && spec.target && typeof spec.target === 'object' ? spec.target : spec;
+  if (lit && typeof lit === 'object' && typeof lit.x === 'number') return { x: lit.x, y: lit.y };
   const target = typeof spec === 'string' ? spec : spec.target;
   const at = (typeof spec === 'object' && spec.at) || [0.5, 0.5];
   const r = layout[target];

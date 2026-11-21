@@ -302,14 +302,16 @@ class Rig:
     def count(self, kind):
         return sum(1 for e in self.apps.events(self.session) if e["k"] == kind)
 
-    def expect_events(self, kind, n, timeout=5.0, what=""):
-        """The page must have seen n more trusted events of this kind than before."""
-        want = self.counts.get(kind, 0) + n
+    def expect_events(self, kind, n, timeout=5.0, what="", instead=None):
+        """The page must have seen n more trusted events of this kind than before (events of
+        kind `instead` count as well: a native drag ends with dragend, not mouseup)."""
+        kinds = (kind,) + ((instead,) if instead else ())
+        seen = lambda: sum(self.count(k) - self.counts.get(k, 0) for k in kinds)
         deadline = time.time() + timeout
-        while self.count(kind) < want:
+        while seen() < n:
             if time.time() > deadline:
                 raise OracleError("input lost: the page saw %d of %d expected %s events%s" % (
-                    self.count(kind) - (want - n), n, kind, " (%s)" % what if what else ""))
+                    seen(), n, kind, " (%s)" % what if what else ""))
             time.sleep(0.01)
 
     def snapshot_counts(self):
@@ -351,7 +353,7 @@ class Rig:
         elif op == "mouseup":
             self.move_to(*self.point(a))
             self.hid.button(a.get("button", "left"), False)
-            self.expect_events("mouseup", 1, what=op)
+            self.expect_events("mouseup", 1, what=op, instead="dragend")
         elif op == "drag":
             p0, p1 = self.point(a, "from"), self.point(a, "to")
             self.move_to(*p0)
@@ -359,7 +361,7 @@ class Rig:
             self.expect_events("mousedown", 1, what="drag start")
             self.move_to(*p1, steps=a.get("steps", 8))
             self.hid.button("left", False)
-            self.expect_events("mouseup", 1, what="drag end")
+            self.expect_events("mouseup", 1, what="drag end", instead="dragend")
         elif op == "type":
             if self.cps:
                 self.hid.cmd("cps %d" % self.cps)
@@ -442,6 +444,16 @@ class Rig:
                 return strip, frame
             if time.time() > deadline:
                 frame.save(os.path.join(self.out, "strip-mismatch.png"))
+                # who is behind: Folk's picture, or the page's own strip / report?
+                try:
+                    from PIL import Image
+                    shot = os.path.join(self.out, "strip-mismatch-chromium.png")
+                    self.browser("browserScreenshot", shot)
+                    own = "%06x" % decode_strip(Image.open(shot))["hash"]
+                except Exception as e:
+                    own = "unreadable (%s)" % e
+                problem += "; Chromium's own screenshot shows hash %s; the page's live hash is %06x" % (
+                    own, self.js("window.__hash()"))
                 raise OracleError("strip: " + problem)
             time.sleep(0.1)
 

@@ -109,6 +109,8 @@
   });
   render();
 })();
+  // a raw input logger: never let a native drag (of selected text) swallow mouse events
+  window.addEventListener('dragstart', function (e) { e.preventDefault(); }, true);
 </script>
 </body>
 </html>

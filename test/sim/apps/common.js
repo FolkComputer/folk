@@ -137,6 +137,16 @@
     domCount++;
     push('wheel', { x: e.clientX, y: e.clientY, dx: e.deltaX, dy: e.deltaY, tid: tid(e.target) });
   }
+  // A native drag (HTML5 drag and drop, or dragging selected text) swallows the mouse: after
+  // dragstart there are no mousemoves and no mouseup, only drag events. Log its ends, and keep
+  // following the pointer.
+  function onDrag(e) {
+    if (!e.isTrusted) return;
+    if (e.type !== 'dragstart') { sim.pointer.x = e.clientX; sim.pointer.y = e.clientY; }
+    if (e.type === 'dragend') sim.pointer.buttons = 0;
+    if (e.type !== 'dragover') push(e.type, { x: e.clientX, y: e.clientY, tid: tid(e.target) });
+  }
+  ['dragstart', 'dragover', 'drop', 'dragend'].forEach(function (t) { window.addEventListener(t, onDrag, true); });
   ['keydown', 'keyup'].forEach(function (t) { window.addEventListener(t, onKey, true); });
   ['beforeinput', 'input'].forEach(function (t) { window.addEventListener(t, onInput, true); });
   ['mousedown', 'mouseup', 'click', 'dblclick', 'contextmenu'].forEach(function (t) { window.addEventListener(t, onMouse, true); });
