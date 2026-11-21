@@ -30,7 +30,6 @@ $cc code {
 }
 
 $cc include <pthread.h>
-$cc include <signal.h>
 $cc include <stdio.h>
 $cc include <stdint.h>
 $cc include <stdlib.h>
@@ -243,19 +242,9 @@ $cc code {
 }
 
 $cc proc audioInit {} bool {
-    // Jim's SIGUSR1 handler (used to cancel When blocks) dereferences
-    // a thread-local that is NULL on non-Tcl threads. Folk uses tgkill
-    // on Linux, but block SIGUSR1 here so miniaudio's threads inherit
-    // the mask and never take a process-directed SIGUSR1.
-    sigset_t cancel, old;
-    sigemptyset(&cancel); sigaddset(&cancel, SIGUSR1);
-    pthread_sigmask(SIG_BLOCK, &cancel, &old);
-
     pthread_mutex_lock(&g_state_mtx);
     bool success = audio_init_impl();
     pthread_mutex_unlock(&g_state_mtx);
-
-    pthread_sigmask(SIG_SETMASK, &old, NULL);
 
     if (success) {
         return true;
