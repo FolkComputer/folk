@@ -70,12 +70,6 @@ When the image library is /imageLib/ {
     set videoLib [$cc compile]
 
     When /p/ plays video /path/ from /file/ through /audioLib/ with /...options/ {
-        # Atomically, so that the previous frame stays up until the
-        # next one has been loaded onto the GPU.
-        When -atomically $p has video $path frame /im/ {
-            Wish $p displays image $im with {*}$options
-        }
-
         # ffmpeg writes each frame to the pipe as a PPM:
         # `P6\n<width> <height>\n255\n`, then RGB bytes. Frames are
         # capped at 640px wide and 25fps, since every one of them goes
@@ -85,13 +79,22 @@ When the image library is /imageLib/ {
                                -an -vf "scale='min(640,iw)':-2,fps=25" \
                                -f image2pipe -c:v ppm -] r]
         $ffmpeg readsize 65536 ;# the default is 256 bytes per read()
+        set pid [pid $ffmpeg]
 
         # Expose the ffmpeg pid, and kill the process when this match
         # goes away, which closes the pipe and ends the loop.
-        Claim $p plays video $path in process [pid $ffmpeg] \
-            -destructor [list catch [list kill SIGKILL [pid $ffmpeg]]]
+        Claim $p plays video $path in process $pid \
+            -destructor [list catch [list kill SIGKILL $pid]]
 
-        set key [list video $p $path $options]
+        # Frames are scoped by the pid, so two wishes for the same
+        # video on one program don't show each other's frames.
+        # Atomically, so that the previous frame stays up until the
+        # next one has been loaded onto the GPU.
+        When -atomically $p has video $path frame /im/ from process $pid {
+            Wish $p displays image $im with {*}$options
+        }
+
+        set key [list video $p $path $pid]
         set frameNo 0
         try -signal {
             while {[$ffmpeg gets] eq "P6"} {
@@ -99,7 +102,7 @@ When the image library is /imageLib/ {
                 $ffmpeg gets
                 set im [$videoLib imageFromRgb [$ffmpeg read [* $width $height 3]] \
                             $width $height [incr frameNo]]
-                Hold! -key $key Claim $p has video $path frame $im \
+                Hold! -key $key Claim $p has video $path frame $im from process $pid \
                     -destructor [list $imageLib imageFree $im]
             }
             # We loop the video forever, so ffmpeg only exits if it
@@ -111,7 +114,7 @@ When the image library is /imageLib/ {
             # The wish is gone, so Folk is cancelling this block.
         } finally {
             Hold! -key $key {}
-            catch {kill SIGKILL [pid $ffmpeg]}
+            catch {kill SIGKILL $pid}
             catch {$ffmpeg close}
         }
     }
