@@ -317,6 +317,9 @@ class Rig:
                     seen(), n, kind, " (%s)" % what if what else ""))
             time.sleep(0.01)
 
+    def wheel_sum(self):
+        return sum(e["dy"] for e in self.apps.events(self.session) if e["k"] == "wheel")
+
     def snapshot_counts(self):
         ev = self.apps.events(self.session)
         self.counts = {}
@@ -388,8 +391,16 @@ class Rig:
         elif op == "wheel":
             self.move_to(*self.point(a))
             dy = a["dy"]
+            before = self.wheel_sum()
             self.hid.wheel(-dy)        # REL_WHEEL: + is away from the user = scroll up
-            self.expect_events("wheel", abs(dy), what=op)
+            # (mouse.folk may merge queued detents into one report, so the page can get fewer
+            # wheel events with larger deltas: the scrolled distance is what must arrive)
+            deadline = time.time() + 5
+            while self.wheel_sum() - before != 100 * dy:
+                if time.time() > deadline:
+                    raise OracleError("input lost: the wheel turned %d detent(s), the page saw deltaY %+d" % (
+                        dy, self.wheel_sum() - before))
+                time.sleep(0.01)
         elif op == "wait":
             # scenario time: counted from the end of the previous action's input
             time.sleep(max(0.0, self.t_input + a["ms"] / 1000.0 - time.time()))

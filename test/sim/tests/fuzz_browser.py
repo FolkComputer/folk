@@ -163,8 +163,10 @@ def normalize(app, state):
             pts = stroke.get("points")
             if isinstance(pts, list) and len(pts) > 2 and stroke.get("tool") in ("pen", "eraser"):
                 stroke["points"] = [pts[0], pts[-1]]
-        s.pop("pixelHash", None)
-        s.pop("pixels", None)
+        s.pop("canvasHash", None)       # antialiasing along a pen stroke follows its samples
+    if app == "events" and isinstance(s.get("lastMouse"), dict):
+        s["lastMouse"].pop("x", None)   # the pad also follows mousemoves: where the path last
+        s["lastMouse"].pop("y", None)   # crossed it depends on how the path was sampled
     return s
 
 
