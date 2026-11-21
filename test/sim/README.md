@@ -76,10 +76,21 @@ None of them trusts Folk's own account of what happened.
 Every case (seed, generated actions) is written to `<out>/cases/`; failures
 also leave the projected frame and the page's log there.
 
-Found so far and fixed in `browser.folk`: every key typed twice (two
-subscriptions per keyboard page); the projected picture staying one step
-behind the page after keyboard scrolling (Chromium drops the last screencast
-frame; the browser now refreshes once things go quiet).
+Found by the simulation and fixed in `browser.folk`:
+
+- every key typed twice (two subscriptions per keyboard page);
+- the projected picture one step behind the page after keyboard scrolling
+  (Chromium drops the last screencast frame; the browser now refreshes once
+  frames and input go quiet);
+- `<select>` option lists invisible and unclickable (Chromium draws them
+  outside the page's picture; `lib/browser-page-shim.js` makes a list opened
+  with the mouse part of the page).
+
+Found in code review, confirmed by experiment, and fixed: a size change
+leaked the old Chromium (inherited destructors); a page titled `-keep`
+stopped all state updates; held buttons stuck when a mouse page moved away
+mid-drag; input after a device's reader restarted was dropped; the pointer
+froze for up to 400 ms at the start of a stroke.
 
 ## Requirements
 
@@ -92,6 +103,11 @@ under `/opt/pw-browsers` is found too). `apps_reference.mjs` and the
 differential oracle need Node and Playwright.
 
 ## Limits
+
+- Not shown on the table at all (Chromium draws them outside the page):
+  date/time/colour pickers, datalist suggestions, native context menus,
+  tooltips. Pages that need them don't work with the mouse.
+- As root (the usual container), Chromium runs with `--no-sandbox`.
 
 - Timing is real time: the oracles wait for conditions rather than sleep, but
   a badly overloaded machine can still fail them.
