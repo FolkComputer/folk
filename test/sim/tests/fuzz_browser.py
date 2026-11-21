@@ -159,11 +159,13 @@ def normalize(app, state):
     """Drop what legitimately depends on how finely the mouse's path was sampled."""
     s = json.loads(json.dumps(state))
     if app == "paint":
-        for stroke in s.get("strokes", []):
-            pts = stroke.get("points")
-            if isinstance(pts, list) and len(pts) > 2 and stroke.get("tool") in ("pen", "eraser"):
-                stroke["points"] = [pts[0], pts[-1]]
+        for stroke in s.get("strokes", []) + s.get("redoStrokes", []):
+            if isinstance(stroke, dict) and stroke.get("tool") in ("pen", "eraser"):
+                stroke.pop("n", None)   # how many points a freehand stroke has follows the samples
         s.pop("canvasHash", None)       # antialiasing along a pen stroke follows its samples
+    if app == "events" and isinstance(s.get("counts"), dict):
+        s["counts"].pop("wheel", None)  # Chromium coalesces queued wheel events: the distance
+                                        # (state.wheel) must match, the number of events need not
     if app == "events" and isinstance(s.get("lastMouse"), dict):
         s["lastMouse"].pop("x", None)   # the pad also follows mousemoves: where the path last
         s["lastMouse"].pop("y", None)   # crossed it depends on how the path was sampled
@@ -326,20 +328,32 @@ def run_audio(rig, case):
     time.sleep(0.4)
     wav = rig.stop_record()
     total = wav.duration() if callable(wav.duration) else wav.duration
-    by_freq = {}
-    for freqs, held in played:
+    # input path: the page played exactly the notes that were pressed, as often
+    log = rig.apps.state(session).get("audioLog") or []
+    on, by_freq = {}, {}
+    for e in log:
+        if e["ev"] == "on":
+            on[e["f"]] = e["t"]
+        elif e["ev"] == "off" and e["f"] in on:
+            by_freq.setdefault(e["f"], []).append((e["t"] - on.pop(e["f"])) / 1000.0)
+    pressed = {}
+    for freqs, _held in played:
         for f in freqs:
-            by_freq.setdefault(f, []).append(held)
+            pressed[f] = pressed.get(f, 0) + 1
+    if {f: len(v) for f, v in by_freq.items()} != pressed or on:
+        raise OracleError("sound: the keys pressed were %s, the page played %s (still on: %s)" % (
+            pressed, {f: len(v) for f, v in by_freq.items()}, sorted(on)))
+    # output path: every note the page played is in the capture, as long as the page held it
     report = []
     for f, holds in sorted(by_freq.items()):
-        spans = [(a, b) for a, b in wav.find_tone(f, tol_hz=10.0, max_gap=0.08) if b - a >= 0.15]
+        spans = [(a, b) for a, b in wav.find_tone(f, tol_hz=6.0, win=0.25, max_gap=0.08) if b - a >= 0.12]
         report.append((f, [round(h, 2) for h in holds], [round(b - a, 2) for a, b in spans]))
         if len(spans) != len(holds):
-            raise OracleError("sound: %.1f Hz was played %d time(s) (held %s s) but is in the capture %d time(s) (%s s)" % (
+            raise OracleError("sound: the page played %.1f Hz %d time(s) (for %s s) but it is in the capture %d time(s) (%s s)" % (
                 f, len(holds), [round(h, 2) for h in holds], len(spans), [round(b - a, 2) for a, b in spans]))
         for (a, b), h in zip(spans, holds):
-            if not (h - 0.45 <= b - a <= h + 0.3):
-                raise OracleError("sound: a %.1f Hz note held for %.2f s sounds for %.2f s" % (f, h, b - a))
+            if abs((b - a) - h) > 0.15:
+                raise OracleError("sound: the page played %.1f Hz for %.2f s; the capture has it for %.2f s" % (f, h, b - a))
     wav.assert_silence(total - 0.3, total)
     case["sound"] = report
     rig.check_strip()
