@@ -13,7 +13,8 @@
     "DELETE HOME END LEFT RIGHT UP DOWN, or a single character of the US layout.",
     "'expect' (subset of the final __state(); arrays must match element for element) and 'expectLog'",
     "(patterns that must match, in this order, a subsequence of the POSTed event log) are the oracles.",
-    "'dialog' says how to answer alert()/confirm(): accept or dismiss."
+    "'dialog' says how to answer alert()/confirm(): accept or dismiss. Wheel events are not counted:",
+  "Chromium coalesces queued ones; the scrolled distance (state) is what must match."
   ],
   "scenarios": [
     {
@@ -31,7 +32,7 @@
         {"op": "type", "text": "ab"}
       ],
       "expect": {
-        "counts": {"keydown": 11, "keyup": 11, "mousedown": 5, "mouseup": 5, "click": 4, "dblclick": 1, "contextmenu": 1, "wheel": 3},
+        "counts": {"keydown": 11, "keyup": 11, "mousedown": 5, "mouseup": 5, "click": 4, "dblclick": 1, "contextmenu": 1},
         "keys": ["Shift", "H", "i", " ", "1", "Control", "Shift", "Z", "Enter", "a", "b"],
         "down": [], "wheel": {"dx": 0, "dy": 300}, "text": "ab", "focus": "text", "buttons": 0,
         "lastKey": {"type": "keyup", "key": "b", "code": "KeyB", "mods": 0}
@@ -45,7 +46,7 @@
         {"k": "keydown", "key": "Z", "code": "KeyZ", "m": 3},
         {"k": "contextmenu", "tid": "pad", "b": 2},
         {"k": "dblclick", "tid": "pad", "n": 2},
-        {"k": "wheel", "tid": "pad", "dy": 100},
+        {"k": "wheel", "tid": "pad"},
         {"k": "input", "tid": "text", "it": "insertText", "d": "b"}
       ]
     },
@@ -245,7 +246,7 @@
         {"k": "input", "tid": "password", "d": "s"},
         {"k": "app", "a": "dd-open"},
         {"k": "app", "a": "dd-select", "size": "large"},
-        {"k": "wheel", "dy": 100, "dx": 0},
+        {"k": "wheel", "dx": 0},
         {"k": "app", "a": "item", "item": 12},
         {"k": "app", "a": "submit", "ok": true},
         {"k": "app", "a": "confirm-closed", "result": true},

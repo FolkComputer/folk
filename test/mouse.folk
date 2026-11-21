@@ -249,7 +249,7 @@ if {$newDev eq $dev} { fail "replug: same reader as before" }
 exec test/sim/hidemu/hidemu --quiet --mouse $fifo << "rate mouse 500\nmove 300 -200 20\nclick right 5\n"
 if {![waitFor 10000 {[lindex [$mouseLib mouseStats $newDev] 0] >= 3 &&
                      [$rec count] == [lindex [$mouseLib mouseStats $newDev] 1]}]} {
-    fail "replug: reports of the new reader didn't arrive"
+    fail "replug: reports of the new reader didn't arrive (reader stats: [$mouseLib mouseStats $newDev]; received [$rec count])"
 }
 try {
     set got [integrate [$rec dump] 1]

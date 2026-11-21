@@ -16,10 +16,12 @@ failed=()
 run() {    # run <name> <timeout seconds> <command...>
     local name=$1 secs=$2; shift 2
     local t0=$(date +%s)
-    if timeout -k 10 "$secs" "$@" > "$out/$name.log" 2>&1; then
-        printf 'ok    %-18s %4d s\n' "$name" $(( $(date +%s) - t0 ))
+    timeout -k 10 "$secs" "$@" > "$out/$name.log" 2>&1
+    local rc=$? secsTaken=$(( $(date +%s) - t0 ))
+    if [ $rc = 0 ]; then
+        printf 'ok    %-18s %4d s\n' "$name" $secsTaken
     else
-        printf 'FAIL  %-18s %4d s   (exit %d; see %s)\n' "$name" $(( $(date +%s) - t0 )) $? "$out/$name.log"
+        printf 'FAIL  %-18s %4d s   (exit %d; see %s)\n' "$name" $secsTaken $rc "$out/$name.log"
         failed+=("$name")
     fi
 }
