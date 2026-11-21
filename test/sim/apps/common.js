@@ -128,7 +128,11 @@
   }
   function onMouse(e) {
     if (!e.isTrusted) return;
-    sim.pointer.x = e.clientX; sim.pointer.y = e.clientY; sim.pointer.buttons = e.buttons;
+    // (Space or Enter on a focused button is a trusted click too, at (0, 0) with detail 0:
+    // that says nothing about where the mouse is.)
+    if (!(e.type === 'click' && e.detail === 0)) {
+      sim.pointer.x = e.clientX; sim.pointer.y = e.clientY; sim.pointer.buttons = e.buttons;
+    }
     domCount++;
     push(e.type, { x: e.clientX, y: e.clientY, b: e.button, bs: e.buttons, n: e.detail, m: mods(e), tid: tid(e.target) });
   }
