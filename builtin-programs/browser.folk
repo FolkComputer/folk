@@ -73,6 +73,7 @@ $cc code {
     #define LB "\x7b"
     #define RB "\x7d"
     #define BR_MAX 64
+    #define BR_RECENT 64
     #define BR_WAITERS 16
     #define BR_DEVICES 8
     #define BR_QUEUE 128
@@ -112,6 +113,8 @@ $cc code {
         char path[160];
         bool used;
         long long lastSeq;         // last dispatched sequence number
+        long long recent[BR_RECENT]; // sequence numbers dispatched lately (0 = none)
+        int recentAt;
         double lastArrival;
         BrEv q[BR_QUEUE]; int n;   // events waiting for their predecessors
         int heldModKeys;           // bit per physical modifier key
@@ -160,7 +163,7 @@ $cc code {
 
         // stats
         _Atomic long framesReceived, framesDecoded, framesUploaded, decodeErrors;
-        _Atomic long inputSent, keysSent, mouseSent, eventsQueued, eventsLate, gapsSkipped;
+        _Atomic long inputSent, keysSent, mouseSent, eventsQueued, eventsLate, gapsSkipped, eventsDuplicate;
         _Atomic long msgsReceived, bytesReceived, ignoredIds;
         double lastFrameLatencyMs, lastDecodeMs, lastUploadMs, frameArrivedAt;
         double createdAt, firstFrameAt;
@@ -699,7 +702,12 @@ $cc code {
 
     // ---- input: restoring the order of events (Notify does not keep it)
 
+    static bool brSeen(BrDevice* dev, long long seq) {
+        for (int i = 0; i < BR_RECENT; i++) if (dev->recent[i] == seq) return true;
+        return false;
+    }
     static void brDispatch(Browser* b, BrDevice* dev, BrEv* ev) {
+        if (ev->seq > 0) { dev->recent[dev->recentAt] = ev->seq; dev->recentAt = (dev->recentAt + 1) % BR_RECENT; }
         if (!b->ready) return;                            // no page to send it to yet
         if (ev->kind == 0) brDispatchKey(b, dev, ev); else brDispatchMouse(b, dev, ev);
     }
@@ -754,11 +762,18 @@ $cc code {
             if (dev->lastSeq - ev->seq > 4 * BR_QUEUE) {  // the device started counting again
                 while (dev->n > 0) brSkipGap(b, dev);
                 dev->lastSeq = ev->seq;
+                memset(dev->recent, 0, sizeof(dev->recent));
+                brDispatch(b, dev, ev);
+            } else if (brSeen(dev, ev->seq)) {
+                b->eventsDuplicate++;                     // e.g. two subscriptions to one device
             } else {
                 b->eventsLate++;
+                brDispatch(b, dev, ev);
             }
-            brDispatch(b, dev, ev);
         } else {
+            for (int i = 0; i < dev->n; i++) {
+                if (dev->q[i].seq == ev->seq) { b->eventsDuplicate++; pthread_mutex_unlock(&b->inMu); return; }
+            }
             if (dev->n == BR_QUEUE) brSkipGap(b, dev);
             if (dev->n < BR_QUEUE) dev->q[dev->n++] = *ev;
             b->eventsQueued++;
@@ -1388,14 +1403,14 @@ $cc code {
             "pid %d width %d height %d fps %d ready %d state %s texture %d "
             "framesReceived %ld framesDecoded %ld framesUploaded %ld decodeErrors %ld "
             "inputEventsSent %ld keyEventsSent %ld mouseEventsSent %ld "
-            "eventsReordered %ld eventsLate %ld gapsSkipped %ld "
+            "eventsReordered %ld eventsLate %ld gapsSkipped %ld eventsDuplicate %ld "
             "messagesReceived %ld bytesReceived %ld "
             "lastFrameLatencyMs %.1f lastDecodeMs %.2f lastUploadMs %.2f "
             "uptimeS %.3f firstFrameAfterS %.3f dialogs %d popups %d",
             (int)b->pid, b->w, b->h, b->fps, (int)b->ready, b->state, (int)b->tex,
             (long)b->framesReceived, (long)b->framesDecoded, (long)b->framesUploaded, (long)b->decodeErrors,
             (long)b->inputSent, (long)b->keysSent, (long)b->mouseSent,
-            (long)b->eventsQueued, (long)b->eventsLate, (long)b->gapsSkipped,
+            (long)b->eventsQueued, (long)b->eventsLate, (long)b->gapsSkipped, (long)b->eventsDuplicate,
             (long)b->msgsReceived, (long)b->bytesReceived,
             b->lastFrameLatencyMs, b->lastDecodeMs, b->lastUploadMs,
             now - b->createdAt, b->firstFrameAt > 0 ? b->firstFrameAt - b->createdAt : -1.0,
@@ -1680,6 +1695,11 @@ When /thing/ has web browser /b/ {
 
     # Keys arrive as events, in no particular order: the C side sorts
     # them by their sequence numbers.
+    # keyboard.folk gives every keyboard page the `... locale us` form
+    # of the claim as well, so subscribe for the bare form only when
+    # that's all there is: two subscriptions would type everything
+    # twice. (While both exist for a moment, the C side drops the
+    # repeated sequence numbers.)
     When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
          /keyboard/ is typing into $thing {
         Subscribe: keyboard $kbPath claims key /key/ is /direction/ with /...options/ {
@@ -1688,8 +1708,10 @@ When /thing/ has web browser /b/ {
     }
     When /keyboard/ is a keyboard with path /kbPath/ &\
          /keyboard/ is typing into $thing {
-        Subscribe: keyboard $kbPath claims key /key/ is /direction/ with /...options/ {
-            $browserLib browserKey $b $kbPath $key $direction $options
+        When /nobody/ claims $keyboard is a keyboard with path $kbPath /...anything/ {
+            Subscribe: keyboard $kbPath claims key /key/ is /direction/ with /...options/ {
+                $browserLib browserKey $b $kbPath $key $direction $options
+            }
         }
     }
 
