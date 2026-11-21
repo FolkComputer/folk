@@ -31,6 +31,7 @@ The table (display pixels; 1 display pixel = 1 CSS pixel of the page):
 import json
 import math
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -125,7 +126,8 @@ class Rig:
 
     def start(self):
         if self.audio:
-            self._sink_dir = os.path.join(self.out, "sink")
+            # (short path: PulseAudio's socket lives in it, and sockaddr_un holds 108 bytes)
+            self._sink_dir = tempfile.mkdtemp(prefix="folk-sink-")
             lines = subprocess.run([os.path.join(SIM, "audio", "sink.sh"), "start", self._sink_dir],
                                    check=True, capture_output=True, text=True).stdout.split()
             self.env.update(dict(line.split("=", 1) for line in lines if "=" in line))
@@ -164,6 +166,7 @@ class Rig:
         if self._sink_dir:
             subprocess.run([os.path.join(SIM, "audio", "sink.sh"), "stop", self._sink_dir],
                            capture_output=True, text=True)
+            shutil.rmtree(self._sink_dir, ignore_errors=True)
         if self.folk is not None and self.folk.survivors:
             problems.append("processes survived Folk: %s" % self.folk.survivors)
         return problems

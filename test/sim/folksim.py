@@ -707,6 +707,11 @@ class HidEmu:
         self.mouse_path = os.path.join(self.rundir, "mouse0")
         self.log_path = os.path.join(self.rundir, "hidemu.log")
         self.ctl_path = os.path.join(self.rundir, "hidemu.sock")
+        self._ctl_dir = None
+        if len(os.fsencode(self.ctl_path)) > 100:
+            # a unix socket's path must fit into sockaddr_un (108 bytes)
+            self._ctl_dir = tempfile.mkdtemp(prefix="hidemu-")
+            self.ctl_path = os.path.join(self._ctl_dir, "ctl.sock")
         self.extra_args = list(extra_args)
         self.proc = None
         self._sock = None
@@ -877,6 +882,8 @@ class HidEmu:
                     os.unlink(p)
                 except OSError:
                     pass
+        if self._ctl_dir:
+            shutil.rmtree(self._ctl_dir, ignore_errors=True)
         self.proc = None
         return survivors
 
