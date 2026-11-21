@@ -889,6 +889,46 @@ class HidEmu:
 
 
 # --------------------------------------------------------------------------
+# Pixel oracle for the test apps
+
+STRIP_APPS = {1: "events", 2: "paint", 3: "kanban", 4: "editor", 5: "form", 6: "synth"}
+
+
+def decode_strip(image, x0=0, y0=616, scale=1.0):
+    """Decode the status strip of a sim test app (encoding: see apps/common.js) from pixels.
+
+    `image` is a PIL image in which the app's 1024x640 viewport appears axis-aligned with its
+    top-left corner at (x0 - 0, y0 - 616*scale) -- i.e. (x0, y0) is the top-left corner of the
+    strip -- at `scale` image pixels per CSS pixel. For a plain browser screenshot the defaults
+    are right. Returns {"app", "app_id", "count", "hash", "flags", "mouse_down", "key_down",
+    "modal"}; raises ValueError if the calibration blocks are not where they should be."""
+    import numpy as np
+    a = np.asarray(image.convert("RGB")).astype(int)
+    r = max(1, int(3 * scale))
+    digits = []
+    for b in range(21):
+        cx, cy = int(round(x0 + (24 * b + 12) * scale)), int(round(y0 + 12 * scale))
+        patch = a[max(0, cy - r):cy + r + 1, max(0, cx - r):cx + r + 1].reshape(-1, 3)
+        if len(patch) == 0:
+            raise ValueError("status strip block %d is outside the image" % b)
+        m = patch.mean(axis=0)
+        digits.append(4 * (m[0] > 128) + 2 * (m[1] > 128) + 1 * (m[2] > 128))
+    digits = [int(d) for d in digits]
+    if digits[:5] != [7, 0, 4, 2, 1] or digits[20] != 7:
+        raise ValueError("no status strip at (%s, %s) scale %s: blocks read %s" % (x0, y0, scale, digits))
+
+    def number(ds):
+        n = 0
+        for d in ds:
+            n = n * 8 + d
+        return n
+    app_id, flags = number(digits[5:7]), digits[19]
+    return {"app": STRIP_APPS.get(app_id, "?"), "app_id": app_id, "count": number(digits[7:11]),
+            "hash": number(digits[11:19]), "flags": flags, "mouse_down": bool(flags & 1),
+            "key_down": bool(flags & 2), "modal": bool(flags & 4)}
+
+
+# --------------------------------------------------------------------------
 # Self-test
 
 def selftest(keep=False, verbose=True):
@@ -1033,6 +1073,7 @@ def main(argv):
     import argparse
     ap = argparse.ArgumentParser(description="Boot a headless Folk for simulation; see the module docstring.")
     ap.add_argument("--selftest", action="store_true", help="run the harness self-test")
+    ap.add_argument("--decode-strip", metavar="PNG", help="decode a test app's status strip from a screenshot (JSON)")
     ap.add_argument("--keep", action="store_true", help="keep HOME and logs")
     ap.add_argument("--display", default="1280x720")
     ap.add_argument("--port", type=int)
@@ -1041,6 +1082,11 @@ def main(argv):
     ap.add_argument("programs", nargs="*", help="sim programs to load (e.g. test/sim/programs/sim-setup.folk)")
     args = ap.parse_args(argv)
     signal.signal(signal.SIGTERM, lambda *a: sys.exit(143))
+    if args.decode_strip:
+        import json
+        from PIL import Image
+        print(json.dumps(decode_strip(Image.open(args.decode_strip))))
+        return 0
     if args.selftest:
         return selftest(keep=args.keep)
     with FolkSim(display=args.display, port=args.port, programs=args.programs, keep=args.keep) as folk:
