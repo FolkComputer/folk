@@ -74,6 +74,7 @@ $cc code {
     #define RB "\x7d"
     #define BR_MAX 64
     #define BR_RECENT 64
+    #define BR_SETTLE_S 0.2      // quiet time after which the picture is refreshed once
     #define BR_WAITERS 16
     #define BR_DEVICES 8
     #define BR_QUEUE 128
@@ -163,7 +164,7 @@ $cc code {
 
         // stats
         _Atomic long framesReceived, framesDecoded, framesUploaded, decodeErrors;
-        _Atomic long inputSent, keysSent, mouseSent, eventsQueued, eventsLate, gapsSkipped, eventsDuplicate;
+        _Atomic long inputSent, keysSent, mouseSent, eventsQueued, eventsLate, gapsSkipped, eventsDuplicate, settleShots;
         _Atomic long msgsReceived, bytesReceived, ignoredIds;
         double lastFrameLatencyMs, lastDecodeMs, lastUploadMs, frameArrivedAt;
         double createdAt, firstFrameAt;
@@ -1107,9 +1108,10 @@ $cc code {
         Browser* b = arg;
         brBlockSignals();
         double inputDue = 0, lastInfo = brNow();
+        long lastActivity = 0; double lastActivityAt = 0; bool settled = true;
         pthread_mutex_lock(&b->mu);
         while (!b->quit) {
-            double now = brNow(), next = now + 0.5;
+            double now = brNow(), next = now + 0.25;
             // 1. frame acks that are due
             while (b->nAcks > 0 && b->ackDue[0] <= now) {
                 int ackId = b->ackIds[0];
@@ -1132,6 +1134,27 @@ $cc code {
                 pthread_mutex_unlock(&b->mu);
                 brAskInfo(b);
                 pthread_mutex_lock(&b->mu);
+            }
+            // 2c. Chromium drops a screencast frame that is ready while earlier ones are
+            // still unacknowledged, and never sends it again if the page then stays as it
+            // is: the picture would be stuck one step behind the page (seen after scrolling
+            // with the keyboard). So once frames and input have been quiet for a moment,
+            // ask for one screenshot: the picture always ends up being the page.
+            long activity = b->framesReceived + b->inputSent;
+            now = brNow();
+            if (activity != lastActivity) { lastActivity = activity; lastActivityAt = now; settled = false; }
+            if (!settled && b->ready && !b->closed) {
+                if (now - lastActivityAt >= BR_SETTLE_S) {
+                    settled = true;
+                    b->shotBase = b->framesReceived;
+                    b->settleShots++;
+                    int quality = b->quality;
+                    pthread_mutex_unlock(&b->mu);
+                    brCmdf(b, ID_FRAME_SHOT, true, "Page.captureScreenshot", "\"format\":\"jpeg\",\"quality\":%d", quality);
+                    pthread_mutex_lock(&b->mu);
+                } else if (lastActivityAt + BR_SETTLE_S < next) {
+                    next = lastActivityAt + BR_SETTLE_S;
+                }
             }
             // 3. upload
             if (b->frameDirty || b->cursorDirty) {
@@ -1403,14 +1426,14 @@ $cc code {
             "pid %d width %d height %d fps %d ready %d state %s texture %d "
             "framesReceived %ld framesDecoded %ld framesUploaded %ld decodeErrors %ld "
             "inputEventsSent %ld keyEventsSent %ld mouseEventsSent %ld "
-            "eventsReordered %ld eventsLate %ld gapsSkipped %ld eventsDuplicate %ld "
+            "eventsReordered %ld eventsLate %ld gapsSkipped %ld eventsDuplicate %ld settleShots %ld "
             "messagesReceived %ld bytesReceived %ld "
             "lastFrameLatencyMs %.1f lastDecodeMs %.2f lastUploadMs %.2f "
             "uptimeS %.3f firstFrameAfterS %.3f dialogs %d popups %d",
             (int)b->pid, b->w, b->h, b->fps, (int)b->ready, b->state, (int)b->tex,
             (long)b->framesReceived, (long)b->framesDecoded, (long)b->framesUploaded, (long)b->decodeErrors,
             (long)b->inputSent, (long)b->keysSent, (long)b->mouseSent,
-            (long)b->eventsQueued, (long)b->eventsLate, (long)b->gapsSkipped, (long)b->eventsDuplicate,
+            (long)b->eventsQueued, (long)b->eventsLate, (long)b->gapsSkipped, (long)b->eventsDuplicate, (long)b->settleShots,
             (long)b->msgsReceived, (long)b->bytesReceived,
             b->lastFrameLatencyMs, b->lastDecodeMs, b->lastUploadMs,
             now - b->createdAt, b->firstFrameAt > 0 ? b->firstFrameAt - b->createdAt : -1.0,
