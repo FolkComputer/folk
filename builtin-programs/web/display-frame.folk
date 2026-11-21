@@ -18,6 +18,20 @@ When the png library is /pngLib/ & the jpeg library is /jpegLib/ {
             if {[llength $displays] == 0} { error "display-frame: No display" }
             set display [dict get [lindex $displays 0] display]
         }
+        # Refuse right away rather than wait for frames that never come
+        # (this runs on the web server's only thread).
+        if {[llength [Query! display $display has width /w/ height /h/]] == 0} {
+            error "display-frame: No display $display"
+        }
+        if {$display ne "headless"} {
+            set capturable false
+            foreach r [Query! /someone/ wishes $::thisNode uses display $display with /...opts/] {
+                if {[dict getdef [dict get $r opts] capturable false]} { set capturable true }
+            }
+            if {!$capturable} {
+                error "display-frame: Display $display is not capturable (wish it with capturable true)"
+            }
+        }
         set format [dict getdef $QUERY format png]
         if {$format ni {png jpeg}} {
             error "display-frame: format should be png or jpeg"
