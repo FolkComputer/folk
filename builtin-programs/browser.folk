@@ -43,6 +43,17 @@
 # FOLK_BROWSER_FLAGS (extra command-line flags), FOLK_BROWSER_TRACE
 # (a file that gets every DevTools message, for debugging).
 #
+# Not shown (Chromium draws them outside the page's picture): the
+# pickers of <input type=date|time|color>, datalist suggestions,
+# native context menus, tooltips. A <select> opened with the mouse
+# shows its list in the page (lib/browser-page-shim.js, injected into
+# every page, styles it `appearance: base-select` while it is open).
+#
+# Security: as root, Chromium runs with --no-sandbox; a renderer bug
+# in any page shown is then a root compromise. Run Folk as a normal
+# user if it shows pages you don't trust. browserEval/browserSend are
+# reachable by anyone who can reach Folk's web port.
+#
 # The picture is drawn straight onto the display, over the thing's
 # quad (not into its canvas); what the thing draws on its own canvas
 # ends up underneath. Sound is not muted: Chromium inherits Folk's
@@ -74,6 +85,7 @@ $cc code {
     #define RB "\x7d"
     #define BR_MAX 64
     #define BR_RECENT 64
+    static char* brPageScriptJson = NULL;   // JSON string: a script for every new document
     #define BR_SETTLE_S 0.2      // quiet time after which the picture is refreshed once
     #define BR_WAITERS 16
     #define BR_DEVICES 8
@@ -139,7 +151,9 @@ $cc code {
         pthread_mutex_t wmu;               // pipe writes
         pthread_mutex_t mu;                // everything below, up to the input section
         pthread_cond_t replyCond, workCond;
-        bool ready, closed, reaped, focusEmulated;
+        bool ready, closed, exited, focusEmulated;
+        bool superseded, supersedeHandled, supersedeReported;  // a newer browser took over its thing
+        char thing[256];
         char targetId[64], sessionId[80];
         char popupId[64];
         char* wantUrl; char* shownUrl;
@@ -644,6 +658,10 @@ $cc code {
     // ---- input: mouse
 
     static const char* brButtonNames[5] = { "left", "right", "middle", "back", "forward" };
+    static bool brAnyButtons(Browser* b) {
+        for (int i = 0; i < BR_DEVICES; i++) if (b->devices[i].used && b->devices[i].buttons) return true;
+        return false;
+    }
     static const char* brPrimaryButton(int buttons) {
         for (int i = 0; i < 5; i++) if (buttons & (1 << i)) return brButtonNames[i];
         return "none";
@@ -684,11 +702,14 @@ $cc code {
                            b->clickCount[i] > 0 ? b->clickCount[i] : 1, b->keyMods);
         }
         dev->buttons = cur; b->buttons = cur;
-        if (wheel != 0 || hwheel != 0) {
+        // One wheel event per notch (mouse.folk may have merged several into one report).
+        for (int n = 0; n < abs(wheel) + abs(hwheel) && n < 64; n++) {
+            bool vertical = n < abs(wheel);
+            int dX = vertical ? 0 : (hwheel > 0 ? 100 : -100), dY = vertical ? (wheel > 0 ? -100 : 100) : 0;
             sent += brCmdf(b, ID_IGNORE, true, "Input.dispatchMouseEvent",
                            "\"type\":\"mouseWheel\",\"x\":%.1f,\"y\":%.1f,\"button\":\"none\",\"buttons\":%d,"
                            "\"deltaX\":%d,\"deltaY\":%d,\"modifiers\":%d",
-                           b->px, b->py, cur, hwheel * 100, -wheel * 100, b->keyMods);
+                           b->px, b->py, cur, dX, dY, b->keyMods);
         }
         b->inputSent += sent; b->mouseSent += sent;
         int nx = (int)b->px, ny = (int)b->py;
@@ -753,6 +774,9 @@ $cc code {
         pthread_mutex_lock(&b->inMu);
         BrDevice* dev = brDevice(b, path);
         double now = brNow();
+        // Quiet for a while: an out-of-sequence number now is not a reordered neighbour but
+        // a new reader (it counts from 1 again) or events nobody was subscribed to.
+        bool quiet = dev->lastArrival == 0 || now - dev->lastArrival > fmax(0.2, 4 * b->quietS);
         ev->arrival = now; dev->lastArrival = now;
         if (ev->seq <= 0) {
             brDispatch(b, dev, ev);                       // unnumbered: arrival order is all we have
@@ -760,7 +784,7 @@ $cc code {
             dev->lastSeq = ev->seq; brDispatch(b, dev, ev);
             brDrain(b, dev);
         } else if (ev->seq <= dev->lastSeq) {
-            if (dev->lastSeq - ev->seq > 4 * BR_QUEUE) {  // the device started counting again
+            if (quiet || dev->lastSeq - ev->seq > 4 * BR_QUEUE) {  // the device started counting again
                 while (dev->n > 0) brSkipGap(b, dev);
                 dev->lastSeq = ev->seq;
                 memset(dev->recent, 0, sizeof(dev->recent));
@@ -793,9 +817,9 @@ $cc code {
             while (dev->used && dev->n > 0) {
                 double oldest = dev->q[0].arrival;
                 for (int j = 1; j < dev->n; j++) if (dev->q[j].arrival < oldest) oldest = dev->q[j].arrival;
-                // Wait while events are still trickling in, but not forever.
-                double due = dev->lastArrival + b->quietS;
-                if (oldest + 8 * b->quietS < due) due = oldest + 8 * b->quietS;
+                // A missing event gets one reorder window to turn up, counted from the oldest
+                // event waiting for it (later arrivals must not extend the wait).
+                double due = oldest + b->quietS;
                 if (brNow() >= due) { brSkipGap(b, dev); }
                 else { if (next == 0 || due < next) next = due; break; }
             }
@@ -860,6 +884,13 @@ $cc code {
             pthread_mutex_lock(&b->mu); snprintf(b->sessionId, sizeof(b->sessionId), "%s", sid); pthread_mutex_unlock(&b->mu);
             brCmd(b, ID_IGNORE, true, "Page.enable", NULL);
             brCmd(b, ID_IGNORE, true, "Runtime.enable", NULL);
+            // lib/browser-page-shim.js (e.g. makes <select> lists part of the picture)
+            if (brPageScriptJson != NULL) {
+                size_t n = strlen(brPageScriptJson) + 16; char* params = malloc(n);
+                snprintf(params, n, "\"source\":%s", brPageScriptJson);
+                brCmd(b, ID_IGNORE, true, "Page.addScriptToEvaluateOnNewDocument", params);
+                free(params);
+            }
             brCmdf(b, ID_IGNORE, true, "Emulation.setDeviceMetricsOverride",
                    "\"width\":%d,\"height\":%d,\"deviceScaleFactor\":1,\"mobile\":false", b->w, b->h);
             // The screencast has to be running BEFORE the first navigation: started right
@@ -1054,6 +1085,7 @@ $cc code {
     static void* brReaderMain(void* arg) {
         Browser* b = arg;
         brBlockSignals();
+        if (b->quit) return NULL;                         // destroyed before it got going
         if (!brSpawn(b)) {
             pthread_mutex_lock(&b->mu); snprintf(b->lastError, sizeof(b->lastError), "could not start %s", b->argv[0]); pthread_mutex_unlock(&b->mu);
             brClosed(b); return NULL;
@@ -1088,11 +1120,11 @@ $cc code {
         }
         free(buf);
         if (!b->quit) {
-            int status;
+            siginfo_t info; memset(&info, 0, sizeof(info));
             pthread_mutex_lock(&b->mu);
-            if (waitpid(b->pid, &status, WNOHANG) == b->pid) {
-                b->reaped = true;
-                if (WIFEXITED(status) && WEXITSTATUS(status) == 127) {
+            if (waitid(P_PID, b->pid, &info, WEXITED | WNOHANG | WNOWAIT) == 0 && info.si_pid == b->pid) {
+                b->exited = true;
+                if (info.si_code == CLD_EXITED && info.si_status == 127) {
                     snprintf(b->lastError, sizeof(b->lastError), "could not exec %s", b->argv[0]);
                 }
             }
@@ -1156,8 +1188,20 @@ $cc code {
                     next = lastActivityAt + BR_SETTLE_S;
                 }
             }
+            // 2d. superseded: no more sound, CPU or pictures from this one
+            if (b->superseded && !b->supersedeHandled) {
+                b->supersedeHandled = true;
+                pid_t pid = b->pid;
+                pthread_mutex_unlock(&b->mu);
+                if (pid > 0) kill(-pid, SIGKILL);
+                memset(b->compose, 0, (size_t)b->w * b->h * 4);     // transparent
+                Image im = { .width = b->w, .height = b->h, .components = 4, .bytesPerRow = b->w * 4, .uniq = 0, .data = b->compose };
+                brGpuUpdateTexture(b->tex, im);
+                pthread_mutex_lock(&b->mu);
+                continue;
+            }
             // 3. upload
-            if (b->frameDirty || b->cursorDirty) {
+            if ((b->frameDirty || b->cursorDirty) && !b->superseded) {
                 // Frames are already paced (by the acks): show a new one as soon as it is
                 // there. A cursor that merely moved is redrawn at most fps times a second.
                 double due = b->lastUpload + (b->frameDirty ? 0.5 : 1.0) / b->fps;
@@ -1195,7 +1239,7 @@ $cc code {
     // One browser per key: creating it again (a rule body that ran twice, or that runs
     // again while the destructor of its previous run is still pending) gives the same one,
     // and it lives until it has been destroyed as often as it was created.
-    static int brCreate(const char* key, int w, int h, int fps, int quality, double pointerSpeed, int quietMs, Jim_Obj* argvObj) {
+    static int brCreate(const char* thing, const char* key, int w, int h, int fps, int quality, double pointerSpeed, int quietMs, Jim_Obj* argvObj) {
         pthread_mutex_lock(&brRegMu);
         for (int i = 0; i < BR_MAX; i++) {
             if (brTable[i] != NULL && strcmp(brTable[i]->key, key) == 0) {
@@ -1210,6 +1254,7 @@ $cc code {
         FOLK_ENSURE(w >= 16 && h >= 16 && w <= 8192 && h <= 8192);
         Browser* b = calloc(1, sizeof(Browser));
         snprintf(b->key, sizeof(b->key), "%s", key); b->claims = 1;
+        snprintf(b->thing, sizeof(b->thing), "%s", thing);
         b->w = w; b->h = h;
         b->fps = fps < 1 ? 1 : (fps > 120 ? 120 : fps);
         b->quality = quality < 1 ? 1 : (quality > 100 ? 100 : quality);
@@ -1264,6 +1309,23 @@ $cc code {
 
         b->readerStarted = pthread_create(&b->reader, NULL, brReaderMain, b) == 0;
         b->workerStarted = pthread_create(&b->worker, NULL, brWorkerMain, b) == 0;
+
+        // An older browser for the same thing (its size or settings changed) is superseded:
+        // its wish lingers for `keep`, but it must not be seen, heard or fed input meanwhile.
+        int older[BR_MAX]; int nOlder = 0;
+        pthread_mutex_lock(&brRegMu);
+        for (int i = 0; i < BR_MAX; i++) {
+            if (brTable[i] != NULL && brTable[i] != b && strcmp(brTable[i]->thing, thing) == 0) older[nOlder++] = brTable[i]->id;
+        }
+        pthread_mutex_unlock(&brRegMu);
+        for (int i = 0; i < nOlder; i++) {
+            Browser* o = brAcquire(older[i]);
+            if (o == NULL) continue;
+            pthread_mutex_lock(&o->mu);
+            o->superseded = true; pthread_cond_signal(&o->workCond);
+            pthread_mutex_unlock(&o->mu);
+            brRelease(o);
+        }
         return b->id;
     }
     static void brDestroy(int id) {
@@ -1284,13 +1346,17 @@ $cc code {
         pid_t pid = b->pid;
         pthread_cond_broadcast(&b->replyCond); pthread_cond_broadcast(&b->workCond);
         pthread_mutex_unlock(&b->mu);
+        // The whole process group (zygotes, renderers, the GPU process), BEFORE joining: a
+        // thread blocked writing into a pipe that Chromium stopped draining only returns
+        // once Chromium is gone. Nobody reaps Chromium before the waitpid below, so its
+        // group id cannot have been recycled.
+        if (pid > 0) kill(-pid, SIGKILL);
         if (b->readerStarted) pthread_join(b->reader, NULL);     // (after this, b->pid cannot change)
         if (b->workerStarted) pthread_join(b->worker, NULL);
         pid = b->pid;
         if (pid > 0) {
-            // The whole process group: zygotes, renderers, the GPU process.
-            kill(-pid, SIGKILL);
-            while (!b->reaped && waitpid(pid, NULL, 0) < 0 && errno == EINTR) {}
+            kill(-pid, SIGKILL);                          // (in case the reader spawned it meanwhile)
+            while (waitpid(pid, NULL, 0) < 0 && errno == EINTR) {}
         }
         // Calls that were in flight have been woken up; wait for them to leave.
         pthread_mutex_lock(&brRegMu);
@@ -1455,6 +1521,14 @@ $cc code {
         Jim_Obj* r = Jim_NewListObj(interp, NULL, 0);
         Browser* b = brAcquire(id);
         if (b == NULL) return r;
+        pthread_mutex_lock(&b->mu);
+        bool superseded = b->superseded, report = superseded && !b->supersedeReported;
+        if (report) b->supersedeReported = true;
+        pthread_mutex_unlock(&b->mu);
+        if (superseded) {
+            if (report) Jim_ListAppendElement(interp, r, Jim_NewStringObj(interp, "superseded", -1));
+            brRelease(b); return r;
+        }
         double now = brNow();
         pthread_mutex_lock(&b->inMu);
         int x = (int)b->px, y = (int)b->py, buttons = b->buttons;
@@ -1546,6 +1620,40 @@ $cc code {
         brSubmit(b, dev, &ev);
         brRelease(b);
     }
+    static void brReleaseDevice(int id, const char* path) {
+        Browser* b = brAcquire(id);
+        if (b == NULL) return;
+        pthread_mutex_lock(&b->inMu);
+        for (int i = 0; i < BR_DEVICES; i++) {
+            BrDevice* dev = &b->devices[i];
+            if (!dev->used || strcmp(dev->path, path) != 0) continue;
+            int cur = dev->buttons;
+            for (int j = 0; j < 5 && b->ready; j++) {
+                if (!(cur & (1 << j))) continue;
+                cur &= ~(1 << j);
+                brCmdf(b, ID_IGNORE, true, "Input.dispatchMouseEvent",
+                       "\"type\":\"mouseReleased\",\"x\":%.1f,\"y\":%.1f,\"button\":\"%s\",\"buttons\":%d,\"clickCount\":1,\"modifiers\":%d",
+                       b->px, b->py, brButtonNames[j], cur, b->keyMods);
+            }
+            for (int ev = 0; ev < 256 && b->ready && dev->heldModKeys; ev++) {
+                int bit = brModKeyBit(ev);
+                if (!bit || !(dev->heldModKeys & bit)) continue;
+                dev->heldModKeys &= ~bit;
+                const BrKey* k = brKeyByCode(ev);
+                if (k == NULL) continue;
+                char* jkey = brJsonStr(k->key);
+                brCmdf(b, ID_IGNORE, true, "Input.dispatchKeyEvent",
+                       "\"type\":\"keyUp\",\"key\":%s,\"code\":\"%s\",\"windowsVirtualKeyCode\":%d,\"nativeVirtualKeyCode\":%d,"
+                       "\"modifiers\":%d,\"location\":%d", jkey, k->code, k->vk, k->vk, brModsOfKeys(dev->heldModKeys), k->loc);
+                free(jkey);
+            }
+            dev->buttons = 0; dev->heldModKeys = 0; dev->n = 0;
+            if (b->buttons && !brAnyButtons(b)) b->buttons = 0;
+            b->keyMods = 0;
+        }
+        pthread_mutex_unlock(&b->inMu);
+        brRelease(b);
+    }
     static void brPointerShown(int id, int delta) {
         Browser* b = brAcquire(id);
         if (b == NULL) return;
@@ -1570,9 +1678,13 @@ $cc code {
 # key: what the browser is for (one browser per key, see brCreate).
 # argv: the command line up to (not including) --user-data-dir,
 # --window-size and the URL, which browserCreate adds.
-$cc proc browserCreate {char* key int w int h int fps int quality double pointerSpeed int reorderWindowMs Jim_Obj* argv} int {
-    return brCreate(key, w, h, fps, quality, pointerSpeed, reorderWindowMs, argv);
+$cc proc browserCreate {char* thing char* key int w int h int fps int quality double pointerSpeed int reorderWindowMs Jim_Obj* argv} int {
+    return brCreate(thing, key, w, h, fps, quality, pointerSpeed, reorderWindowMs, argv);
 }
+# A JSON string with a script that every new document of every browser runs first.
+$cc proc browserSetPageScript {char* json} void { free(brPageScriptJson); brPageScriptJson = strdup(json); }
+# A keyboard or mouse stopped targeting the browser: release what it still holds.
+$cc proc browserReleaseDevice {int b char* device} void { brReleaseDevice(b, device); }
 $cc proc browserDestroy {int b} void { brDestroy(b); }
 # JSON text of the value of a JavaScript expression (awaits promises).
 $cc proc browserEval {int b char* js} Jim_Obj* { return brEval(b, js, 5000); }
@@ -1594,6 +1706,11 @@ $cc proc browserPointerShown {int b int delta} void { brPointerShown(b, delta); 
 $cc proc browserGroupAlive {int pgid} bool { return brGroupAlive(pgid); }
 
 set browserLib [$cc compile]
+apply {{browserLib} {
+    set fd [open lib/browser-page-shim.js r]
+    $browserLib browserSetPageScript [json::encode [read $fd] str]
+    close $fd
+}} $browserLib
 Claim the web browser library is $browserLib
 
 # Which Chromium? (First that exists.)
@@ -1625,7 +1742,10 @@ lappend browserArgv --remote-debugging-pipe --hide-scrollbars --force-device-sca
     --disable-background-timer-throttling --disable-renderer-backgrounding \
     --disable-backgrounding-occluded-windows --no-first-run --no-default-browser-check \
     --disable-features=Translate --autoplay-policy=no-user-gesture-required
-if {[exec id -u] == 0} { lappend browserArgv --no-sandbox }
+if {[exec id -u] == 0} {
+    puts stderr "browser: Folk runs as root, so Chromium runs without its sandbox: a renderer bug in a page shown is a root compromise"
+    lappend browserArgv --no-sandbox
+}
 if {[info exists ::env(FOLK_BROWSER_FLAGS)]} { lappend browserArgv {*}$::env(FOLK_BROWSER_FLAGS) }
 
 # Profile directories of Folks that are gone (a killed Folk cannot
@@ -1667,15 +1787,19 @@ When /thing/ is a web browser with width /w/ height /h/ settings /settings/ {
     if {$browserBinary eq ""} {
         error "browser: no Chromium found (install chromium or set FOLK_BROWSER)"
     }
-    set b [$browserLib browserCreate [list $thing $w $h $settings] $w $h [dict get $settings fps] [dict get $settings quality] \
+    set b [$browserLib browserCreate $thing [list $thing $w $h $settings] $w $h [dict get $settings fps] [dict get $settings quality] \
                [dict get $settings pointerSpeed] [dict get $settings reorderWindow] $browserArgv]
     Claim -destructor [list $browserLib browserDestroy $b] $thing has web browser $b
-}
-
-When /thing/ has web browser /b/ {
+    # These are here, not in the rule on `has web browser` below: what is
+    # derived from that statement inherits its destructor, and these
+    # statements are the same for a browser's successor (after a size
+    # change), which would keep the old browser alive.
     Wish tag $thing is stabilized
     Claim $thing handles keyboard input
     Claim $thing handles mouse input
+}
+
+When /thing/ has web browser /b/ {
     Claim web browser $thing has texture [$browserLib browserTexture $b]
 
     When /someone/ wishes $thing is a web browser showing /url/ with /...options/ {
@@ -1686,25 +1810,34 @@ When /thing/ has web browser /b/ {
     When -serially the clock time is /t/ {
         set changes [$browserLib browserPoll $b]
         if {[llength $changes] == 0} { return }
+        if {[lindex $changes 0] eq "superseded"} {
+            # A newer browser for this thing publishes from now on.
+            foreach k {url title state viewport frames pointer dialog popup} {
+                Hold! -key [list web browser $thing $b $k] {}
+            }
+            return
+        }
+        # (`--`: titles, URLs and dialog texts come from the page, and
+        # Hold! would take one that looks like -keep for an option.)
         foreach {k v} [lrange $changes 1 end] {
-            set key [list web browser $thing $k]
+            set key [list web browser $thing $b $k]
             switch $k {
-                url { Hold! -key $key Claim web browser $thing has url $v }
-                title { Hold! -key $key Claim web browser $thing has title $v }
-                state { Hold! -key $key Claim web browser $thing has loading state $v }
-                viewport { Hold! -key $key Claim web browser $thing has viewport {*}$v }
-                frames { Hold! -key $key Claim web browser $thing has frame count $v }
+                url { Hold! -key $key -- Claim web browser $thing has url $v }
+                title { Hold! -key $key -- Claim web browser $thing has title $v }
+                state { Hold! -key $key -- Claim web browser $thing has loading state $v }
+                viewport { Hold! -key $key -- Claim web browser $thing has viewport {*}$v }
+                frames { Hold! -key $key -- Claim web browser $thing has frame count $v }
                 pointer {
                     lassign $v x y buttons
-                    Hold! -key $key Claim web browser $thing has pointer $x $y buttons $buttons
+                    Hold! -key $key -- Claim web browser $thing has pointer $x $y buttons $buttons
                 }
                 dialog {
                     lassign $v type message count
-                    Hold! -key $key Claim web browser $thing handled dialog $type with message $message count $count
+                    Hold! -key $key -- Claim web browser $thing handled dialog $type with message $message count $count
                 }
                 popup {
                     lassign $v popupUrl count
-                    Hold! -key $key Claim web browser $thing redirected popup $popupUrl count $count
+                    Hold! -key $key -- Claim web browser $thing redirected popup $popupUrl count $count
                 }
             }
         }
@@ -1712,7 +1845,7 @@ When /thing/ has web browser /b/ {
     }
     On unmatch {
         foreach k {url title state viewport frames pointer dialog popup} {
-            Hold! -key [list web browser $thing $k] {}
+            Hold! -key [list web browser $thing $b $k] {}
         }
     }
 
@@ -1725,12 +1858,14 @@ When /thing/ has web browser /b/ {
     # repeated sequence numbers.)
     When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
          /keyboard/ is typing into $thing {
+        On unmatch { $browserLib browserReleaseDevice $b $kbPath }
         Subscribe: keyboard $kbPath claims key /key/ is /direction/ with /...options/ {
             $browserLib browserKey $b $kbPath $key $direction $options
         }
     }
     When /keyboard/ is a keyboard with path /kbPath/ &\
          /keyboard/ is typing into $thing {
+        On unmatch { $browserLib browserReleaseDevice $b $kbPath }
         When /nobody/ claims $keyboard is a keyboard with path $kbPath /...anything/ {
             Subscribe: keyboard $kbPath claims key /key/ is /direction/ with /...options/ {
                 $browserLib browserKey $b $kbPath $key $direction $options
@@ -1741,7 +1876,10 @@ When /thing/ has web browser /b/ {
     When /mouse/ is a mouse with path /mousePath/ &\
          /mouse/ is pointing into $thing {
         $browserLib browserPointerShown $b 1
-        On unmatch { $browserLib browserPointerShown $b -1 }
+        On unmatch {
+            $browserLib browserPointerShown $b -1
+            $browserLib browserReleaseDevice $b $mousePath
+        }
         Subscribe: mouse $mousePath claims report with /...options/ {
             $browserLib browserMouse $b $mousePath $options
         }
@@ -1749,7 +1887,10 @@ When /thing/ has web browser /b/ {
     When /mouse/ is a mouse with path /mousePath/ /...anything/ &\
          /mouse/ is pointing into $thing {
         $browserLib browserPointerShown $b 1
-        On unmatch { $browserLib browserPointerShown $b -1 }
+        On unmatch {
+            $browserLib browserPointerShown $b -1
+            $browserLib browserReleaseDevice $b $mousePath
+        }
         Subscribe: mouse $mousePath claims report with /...options/ {
             $browserLib browserMouse $b $mousePath $options
         }

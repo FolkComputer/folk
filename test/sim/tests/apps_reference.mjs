@@ -172,6 +172,8 @@ async function runAction(page, a) {
 async function runScenario(browser, base, sc, out) {
   const session = sc.name + '-' + Date.now().toString(36);
   const context = await browser.newContext({ viewport: { width: 1024, height: 640 }, deviceScaleFactor: 1 });
+  // The pages see what they see in Folk's browser: the same page shim (lib/browser-page-shim.js).
+  await context.addInitScript({ content: fs.readFileSync(path.join(simDir, '..', '..', 'lib', 'browser-page-shim.js'), 'utf8') });
   const page = await context.newPage();
   const problems = [], consoleLines = [], dialogs = [];
   page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') consoleLines.push(m.type() + ': ' + m.text()); });
