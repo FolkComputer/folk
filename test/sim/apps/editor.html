@@ -1,0 +1,211 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>sim: editor</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  .tb { top: 48px; width: 116px; height: 44px; }
+  #findbar { left: 16px; top: 100px; width: 992px; height: 48px; background: #ffe680; border: 2px solid #1d2433; display: none; }
+  #findbar input { position: absolute; top: 4px; height: 36px; width: 220px; padding: 0 6px; border: 2px solid #1d2433; font: 18px "DejaVu Sans Mono", monospace; user-select: text; -webkit-user-select: text; }
+  #findbar .btn { top: 2px; height: 40px; }
+  #count { position: absolute; left: 836px; top: 12px; width: 90px; font-size: 14px; }
+  .edit { position: absolute; top: 156px; width: 488px; height: 376px; padding: 8px; margin: 0; border: 2px solid #1d2433; background: #fff;
+          font: 18px/24px "DejaVu Sans Mono", monospace; white-space: pre-wrap; overflow: auto; resize: none; outline: none;
+          user-select: text; -webkit-user-select: text; }
+  .edit:focus { border-color: #d22; }
+  #textarea { left: 16px; }
+  #rich { left: 520px; }
+  #stats { left: 16px; top: 540px; width: 992px; height: 24px; font-size: 16px; line-height: 24px; white-space: pre; overflow: hidden; }
+  #clip { left: 16px; top: 568px; width: 992px; height: 40px; padding: 8px; font-size: 16px; line-height: 20px; white-space: pre; overflow: hidden; }
+</style>
+</head>
+<body>
+<div class="title">editor &mdash; textarea (left), contenteditable (right)</div>
+<button class="btn tb" style="left:16px"  data-testid="btn-upper" data-cmd="upper">UPPER</button>
+<button class="btn tb" style="left:140px" data-testid="btn-lower" data-cmd="lower">lower</button>
+<button class="btn tb" style="left:264px" data-testid="btn-cut" data-cmd="cut">cut</button>
+<button class="btn tb" style="left:388px" data-testid="btn-copy" data-cmd="copy">copy</button>
+<button class="btn tb" style="left:512px" data-testid="btn-paste" data-cmd="paste">paste</button>
+<button class="btn tb" style="left:636px" data-testid="btn-selectall" data-cmd="selectall">select all</button>
+<button class="btn tb" style="left:760px" data-testid="btn-find" data-cmd="find">find</button>
+<button class="btn tb" style="left:884px;width:124px" data-testid="btn-clear" data-cmd="clear">clear</button>
+<div id="findbar" class="abs" data-testid="findbar">
+  <input id="find" style="left:8px" type="text" placeholder="find" data-testid="find-input" autocomplete="off" spellcheck="false">
+  <input id="repl" style="left:236px" type="text" placeholder="replace with" data-testid="replace-input" autocomplete="off" spellcheck="false">
+  <button class="btn" style="left:468px;width:80px" data-testid="find-next" data-cmd="find-next">next</button>
+  <button class="btn" style="left:556px;width:96px" data-testid="replace-one" data-cmd="replace-one">replace</button>
+  <button class="btn" style="left:660px;width:80px" data-testid="replace-all" data-cmd="replace-all">all</button>
+  <button class="btn" style="left:748px;width:80px" data-testid="find-close" data-cmd="find-close">close</button>
+  <div id="count" data-testid="find-count"></div>
+</div>
+<textarea id="textarea" class="edit" data-testid="textarea" spellcheck="false" autocomplete="off" wrap="soft"></textarea>
+<div id="rich" class="edit" data-testid="rich" contenteditable="plaintext-only" spellcheck="false"></div>
+<div id="stats" class="abs mono" data-testid="stats"></div>
+<div id="clip" class="panel mono" data-testid="clipboard"></div>
+<script src="common.js"></script>
+<script>
+(function () {
+  'use strict';
+  var ta = document.getElementById('textarea'), rich = document.getElementById('rich');
+  var findbar = document.getElementById('findbar'), findInput = document.getElementById('find'), replInput = document.getElementById('repl');
+  var st = { clipboard: '', active: 'textarea', findOpen: false };
+  ta.value = 'The quick brown fox\njumps over the lazy dog.\nPack my box with five dozen liquor jugs.\n';
+  rich.textContent = 'Folk rich text region.\nSecond line here.';
+
+  function words(s) { return s.trim() === '' ? 0 : s.trim().split(/\s+/).length; }
+  function richSel() {
+    var sel = window.getSelection();
+    if (!sel.rangeCount) return null;
+    var r = sel.getRangeAt(0);
+    if (!rich.contains(r.startContainer) || !rich.contains(r.endContainer)) return null;
+    var pre = document.createRange();
+    pre.selectNodeContents(rich); pre.setEnd(r.startContainer, r.startOffset);
+    var start = pre.toString().length;
+    return [start, start + r.toString().length];
+  }
+  function occurrences(text, q) {
+    if (!q) return 0;
+    var n = 0, i = -1;
+    while ((i = text.indexOf(q, i + 1)) >= 0) n++;
+    return n;
+  }
+  function update() {
+    var t = ta.value, r = rich.textContent;
+    document.getElementById('stats').textContent =
+      'textarea ' + words(t) + ' words ' + t.length + ' chars  sel ' + ta.selectionStart + '-' + ta.selectionEnd +
+      '   |   rich ' + words(r) + ' words ' + r.length + ' chars';
+    document.getElementById('clip').textContent = 'clipboard: ' + JSON.stringify(st.clipboard);
+    findbar.style.display = st.findOpen ? 'block' : 'none';
+    document.getElementById('count').textContent = st.findOpen ? occurrences(t, findInput.value) + ' found' : '';
+    sim.refresh();
+  }
+
+  // ---- own clipboard (does not depend on the browser's, which headless may not have)
+  function selectedText(which) {
+    if (which === 'textarea') return ta.value.slice(ta.selectionStart, ta.selectionEnd);
+    return richSel() ? window.getSelection().toString() : '';
+  }
+  function replaceSelection(which, text) {
+    if (which === 'textarea') { ta.focus(); ta.setRangeText(text, ta.selectionStart, ta.selectionEnd, 'end'); return; }
+    rich.focus();
+    if (!richSel()) {   // caret to the end
+      var r = document.createRange(); r.selectNodeContents(rich); r.collapse(false);
+      var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+    }
+    // plain DOM surgery instead of execCommand('insertText'), which turns newlines into blocks
+    var range = window.getSelection().getRangeAt(0);
+    range.deleteContents();
+    if (text !== '') {
+      var node = document.createTextNode(text);
+      range.insertNode(node);
+      range.setStartAfter(node);
+    }
+    range.collapse(true);
+    var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    rich.normalize();
+  }
+  function command(cmd, which) {
+    which = which || st.active;
+    var sel = selectedText(which);
+    if (cmd === 'copy') { if (sel !== '') st.clipboard = sel; }
+    else if (cmd === 'cut') { if (sel !== '') { st.clipboard = sel; replaceSelection(which, ''); } }
+    else if (cmd === 'paste') { if (st.clipboard !== '') replaceSelection(which, st.clipboard); }
+    else if (cmd === 'selectall') {
+      if (which === 'textarea') { ta.focus(); ta.select(); }
+      else { rich.focus(); var r = document.createRange(); r.selectNodeContents(rich); var s = window.getSelection(); s.removeAllRanges(); s.addRange(r); }
+    } else if (cmd === 'upper' || cmd === 'lower') {
+      if (sel !== '') {
+        var out = cmd === 'upper' ? sel.toUpperCase() : sel.toLowerCase();
+        if (which === 'textarea') { var a = ta.selectionStart; ta.setRangeText(out, a, ta.selectionEnd, 'select'); }
+        else replaceSelection(which, out);
+      }
+    } else if (cmd === 'clear') {
+      if (which === 'textarea') { ta.value = ''; ta.focus(); } else { rich.textContent = ''; rich.focus(); }
+    } else if (cmd === 'find') { openFind(); return; }
+    else if (cmd === 'find-next') { findNext(); return; }
+    else if (cmd === 'replace-one') { replaceOne(); return; }
+    else if (cmd === 'replace-all') { replaceAll(); return; }
+    else if (cmd === 'find-close') { closeFind(); return; }
+    sim.action(cmd, { on: which, clipboard: st.clipboard });
+    update();
+  }
+
+  // ---- find / replace (on the textarea)
+  function openFind() {
+    st.findOpen = true;
+    var sel = selectedText('textarea');
+    if (sel !== '' && sel.indexOf('\n') < 0) findInput.value = sel;
+    sim.action('find-open'); update();
+    findInput.focus(); findInput.select();
+  }
+  function closeFind() { st.findOpen = false; sim.action('find-close'); update(); ta.focus(); }
+  function findNext() {
+    var q = findInput.value, t = ta.value;
+    if (!q) return false;
+    var i = t.indexOf(q, ta.selectionEnd);
+    if (i < 0) i = t.indexOf(q);
+    if (i >= 0) ta.setSelectionRange(i, i + q.length);
+    sim.action('find-next', { q: q, at: i }); update();
+    return i >= 0;
+  }
+  function replaceOne() {
+    var q = findInput.value;
+    if (!q) return;
+    if (ta.value.slice(ta.selectionStart, ta.selectionEnd) !== q && !findNext()) return;
+    ta.setRangeText(replInput.value, ta.selectionStart, ta.selectionEnd, 'end');
+    sim.action('replace', { q: q, w: replInput.value });
+    findNext();
+  }
+  function replaceAll() {
+    var q = findInput.value;
+    if (!q) return;
+    var n = occurrences(ta.value, q);
+    ta.value = ta.value.split(q).join(replInput.value);
+    sim.action('replace-all', { q: q, w: replInput.value, n: n }); update();
+  }
+
+  // ---- wiring
+  Array.prototype.forEach.call(document.querySelectorAll('[data-cmd]'), function (b) {
+    // keep focus and selection where they are
+    b.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    b.addEventListener('click', function () { command(b.getAttribute('data-cmd')); });
+  });
+  ta.addEventListener('focus', function () { st.active = 'textarea'; update(); });
+  rich.addEventListener('focus', function () { st.active = 'rich'; update(); });
+  ta.addEventListener('input', update);
+  rich.addEventListener('input', update);
+  findInput.addEventListener('input', update);
+  document.addEventListener('selectionchange', update);
+  window.addEventListener('keydown', function (e) {
+    var k = e.key.toLowerCase(), inEditor = document.activeElement === ta || document.activeElement === rich;
+    if (e.ctrlKey && !e.altKey && k === 'f') { e.preventDefault(); openFind(); return; }
+    if (st.findOpen && k === 'escape') { e.preventDefault(); closeFind(); return; }
+    if (document.activeElement === findInput && k === 'enter') { e.preventDefault(); findNext(); return; }
+    if (document.activeElement === replInput && k === 'enter') { e.preventDefault(); replaceOne(); return; }
+    if (inEditor && e.ctrlKey && !e.altKey && !e.shiftKey) {
+      var which = document.activeElement === ta ? 'textarea' : 'rich';
+      if (k === 'c') { e.preventDefault(); command('copy', which); }
+      else if (k === 'x') { e.preventDefault(); command('cut', which); }
+      else if (k === 'v') { e.preventDefault(); command('paste', which); }
+      else if (k === 'a') { e.preventDefault(); command('selectall', which); }
+    }
+  }, true);
+
+  sim.init({
+    app: 'editor', id: 4,
+    state: function () {
+      return {
+        text: ta.value, sel: [ta.selectionStart, ta.selectionEnd], rich: rich.textContent, richSel: richSel(),
+        clipboard: st.clipboard, active: st.active, words: words(ta.value), chars: ta.value.length,
+        find: { open: st.findOpen, query: findInput.value, replace: replInput.value, count: occurrences(ta.value, findInput.value) },
+        focus: sim.tid(document.activeElement)
+      };
+    },
+    modal: function () { return st.findOpen; }
+  });
+  update();
+})();
+</script>
+</body>
+</html>

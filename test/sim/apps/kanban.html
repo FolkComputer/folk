@@ -1,0 +1,263 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>sim: kanban</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  .col { position: absolute; top: 56px; width: 320px; height: 548px; background: #dcd8cc; border: 2px solid #1d2433; }
+  .col.target { background: #cfe0ff; }
+  .colhead { position: absolute; left: 0; top: 0; width: 316px; height: 36px; line-height: 36px; padding-left: 12px; background: #1d2433; color: #fff; font-weight: bold; }
+  .card { position: absolute; left: 10px; width: 296px; height: 48px; padding: 0 12px; line-height: 44px; background: #fff; border: 2px solid #1d2433; overflow: hidden; white-space: nowrap; font-size: 18px; }
+  .card.sel { background: #ffe680; border-color: #b06000; }
+  .card.drag { z-index: 20; background: #c8f0c8; pointer-events: none; }
+  .placeholder { position: absolute; left: 10px; width: 296px; height: 48px; border: 3px dashed #2040e0; background: #eef2ff; }
+  #rename { position: absolute; left: 4px; top: 4px; width: 284px; height: 36px; padding: 0 6px; border: 2px solid #2040e0; font-size: 18px; user-select: text; -webkit-user-select: text; }
+  #menu { position: absolute; width: 200px; background: #fff; border: 2px solid #1d2433; z-index: 30; display: none; }
+  .mi { height: 40px; line-height: 40px; padding-left: 12px; border-bottom: 1px solid #bbb; }
+  .mi:hover { background: #cfe0ff; }
+</style>
+</head>
+<body>
+<div class="title">kanban &mdash; drag cards, double click renames, right click for a menu, N adds, arrows select</div>
+<div class="col" style="left:16px"  data-testid="col-todo"  data-col="todo"><div class="colhead">To do</div></div>
+<div class="col" style="left:352px" data-testid="col-doing" data-col="doing"><div class="colhead">Doing</div></div>
+<div class="col" style="left:688px" data-testid="col-done"  data-col="done"><div class="colhead">Done</div></div>
+<div id="menu" data-testid="menu">
+  <div class="mi" data-testid="menu-delete" data-act="delete">Delete</div>
+  <div class="mi" data-testid="menu-duplicate" data-act="duplicate">Duplicate</div>
+  <div class="mi" data-testid="menu-move-todo" data-act="move" data-to="todo">Move to To do</div>
+  <div class="mi" data-testid="menu-move-doing" data-act="move" data-to="doing">Move to Doing</div>
+  <div class="mi" data-testid="menu-move-done" data-act="move" data-to="done">Move to Done</div>
+</div>
+<script src="common.js"></script>
+<script>
+(function () {
+  'use strict';
+  var COLS = ['todo', 'doing', 'done'], TOP = 46, PITCH = 56;
+  var st = {
+    columns: {
+      todo: [{ id: 'c1', title: 'Write spec' }, { id: 'c2', title: 'Build prototype' }, { id: 'c3', title: 'Test input' }],
+      doing: [{ id: 'c4', title: 'Review design' }],
+      done: [{ id: 'c5', title: 'Kickoff' }, { id: 'c6', title: 'Budget' }]
+    },
+    selected: null, editing: null, menu: null, nextId: 7
+  };
+  var drag = null;   // {id, startX, startY, offX, offY, active, col, index}
+  var menu = document.getElementById('menu');
+
+  function colEl(c) { return document.querySelector('[data-col=' + c + ']'); }
+  function find(id) {
+    for (var c = 0; c < COLS.length; c++) {
+      var list = st.columns[COLS[c]];
+      for (var i = 0; i < list.length; i++) if (list[i].id === id) return { col: COLS[c], index: i, card: list[i] };
+    }
+    return null;
+  }
+
+  function render() {
+    COLS.forEach(function (c) {
+      var el = colEl(c);
+      Array.prototype.slice.call(el.querySelectorAll('.card, .placeholder')).forEach(function (n) { n.remove(); });
+      el.className = 'col' + (drag && drag.active && drag.col === c ? ' target' : '');
+      var slot = 0;
+      st.columns[c].forEach(function (card, i) {
+        if (drag && drag.active && drag.id === card.id) return;   // drawn floating, below
+        if (drag && drag.active && drag.col === c && drag.index === slot) { addPlaceholder(el, slot); slot++; }
+        el.appendChild(cardEl(card, TOP + PITCH * slot));
+        slot++;
+      });
+      if (drag && drag.active && drag.col === c && drag.index >= slot) addPlaceholder(el, slot);
+    });
+    if (drag && drag.active) {
+      var f = cardEl(find(drag.id).card, drag.y - drag.offY);
+      f.className += ' drag'; f.style.position = 'fixed'; f.style.left = (drag.x - drag.offX) + 'px';
+      document.body.appendChild(f);
+      drag.floating && drag.floating.remove();
+      drag.floating = f;
+    }
+    if (st.menu) { menu.style.display = 'block'; } else { menu.style.display = 'none'; }
+    sim.refresh();
+  }
+  function updateSelection() {
+    Array.prototype.forEach.call(document.querySelectorAll('.card'), function (n) {
+      n.classList.toggle('sel', n.getAttribute('data-card') === st.selected);
+    });
+    sim.refresh();
+  }
+  function addPlaceholder(el, slot) {
+    var p = document.createElement('div');
+    p.className = 'placeholder'; p.style.top = (TOP + PITCH * slot) + 'px'; p.setAttribute('data-testid', 'placeholder');
+    el.appendChild(p);
+  }
+  function cardEl(card, top) {
+    var d = document.createElement('div');
+    d.className = 'card' + (st.selected === card.id ? ' sel' : '');
+    d.style.top = top + 'px';
+    d.setAttribute('data-testid', 'card-' + card.id); d.setAttribute('data-card', card.id);
+    if (st.editing === card.id) {
+      var inp = document.createElement('input');
+      inp.id = 'rename'; inp.type = 'text'; inp.value = card.title; inp.setAttribute('data-testid', 'rename-input');
+      inp.setAttribute('autocomplete', 'off'); inp.setAttribute('spellcheck', 'false');
+      d.appendChild(inp);
+      setTimeout(function () { if (document.activeElement !== inp) { inp.focus(); inp.select(); } }, 0);
+    } else d.textContent = card.title;
+    return d;
+  }
+
+  // ---- editing
+  function startEdit(id) { st.editing = id; st.selected = id; sim.action('rename-start', { id: id }); render(); }
+  function endEdit(commit) {
+    if (!st.editing) return;
+    var id = st.editing, inp = document.getElementById('rename'), f = find(id);
+    st.editing = null;
+    if (commit && f && inp && inp.value.trim() !== '') {
+      f.card.title = inp.value.trim();
+      sim.action('rename', { id: id, title: f.card.title });
+    } else sim.action('rename-cancel', { id: id });
+    render();
+  }
+
+  // ---- card operations
+  function remove(id) {
+    var f = find(id); if (!f) return;
+    st.columns[f.col].splice(f.index, 1);
+    if (st.selected === id) st.selected = null;
+    sim.action('delete', { id: id });
+  }
+  function duplicate(id) {
+    var f = find(id); if (!f) return;
+    var copy = { id: 'c' + st.nextId++, title: f.card.title + ' copy' };
+    st.columns[f.col].splice(f.index + 1, 0, copy);
+    st.selected = copy.id;
+    sim.action('duplicate', { id: id, copy: copy.id });
+  }
+  function move(id, col, index) {
+    var f = find(id); if (!f) return;
+    st.columns[f.col].splice(f.index, 1);
+    var list = st.columns[col];
+    if (index === undefined || index > list.length) index = list.length;
+    list.splice(index, 0, f.card);
+    sim.action('move', { id: id, from: f.col, to: col, index: index });
+  }
+  function add() {
+    var f = st.selected && find(st.selected), col = f ? f.col : 'todo';
+    var card = { id: 'c' + st.nextId, title: 'Card ' + st.nextId }; st.nextId++;
+    st.columns[col].push(card); st.selected = card.id;
+    sim.action('add', { id: card.id, col: col });
+  }
+
+  // ---- pointer-event drag with a drop placeholder
+  function dropSpot(x, y) {
+    for (var c = 0; c < COLS.length; c++) {
+      var r = colEl(COLS[c]).getBoundingClientRect();
+      if (x < r.left || x >= r.right) continue;
+      var n = st.columns[COLS[c]].filter(function (k) { return k.id !== drag.id; }).length;
+      var index = Math.floor((y - r.top - TOP + PITCH / 2) / PITCH);
+      return { col: COLS[c], index: Math.max(0, Math.min(n, index)) };
+    }
+    return null;
+  }
+  document.addEventListener('pointerdown', function (e) {
+    var cardNode = e.target.closest && e.target.closest('[data-card]');
+    if (st.menu && !(e.target.closest && e.target.closest('#menu'))) { st.menu = null; sim.action('menu-close'); render(); }
+    if (e.button !== 0) return;
+    if (st.editing && !(e.target.id === 'rename')) endEdit(true);
+    if (!cardNode || e.target.id === 'rename') {
+      if (!cardNode && !(e.target.closest && e.target.closest('#menu')) && st.selected) { st.selected = null; updateSelection(); }
+      return;
+    }
+    var id = cardNode.getAttribute('data-card'), r = cardNode.getBoundingClientRect();
+    st.selected = id;
+    drag = { id: id, startX: e.clientX, startY: e.clientY, offX: e.clientX - r.left, offY: e.clientY - r.top, x: e.clientX, y: e.clientY, active: false };
+    // no rebuild here: replacing the node under the pointer would swallow click/dblclick
+    updateSelection();
+  });
+  document.addEventListener('pointermove', function (e) {
+    if (!drag) return;
+    drag.x = e.clientX; drag.y = e.clientY;
+    if (!drag.active && Math.abs(e.clientX - drag.startX) + Math.abs(e.clientY - drag.startY) < 6) return;
+    if (!drag.active) { drag.active = true; sim.action('drag-start', { id: drag.id }); }
+    var spot = dropSpot(e.clientX, e.clientY);
+    drag.col = spot ? spot.col : null; drag.index = spot ? spot.index : -1;
+    render();
+  });
+  document.addEventListener('pointerup', function (e) {
+    if (!drag || e.button !== 0) return;
+    var d = drag; drag = null;
+    if (d.floating) d.floating.remove();
+    if (d.active) {
+      var spot = d.col ? { col: d.col, index: d.index } : null;
+      if (spot) move(d.id, spot.col, spot.index); else sim.action('drag-cancel', { id: d.id });
+      render();
+    }
+  });
+
+  // ---- rename, menu, keyboard
+  document.addEventListener('dblclick', function (e) {
+    var cardNode = e.target.closest && e.target.closest('[data-card]');
+    if (cardNode && e.target.id !== 'rename') startEdit(cardNode.getAttribute('data-card'));
+  });
+  document.addEventListener('contextmenu', function (e) {
+    var cardNode = e.target.closest && e.target.closest('[data-card]');
+    if (!cardNode) return;
+    endEdit(true);
+    st.menu = cardNode.getAttribute('data-card'); st.selected = st.menu;
+    menu.style.left = Math.min(e.clientX, 1024 - 204) + 'px'; menu.style.top = Math.min(e.clientY, 616 - 206) + 'px';
+    sim.action('menu-open', { id: st.menu });
+    render();
+  });
+  menu.addEventListener('click', function (e) {
+    var item = e.target.closest('[data-act]'); if (!item || !st.menu) return;
+    var id = st.menu, act = item.getAttribute('data-act');
+    st.menu = null;
+    if (act === 'delete') remove(id);
+    else if (act === 'duplicate') duplicate(id);
+    else move(id, item.getAttribute('data-to'));
+    render();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (st.editing) {
+      if (e.key === 'Enter') { e.preventDefault(); endEdit(true); }
+      else if (e.key === 'Escape') { e.preventDefault(); endEdit(false); }
+      return;
+    }
+    if (st.menu) { if (e.key === 'Escape') { st.menu = null; sim.action('menu-close'); render(); } return; }
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
+    var f = st.selected && find(st.selected), k = e.key;
+    if (k === 'n' || k === 'N') { add(); }
+    else if (k === 'Delete' && f) { remove(f.card.id); }
+    else if (k === 'Enter' && f) { e.preventDefault(); startEdit(f.card.id); return; }
+    else if (k.indexOf('Arrow') === 0) {
+      e.preventDefault();
+      if (!f) {
+        for (var c = 0; c < COLS.length && !st.selected; c++) if (st.columns[COLS[c]].length) st.selected = st.columns[COLS[c]][0].id;
+      } else if (k === 'ArrowUp' || k === 'ArrowDown') {
+        var list = st.columns[f.col], j = Math.max(0, Math.min(list.length - 1, f.index + (k === 'ArrowDown' ? 1 : -1)));
+        st.selected = list[j].id;
+      } else {
+        var ci = COLS.indexOf(f.col), step = k === 'ArrowRight' ? 1 : -1;
+        for (ci += step; ci >= 0 && ci < COLS.length; ci += step) {
+          var other = st.columns[COLS[ci]];
+          if (other.length) { st.selected = other[Math.min(f.index, other.length - 1)].id; break; }
+        }
+      }
+      sim.action('select', { id: st.selected });
+    } else return;
+    render();
+  });
+
+  sim.init({
+    app: 'kanban', id: 3,
+    state: function () {
+      var cols = {};
+      COLS.forEach(function (c) { cols[c] = st.columns[c].map(function (k) { return { id: k.id, title: k.title }; }); });
+      return { columns: cols, selected: st.selected, editing: st.editing, menu: st.menu, dragging: drag && drag.active ? drag.id : null, nextId: st.nextId };
+    },
+    modal: function () { return !!(st.menu || st.editing); }
+  });
+  render();
+})();
+</script>
+</body>
+</html>

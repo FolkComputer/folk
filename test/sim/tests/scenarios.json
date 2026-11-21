@@ -1,0 +1,291 @@
+{
+  "_doc": [
+    "Abstract interaction scenarios for the sim test apps (test/sim/apps). The same data is meant to be",
+    "run by several drivers: apps_reference.mjs (Playwright = reference oracle) and, later, Folk +",
+    "emulated USB devices. A driver resolves targets through the app's layout ({testid: {x,y,w,h}}):",
+    "the point of {target, at:[fx,fy]} is (x + floor(w*fx), y + floor(h*fy)), default at = [0.5,0.5];",
+    "a plain string is a target at its centre. Both ends of a drag are resolved before the button",
+    "goes down. Ops: click, dblclick, rightclick, move, mousedown, mouseup (target[, at]);",
+    "drag (from, to[, steps]); type (text; US layout, Shift held per shifted character); key (key[,",
+    "count]); chord (keys 'CTRL+SHIFT+Z'[, count]); keydown/keyup (key); wheel (target, dy in detents,",
+    "+ = scroll down, one wheel event of 100 px per detent); wait (ms); expect (state: subset that",
+    "__state() must match now). Key names are hidemu's: CTRL SHIFT ALT ENTER ESC TAB SPACE BACKSPACE",
+    "DELETE HOME END LEFT RIGHT UP DOWN, or a single character of the US layout.",
+    "'expect' (subset of the final __state(); arrays must match element for element) and 'expectLog'",
+    "(patterns that must match, in this order, a subsequence of the POSTed event log) are the oracles.",
+    "'dialog' says how to answer alert()/confirm(): accept or dismiss."
+  ],
+  "scenarios": [
+    {
+      "name": "events", "app": "events",
+      "actions": [
+        {"op": "click", "target": "pad"},
+        {"op": "type", "text": "Hi 1"},
+        {"op": "chord", "keys": "CTRL+SHIFT+Z"},
+        {"op": "key", "key": "ENTER"},
+        {"op": "rightclick", "target": "pad", "at": [0.25, 0.25]},
+        {"op": "dblclick", "target": "pad", "at": [0.75, 0.5]},
+        {"op": "expect", "state": {"focus": "pad", "lastMouse": {"type": "dblclick", "x": 476, "y": 236, "button": 0, "buttons": 0}}},
+        {"op": "wheel", "target": "pad", "dy": 3},
+        {"op": "click", "target": "text"},
+        {"op": "type", "text": "ab"}
+      ],
+      "expect": {
+        "counts": {"keydown": 11, "keyup": 11, "mousedown": 5, "mouseup": 5, "click": 4, "dblclick": 1, "contextmenu": 1, "wheel": 3},
+        "keys": ["Shift", "H", "i", " ", "1", "Control", "Shift", "Z", "Enter", "a", "b"],
+        "down": [], "wheel": {"dx": 0, "dy": 300}, "text": "ab", "focus": "text", "buttons": 0,
+        "lastKey": {"type": "keyup", "key": "b", "code": "KeyB", "mods": 0}
+      },
+      "expectLog": [
+        {"k": "load", "app": "events"},
+        {"k": "mousedown", "tid": "pad", "b": 0, "bs": 1},
+        {"k": "click", "tid": "pad"},
+        {"k": "keydown", "key": "Shift", "code": "ShiftLeft"},
+        {"k": "keydown", "key": "H", "code": "KeyH", "m": 1},
+        {"k": "keydown", "key": "Z", "code": "KeyZ", "m": 3},
+        {"k": "contextmenu", "tid": "pad", "b": 2},
+        {"k": "dblclick", "tid": "pad", "n": 2},
+        {"k": "wheel", "tid": "pad", "dy": 100},
+        {"k": "input", "tid": "text", "it": "insertText", "d": "b"}
+      ]
+    },
+    {
+      "name": "paint", "app": "paint",
+      "actions": [
+        {"op": "click", "target": "tool-rect"},
+        {"op": "click", "target": "color-1"},
+        {"op": "drag", "from": {"target": "canvas", "at": [0.25, 0.25]}, "to": {"target": "canvas", "at": [0.5, 0.5]}},
+        {"op": "click", "target": "tool-line"},
+        {"op": "click", "target": "color-3"},
+        {"op": "drag", "from": {"target": "size-slider", "at": [0.1, 0.5]}, "to": {"target": "size-slider", "at": [0.5, 0.5]}},
+        {"op": "expect", "state": {"size": 17, "tool": "line", "color": "#2040e0"}},
+        {"op": "drag", "from": {"target": "canvas", "at": [0.1, 0.9]}, "to": {"target": "canvas", "at": [0.9, 0.1]}},
+        {"op": "click", "target": "tool-pen"},
+        {"op": "drag", "from": {"target": "canvas", "at": [0.6, 0.6]}, "to": {"target": "canvas", "at": [0.7, 0.8]}},
+        {"op": "expect", "state": {"undone": 0, "strokes": [{"tool": "rect"}, {"tool": "line"}, {"tool": "pen"}]}},
+        {"op": "click", "target": "clear"},
+        {"op": "expect", "state": {"confirmOpen": true}},
+        {"op": "click", "target": "confirm-no"},
+        {"op": "chord", "keys": "CTRL+Z"},
+        {"op": "chord", "keys": "CTRL+Z"},
+        {"op": "expect", "state": {"undone": 2, "strokes": [{"tool": "rect"}]}},
+        {"op": "chord", "keys": "CTRL+Y"}
+      ],
+      "expect": {
+        "tool": "pen", "color": "#2040e0", "size": 17, "undone": 1, "confirmOpen": false, "drawing": false,
+        "strokes": [
+          {"tool": "rect", "color": "#e02020", "size": 4, "from": [198, 133], "to": [400, 270], "n": 2},
+          {"tool": "line", "color": "#2040e0", "size": 17, "from": [76, 489], "to": [723, 50], "n": 2}
+        ]
+      },
+      "expectLog": [
+        {"k": "app", "a": "tool", "tool": "rect"},
+        {"k": "app", "a": "stroke", "tool": "rect"},
+        {"k": "app", "a": "size", "size": 17},
+        {"k": "app", "a": "stroke", "tool": "line"},
+        {"k": "app", "a": "stroke", "tool": "pen"},
+        {"k": "app", "a": "confirm-open"},
+        {"k": "app", "a": "clear-cancelled"},
+        {"k": "app", "a": "undo"},
+        {"k": "app", "a": "undo"},
+        {"k": "app", "a": "redo"}
+      ]
+    },
+    {
+      "name": "kanban", "app": "kanban",
+      "actions": [
+        {"op": "drag", "from": "card-c1", "to": "col-doing"},
+        {"op": "expect", "state": {"columns": {"doing": [{"id": "c4"}, {"id": "c1"}]}}},
+        {"op": "drag", "from": "card-c6", "to": "card-c2"},
+        {"op": "drag", "from": "card-c3", "to": "card-c6"},
+        {"op": "expect", "state": {"columns": {"todo": [{"id": "c3"}, {"id": "c6"}, {"id": "c2"}]}}},
+        {"op": "dblclick", "target": "card-c4"},
+        {"op": "expect", "state": {"editing": "c4"}},
+        {"op": "chord", "keys": "CTRL+A"},
+        {"op": "type", "text": "Ship it"},
+        {"op": "key", "key": "ENTER"},
+        {"op": "dblclick", "target": "card-c5"},
+        {"op": "type", "text": "zzz"},
+        {"op": "key", "key": "ESC"},
+        {"op": "rightclick", "target": "card-c2"},
+        {"op": "expect", "state": {"menu": "c2"}},
+        {"op": "click", "target": "menu-duplicate"},
+        {"op": "rightclick", "target": "card-c5"},
+        {"op": "click", "target": "menu-move-doing"},
+        {"op": "rightclick", "target": "card-c7"},
+        {"op": "click", "target": "menu-delete"},
+        {"op": "key", "key": "n"},
+        {"op": "key", "key": "UP"},
+        {"op": "key", "key": "RIGHT"}
+      ],
+      "expect": {
+        "columns": {
+          "todo": [{"id": "c3", "title": "Test input"}, {"id": "c6", "title": "Budget"}, {"id": "c2", "title": "Build prototype"}, {"id": "c8", "title": "Card 8"}],
+          "doing": [{"id": "c4", "title": "Ship it"}, {"id": "c1", "title": "Write spec"}, {"id": "c5", "title": "Kickoff"}],
+          "done": []
+        },
+        "selected": "c5", "editing": null, "menu": null, "dragging": null, "nextId": 9
+      },
+      "expectLog": [
+        {"k": "app", "a": "drag-start", "id": "c1"},
+        {"k": "app", "a": "move", "id": "c1", "from": "todo", "to": "doing", "index": 1},
+        {"k": "app", "a": "move", "id": "c6", "to": "todo", "index": 0},
+        {"k": "app", "a": "move", "id": "c3", "from": "todo", "to": "todo", "index": 0},
+        {"k": "dblclick", "tid": "card-c4"},
+        {"k": "app", "a": "rename", "id": "c4", "title": "Ship it"},
+        {"k": "app", "a": "rename-cancel", "id": "c5"},
+        {"k": "contextmenu", "tid": "card-c2"},
+        {"k": "app", "a": "duplicate", "id": "c2", "copy": "c7"},
+        {"k": "app", "a": "move", "id": "c5", "to": "doing"},
+        {"k": "app", "a": "delete", "id": "c7"},
+        {"k": "app", "a": "add", "id": "c8", "col": "todo"},
+        {"k": "app", "a": "select", "id": "c2"},
+        {"k": "app", "a": "select", "id": "c5"}
+      ]
+    },
+    {
+      "name": "editor", "app": "editor",
+      "actions": [
+        {"op": "click", "target": "textarea", "at": [0.5, 0.9]},
+        {"op": "expect", "state": {"sel": [86, 86], "focus": "textarea"}},
+        {"op": "type", "text": "hello world"},
+        {"op": "chord", "keys": "SHIFT+LEFT", "count": 5},
+        {"op": "expect", "state": {"sel": [92, 97]}},
+        {"op": "chord", "keys": "CTRL+X"},
+        {"op": "chord", "keys": "CTRL+V"},
+        {"op": "chord", "keys": "CTRL+V"},
+        {"op": "expect", "state": {"clipboard": "world", "sel": [102, 102]}},
+        {"op": "chord", "keys": "CTRL+F"},
+        {"op": "expect", "state": {"find": {"open": true}, "focus": "find-input"}},
+        {"op": "type", "text": "the"},
+        {"op": "key", "key": "ENTER"},
+        {"op": "expect", "state": {"sel": [31, 34], "find": {"query": "the", "count": 1}}},
+        {"op": "click", "target": "replace-input"},
+        {"op": "type", "text": "a"},
+        {"op": "click", "target": "replace-all"},
+        {"op": "key", "key": "ESC"},
+        {"op": "expect", "state": {"find": {"open": false}, "focus": "textarea"}},
+        {"op": "click", "target": "btn-selectall"},
+        {"op": "click", "target": "btn-copy"},
+        {"op": "click", "target": "rich", "at": [0.5, 0.9]},
+        {"op": "chord", "keys": "CTRL+A"},
+        {"op": "chord", "keys": "CTRL+V"},
+        {"op": "drag", "from": {"target": "textarea", "at": [0.25, 0.06]}, "to": {"target": "textarea", "at": [0.75, 0.06]}},
+        {"op": "click", "target": "btn-upper"}
+      ],
+      "expect": {
+        "text": "The quick BROWN FOX\njumps over a lazy dog.\nPack my box with five dozen liquor jugs.\nhello worldworld",
+        "sel": [10, 19],
+        "rich": "The quick brown fox\njumps over a lazy dog.\nPack my box with five dozen liquor jugs.\nhello worldworld",
+        "clipboard": "The quick brown fox\njumps over a lazy dog.\nPack my box with five dozen liquor jugs.\nhello worldworld",
+        "active": "textarea", "focus": "textarea", "words": 19, "chars": 100,
+        "find": {"open": false, "query": "the", "replace": "a", "count": 0}
+      },
+      "expectLog": [
+        {"k": "input", "tid": "textarea", "it": "insertText", "d": "h"},
+        {"k": "keydown", "key": "ArrowLeft", "m": 1},
+        {"k": "app", "a": "cut", "on": "textarea", "clipboard": "world"},
+        {"k": "app", "a": "paste", "on": "textarea"},
+        {"k": "app", "a": "find-open"},
+        {"k": "app", "a": "find-next", "q": "the", "at": 31},
+        {"k": "app", "a": "replace-all", "q": "the", "w": "a", "n": 1},
+        {"k": "app", "a": "find-close"},
+        {"k": "app", "a": "copy", "on": "textarea"},
+        {"k": "app", "a": "paste", "on": "rich"},
+        {"k": "app", "a": "upper", "on": "textarea"}
+      ]
+    },
+    {
+      "name": "form", "app": "form", "dialog": "accept",
+      "actions": [
+        {"op": "click", "target": "submit"},
+        {"op": "expect", "state": {"submitted": {"ok": false, "errors": ["name: at least 2 characters", "password: at least 4 characters", "age: a whole number from 1 to 120", "terms: must be accepted"]}}},
+        {"op": "click", "target": "name"},
+        {"op": "type", "text": "Ada"},
+        {"op": "key", "key": "TAB"},
+        {"op": "type", "text": "secret"},
+        {"op": "key", "key": "TAB"},
+        {"op": "type", "text": "36"},
+        {"op": "key", "key": "TAB"},
+        {"op": "expect", "state": {"focus": "cb-news"}},
+        {"op": "key", "key": "SPACE"},
+        {"op": "key", "key": "TAB"},
+        {"op": "key", "key": "SPACE"},
+        {"op": "key", "key": "TAB"},
+        {"op": "key", "key": "TAB"},
+        {"op": "expect", "state": {"focus": "radio-free", "checks": {"news": true, "terms": true, "dark": false}}},
+        {"op": "key", "key": "RIGHT"},
+        {"op": "key", "key": "TAB"},
+        {"op": "expect", "state": {"focus": "native-select", "plan": "pro"}},
+        {"op": "key", "key": "DOWN", "count": 2},
+        {"op": "key", "key": "TAB"},
+        {"op": "key", "key": "ENTER"},
+        {"op": "expect", "state": {"focus": "dd-button", "ddOpen": true, "color": "blue"}},
+        {"op": "click", "target": "dd-opt-large"},
+        {"op": "key", "key": "TAB"},
+        {"op": "key", "key": "RIGHT", "count": 5},
+        {"op": "expect", "state": {"focus": "range", "range": 55, "size": "large", "ddOpen": false}},
+        {"op": "wheel", "target": "list", "dy": 3},
+        {"op": "wait", "ms": 600},
+        {"op": "click", "target": "item-12"},
+        {"op": "click", "target": "submit"},
+        {"op": "click", "target": "confirm-btn"},
+        {"op": "click", "target": "alert-btn"}
+      ],
+      "expect": {
+        "name": "Ada", "password": "secret", "age": "36", "checks": {"news": true, "terms": true, "dark": false},
+        "plan": "pro", "color": "blue", "size": "large", "range": 55, "ddOpen": false,
+        "list": {"scrollTop": 300, "selected": 12}, "scrollY": 0,
+        "submitted": {"ok": true, "errors": [], "data": {"name": "Ada", "password": "******", "age": "36", "plan": "pro", "color": "blue", "size": "large", "range": 55}},
+        "dialogs": {"alerts": 1, "confirms": 1, "lastConfirm": true}
+      },
+      "expectLog": [
+        {"k": "app", "a": "submit", "ok": false, "errors": 4},
+        {"k": "keydown", "key": "Tab", "tid": "name"},
+        {"k": "input", "tid": "password", "d": "s"},
+        {"k": "app", "a": "dd-open"},
+        {"k": "app", "a": "dd-select", "size": "large"},
+        {"k": "wheel", "dy": 100, "dx": 0},
+        {"k": "app", "a": "item", "item": 12},
+        {"k": "app", "a": "submit", "ok": true},
+        {"k": "app", "a": "confirm-closed", "result": true},
+        {"k": "app", "a": "alert-closed"}
+      ]
+    },
+    {
+      "name": "synth", "app": "synth",
+      "actions": [
+        {"op": "mousedown", "target": "key-A4"},
+        {"op": "wait", "ms": 400},
+        {"op": "expect", "state": {"sounding": [440], "held": ["A4"]}},
+        {"op": "mouseup", "target": "key-A4"},
+        {"op": "expect", "state": {"sounding": [], "noteOns": 1}},
+        {"op": "keydown", "key": "a"},
+        {"op": "keydown", "key": "d"},
+        {"op": "wait", "ms": 300},
+        {"op": "expect", "state": {"sounding": [261.63, 329.63], "held": ["C4", "E4"]}},
+        {"op": "keyup", "key": "a"},
+        {"op": "keyup", "key": "d"},
+        {"op": "click", "target": "mute"},
+        {"op": "expect", "state": {"muted": true}},
+        {"op": "click", "target": "mute"},
+        {"op": "click", "target": "play"},
+        {"op": "wait", "ms": 800},
+        {"op": "expect", "state": {"playing": true, "step": 1, "sounding": [550]}},
+        {"op": "wait", "ms": 1700}
+      ],
+      "expect": {"sounding": [], "held": [], "playing": false, "step": -1, "volume": 80, "muted": false, "noteOns": 3},
+      "expectLog": [
+        {"k": "mousedown", "tid": "key-A4"},
+        {"k": "app", "a": "note-on", "note": "A4", "f": 440},
+        {"k": "app", "a": "note-off", "note": "A4"},
+        {"k": "app", "a": "note-on", "note": "C4", "f": 261.63},
+        {"k": "app", "a": "note-on", "note": "E4", "f": 329.63},
+        {"k": "app", "a": "mute"},
+        {"k": "app", "a": "unmute"},
+        {"k": "app", "a": "seq-start"},
+        {"k": "app", "a": "seq-end"}
+      ]
+    }
+  ]
+}

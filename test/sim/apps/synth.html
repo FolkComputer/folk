@@ -1,0 +1,186 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>sim: synth</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  .key { position: absolute; top: 56px; width: 104px; height: 300px; background: #fff; border: 3px solid #1d2433; text-align: center; font-size: 20px; line-height: 28px; padding-top: 196px; }
+  .key.on { background: #ffcc33; }
+  .key small { display: block; font-size: 14px; color: #555; }
+  #play { left: 896px; top: 56px; width: 112px; height: 96px; font-size: 20px; }
+  #mute { left: 896px; top: 164px; width: 112px; height: 96px; font-size: 20px; }
+  #ctxbox { left: 896px; top: 272px; width: 112px; height: 84px; padding: 6px; font-size: 13px; line-height: 18px; white-space: pre; overflow: hidden; }
+  #volume { position: absolute; left: 140px; top: 372px; width: 600px; height: 40px; margin: 0; }
+  #volval { left: 752px; top: 372px; width: 60px; height: 40px; line-height: 40px; font-size: 18px; }
+  #sounding { left: 16px; top: 424px; width: 992px; height: 44px; padding: 10px; font-size: 18px; white-space: pre; overflow: hidden; }
+  #alog { left: 16px; top: 476px; width: 992px; height: 128px; padding: 6px 10px; font-size: 14px; line-height: 19px; white-space: pre; overflow: hidden; }
+</style>
+</head>
+<body>
+<div class="title">synth &mdash; hold a piano key (mouse, or keys a s d f g h j k)</div>
+<div id="keys"></div>
+<button class="btn" id="play" data-testid="play">play</button>
+<button class="btn" id="mute" data-testid="mute">mute</button>
+<div id="ctxbox" class="panel mono" data-testid="ctx"></div>
+<div class="lab label" style="left:16px;top:382px;width:120px">volume</div>
+<input type="range" id="volume" min="0" max="100" step="1" value="80" data-testid="volume">
+<div id="volval" class="abs mono" data-testid="volume-value">80</div>
+<div id="sounding" class="panel mono" data-testid="sounding"></div>
+<div id="alog" class="panel mono" data-testid="audio-log"></div>
+<script src="common.js"></script>
+<script>
+(function () {
+  'use strict';
+  // One octave of white keys, C4..C5, equal temperament: f = 440 * 2^((midi - 69) / 12).
+  var NOTES = [['C4', 60, 'a'], ['D4', 62, 's'], ['E4', 64, 'd'], ['F4', 65, 'f'], ['G4', 67, 'g'], ['A4', 69, 'h'], ['B4', 71, 'j'], ['C5', 72, 'k']];
+  var FREQ = NOTES.map(function (n) { return 440 * Math.pow(2, (n[1] - 69) / 12); });
+  var SEQ = [440, 550, 660, 880], STEP_S = 0.5;   // "play": 4 steps of 0.5 s = 2 s, 440 -> 880 Hz
+  var VOICE_GAIN = 0.12;                          // 8 voices stay below full scale
+  var ctx = null, master = null, voices = {}, seq = null;
+  var st = { volume: 80, muted: false, playing: false, step: -1, noteOns: 0, mouseNote: -1, log: [] };
+  var keyEls = [];
+
+  NOTES.forEach(function (n, i) {
+    var d = document.createElement('div');
+    d.className = 'key'; d.style.left = (16 + 108 * i) + 'px';
+    d.setAttribute('data-testid', 'key-' + n[0]); d.setAttribute('data-note', i);
+    d.innerHTML = n[0] + '<small>' + FREQ[i].toFixed(2) + ' Hz</small><small>key ' + n[2] + '</small>';
+    document.getElementById('keys').appendChild(d); keyEls.push(d);
+  });
+
+  function round(f) { return Math.round(f * 100) / 100; }
+  function alog(ev, f) {
+    st.log.push({ t: Math.round(performance.now() * 10) / 10, ev: ev, f: f === undefined ? null : round(f), ct: ctx ? Math.round(ctx.currentTime * 1000) / 1000 : null });
+    if (st.log.length > 500) st.log.shift();
+  }
+  function sounding() {
+    var out = Object.keys(voices).map(function (i) { return round(FREQ[i]); });
+    if (st.playing && st.step >= 0) out.push(SEQ[st.step]);
+    return out.sort(function (a, b) { return a - b; });
+  }
+  function render() {
+    keyEls.forEach(function (d, i) { d.className = 'key' + (voices[i] ? ' on' : ''); });
+    document.getElementById('play').textContent = st.playing ? 'stop' : 'play';
+    document.getElementById('play').className = 'btn' + (st.playing ? ' on' : '');
+    document.getElementById('mute').textContent = st.muted ? 'muted' : 'mute';
+    document.getElementById('mute').className = 'btn' + (st.muted ? ' on' : '');
+    document.getElementById('volval').textContent = st.volume;
+    document.getElementById('ctxbox').textContent = 'audio\n' + (ctx ? ctx.state + '\n' + ctx.sampleRate + ' Hz' : 'not started');
+    document.getElementById('sounding').textContent = 'sounding: ' + (sounding().map(function (f) { return f.toFixed(2); }).join('  ') || '-');
+    document.getElementById('alog').textContent = st.log.slice(-6).map(function (r) {
+      return (r.t.toFixed(1) + '        ').slice(0, 10) + (r.ev + '          ').slice(0, 10) + (r.f === null ? '' : r.f.toFixed(2));
+    }).join('\n');
+    sim.refresh();
+  }
+
+  // The AudioContext is created and resumed on the first user gesture (autoplay policy).
+  function ensure() {
+    if (!ctx) {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      master = ctx.createGain(); master.gain.value = st.muted ? 0 : st.volume / 100;
+      master.connect(ctx.destination);
+      ctx.onstatechange = function () { alog('ctx-' + ctx.state); render(); };
+      alog('ctx-created');
+    }
+    if (ctx.state !== 'running') ctx.resume().then(render, render);
+  }
+  function applyGain() { if (master) master.gain.setValueAtTime(st.muted ? 0 : st.volume / 100, ctx.currentTime); }
+  function noteOn(i) {
+    ensure();
+    if (voices[i]) return;
+    var osc = ctx.createOscillator(), g = ctx.createGain(), t = ctx.currentTime;
+    osc.type = 'sine'; osc.frequency.value = FREQ[i];
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(VOICE_GAIN, t + 0.005);
+    osc.connect(g); g.connect(master); osc.start();
+    voices[i] = { osc: osc, g: g };
+    st.noteOns++; alog('on', FREQ[i]); sim.action('note-on', { note: NOTES[i][0], f: round(FREQ[i]) });
+    render();
+  }
+  function noteOff(i) {
+    var v = voices[i];
+    if (!v) return;
+    delete voices[i];
+    var t = ctx.currentTime;
+    v.g.gain.cancelScheduledValues(t); v.g.gain.setValueAtTime(VOICE_GAIN, t); v.g.gain.linearRampToValueAtTime(0, t + 0.01);
+    v.osc.stop(t + 0.03);
+    alog('off', FREQ[i]); sim.action('note-off', { note: NOTES[i][0], f: round(FREQ[i]) });
+    render();
+  }
+  function allOff() { Object.keys(voices).forEach(function (i) { noteOff(Number(i)); }); st.mouseNote = -1; }
+
+  function stopSeq(done) {
+    if (!seq) return;
+    seq.timers.forEach(clearTimeout);
+    try { seq.osc.stop(); } catch (e) {}
+    seq = null; st.playing = false; st.step = -1;
+    alog(done ? 'seq-end' : 'seq-stop'); sim.action(done ? 'seq-end' : 'seq-stop');
+    render();
+  }
+  function playSeq() {
+    ensure();
+    var osc = ctx.createOscillator(), g = ctx.createGain(), t0 = ctx.currentTime + 0.05, total = SEQ.length * STEP_S;
+    osc.type = 'sine';
+    SEQ.forEach(function (f, k) { osc.frequency.setValueAtTime(f, t0 + k * STEP_S); });
+    g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(VOICE_GAIN * 2, t0 + 0.005);
+    g.gain.setValueAtTime(VOICE_GAIN * 2, t0 + total - 0.01); g.gain.linearRampToValueAtTime(0, t0 + total);
+    osc.connect(g); g.connect(master); osc.start(t0); osc.stop(t0 + total + 0.01);
+    seq = { osc: osc, timers: [] };
+    st.playing = true; st.step = -1;
+    alog('seq-start'); sim.action('seq-start');
+    SEQ.forEach(function (f, k) {
+      seq.timers.push(setTimeout(function () { st.step = k; alog('seq-step', f); render(); }, 50 + k * STEP_S * 1000));
+    });
+    seq.timers.push(setTimeout(function () { stopSeq(true); }, 50 + total * 1000));
+    render();
+  }
+
+  // ---- input
+  document.getElementById('keys').addEventListener('mousedown', function (e) {
+    var k = e.target.closest('[data-note]');
+    if (!k || e.button !== 0) return;
+    e.preventDefault();
+    st.mouseNote = Number(k.getAttribute('data-note')); noteOn(st.mouseNote);
+  });
+  window.addEventListener('mouseup', function (e) {
+    if (e.button === 0 && st.mouseNote >= 0) { noteOff(st.mouseNote); st.mouseNote = -1; }
+  });
+  function noteOfKey(e) {
+    var ch = (e.key || '').toLowerCase();
+    for (var i = 0; i < NOTES.length; i++) if (NOTES[i][2] === ch || e.code === 'Key' + NOTES[i][2].toUpperCase()) return i;
+    return -1;
+  }
+  window.addEventListener('keydown', function (e) {
+    if (e.ctrlKey || e.altKey || e.metaKey || e.repeat) return;
+    var i = noteOfKey(e);
+    if (i >= 0) { e.preventDefault(); noteOn(i); }
+  });
+  window.addEventListener('keyup', function (e) { var i = noteOfKey(e); if (i >= 0) noteOff(i); });
+  window.addEventListener('blur', allOff);
+  document.getElementById('play').addEventListener('click', function () { if (st.playing) stopSeq(false); else playSeq(); });
+  document.getElementById('mute').addEventListener('click', function () {
+    st.muted = !st.muted; applyGain(); alog(st.muted ? 'mute' : 'unmute'); sim.action(st.muted ? 'mute' : 'unmute'); render();
+  });
+  document.getElementById('volume').addEventListener('input', function (e) {
+    st.volume = Number(e.target.value); applyGain(); alog('volume', st.volume); render();
+  });
+  // buttons and the slider must not keep the keyboard: a s d ... always play
+  ['play', 'mute'].forEach(function (id) { document.getElementById(id).addEventListener('mousedown', function (e) { e.preventDefault(); }); });
+
+  sim.init({
+    app: 'synth', id: 6,
+    // audioLog carries timestamps; ctx / sampleRate depend on the audio backend
+    volatile: ['audioLog', 'ctx', 'sampleRate'],
+    state: function () {
+      return {
+        sounding: sounding(), held: Object.keys(voices).map(function (i) { return NOTES[i][0]; }),
+        playing: st.playing, step: st.step, volume: st.volume, muted: st.muted, noteOns: st.noteOns,
+        ctx: ctx ? ctx.state : 'none', sampleRate: ctx ? ctx.sampleRate : null, audioLog: st.log.slice()
+      };
+    }
+  });
+  render();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,198 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>sim: paint</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  .tool { left: 16px; width: 168px; }
+  .swatch { position: absolute; width: 48px; height: 40px; border: 2px solid #1d2433; }
+  .swatch.on { border: 6px solid #ffcc33; outline: 2px solid #1d2433; }
+  #track { left: 16px; top: 404px; width: 168px; height: 32px; background: #ddd; border: 2px solid #1d2433; }
+  #knob { position: absolute; top: -2px; width: 12px; height: 32px; background: #1d2433; pointer-events: none; }
+  #sizelabel { left: 16px; top: 380px; width: 168px; }
+  #canvas { left: 200px; top: 56px; width: 808px; height: 548px; border: 4px solid #1d2433; background: #fff; }
+  #veil { left: 0; top: 0; width: 1024px; height: 616px; background: rgba(0,0,0,0.45); display: none; z-index: 10; }
+  #dialog { left: 312px; top: 208px; width: 400px; height: 160px; background: #fff; border: 4px solid #1d2433; }
+  #dialog .msg { position: absolute; left: 0; top: 24px; width: 392px; text-align: center; font-size: 20px; }
+</style>
+</head>
+<body>
+<div class="title">paint</div>
+<button class="btn tool" style="top:56px"  data-testid="tool-pen"    data-tool="pen">pen</button>
+<button class="btn tool" style="top:100px" data-testid="tool-line"   data-tool="line">line</button>
+<button class="btn tool" style="top:144px" data-testid="tool-rect"   data-tool="rect">rectangle</button>
+<button class="btn tool" style="top:188px" data-testid="tool-eraser" data-tool="eraser">eraser</button>
+<div id="swatches"></div>
+<div id="sizelabel" class="label" data-testid="size-label">size 4</div>
+<div id="track" class="abs" data-testid="size-slider"><div id="knob"></div></div>
+<button class="btn" style="left:16px;top:452px;width:80px"  data-testid="undo">undo</button>
+<button class="btn" style="left:104px;top:452px;width:80px" data-testid="redo">redo</button>
+<button class="btn" style="left:16px;top:500px;width:168px" data-testid="clear">clear</button>
+<div class="label" style="left:16px;top:552px;width:168px" data-testid="info" id="info"></div>
+<canvas id="canvas" class="abs" width="800" height="540" data-testid="canvas"></canvas>
+<div id="veil" class="abs" data-testid="veil">
+  <div id="dialog" class="abs" data-testid="dialog">
+    <div class="msg">Clear the whole drawing?</div>
+    <button class="btn" style="left:40px;top:88px;width:140px"  data-testid="confirm-yes">clear</button>
+    <button class="btn" style="left:212px;top:88px;width:140px" data-testid="confirm-no">cancel</button>
+  </div>
+</div>
+<script src="common.js"></script>
+<script>
+(function () {
+  'use strict';
+  var COLORS = ['#000000', '#e02020', '#20a020', '#2040e0', '#f0a000', '#a020c0'];
+  var SIZE_MIN = 1, SIZE_MAX = 32, TRACK_X = 16 + 2, TRACK_W = 164 - 12;   // knob travel in px
+  var canvas = document.getElementById('canvas'), ctx = canvas.getContext('2d', { willReadFrequently: true });
+  var veil = document.getElementById('veil');
+  var st = { tool: 'pen', color: COLORS[0], size: 4, strokes: [], redo: [], confirmOpen: false };
+  var current = null, sliding = false, canvasHash = 0;
+
+  // swatches: two rows of three
+  COLORS.forEach(function (c, i) {
+    var d = document.createElement('div');
+    d.className = 'swatch'; d.style.background = c;
+    d.style.left = (16 + 60 * (i % 3)) + 'px'; d.style.top = (244 + 48 * Math.floor(i / 3)) + 'px';
+    d.setAttribute('data-testid', 'color-' + i); d.setAttribute('data-color', c);
+    d.addEventListener('mousedown', function (e) { if (e.button === 0) { st.color = c; sim.action('color', { color: c }); render(); } });
+    document.getElementById('swatches').appendChild(d);
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-tool]'), function (b) {
+    b.addEventListener('click', function () { st.tool = b.getAttribute('data-tool'); sim.action('tool', { tool: st.tool }); render(); });
+  });
+
+  function drawStroke(s) {
+    var p = s.points;
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = s.size;
+    ctx.strokeStyle = s.tool === 'eraser' ? '#ffffff' : s.color;
+    ctx.beginPath();
+    if (s.tool === 'rect') {
+      var a = p[0], b = p[p.length - 1];
+      ctx.lineJoin = 'miter';
+      ctx.rect(Math.min(a[0], b[0]) + 0.5, Math.min(a[1], b[1]) + 0.5, Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1]));
+    } else if (s.tool === 'line') {
+      ctx.moveTo(p[0][0] + 0.5, p[0][1] + 0.5); ctx.lineTo(p[p.length - 1][0] + 0.5, p[p.length - 1][1] + 0.5);
+    } else {
+      ctx.moveTo(p[0][0] + 0.5, p[0][1] + 0.5);
+      for (var i = 1; i < p.length; i++) ctx.lineTo(p[i][0] + 0.5, p[i][1] + 0.5);
+      if (p.length === 1) ctx.lineTo(p[0][0] + 0.5, p[0][1] + 0.5);
+    }
+    ctx.stroke();
+  }
+  function redraw(withHash) {
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    st.strokes.forEach(drawStroke);
+    if (withHash) {
+      // FNV-1a over the RGBA bytes of the committed drawing (the stroke in progress is not in it)
+      var d = ctx.getImageData(0, 0, canvas.width, canvas.height).data, h = 0x811c9dc5;
+      for (var i = 0; i < d.length; i++) { h ^= d[i]; h = Math.imul(h, 0x01000193); }
+      canvasHash = h >>> 0;
+    }
+    if (current) drawStroke(current);
+  }
+  function render() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-tool]'), function (b) {
+      b.className = 'btn tool' + (b.getAttribute('data-tool') === st.tool ? ' on' : '');
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.swatch'), function (d) {
+      d.className = 'swatch' + (d.getAttribute('data-color') === st.color ? ' on' : '');
+    });
+    document.getElementById('knob').style.left = Math.round((st.size - SIZE_MIN) / (SIZE_MAX - SIZE_MIN) * TRACK_W) + 'px';
+    document.getElementById('sizelabel').textContent = 'size ' + st.size;
+    document.getElementById('info').textContent = st.strokes.length + ' strokes, ' + st.redo.length + ' undone';
+    veil.style.display = st.confirmOpen ? 'block' : 'none';
+    sim.refresh();
+  }
+  function canvasPoint(e) {
+    var r = canvas.getBoundingClientRect();
+    var x = Math.round(e.clientX - r.left - 4), y = Math.round(e.clientY - r.top - 4);   // 4 px border
+    return [Math.max(0, Math.min(canvas.width - 1, x)), Math.max(0, Math.min(canvas.height - 1, y))];
+  }
+  function setSizeFrom(e) {
+    var x = e.clientX - TRACK_X - 6;
+    var v = Math.round(SIZE_MIN + Math.max(0, Math.min(1, x / TRACK_W)) * (SIZE_MAX - SIZE_MIN));
+    if (v !== st.size) { st.size = v; render(); }
+  }
+
+  canvas.addEventListener('mousedown', function (e) {
+    if (e.button !== 0 || st.confirmOpen) return;
+    e.preventDefault();
+    current = { tool: st.tool, color: st.color, size: st.size, points: [canvasPoint(e)] };
+    redraw(false);
+  });
+  document.getElementById('track').addEventListener('mousedown', function (e) {
+    if (e.button !== 0) return;
+    e.preventDefault(); sliding = true; setSizeFrom(e);
+  });
+  window.addEventListener('mousemove', function (e) {
+    if (sliding) setSizeFrom(e);
+    if (!current) return;
+    var p = canvasPoint(e), last = current.points[current.points.length - 1];
+    if (p[0] === last[0] && p[1] === last[1]) return;
+    // line and rectangle only keep their two end points (independent of the pointer path)
+    if (current.tool === 'line' || current.tool === 'rect') current.points = [current.points[0], p];
+    else current.points.push(p);
+    redraw(false);
+  });
+  window.addEventListener('mouseup', function (e) {
+    if (e.button !== 0) return;
+    if (sliding) { sliding = false; sim.action('size', { size: st.size }); render(); }
+    if (!current) return;
+    var p = canvasPoint(e), last = current.points[current.points.length - 1];
+    if (p[0] !== last[0] || p[1] !== last[1]) {
+      if (current.tool === 'line' || current.tool === 'rect') current.points = [current.points[0], p];
+      else current.points.push(p);
+    }
+    st.strokes.push(current); st.redo = [];
+    var s = current; current = null;
+    redraw(true);
+    sim.action('stroke', { tool: s.tool, from: s.points[0], to: s.points[s.points.length - 1], n: s.points.length });
+    render();
+  });
+
+  function undo() { if (st.strokes.length) { st.redo.push(st.strokes.pop()); redraw(true); sim.action('undo'); render(); } }
+  function redo() { if (st.redo.length) { st.strokes.push(st.redo.pop()); redraw(true); sim.action('redo'); render(); } }
+  function askClear() { st.confirmOpen = true; sim.action('confirm-open'); render(); }
+  function answer(yes) {
+    st.confirmOpen = false;
+    if (yes) { st.strokes = []; st.redo = []; redraw(true); }
+    sim.action(yes ? 'clear' : 'clear-cancelled');
+    render();
+  }
+  document.querySelector('[data-testid=undo]').addEventListener('click', undo);
+  document.querySelector('[data-testid=redo]').addEventListener('click', redo);
+  document.querySelector('[data-testid=clear]').addEventListener('click', askClear);
+  document.querySelector('[data-testid=confirm-yes]').addEventListener('click', function () { answer(true); });
+  document.querySelector('[data-testid=confirm-no]').addEventListener('click', function () { answer(false); });
+  window.addEventListener('keydown', function (e) {
+    var k = e.key.toLowerCase();
+    if (st.confirmOpen) {
+      if (k === 'enter') { e.preventDefault(); answer(true); }
+      else if (k === 'escape') { e.preventDefault(); answer(false); }
+      return;
+    }
+    if (e.ctrlKey && !e.altKey && k === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); }
+    else if (e.ctrlKey && !e.altKey && k === 'y') { e.preventDefault(); redo(); }
+  });
+
+  sim.init({
+    app: 'paint', id: 2,
+    // strokes[].n and canvasHash depend on the pointer path for pen/eraser strokes; line and
+    // rectangle strokes only depend on their end points.
+    state: function () {
+      return {
+        tool: st.tool, color: st.color, size: st.size, undone: st.redo.length, confirmOpen: st.confirmOpen,
+        drawing: !!current, canvasHash: canvasHash,
+        strokes: st.strokes.map(function (s) {
+          return { tool: s.tool, color: s.color, size: s.size, from: s.points[0], to: s.points[s.points.length - 1], n: s.points.length };
+        })
+      };
+    },
+    modal: function () { return st.confirmOpen; }
+  });
+  redraw(true); render();
+})();
+</script>
+</body>
+</html>

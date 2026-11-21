@@ -1,0 +1,25 @@
+/* common.css -- base look of the sim test apps: fixed 1024x640 layout, no transitions,
+   no web fonts, big flat hit targets. The bottom 24 px belong to the status strip
+   (see common.js). */
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0; width: 1024px; height: 640px; overflow: hidden;
+  background: #f2f0e8; color: #111;
+  font: 16px/20px "DejaVu Sans", Arial, sans-serif;
+}
+body { position: relative; cursor: default; user-select: none; -webkit-user-select: none; }
+.abs { position: absolute; }
+.title {
+  position: absolute; left: 0; top: 0; width: 1024px; height: 40px; padding-left: 16px;
+  background: #1d2433; color: #fff; font-weight: bold; font-size: 20px; line-height: 40px;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+.btn {
+  position: absolute; height: 40px; padding: 0 4px; border: 2px solid #1d2433; border-radius: 0;
+  background: #fff; font-size: 16px; line-height: 20px; text-align: center; overflow: hidden;
+}
+.btn.on { background: #ffcc33; }
+.btn:active { background: #c8d4f0; }
+.panel { position: absolute; background: #fff; border: 2px solid #1d2433; }
+.label { position: absolute; font-size: 14px; line-height: 20px; color: #333; }
+.mono { font-family: "DejaVu Sans Mono", monospace; }

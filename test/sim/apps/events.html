@@ -1,0 +1,114 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>sim: events</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  #pad { left: 16px; top: 56px; width: 640px; height: 480px; background: #fff; border: 4px solid #888; outline: none; overflow: hidden; }
+  #pad:focus { border-color: #d22; }
+  #dot { position: absolute; width: 9px; height: 9px; background: #06c; left: -20px; top: -20px; pointer-events: none; }
+  #dot.down { background: #d22; }
+  #padhint { position: absolute; left: 12px; top: 8px; color: #999; }
+  #last { left: 672px; top: 56px; width: 336px; height: 200px; padding: 8px; font-size: 14px; line-height: 22px; white-space: pre; overflow: hidden; }
+  #counts { left: 672px; top: 264px; width: 336px; height: 272px; padding: 8px; font-size: 14px; line-height: 22px; white-space: pre; overflow: hidden; }
+  #text { left: 16px; top: 552px; width: 480px; height: 44px; padding: 0 8px; border: 2px solid #1d2433; font-size: 20px; user-select: text; -webkit-user-select: text; }
+  #reset { left: 512px; top: 552px; width: 144px; height: 44px; }
+  #keys { left: 672px; top: 552px; width: 336px; height: 44px; padding: 10px 8px; font-size: 16px; white-space: pre; overflow: hidden; }
+</style>
+</head>
+<body>
+<div class="title">events &mdash; raw input logger</div>
+<div id="pad" class="abs" tabindex="0" data-testid="pad"><div id="padhint">click here: every key and mouse event is counted</div><div id="dot"></div></div>
+<div id="last" class="panel mono" data-testid="last"></div>
+<div id="counts" class="panel mono" data-testid="counts"></div>
+<input id="text" class="abs" type="text" data-testid="text" autocomplete="off" spellcheck="false">
+<button id="reset" class="btn" data-testid="reset">reset</button>
+<div id="keys" class="panel mono" data-testid="keys"></div>
+<script src="common.js"></script>
+<script>
+(function () {
+  'use strict';
+  var KINDS = ['keydown', 'keyup', 'mousedown', 'mouseup', 'click', 'dblclick', 'contextmenu', 'wheel'];
+  var pad = document.getElementById('pad'), dot = document.getElementById('dot');
+  var text = document.getElementById('text');
+  var st;
+  function fresh() {
+    st = { counts: {}, lastKey: null, lastMouse: null, keys: [], down: [], wheel: { dx: 0, dy: 0 }, buttons: 0 };
+    KINDS.forEach(function (k) { st.counts[k] = 0; });
+  }
+  fresh();
+
+  function render() {
+    var lk = st.lastKey, lm = st.lastMouse;
+    document.getElementById('last').textContent =
+      'last key\n  ' + (lk ? lk.type + ' key=' + JSON.stringify(lk.key) + '\n  code=' + lk.code + ' mods=' + lk.mods : '-\n') +
+      '\nlast mouse\n  ' + (lm ? lm.type + ' button=' + lm.button + ' buttons=' + lm.buttons + '\n  pad x=' + lm.x + ' y=' + lm.y : '-\n') +
+      '\nwheel dx=' + st.wheel.dx + ' dy=' + st.wheel.dy;
+    document.getElementById('counts').textContent = KINDS.map(function (k) {
+      return (k + '            ').slice(0, 12) + st.counts[k];
+    }).join('\n') + '\nheld        ' + st.down.join(' ');
+    document.getElementById('keys').textContent = st.keys.slice(-24).join(' ');
+    if (lm) { dot.style.left = (lm.x - 4) + 'px'; dot.style.top = (lm.y - 4) + 'px'; }
+    dot.className = st.buttons ? 'down' : '';
+  }
+
+  function onKey(e) {
+    if (!e.isTrusted) return;
+    st.counts[e.type]++;
+    var m = (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0) | (e.metaKey ? 8 : 0);
+    st.lastKey = { type: e.type, key: e.key, code: e.code, mods: m };
+    var at = st.down.indexOf(e.code);
+    if (e.type === 'keydown') {
+      if (!e.repeat) st.keys.push(e.key);
+      if (st.keys.length > 400) st.keys.shift();
+      if (at < 0) st.down.push(e.code);
+    } else if (at >= 0) st.down.splice(at, 1);
+    // the pad swallows everything (Tab, space, arrows, shortcuts) so nothing scrolls or leaves
+    if (document.activeElement === pad) e.preventDefault();
+    render();
+  }
+  window.addEventListener('keydown', onKey, true);
+  window.addEventListener('keyup', onKey, true);
+
+  function onMouse(e) {
+    if (!e.isTrusted) return;
+    if (e.type !== 'mousemove') st.counts[e.type]++;
+    var r = pad.getBoundingClientRect();
+    st.buttons = e.buttons;
+    if (e.type !== 'mousemove' || e.target === pad || pad.contains(e.target)) {
+      st.lastMouse = {
+        type: e.type === 'mousemove' ? (st.lastMouse ? st.lastMouse.type : 'mousemove') : e.type,
+        x: Math.round(e.clientX - r.left - 4), y: Math.round(e.clientY - r.top - 4), button: e.button, buttons: e.buttons
+      };
+    }
+    render();
+  }
+  ['mousedown', 'mouseup', 'click', 'dblclick', 'contextmenu', 'mousemove'].forEach(function (t) {
+    window.addEventListener(t, onMouse, true);
+  });
+  window.addEventListener('wheel', function (e) {
+    if (!e.isTrusted) return;
+    st.counts.wheel++; st.wheel.dx += e.deltaX; st.wheel.dy += e.deltaY;
+    render();
+  }, { capture: true, passive: true });
+
+  document.getElementById('reset').addEventListener('click', function () {
+    fresh(); text.value = ''; sim.action('reset'); render();
+  });
+  text.addEventListener('input', function () { sim.refresh(); });
+
+  sim.init({
+    app: 'events', id: 1,
+    state: function () {
+      return {
+        counts: st.counts, lastKey: st.lastKey, lastMouse: st.lastMouse, keys: st.keys.slice(), down: st.down.slice(),
+        wheel: st.wheel, buttons: st.buttons, text: text.value, focus: sim.tid(document.activeElement)
+      };
+    }
+  });
+  render();
+})();
+</script>
+</body>
+</html>

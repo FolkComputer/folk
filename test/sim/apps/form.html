@@ -1,0 +1,172 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>sim: form</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  .lab { position: absolute; left: 16px; width: 120px; height: 40px; line-height: 40px; font-size: 16px; }
+  .field { position: absolute; left: 140px; width: 344px; height: 40px; padding: 0 8px; border: 2px solid #1d2433; background: #fff; font-size: 18px; user-select: text; -webkit-user-select: text; }
+  .field:focus, .btn:focus, #list:focus, select:focus { outline: 3px solid #d22; outline-offset: 0; }
+  .opt { position: absolute; height: 40px; line-height: 40px; font-size: 16px; padding-left: 40px; }
+  .opt input { position: absolute; left: 0; top: 4px; width: 32px; height: 32px; margin: 0; }
+  #range { position: absolute; left: 140px; top: 396px; width: 280px; height: 40px; margin: 0; }
+  #rangeval { left: 432px; top: 396px; width: 52px; height: 40px; line-height: 40px; font-size: 18px; text-align: right; }
+  #ddbutton { left: 140px; top: 348px; width: 344px; text-align: left; padding-left: 8px; font-size: 18px; }
+  #ddlist { left: 140px; top: 388px; width: 344px; background: #fff; border: 2px solid #1d2433; z-index: 20; display: none; }
+  .ddopt { height: 40px; line-height: 40px; padding-left: 8px; font-size: 18px; border-bottom: 1px solid #bbb; }
+  .ddopt:hover { background: #cfe0ff; }
+  .ddopt.on { background: #ffcc33; }
+  #list { left: 520px; top: 56px; width: 488px; height: 280px; overflow-y: scroll; outline: none; }
+  .item { height: 32px; line-height: 32px; padding-left: 12px; border-bottom: 1px solid #ccc; font-size: 16px; }
+  .item.on { background: #ffcc33; }
+  #summary { left: 520px; top: 352px; width: 488px; height: 252px; padding: 8px; font-size: 14px; line-height: 20px; white-space: pre-wrap; overflow: hidden; }
+  #summary.ok { background: #d8f4d8; }
+  #summary.bad { background: #f8d8d8; }
+</style>
+</head>
+<body>
+<div class="title">form &mdash; widgets, tab order, validation</div>
+<form id="form" novalidate autocomplete="off">
+  <div class="lab" style="top:56px">name</div>
+  <input class="field" style="top:56px" type="text" data-testid="name" id="name" spellcheck="false">
+  <div class="lab" style="top:104px">password</div>
+  <input class="field" style="top:104px" type="password" data-testid="password" id="password">
+  <div class="lab" style="top:152px">age</div>
+  <input class="field" style="top:152px" type="number" min="1" max="120" data-testid="age" id="age">
+  <div class="lab" style="top:204px">options</div>
+  <label class="opt" style="left:140px;top:204px;width:110px" data-testid="cb-news"><input type="checkbox" id="news">news</label>
+  <label class="opt" style="left:256px;top:204px;width:110px" data-testid="cb-terms"><input type="checkbox" id="terms">terms</label>
+  <label class="opt" style="left:372px;top:204px;width:110px" data-testid="cb-dark"><input type="checkbox" id="dark">dark</label>
+  <div class="lab" style="top:252px">plan</div>
+  <label class="opt" style="left:140px;top:252px;width:110px" data-testid="radio-free"><input type="radio" name="plan" value="free" checked>free</label>
+  <label class="opt" style="left:256px;top:252px;width:110px" data-testid="radio-pro"><input type="radio" name="plan" value="pro">pro</label>
+  <label class="opt" style="left:372px;top:252px;width:110px" data-testid="radio-team"><input type="radio" name="plan" value="team">team</label>
+  <div class="lab" style="top:300px">colour</div>
+  <select class="field" style="top:300px" data-testid="native-select" id="color">
+    <option value="red">red</option><option value="green">green</option><option value="blue">blue</option><option value="yellow">yellow</option>
+  </select>
+  <div class="lab" style="top:348px">size</div>
+  <button type="button" class="btn" id="ddbutton" data-testid="dd-button">medium</button>
+  <div class="lab" style="top:396px">level</div>
+  <input type="range" id="range" min="0" max="100" step="1" value="50" data-testid="range">
+  <div id="rangeval" class="abs mono" data-testid="range-value">50</div>
+  <button type="submit" class="btn" style="left:16px;top:452px;width:150px" data-testid="submit">submit</button>
+  <button type="button" class="btn" style="left:174px;top:452px;width:150px" data-testid="alert-btn" id="alertbtn">alert()</button>
+  <button type="button" class="btn" style="left:332px;top:452px;width:152px" data-testid="confirm-btn" id="confirmbtn">confirm()</button>
+  <div class="label" style="left:16px;top:504px;width:468px" data-testid="dialog-info" id="dialoginfo"></div>
+</form>
+<div id="ddlist" class="abs" data-testid="dd-list"></div>
+<div id="list" class="panel" tabindex="0" data-testid="list"></div>
+<div id="summary" class="panel mono" data-testid="summary">not submitted</div>
+<script src="common.js"></script>
+<script>
+(function () {
+  'use strict';
+  var SIZES = ['small', 'medium', 'large', 'huge'], NITEMS = 60;
+  var $ = function (id) { return document.getElementById(id); };
+  var st = { size: 'medium', ddOpen: false, selected: null, submitted: null, alerts: 0, confirms: 0, lastConfirm: null };
+  var list = $('list'), ddlist = $('ddlist');
+
+  for (var i = 0; i < NITEMS; i++) {
+    var d = document.createElement('div');
+    d.className = 'item'; d.textContent = 'Item ' + i; d.setAttribute('data-testid', 'item-' + i); d.setAttribute('data-item', i);
+    list.appendChild(d);
+  }
+  SIZES.forEach(function (s) {
+    var d = document.createElement('div');
+    d.className = 'ddopt'; d.textContent = s; d.setAttribute('data-testid', 'dd-opt-' + s); d.setAttribute('data-size', s);
+    ddlist.appendChild(d);
+  });
+
+  function values() {
+    var plan = document.querySelector('input[name=plan]:checked');
+    return {
+      name: $('name').value, password: $('password').value, age: $('age').value,
+      checks: { news: $('news').checked, terms: $('terms').checked, dark: $('dark').checked },
+      plan: plan ? plan.value : null, color: $('color').value, size: st.size, range: Number($('range').value)
+    };
+  }
+  function render() {
+    $('ddbutton').textContent = st.size + (st.ddOpen ? '  ▲' : '  ▼');
+    ddlist.style.display = st.ddOpen ? 'block' : 'none';
+    Array.prototype.forEach.call(ddlist.children, function (o) { o.className = 'ddopt' + (o.getAttribute('data-size') === st.size ? ' on' : ''); });
+    Array.prototype.forEach.call(list.children, function (o) { o.className = 'item' + (Number(o.getAttribute('data-item')) === st.selected ? ' on' : ''); });
+    $('rangeval').textContent = $('range').value;
+    $('dialoginfo').textContent = 'alerts ' + st.alerts + ', confirms ' + st.confirms + ', last confirm ' + st.lastConfirm;
+    var sum = $('summary');
+    if (!st.submitted) { sum.className = 'panel mono'; sum.textContent = 'not submitted'; }
+    else if (st.submitted.ok) { sum.className = 'panel mono ok'; sum.textContent = 'OK\n' + JSON.stringify(st.submitted.data, null, 1); }
+    else { sum.className = 'panel mono bad'; sum.textContent = 'INVALID\n' + st.submitted.errors.join('\n'); }
+    sim.refresh();
+  }
+
+  // ---- custom dropdown
+  function setOpen(open) { if (st.ddOpen !== open) { st.ddOpen = open; sim.action(open ? 'dd-open' : 'dd-close'); render(); } }
+  function setSize(s) { st.size = s; sim.action('dd-select', { size: s }); render(); }
+  $('ddbutton').addEventListener('click', function () { setOpen(!st.ddOpen); });
+  $('ddbutton').addEventListener('keydown', function (e) {
+    var i = SIZES.indexOf(st.size);
+    if (e.key === 'ArrowDown') { e.preventDefault(); setSize(SIZES[Math.min(SIZES.length - 1, i + 1)]); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setSize(SIZES[Math.max(0, i - 1)]); }
+    else if (e.key === 'Escape') { setOpen(false); }
+  });
+  ddlist.addEventListener('click', function (e) {
+    var o = e.target.closest('[data-size]');
+    if (o) { st.ddOpen = false; setSize(o.getAttribute('data-size')); $('ddbutton').focus(); }
+  });
+  document.addEventListener('mousedown', function (e) {
+    if (st.ddOpen && !e.target.closest('#ddlist') && e.target !== $('ddbutton')) setOpen(false);
+  });
+
+  // ---- list
+  list.addEventListener('click', function (e) {
+    var o = e.target.closest('[data-item]');
+    if (o) { st.selected = Number(o.getAttribute('data-item')); sim.action('item', { item: st.selected }); render(); }
+  });
+  list.addEventListener('scroll', function () { sim.refresh(); });
+
+  // ---- validation and submit
+  $('form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var v = values(), errors = [], age = Number(v.age);
+    if (v.name.trim().length < 2) errors.push('name: at least 2 characters');
+    if (v.password.length < 4) errors.push('password: at least 4 characters');
+    if (v.age === '' || age !== Math.floor(age) || age < 1 || age > 120) errors.push('age: a whole number from 1 to 120');
+    if (!v.checks.terms) errors.push('terms: must be accepted');
+    v.password = v.password.replace(/./g, '*');
+    st.submitted = errors.length ? { ok: false, errors: errors } : { ok: true, errors: [], data: v };
+    sim.action('submit', { ok: !errors.length, errors: errors.length });
+    render();
+  });
+  $('alertbtn').addEventListener('click', function () {
+    sim.action('alert-open'); sim.flush();
+    window.alert('Hello from the form app');
+    st.alerts++; sim.action('alert-closed'); render();
+  });
+  $('confirmbtn').addEventListener('click', function () {
+    sim.action('confirm-open'); sim.flush();
+    st.lastConfirm = window.confirm('Proceed?');
+    st.confirms++; sim.action('confirm-closed', { result: st.lastConfirm }); render();
+  });
+  ['input', 'change'].forEach(function (t) { $('form').addEventListener(t, render); });
+
+  sim.init({
+    app: 'form', id: 5,
+    state: function () {
+      var v = values();
+      v.ddOpen = st.ddOpen;
+      v.list = { scrollTop: Math.round(list.scrollTop), selected: st.selected };
+      v.scrollY = Math.round(window.scrollY);
+      v.submitted = st.submitted;
+      v.dialogs = { alerts: st.alerts, confirms: st.confirms, lastConfirm: st.lastConfirm };
+      v.focus = sim.tid(document.activeElement);
+      return v;
+    },
+    modal: function () { return st.ddOpen; }
+  });
+  render();
+})();
+</script>
+</body>
+</html>
