@@ -225,7 +225,6 @@ Wish the web server handles route "/calibrate" with hidden true handler {
             <h3>Run the calibration process.</h3>
 
             <div id="multiple-calibration-pairs" hidden>
-            <p>Collect poses for each selected camera/projector pair in order. Move the board into the active camera's view when the preview changes. After all pairs are collected, jointly optimize their shared intrinsics and pair transforms. Select all cameras that use these projectors when recalibrating.</p>
             <fieldset>
               <legend>Pairs to calibrate</legend>
               <p>Uncheck pairs whose camera and projector don't overlap.</p>
@@ -234,7 +233,6 @@ Wish the web server handles route "/calibrate" with hidden true handler {
             </div>
             <p>Start calibration: <button id="startCalibration">Start Calibration</button></p>
             <p><button id="fixupCalibration" disabled>Fixup Existing Calibration</button></p>
-            <p>Fixup uses the tag inner side length entered above, keeps existing intrinsics, and captures one board pose per selected pair to update extrinsics. Hold the board still until each pose is recorded.</p>
             <script>
               document.getElementById('multiple-calibration-pairs').hidden = pairs.length <= 1;
               pairs.forEach(([camera, display], index) => {
