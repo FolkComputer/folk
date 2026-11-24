@@ -13,7 +13,7 @@
 Claim the paper formats are {
     letter    {tagInnerSideLength 70 pageSize {612 792}}
     a4        {tagInnerSideLength 70 pageSize {595 842}}
-    tabloid   {tagInnerSideLength 85.0393700787 pageSize {792 1224}}
+    tabloid   {tagInnerSideLength 170.0787401575 pageSize {792 1224}}
     indexcard {tagInnerSideLength 70 pageSize {612 792}}
 }
 
