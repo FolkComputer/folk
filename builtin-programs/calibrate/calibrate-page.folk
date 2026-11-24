@@ -63,6 +63,7 @@ Wish the web server handles route "/calibrate" with hidden true handler {
          let completedPairs = [];
          let activeCamera = cameras[0];
          let activeSession = null;
+         let fixingUp = false;
          folk.send(tcl`
     On unmatch {
         foreach request [Query! /someone/ wishes to collect calibration pairs /pairs/ using measurements /measurements/ in session /session/] {
@@ -92,7 +93,7 @@ Wish the web server handles route "/calibrate" with hidden true handler {
          for (const state of ['optimizing', 'complete']) {
            folk.watchCollected(tcl`/someone/ claims the calibration session /session/ is \${state}`, sessions => {
              if (sessions.some(session => session.session === activeSession)) {
-               document.getElementById('session-progress').textContent = state === 'complete' ? 'Joint calibration complete.' : 'All poses collected. Jointly optimizing…';
+               document.getElementById('session-progress').textContent = state === 'complete' ? (fixingUp ? 'Calibration fixup complete.' : 'Joint calibration complete.') : (fixingUp ? 'Poses collected. Fixing extrinsics…' : 'All poses collected. Jointly optimizing…');
              }
            });
          }
@@ -232,6 +233,8 @@ Wish the web server handles route "/calibrate" with hidden true handler {
             </fieldset>
             </div>
             <p>Start calibration: <button id="startCalibration">Start Calibration</button></p>
+            <p><button id="fixupCalibration" disabled>Fixup Existing Calibration</button></p>
+            <p>Fixup uses the tag inner side length entered above, keeps existing intrinsics, and captures one board pose per selected pair to update extrinsics. Hold the board still until each pose is recorded.</p>
             <script>
               document.getElementById('multiple-calibration-pairs').hidden = pairs.length <= 1;
               pairs.forEach(([camera, display], index) => {
@@ -243,12 +246,27 @@ Wish the web server handles route "/calibrate" with hidden true handler {
                 label.append(checkbox, document.createTextNode(camera + ' → ' + display));
                 document.getElementById('calibration-pairs').append(label);
               });
-              startCalibration.addEventListener('click', (e) => {
-                const selectedPairs = pairs.filter((pair, index) => document.getElementById('calibration-pair-' + index).checked);
+              const selectedCalibrationPairs = () => pairs.filter((pair, index) => document.getElementById('calibration-pair-' + index).checked);
+              let existingCalibrations = [];
+              function updateFixupButton() {
+                const selected = selectedCalibrationPairs();
+                fixupCalibration.disabled = !selected.length || !selected.every(([camera, display]) => existingCalibrations.some(cal => cal.camera === camera && cal.display === display));
+              }
+              folk.watchCollected(tcl`/someone/ claims a calibration from camera /camera/ to display /display/ is /calibration/`, results => {
+                existingCalibrations = results;
+                updateFixupButton();
+              });
+              document.getElementById('calibration-pairs').addEventListener('change', updateFixupButton);
+              for (const [button, fixup] of [[startCalibration, false], [fixupCalibration, true]]) button.addEventListener('click', (e) => {
+                const selectedPairs = selectedCalibrationPairs();
                 if (!selectedPairs.length) { alert('Select at least one camera/projector pair.'); return; }
-                if (!([boardTagSideLengthMm.value, boardLeftMm.value,
+                if (fixup && !(Number.isFinite(Number(boardTagSideLengthMm.value)) && Number(boardTagSideLengthMm.value) > 0)) {
+                  alert('Enter a valid tag inner side length before starting fixup.');
+                  return;
+                }
+                if (!fixup && !([boardTagSideLengthMm.value, boardLeftMm.value,
                       boardTopMm.value, boardBottomMm.value].every(x => x != "" && !isNaN(x)))) {
-                   alert("Error: You need to type in valid measurements before clicking Start Calibration.");
+                   alert("Error: You need to type in valid measurements before starting calibration.");
                    return;
                 }
                 const measurements = {
@@ -258,10 +276,13 @@ Wish the web server handles route "/calibrate" with hidden true handler {
                   bottom: boardBottomMm.value + 'mm'
                 };
 
+                fixingUp = fixup;
                 activeSession = self + ':' + uuidv4();
                 currentPair = null;
                 drawCalibrationGraph();
-                folk.hold('start calibration', tcl`
+                folk.hold('start calibration', fixup ? tcl`
+                  Wish to fixup calibration pairs \${selectedPairs} using tag side length \${boardTagSideLengthMm.value} mm in session \${activeSession}
+                ` : tcl`
                   Wish to collect calibration pairs \${selectedPairs} using measurements \${measurements} in session \${activeSession}
                 `, 'builtin-programs/calibrate/calibrate.folk');
               });

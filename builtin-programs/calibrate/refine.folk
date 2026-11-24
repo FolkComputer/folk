@@ -295,7 +295,7 @@ $cc proc monoComputeError {double[paramsCount] params} double {
     printf("RMSE: %f\n", rmse);
     return rmse;
 }
-$cc proc monoRefineCalibrationOptimize {double[paramsCount] params} Jim_Obj* {
+$cc proc monoRefineCalibrationOptimize {double[paramsCount] params int fixedIntrinsics} Jim_Obj* {
     setvbuf(stdout, NULL, _IONBF, BUFSIZ);
 
     mp_result result = {0};
@@ -310,13 +310,17 @@ $cc proc monoRefineCalibrationOptimize {double[paramsCount] params} Jim_Obj* {
     printf("Unrefined -----------------\n");
     monoComputeError(paramsCount, params);
 
-    mpfit(monoFunc,
+    mp_par pars[paramsCount];
+    memset(pars, 0, sizeof(pars));
+    for (int i = 0; i < 8; i++) pars[i].fixed = fixedIntrinsics;
+    int status = mpfit(monoFunc,
           // Two pixel-coordinate residuals per observed point:
           MonoPointsCount * 2,
           // Number of parameters to optimize:
           paramsCount,
-          params, NULL,
+          params, pars,
           &config, NULL, &result);
+    FOLK_ENSURE(status > 0);
     printf("Refined -------------------\n");
     double rmse = monoComputeError(paramsCount, params);
 
@@ -570,7 +574,7 @@ set refineLib [$cc compile] ;# takes about a half-second
 # and poses (list of pose dicts). Each pose dict should have
 # modelPoints (list of 3D points) and points (list of 2D points)
 # and R and t. Returns dict with updated intrinsics and poses.
-fn refineMonoCalibration {calibration} {
+fn refineMonoCalibration {calibration {fixedIntrinsics false}} {
     # Load the example data for fitting.
     set poseModelPoints [list]
     set posePoints [list]
@@ -599,7 +603,7 @@ fn refineMonoCalibration {calibration} {
     }
 
     # Do the actual optimization:
-    set refined [$refineLib monoRefineCalibrationOptimize $params]
+    set refined [$refineLib monoRefineCalibrationOptimize $params [expr {$fixedIntrinsics ? 1 : 0}]]
 
     # Unspool the optimization result into the calibration data
     # structure and return that.
@@ -610,7 +614,7 @@ fn refineMonoCalibration {calibration} {
         dict set calibration intrinsics $intrName [set $intrName]
     }
     # HACK: zero out skew.
-    dict set calibration intrinsics s 0.0
+    if {!$fixedIntrinsics} { dict set calibration intrinsics s 0.0 }
 
     set poses [dict get $calibration poses]
     for {set i 0} {$i < [llength $poses]} {incr i} {
@@ -708,9 +712,12 @@ fn refineCalibration {modelLib matLib setCameraToProjectorExtrinsics
     # Reconstruct camera->projector extrinsics after refinement.
     setCameraToProjectorExtrinsics $modelLib calibration $calibrationPoses
 
-    # Now we do stereo refinement of the reprojection error
-    # of the entire system, including all intrinsics and
-    # extrinsics.
+    return [refineStereoCalibration $modelLib $matLib $calibrationPoses $calibration]
+}
+
+fn refineStereoCalibration {modelLib matLib calibrationPoses calibration} {
+    # Refine pair and board extrinsics against both images, keeping
+    # camera and projector intrinsics fixed.
 
     # Set up static data for fitting.
     set poseCount 0
@@ -790,6 +797,7 @@ fn refineCalibration {modelLib matLib setCameraToProjectorExtrinsics
     return $calibration
 }
 Claim the calibration refiner is [fn refineCalibration]
+Claim the calibration pose refiner is [fn refineMonoCalibration] with stereo refiner [fn refineStereoCalibration]
 
 # Initialize each pair with the existing solver, then optimize all observations
 # together. Intrinsics occur once per physical device in the parameter vector.

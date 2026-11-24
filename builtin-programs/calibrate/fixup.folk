@@ -1,0 +1,169 @@
+# fixup.folk --
+#
+#     'Fixup' recalibration where all projectors' and cameras'
+#     intrinsics remain the same and only extrinsics are recomputed.
+#
+#     Uses same calibration board as standard calibration. Relies on
+#     the existing calibration to project initial projected tags, in
+#     the hope that at least some hit gaps on the board & can be
+#     detected.
+#
+#     Once some projected tags are detected on the board
+#     plane, you can rewarp, reproject, and get a complete pose of
+#     printed + projected tags, just like in calibration. That one
+#     pose (given that we know intrinsics and board/tag geometry)
+#     should be sufficient to re-fix extrinsics for projector +
+#     camera(s).
+
+
+
+# Snapshot the old results before collecting; keep them active until the solve
+# succeeds. The normal session handles pair ordering, cancellation, and saving.
+When /someone/ wishes to fixup calibration pairs /pairs/ using tag side length /sideLength/ mm in session /session/ {
+    set existing [lmap pair $pairs {
+        lassign $pair camera display
+        set calibration [QueryOne! a calibration from camera $camera to display $display is /./]
+        Claim the calibration fixup for camera $camera to display $display uses $calibration
+        set calibration
+    }]
+    Claim the calibration session $session is fixing up $existing
+    Wish to collect calibration pairs $pairs using measurements [dict create tagSideLength ${sideLength}mm] in session $session
+}
+
+When the pose library is /poseLib/ &\
+     libapriltag has been built with config /configCcWithLibapriltag/ &\
+     the calibration model library is /modelLib/ &\
+     the calibration matrix library is /matLib/ &\
+     the calibration pose refiner is /refineMono/ with stereo refiner /refineStereo/ {
+
+fn configCcWithLibapriltag
+set cc [C]
+$cc extend $poseLib
+configCcWithLibapriltag $cc
+$cc include <apriltag_pose.h>
+$cc include <common/homography.h>
+$cc include <common/matd.h>
+
+# Board-wide homography pose initializer from interactively-refine.folk.
+$cc proc baseEstimateBoardPose {Intrinsics cameraIntrinsics
+                                double cameraWidth double cameraHeight
+                                double[][2] modelTagCorners double[][2] detectedTagCorners
+                                int cornersCount} TagPose {
+    // We'll fill this in with a .H that represents all the corners.
+    apriltag_detection_t det;
+
+    // The normal tag .H homography goes from (+/-1, +/-1) to the
+    // camera-detected tag corners.  We will instead create a
+    // board-wide homography from board meters position to the
+    // camera-detected tag corners.
+    float correspondences[cornersCount][4];
+    for (int i = 0; i < cornersCount; i++) {
+        correspondences[i][0] = modelTagCorners[i][0];
+        correspondences[i][1] = modelTagCorners[i][1];
+
+        double undistortedDetectedTagCorners[2];
+        rescaleAndUndistort(cameraIntrinsics, cameraWidth, cameraHeight,
+                            detectedTagCorners[i],
+                            undistortedDetectedTagCorners);
+        correspondences[i][2] = undistortedDetectedTagCorners[0];
+        correspondences[i][3] = undistortedDetectedTagCorners[1];
+    }
+    zarray_t correspondencesArr = {
+        .el_sz = sizeof(float[4]), .size = cornersCount, .alloc = cornersCount,
+        .data = (char*) correspondences
+    };
+    det.H = homography_compute(&correspondencesArr,
+                               HOMOGRAPHY_COMPUTE_FLAG_SVD);
+    apriltag_detection_info_t info = {
+        .det = &det,
+        .tagsize = 2.0, // scale factor = 1.0
+        .fx = cameraIntrinsics.fx, .fy = cameraIntrinsics.fy,
+        .cx = cameraIntrinsics.cx, .cy = cameraIntrinsics.cy
+    };
+    apriltag_pose_t pose;
+    estimate_pose_for_tag_homography(&info, &pose);
+
+    matd_destroy(det.H);
+
+    TagPose ret;
+    memcpy(ret.R, pose.R->data, sizeof(ret.R));
+    memcpy(ret.t, pose.t->data, sizeof(ret.t));
+
+    matd_destroy(pose.R);
+    matd_destroy(pose.t);
+    return ret;
+}
+
+set boardLib [$cc compile]
+
+fn fixupIntrinsics {intrinsics width height} {
+    foreach key {fx cx s} { dict set intrinsics $key [expr {[dict get $intrinsics $key] * double($width) / [dict get $intrinsics width]}] }
+    foreach key {fy cy} { dict set intrinsics $key [expr {[dict get $intrinsics $key] * double($height) / [dict get $intrinsics height]}] }
+    dict set intrinsics width $width
+    dict set intrinsics height $height
+    foreach key {p1 p2} { if {![dict exists $intrinsics $key]} { dict set intrinsics $key 0 } }
+    return $intrinsics
+}
+
+fn fixupBoardPose {intrinsics modelPoints points} {
+    set pose [$boardLib baseEstimateBoardPose $intrinsics [dict get $intrinsics width] [dict get $intrinsics height] $modelPoints $points [llength $points]]
+    dict set pose modelPoints [lmap point $modelPoints { list {*}$point 0.0 }]
+    dict set pose points $points
+    set result [{*}$refineMono [dict create intrinsics $intrinsics poses [list $pose]] true]
+    return [dict merge [lindex [dict get $result poses] 0] [dict create rmse [dict get $result rmse]]]
+}
+
+fn seedFixup {model tags calibration cameraWidth cameraHeight displayWidth displayHeight} {
+    package require linalg
+    namespace import ::math::linearalgebra::add ::math::linearalgebra::matmul
+    set modelPoints {}; set points {}
+    dict for {id tag} $tags {
+        lappend modelPoints {*}[dict get $model $id p]
+        lappend points {*}[dict get $tag p]
+    }
+    set intrinsics [fixupIntrinsics [dict get $calibration camera intrinsics] $cameraWidth $cameraHeight]
+    set pose [fixupBoardPose $intrinsics $modelPoints $points]
+    set pairs [lmap point $modelPoints {
+        set c [add [matmul [dict get $pose R] [list {*}$point 0]] [dict get $pose t]]
+        set p [add [matmul [dict get $calibration R_cameraToProjector] $c] [dict get $calibration t_cameraToProjector]]
+        list {*}$point {*}[$poseLib project [dict get $calibration projector intrinsics] $displayWidth $displayHeight $p]
+    }]
+    return [$matLib estimateHomography $pairs]
+}
+Claim the calibration fixup seed is [fn seedFixup]
+
+fn solveFixup {poseSets calibrations} {
+    package require linalg
+    namespace import ::math::linearalgebra::matmul ::math::linearalgebra::transpose ::math::linearalgebra::sub
+    set results {}
+    foreach poses $poseSets calibration $calibrations {
+        set pose [lindex $poses 0]
+        set original $calibration
+        foreach type {camera projector} field {camera display} {
+            set intrinsics [fixupIntrinsics [dict get $calibration $type intrinsics] [dict get $pose ${field}Width] [dict get $pose ${field}Height]]
+            dict set calibration $type intrinsics $intrinsics
+            set modelPoints {}; set points {}
+            dict for {id tag} [dict get $pose tags] {
+                if {$type eq "camera" ? ![$modelLib isPrintedTag $id] : ![$modelLib isProjectedTag $id]} continue
+                foreach corner [dict get $pose model $id p] detected [dict get $tag p] {
+                    lappend modelPoints $corner
+                    lappend points [expr {$type eq "camera" ? $detected : [$matLib applyHomography [dict get $pose H_modelToDisplay] $corner]}]
+                }
+            }
+            set board [fixupBoardPose $intrinsics $modelPoints $points]
+            dict set calibration $type rmse [dict get $board rmse]
+            dict set calibration $type extrinsics [list [dict create R [dict get $board R] t [dict get $board t]]]
+        }
+        set camera [lindex [dict get $calibration camera extrinsics] 0]
+        set projector [lindex [dict get $calibration projector extrinsics] 0]
+        set R [matmul [dict get $projector R] [transpose [dict get $camera R]]]
+        dict set calibration R_cameraToProjector $R
+        dict set calibration t_cameraToProjector [sub [dict get $projector t] [matmul $R [dict get $camera t]]]
+        set calibration [{*}$refineStereo $modelLib $matLib $poses $calibration]
+        foreach type {camera projector} { dict set calibration $type intrinsics [dict get $original $type intrinsics] }
+        lappend results $calibration
+    }
+    return $results
+}
+Claim the calibration fixup solver is [fn solveFixup]
+}

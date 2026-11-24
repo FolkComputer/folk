@@ -297,8 +297,15 @@ When /someone/ wishes to collect calibration pairs /pairs/ using measurements /m
                         Require! the calibration session $session collected camera $camera to display $display poses /poses/ at /timestamp/
                         set poses
                     }]
-                    set calibrations [{*}$refineJointCalibration $modelLib $matLib $initializer $setter $poseSets]
+                    set fixup [QueryOne! the calibration session $session is fixing up /existing/ -default {}]
+                    if {$fixup ne {}} {
+                        Require! the calibration fixup solver is /solveFixup/
+                        set calibrations [{*}$solveFixup $poseSets [dict get $fixup existing]]
+                    } else {
+                        set calibrations [{*}$refineJointCalibration $modelLib $matLib $initializer $setter $poseSets]
+                    }
                     if {![llength [Query! /someone/ wishes to collect calibration pairs $pairs using measurements $measurements in session $session]]} { return }
+                    if {$fixup ne {}} { Hold! -save -on calibration -key calibration {} }
                     foreach pair $pairs calibration $calibrations {
                         lassign $pair camera display
                         Hold! -save -on calibration -key [list calibration $camera $display] \

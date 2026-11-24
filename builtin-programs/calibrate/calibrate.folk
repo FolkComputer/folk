@@ -51,6 +51,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         set calibrationTagDetector [makeAprilTagDetector "tagStandard52h13" 2.0 3]
     }
 
+    set fixup [QueryOne! the calibration fixup for camera $camera to display $display uses /calibration/ -default {}]
     set calibrationId [clock microseconds]
     Hold! -key collection-complete {}
 
@@ -115,6 +116,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
          the calibration cycle time is /cycleTime/ &\
          the calibration model-to-display homography is /H_modelToDisplay/ \
              with /...modelToDisplayOpts/ {
+        if {$fixup ne {}} { set posesMax 1 }
         set message "[llength $poses]/$posesMax poses ([expr {round($cycleTime*1000)}] ms)"
         Wish to draw calibration model [dict get $modelToDisplayOpts model] \
             using model-to-display homography $H_modelToDisplay \
@@ -164,6 +166,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
     When the calibration poses max is /calibrationPosesMax/ &\
          -serially camera $camera has gray frame /frame/ at timestamp /frameTimestamp/ {
+        if {$fixup ne {}} { set calibrationPosesMax 1 }
         if {[llength [Query! the calibration collection completed run $calibrationId with /poses/ at /timestamp/]]} { return }
         # HACK: so we just lookup whatever is latest _right now_,
         # instead of subscribing.
@@ -204,6 +207,15 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             if {[$modelLib isPrintedTag $id]} { dict set printedTags $id $tag }
         }
         if {[dict size $printedTags] == 0} { return }
+
+        if {$fixup ne {} && $version == -1} {
+            Require! the calibration fixup seed is /seed/
+            set H [{*}$seed $model $printedTags [dict get $fixup calibration] $cameraWidth $cameraHeight $displayWidth $displayHeight]
+            Hold! -key H_modelToDisplay Claim the calibration model-to-display homography is $H with \
+                model [$modelLib updateModelVersion $baseModel 0] version 0 \
+                frameTimestamp $frameTimestamp modelTimestamp [expr {[clock milliseconds] / 1000.0}]
+            return
+        }
 
         set printedPointPairs [list]
         dict for {id printedTag} $printedTags {
@@ -417,18 +429,20 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             # Don't save the measurements until now, so the user can
             # always safely abort calibration before this without
             # having lasting effects.
-            Hold! -save -on calibration -key calibration-measurements \
-                Claim the calibration measurements are $measurements
+            if {$fixup eq {}} {
+                Hold! -save -on calibration -key calibration-measurements \
+                    Claim the calibration measurements are $measurements
+            }
 
             # Backward compatibility: prevent legacy poses from doubling labels,
             # and retire the old unscoped calibration result.
             Hold! -save -on calibration -key poses {}
-            Hold! -save -on calibration -key calibration {}
+            if {$fixup eq {}} { Hold! -save -on calibration -key calibration {} }
 
             Hold! -save -on calibration -key [list poses $camera $display] \
                 Claim the calibration poses from camera $camera to display $display are $calibrationPoses
             # Destroy the old calibration and trigger a new one.
-            Hold! -save -on calibration -key [list calibration $camera $display] {}
+            if {$fixup eq {}} { Hold! -save -on calibration -key [list calibration $camera $display] {} }
 
             Hold! -save -on calibration -key [list collection $camera $display] \
                 Claim calibration collected [llength $calibrationPoses] poses from camera $camera to display $display at [clock seconds]
