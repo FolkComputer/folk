@@ -13,6 +13,7 @@
 Claim the paper formats are {
     letter    {tagInnerSideLength 70 pageSize {612 792}}
     a4        {tagInnerSideLength 70 pageSize {595 842}}
+    tabloid   {tagInnerSideLength 85.0393700787 pageSize {792 1224}}
     indexcard {tagInnerSideLength 70 pageSize {612 792}}
 }
 
@@ -273,7 +274,7 @@ Subscribe: print program /id/ with /...options/ {
     set calibScaleResults [Query! the calibrated print scale is /scale/]
     if {[llength $calibScaleResults] > 0} {
         set calibScale [dict get [lindex $calibScaleResults 0] scale]
-        dict set options tagInnerSideLength [expr {70.0 / $calibScale}]
+        dict set options tagInnerSideLength [expr {[dict get $options tagInnerSideLength] / $calibScale}]
         dict set options calibratedPrintScale $calibScale
     }
 
