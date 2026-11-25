@@ -64,6 +64,7 @@ void matchInheritStatementDestructors(Match* match, Statement* stmt);
 Statement* statementUnsafeGet(Db* db, StatementRef ref);
 
 bool statementCheck(Db* db, StatementRef ref);
+bool statementIsAlive(Db* db, StatementRef ref);
 
 StatementRef statementRef(Db* db, Statement* stmt);
 
@@ -181,6 +182,9 @@ Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
                      int workerThreadIndex);
 
 void dbRetractStatements(Db* db, Clause* pattern);
+
+// Remove this match's ownership of ref. Returns whether any edges were removed.
+bool matchRetractStatement(Db* db, Match* match, StatementRef ref);
 
 // If `version` is negative, then this statement will always stomp the
 // previous version.

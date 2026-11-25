@@ -441,13 +441,16 @@ void listOfEdgeToAdd(ListEdgeCheckerFn checker, void* checkerArg,
     // the statement. Use it.
     (*listPtr)->edges[(*listPtr)->nEdges++] = to;
 }
-void listOfEdgeToRemove(ListOfEdgeTo* list, uint64_t to) {
-    assert(list != NULL);
+static size_t listOfEdgeToRemove(ListOfEdgeTo* list, uint64_t to) {
+    size_t remaining = 0;
     for (size_t i = 0; i < list->nEdges; i++) {
-        if (list->edges[i] == to) {
-            list->edges[i] = to;
+        if (list->edges[i] != to) {
+            list->edges[remaining++] = list->edges[i];
         }
     }
+    size_t removed = list->nEdges - remaining;
+    list->nEdges = remaining;
+    return removed;
 }
 
 // Given listPtr, moves all non-EMPTY edges to the front, then updates
@@ -505,6 +508,15 @@ bool statementCheck(Db* db, StatementRef ref) {
     Statement* s = &db->statementPool[ref.idx];
     GenRc genRc = s->genRc;
     return ref.gen >= 0 && ref.gen == genRc.gen;
+}
+
+bool statementIsAlive(Db* db, StatementRef ref) {
+    if (statementRefIsNull(ref) || ref.idx >= sizeof(db->statementPool) / sizeof(db->statementPool[0])) {
+        return false;
+    }
+
+    GenRc genRc = db->statementPool[ref.idx].genRc;
+    return genRc.alive && genRc.gen == ref.gen;
 }
 
 StatementRef statementRef(Db* db, Statement* stmt) {
@@ -917,6 +929,29 @@ static void matchAddChildStatement(Db* db, Match* match, StatementRef child) {
     ListOfEdgeTo* list = atomic_load_explicit(&match->childStatements, memory_order_relaxed);
     listOfEdgeToAdd(statementChecker, db, &list, child.val);
     atomic_store_explicit(&match->childStatements, list, memory_order_relaxed);
+}
+
+bool matchRetractStatement(Db* db, Match* match, StatementRef ref) {
+    if (match == NULL) { return false; }
+
+    // Claim the child edges before releasing them, so match teardown
+    // cannot release the same ownership a second time.
+    pthread_mutex_lock(&match->childStatementsMutex);
+    ListOfEdgeTo* children = atomic_load_explicit(&match->childStatements, memory_order_relaxed);
+    size_t removed = children == NULL || children == CHILD_STATEMENTS_REMOVING
+        ? 0 : listOfEdgeToRemove(children, ref.val);
+    pthread_mutex_unlock(&match->childStatementsMutex);
+
+    if (removed == 0) { return false; }
+
+    Statement* stmt = statementAcquire(db, ref);
+    if (stmt != NULL) {
+        for (size_t i = 0; i < removed; i++) {
+            statementDecrParentCountAndMaybeRemoveSelf(db, stmt);
+        }
+        statementRelease(db, stmt);
+    }
+    return true;
 }
 void matchAddDestructor(Match* m, Destructor* d) {
     pthread_mutex_lock(&m->destructorSetMutex);

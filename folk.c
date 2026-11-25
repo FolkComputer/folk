@@ -221,8 +221,32 @@ static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 
     return (JIM_OK);
 }
-// Retract! the time is /t/
+static bool parseStatementRef(Jim_Obj* obj, StatementRef* ref) {
+    const char* text = Jim_String(obj);
+    long long idx, gen;
+    if (sscanf(text, "s%10lld:%11lld", &idx, &gen) != 2 ||
+        idx <= 0 || idx > UINT32_MAX || gen < 0 || gen > INT32_MAX) {
+        return false;
+    }
+
+    char canonical[32];
+    int length = snprintf(canonical, sizeof(canonical), "s%lld:%lld", idx, gen);
+    if (Jim_Length(obj) != length || memcmp(text, canonical, length) != 0) {
+        return false;
+    }
+
+    *ref = (StatementRef) { .idx = idx, .gen = gen };
+    return true;
+}
+
+// Retract! s123:0, or Retract! the time is /t/
 static int RetractFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    StatementRef ref;
+    if (argc == 2 && parseStatementRef(argv[1], &ref)) {
+        Jim_SetResultBool(interp, matchRetractStatement(db, self->currentMatch, ref));
+        return JIM_OK;
+    }
+
     Clause* pattern = jimObjsToClause(argc - 1, argv + 1);
 
     appropriateWorkQueuePush((WorkQueueItem) {
@@ -347,11 +371,12 @@ static StatementRef Say(Clause* clause, long keepMs,
         destructorRetain(destructor);
     }
 
+    StatementRef reusedRef;
     Statement* stmt = dbInsertOrReuseStatement(db, clause,
                                     keepMs, atomicallyVersions, atomicallyVersionsCount,
                                     sourceFileName, sourceLineNumber,
                                     parent, destructor, NULL,
-                                    NULL);
+                                    &reusedRef);
     if (destructor != NULL) { destructorRelease(destructor); }
 
     if (stmt != NULL) {
@@ -364,7 +389,7 @@ static StatementRef Say(Clause* clause, long keepMs,
         return ref;
 
     } else {
-        return STATEMENT_REF_NULL;
+        return reusedRef;
     }
 }
 
@@ -410,10 +435,16 @@ static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         goto err;
     }
 
-    Say(clause, keepMs, atomicallyVersions, atomicallyVersionsCount,
-        destructorCode,
-        sourceFileName, (int) sourceLineNumber);
+    StatementRef ref = Say(clause, keepMs, atomicallyVersions, atomicallyVersionsCount,
+                           destructorCode, sourceFileName, (int) sourceLineNumber);
     free(atomicallyVersions);
+    if (statementRefIsNull(ref)) {
+        Jim_SetEmptyResult(interp);
+    } else {
+        char buf[32];
+        int len = snprintf(buf, sizeof(buf), "s%" PRIu32 ":%" PRId32, ref.idx, ref.gen);
+        Jim_SetResultString(interp, buf, len);
+    }
     return JIM_OK;
 
  err:
@@ -524,6 +555,12 @@ static int StatementAcquireFunc(Jim_Interp *interp, int argc, Jim_Obj *const *ar
     }
     return JIM_OK;
 }
+static int __statementIsAliveFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 2);
+    StatementRef ref;
+    Jim_SetResultBool(interp, parseStatementRef(argv[1], &ref) && statementIsAlive(db, ref));
+    return JIM_OK;
+}
 static int StatementReleaseFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
 
@@ -619,6 +656,24 @@ static int __currentMatchRefFunc(Jim_Interp *interp, int argc, Jim_Obj *const *a
     MatchRef ref = matchRef(db, self->currentMatch);
     char ret[100]; snprintf(ret, 100, "m%u:%u", ref.idx, ref.gen);
     Jim_SetResultString(interp, ret, strlen(ret));
+    return JIM_OK;
+}
+static int __currentWhenRefFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 1);
+    StatementRef ref = STATEMENT_REF_NULL;
+    mutexLock(&self->currentItemMutex);
+    if (self->currentItem.op == RUN_WHEN) {
+        ref = self->currentItem.runWhen.when;
+    }
+    mutexUnlock(&self->currentItemMutex);
+
+    if (statementRefIsNull(ref)) {
+        Jim_SetEmptyResult(interp);
+    } else {
+        char buf[32];
+        int len = snprintf(buf, sizeof(buf), "s%" PRIu32 ":%" PRId32, ref.idx, ref.gen);
+        Jim_SetResultString(interp, buf, len);
+    }
     return JIM_OK;
 }
 static int __statementIncompleteChildMatchesCountFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
@@ -748,6 +803,7 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "QuerySimple!", QuerySimpleFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "StatementAcquire!", StatementAcquireFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__statementIsAlive", __statementIsAliveFunc, NULL, NULL);
     Jim_CreateCommand(interp, "StatementRelease!", StatementReleaseFunc, NULL, NULL);
     Jim_CreateCommand(interp, "CurrentMatchInheritStatementDestructors!", CurrentMatchInheritStatementDestructorsFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__statementOfCurrentMatchSourceInfo", __statementOfCurrentMatchSourceInfoFunc, NULL, NULL);
@@ -756,6 +812,7 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "__variableNameIsNonCapturing", __variableNameIsNonCapturingFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__startsWithDollarSign", __startsWithDollarSignFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__currentMatchRef", __currentMatchRefFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__currentWhenRef", __currentWhenRefFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__statementIncompleteChildMatchesCount", __statementIncompleteChildMatchesCountFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__whenOfCurrentMatchIncompleteChildMatchesCount", __whenOfCurrentMatchIncompleteChildMatchesCountFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__isInSubscription", __isInSubscriptionFunc, NULL, NULL);
