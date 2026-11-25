@@ -3,7 +3,9 @@
 `builtin-programs/video.folk` plays a video file on a program, like an
 image. It splits **decoding** (`VideoSource`, one `ffmpeg` per file)
 from **playing** (`VideoPlayer`, one per program showing it), with a
-memory-capped ring of decoded frames in between.
+memory-capped ring of decoded frames in between. Changing speed,
+direction, range, crop or seek moves the player around in the ring; it
+doesn't restart `ffmpeg` while the frames it needs are there.
 
 ## Why not `exec` in a `When`?
 
@@ -16,6 +18,13 @@ decoder is bigger because:
   video plays, one per video. Here a C thread reads `ffmpeg`'s pipes,
   and another publishes each frame with `HoldStatementGlobally`, so
   playing keeps no worker busy (`test/video.folk` checks this).
+- **Every change would be a restart.** Speed, reverse, range, crop and
+  seek are all `ffmpeg` arguments, so with `exec` each one kills
+  `ffmpeg` and starts a new one: a new `ffprobe`, a seek to a keyframe,
+  and a blank frame each time. A program that scrubs (seeking to a
+  new frame as a page tilts, say) would restart `ffmpeg` 25 times a
+  second. Reverse with `-vf reverse` also holds the whole clip in
+  `ffmpeg`'s memory.
 - **Several programs can share one decode.** A program that plays with
   `source $video` reads from the same ring as `$video`, with no extra
   `ffmpeg`.
@@ -51,6 +60,22 @@ Retracting the wish stops the video and leaves no `ffmpeg` behind
   in its ring (no new `ffmpeg`). If not, it opens its own source around
   the time it seeks to, so the two don't fight over the ring.
 
+## Changing a video while it plays
+
+- The outer `When` (`plays video /path/ with /...options/`) opens the
+  player once. An inner `When` collects `is sped up by`, `is reversed`,
+  `plays from .. to ..`, `is cropped to`, `seeks to` and `is paused`,
+  and calls `videoUpdate`, so those wishes never unmatch the outer
+  `When`.
+- **Speed and direction:** the playhead keeps its time in the file, so
+  playback goes on smoothly from the ring.
+- **Reverse:** walks backwards through the ring. If the clip doesn't
+  fit, walking past the oldest frame makes `ffmpeg` seek back
+  (`-ss`) and refill the chunk before it.
+- **Crop:** done in C when a frame is copied out of the (uncropped)
+  ring, so cropping never restarts `ffmpeg`, and players that share a
+  source each crop their own way.
+
 ## Sound
 
 - `ffmpeg` decodes sound at 1x, paired frame by frame with the picture
@@ -60,7 +85,8 @@ Retracting the wish stops the video and leaves no `ffmpeg` behind
   pitch the same.
 - Reversed or paused video is silent, but the `AudioStream` stays open,
   so playing forwards again doesn't reopen it.
-- `volume` and `muted` come from the options.
+- `volume` and `muted` come from the options, or live from `Wish $p
+  has video volume $v` and `Wish $p is muted`.
 
 ## Display
 

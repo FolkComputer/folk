@@ -36,6 +36,18 @@
 # `volume`, and `muted`. With `source $prog`, it shares the decoder
 # of the same file playing on $prog, if that clip fits in its ring.
 #
+# Other programs can change a video while it plays,
+# by wishing on the program that plays it. None of these restart it:
+#
+#    Wish $video is sped up by 2        ;# several of these multiply
+#    Wish $video is reversed
+#    Wish $video plays from 1.5 to 3
+#    Wish $video is cropped to {0.25 0.25 0.5 0.5}
+#    Wish $video seeks to 2.0
+#    Wish $video is paused
+#    Wish $video has video volume 0.5
+#    Wish $video is muted
+#
 # Two or more videos play as one picture with
 #
 #    Wish $this plays video "a.mp4" with beside {"b.mp4"}
@@ -2565,6 +2577,16 @@ When the image library is /imageLib/ {
             if {$length < 0.04} { set length 0.04 }
             list $from $length
         }}
+        set firstSeek {{seeks} {
+            set valid {}
+            foreach sk $seeks {
+                set t [dict get $sk t]
+                if {[string is double -strict $t] && abs($t) < 1e9} { lappend valid [expr {double($t)}] }
+            }
+            if {[llength $valid] == 0} { return {0 0.0} }
+            list 1 [lindex [lsort -real $valid] 0]
+        }}
+
         # Compute initial parameters (and see if an initial seek is already present).
         set initRate [dict getdef $options rate 1.0]
         if {![string is double -strict $initRate] || !($initRate >= 0.1 && $initRate <= 16)} {
@@ -2577,7 +2599,7 @@ When the image library is /imageLib/ {
         set initPaused [expr {[dict getdef $options paused false] ? 1 : 0}]
         set initCrop [dict getdef $options crop {}]
         if {[llength $initCrop] != 4} { set initCrop {} }
-        set initHasSeek 0; set initSeekT 0.0
+        lassign [apply $firstSeek [Query! /someone/ wishes $p seeks to /t/]] initHasSeek initSeekT
 
         set ownerName [expr {$sourceProg eq "" ? $p : ""}]
         set canShare [expr {$sourceProg eq "" && $estFits}]
@@ -2646,16 +2668,70 @@ When the image library is /imageLib/ {
             }
         }
 
-        set initSignedRate [expr {$initRev * $initRate}]
-        Claim $p has negotiated video speed [format %.1f $initSignedRate]
-        Claim $p plays video $path from $initFrom length $initLen at rate $initSignedRate
+        # Live edit controller: updates rate, reverse, range, seek, and crop on
+        # the running reader without restarting ffmpeg.
+        When the collected results for [list /someone/ wishes $p is sped up by /n/] are /speeds/ &\
+             the collected results for [list /someone/ wishes $p is reversed] are /reverses/ &\
+             the collected results for [list /someone/ wishes $p plays from /t0/ to /t1/] are /ranges/ &\
+             the collected results for [list /someone/ wishes $p is cropped to /rect/] are /crops/ &\
+             the collected results for [list /someone/ wishes $p seeks to /t/] are /seeks/ &\
+             the collected results for [list /someone/ wishes $p is paused] are /pauseWishes/ {
+            set rate [dict getdef $options rate 1.0]
+            foreach s $speeds { set rate [expr {$rate * double([dict get $s n])}] }
+            set reverse [expr {[dict getdef $options reverse false] || [llength $reverses] > 0}]
+            set signedRate [expr {$reverse ? -$rate : $rate}]
+            Claim $p has negotiated video speed [format %.1f $signedRate]
+            if {!($rate >= 0.1 && $rate <= 16)} {
+                Say $p has error "video: Can't play at rate $rate (0.1 to 16)" with info {}
+                return
+            }
+
+            set from [dict getdef $options from ""]
+            set to [dict getdef $options to ""]
+            if {$from eq "" && $to eq "" && [llength $ranges] > 0} {
+                set range [lindex [lsort [lmap r $ranges {list [dict get $r t0] [dict get $r t1]}]] 0]
+                lassign $range from to
+            }
+            lassign [apply $clampRange $from $to $duration] from length
+
+            set crop [dict getdef $options crop ""]
+            if {$crop eq "" && [llength $crops] > 0} {
+                set crop [lindex [lsort [lmap c $crops {dict get $c rect}]] 0]
+            }
+            if {[llength $crop] != 4} { set crop {} }
+
+            set paused [expr {([dict getdef $options paused false] || [llength $pauseWishes] > 0) ? 1 : 0}]
+            lassign [apply $firstSeek $seeks] hasSeek seekT
+
+            Claim $p plays video $path from $from length $length at rate $signedRate
+
+            $videoLib videoUpdate $id $signedRate $from $length $hasSeek $seekT $paused $crop
+        }
 
         if {!$canHaveSound} { return }
-        set vol [dict getdef $options volume 1.0]
-        if {![string is double -strict $vol]} { set vol 1.0 }
-        if {$vol < 0.0} { set vol 0.0 }
-        $videoLib videoSetMuted $id [expr {$initOptMuted || $vol <= 0.0 ? 1 : 0}]
-        Claim $p has video $path player $id audio volume $vol muted $initOptMuted
+        # Live audio controller: updates volume and mute state in realtime without
+        # restarting ffmpeg or reopening the AudioStream.
+        When the collected results for [list /someone/ wishes $p has video volume /v/] are /volWishes/ &\
+             the collected results for [list /someone/ wishes $p is muted] are /muteWishes/ {
+            set vol [dict getdef $options volume 1.0]
+            foreach r $volWishes {
+                set cand [dict get $r v]
+                if {[string is double -strict $cand]} { set vol [expr {double($cand)}] }
+            }
+            if {![string is double -strict $vol]} { set vol 1.0 }
+            if {$vol < 0.0} { set vol 0.0 }
+
+            set isMuted [expr {$initOptMuted || [llength $muteWishes] > 0}]
+            if {$vol <= 0.0} {
+                set effMuted 1
+            } else {
+                set effMuted $isMuted
+            }
+
+            $videoLib videoSetMuted $id $effMuted
+            Claim $p has video $path player $id audio volume $vol muted $isMuted
+            Claim $p has video audio volume $vol muted $isMuted
+        }
 
         When the audio library is /audioLib/ &\
              the video sound library is /soundLib/ {

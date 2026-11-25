@@ -1,0 +1,574 @@
+# Tests for the seeking ring decoder in builtin-programs/video.folk:
+# 1. Scrubbing (seeking a paused, shared player) on both short (shared ring) and long (own ring)
+#    clips causes 0 ffmpeg restarts and serves exact frames.
+# 2. Live edits (speed, reverse, range+crop) cause 0 restarts.
+# 3. Reversed 720p clip > ring cap stays < 150 MB total (Folk + ffmpeg RSS)
+#    and refills backward chunks accurately via input seek.
+# 4. Audio with |rate| != 1 produces real-time WSOLA samples and mutes when
+#    reversed.
+# 5. Inline size/position changes and live volume/mute cause 0 restarts.
+
+When { source builtin-programs/image/image-lib.folk }
+When { source builtin-programs/collect.folk }
+
+set cc [C]
+$cc code {
+    typedef struct AudioStream { int unused; } AudioStream;
+    static AudioStream theStream;
+    static int _Atomic soundBytes;
+    static double lastVol = 1.0;
+}
+$cc proc audioStreamOpen {int r int c} AudioStream* { return &theStream; }
+$cc proc audioStreamSetVolume {AudioStream* s double v} void { lastVol = v; }
+$cc proc audioStreamWriteBytes {AudioStream* s char* bytes int len} void {
+    soundBytes += len;
+}
+$cc proc audioStreamWrite {AudioStream* s Jim_Obj* pcm} void {
+    int len; Jim_GetString(pcm, &len); soundBytes += len;
+}
+$cc proc audioStreamClose {AudioStream* s} void {}
+$cc proc soundBytesWritten {} int { return soundBytes; }
+$cc proc resetSoundBytes {} void { soundBytes = 0; }
+$cc proc lastVolumeSet {} double { return lastVol; }
+set fakeAudio [$cc compile]
+Claim the audio library is $fakeAudio
+
+When { source builtin-programs/video.folk }
+
+When the image library is /imageLib/ {
+    set dc [C]
+    $dc extend $imageLib
+    $dc include <stdlib.h>
+    $dc proc frameDiff {Image im Jim_Obj* ppm} double {
+        int len; const char* s = Jim_GetString(ppm, &len);
+        int w, h, maxval, off = 0;
+        if (sscanf(s, "P6 %d %d %d%n", &w, &h, &maxval, &off) != 3) { return 1000; }
+        off++;
+        if (w != (int) im.width || h != (int) im.height || len - off < w * h * 3) { return 999; }
+        double sum = 0;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w * 3; x++) {
+                sum += abs((int) im.data[y * im.bytesPerRow + x] - (unsigned char) s[off + y * w * 3 + x]);
+            }
+        }
+        return sum / (w * h * 3);
+    }
+    $dc code {
+        #include <pthread.h>
+        static pthread_mutex_t snapMu = PTHREAD_MUTEX_INITIALIZER;
+        typedef struct { int k, w, h; uint8_t* rgb; } Snap;
+        static Snap snaps[8];
+        static int nSnaps = 0;
+    }
+    $dc proc snapTake {int k int minStep Image im} int {
+        pthread_mutex_lock(&snapMu);
+        if (nSnaps > 0 && k < snaps[nSnaps - 1].k + minStep) {
+            pthread_mutex_unlock(&snapMu);
+            return nSnaps;
+        }
+        if (nSnaps < 8) {
+            size_t sz = (size_t)im.width * im.height * 3;
+            uint8_t* buf = malloc(sz);
+            for (int y = 0; y < (int)im.height; y++) {
+                memcpy(buf + (size_t)y * im.width * 3,
+                       im.data + (size_t)y * im.bytesPerRow,
+                       (size_t)im.width * 3);
+            }
+            snaps[nSnaps++] = (Snap) { k, (int)im.width, (int)im.height, buf };
+        }
+        int n = nSnaps;
+        pthread_mutex_unlock(&snapMu);
+        return n;
+    }
+    $dc proc snapCount {} int {
+        pthread_mutex_lock(&snapMu);
+        int n = nSnaps;
+        pthread_mutex_unlock(&snapMu);
+        return n;
+    }
+    $dc proc snapK {int idx} int {
+        pthread_mutex_lock(&snapMu);
+        int k = (idx >= 0 && idx < nSnaps) ? snaps[idx].k : 0;
+        pthread_mutex_unlock(&snapMu);
+        return k;
+    }
+    $dc proc snapDiff {int idx Jim_Obj* ppm} double {
+        int plen; const char* p = Jim_GetString(ppm, &plen);
+        int pw, ph, maxval, off = 0;
+        if (sscanf(p, "P6 %d %d %d%n", &pw, &ph, &maxval, &off) != 3) { return 1000; }
+        off++;
+        pthread_mutex_lock(&snapMu);
+        if (idx < 0 || idx >= nSnaps || pw != snaps[idx].w || ph != snaps[idx].h ||
+            plen - off < pw * ph * 3) {
+            pthread_mutex_unlock(&snapMu);
+            return 999;
+        }
+        double sum = 0;
+        size_t n = (size_t)pw * ph * 3;
+        for (size_t i = 0; i < n; i++) {
+            sum += abs((int)snaps[idx].rgb[i] - (unsigned char)p[off + i]);
+        }
+        pthread_mutex_unlock(&snapMu);
+        return sum / (double)n;
+    }
+    Claim the frame differ is [$dc compile]
+}
+
+fn refFrame {clip t} {
+    set f [open |[list ffmpeg -nostdin -loglevel error -ss $t -t 0.04 -i $clip \
+                      -vf "scale='min(640,iw)':-2,fps=25" -frames:v 1 -f image2pipe -c:v ppm -] r]
+    set ppm [read $f]; close $f
+    return $ppm
+}
+
+Assert! when /__this/ has program code /__programCode/ {
+    SayWithSource $__this 1 0 {} {} \
+        when $__programCode with environment [list [list this $__this]]
+} with environment {}
+set ::results {}
+proc check {what ok detail} {
+    lappend ::results [list $what $ok]
+    puts "[expr {$ok ? {ok  } : {FAIL}}] $what: $detail"
+}
+proc waitFor {pattern {tries 120}} {
+    set pattern [uplevel 1 [list subst $pattern]]
+    for {set i 0} {$i < $tries} {incr i} {
+        set r [Query! {*}$pattern]
+        if {[llength $r] > 0} { return $r }
+        sleep 0.05
+    }
+    return {}
+}
+proc folkRssMb {} {
+    expr {[string trim [exec ps -o rss= -p [pid]]] / 1024.0}
+}
+proc ffmpegRssMb {} {
+    set pids [exec sh -c "pgrep -P [pid] -d, ffmpeg 2>/dev/null || true"]
+    set pids [string trim $pids]
+    if {$pids eq ""} { return 0.0 }
+    set kb [string trim [exec sh -c "ps -o rss= -p $pids 2>/dev/null | awk '{s+=\$1} END{print s+0}'"]]
+    expr {$kb / 1024.0}
+}
+proc ffmpegChildren {} { string trim [exec sh -c "pgrep -P [pid] ffmpeg | wc -l"] }
+
+set dir [string trim [exec mktemp -d]]
+set clipShort $dir/short.mp4
+set clip720 $dir/hd720.mp4
+exec ffmpeg -nostdin -loglevel quiet \
+    -f lavfi -i testsrc=duration=4:size=320x240:rate=25 \
+    -f lavfi -i sine=frequency=440:duration=4 \
+    -pix_fmt yuv420p -g 25 -c:a aac -shortest $clipShort
+exec ffmpeg -nostdin -loglevel quiet \
+    -f lavfi -i testsrc2=duration=12:size=1280x720:rate=25 \
+    -f lavfi -i sine=frequency=520:duration=12 \
+    -pix_fmt yuv420p -g 25 -c:a aac -shortest $clip720
+
+# Stand-ins for programs that change a video while it plays.
+Assert! speed1 has program code {
+    When $this points up at /video/ { Wish $video is sped up by 2 }
+}
+Assert! sub1 has program code {
+    When $this points up at /video/ {
+        Wish $video plays from 1.0 to 2.0
+        Wish $video is cropped to {0.25 0.25 0.5 0.5}
+    }
+}
+# Scrubs: shares the video's decoder, paused, and seeks to the frame at
+# `scrub position` (0 is the start, 1 the end).
+Assert! review1 has program code {
+    When $this points up at /video/ {
+        When $video has video /path/ duration /duration/ {
+            Wish $this plays video $path with source $video paused true muted true width 0.08
+            When $this has scrub position /pos/ {
+                set frames [expr {int($duration * 25)}]
+                if {$frames < 1} { return }
+                set k [expr {int($pos * $frames)}]
+                if {$k >= $frames} { set k [expr {$frames - 1}] }
+                set t [expr {$k / 25.0}]
+                Claim $this reviews $video at frame $k time $t
+                Wish $this seeks to $t
+            }
+        }
+    }
+}
+
+# --- Test 1: Short clip live edits + scrubbing = 0 restarts ---
+Assert! when playShort {
+    Wish vidS plays video $clipShort
+} with environment [list [list clipShort $clipShort]]
+Assert! playShort
+set r [waitFor {vidS has video $clipShort frame /im/}]
+set st0 [waitFor {vidS has video $clipShort decoder spawns /sp/ seeks /sk/}]
+check "short initial spawn" [expr {[llength $st0] == 1 && [dict get [lindex $st0 0] sp] == 1 && [dict get [lindex $st0 0] sk] == 0}] \
+    "spawns=[dict getdef [lindex $st0 0] sp ?] seeks=[dict getdef [lindex $st0 0] sk ?]"
+
+# Speed, reverse, and range+crop all without restarts.
+Assert! speed1 points up at vidS
+waitFor {vidS plays video $clipShort from /f/ length /l/ at rate 2.0}
+sleep 0.4
+$fakeAudio resetSoundBytes
+sleep 0.5
+set sbRate2 [$fakeAudio soundBytesWritten]
+check "audio atempo 2x plays" [expr {$sbRate2 > 40000}] "bytes in 0.5s: $sbRate2"
+
+Assert! revCard wishes vidS is reversed
+waitFor {vidS plays video $clipShort from /f/ length /l/ at rate -2.0}
+sleep 0.2
+$fakeAudio resetSoundBytes
+sleep 0.4
+set sbRev [$fakeAudio soundBytesWritten]
+check "audio muted when reversed" [expr {$sbRev == 0}] "bytes while reversed: $sbRev"
+
+Assert! sub1 points up at vidS
+waitFor {vidS plays video $clipShort from 1.0 length 1.0 at rate -2.0}
+set stEdits [Query! vidS has video $clipShort decoder spawns /sp/ seeks /sk/]
+check "edits cause 0 restarts" [expr {[llength $stEdits] == 1 && [dict get [lindex $stEdits 0] sp] == 1 && [dict get [lindex $stEdits 0] sk] == 0}] \
+    "spawns=[dict getdef [lindex $stEdits 0] sp ?] seeks=[dict getdef [lindex $stEdits 0] sk ?]"
+
+Retract! sub1 points up at vidS
+Retract! revCard wishes vidS is reversed
+Retract! speed1 points up at vidS
+waitFor {vidS plays video $clipShort from /f/ length /l/ at rate 1.0}
+
+# Scrubbing through 12 positions across the clip = 0 restarts.
+Assert! review1 points up at vidS
+set prevPos ""
+set scrubOk 1
+set scrubDetail ""
+foreach pos {0.50 0.51 0.52 0.53 0.54 0.55 0.48 0.40 0.20 0.80 0.90 0.10} {
+    if {$prevPos ne ""} { Retract! review1 has scrub position $prevPos }
+    Assert! review1 has scrub position $pos
+    set prevPos $pos
+    set wantK [expr {int($pos * 100)}]
+    set rv [waitFor {review1 reviews vidS at frame $wantK time /t/}]
+    if {[llength $rv] == 0} { set scrubOk 0; set scrubDetail "missing review $wantK"; break }
+    set t [dict get [lindex $rv 0] t]
+    # Wait for frame matching t (check diff < 1.0).
+    set matched 0
+    for {set try 0} {$try < 40} {incr try} {
+        set fr [Query! review1 has video $clipShort frame /im/]
+        set dRes [Query! the frame differ is /d/]
+        if {[llength $fr] > 0 && [llength $dRes] > 0} {
+            set diff [[dict get [lindex $dRes 0] d] frameDiff [dict get [lindex $fr 0] im] [refFrame $clipShort $t]]
+            if {$diff < 1.0} { set matched 1; break }
+        }
+        sleep 0.05
+    }
+    if {!$matched} { set scrubOk 0; set scrubDetail "frame mismatch at pos=$pos t=$t"; break }
+}
+set stScrubVid [Query! vidS has video $clipShort decoder spawns /sp/ seeks /sk/]
+set stScrubRev [Query! review1 has video $clipShort decoder spawns /sp/ seeks /sk/]
+check "review tilt-scrub 12 steps frames match" $scrubOk $scrubDetail
+check "review tilt-scrub 0 restarts" [expr {[llength $stScrubRev] == 1 && [dict get [lindex $stScrubRev 0] sp] == 1 && [dict get [lindex $stScrubRev 0] sk] == 0 && [ffmpegChildren] == 1}] \
+    "rev spawns=[dict getdef [lindex $stScrubRev 0] sp ?] seeks=[dict getdef [lindex $stScrubRev 0] sk ?], ffmpegs=[ffmpegChildren]"
+
+Retract! review1 has scrub position $prevPos
+Retract! review1 points up at vidS
+Retract! playShort
+sleep 0.5
+
+# --- Test 1b: Short clip started reversed from t=0 + repeated identical seek ---
+Assert! when playRevStart {
+    Wish vidRevStart plays video $clipShort with reverse true muted true
+} with environment [list [list clipShort $clipShort]]
+Assert! playRevStart
+set rRevStart [waitFor {vidRevStart has video $clipShort frame /im/}]
+sleep 0.5
+set stRevStart [Query! vidRevStart has video $clipShort decoder spawns /sp/ seeks /sk/]
+check "short started reversed 0 seeks" [expr {[llength $rRevStart] == 1 && [llength $stRevStart] == 1 &&
+                                              [dict get [lindex $stRevStart 0] sp] == 1 &&
+                                              [dict get [lindex $stRevStart 0] sk] == 0}] \
+    "spawns=[dict getdef [lindex $stRevStart 0] sp ?] seeks=[dict getdef [lindex $stRevStart 0] sk ?]"
+Retract! playRevStart
+sleep 0.3
+
+Assert! when playReSeek {
+    Wish vidReSeek plays video $clipShort with muted true
+} with environment [list [list clipShort $clipShort]]
+Assert! playReSeek
+waitFor {vidReSeek has video $clipShort frame /im/}
+Assert! tester wishes vidReSeek seeks to 2.0
+sleep 0.3
+Retract! tester wishes vidReSeek seeks to 2.0
+set deadline [expr {[clock milliseconds] + 4000}]
+while {[clock milliseconds] < $deadline} {
+    set fr [Query! vidReSeek has video $clipShort frame /im/]
+    if {[llength $fr] > 0 && [dict get [dict get [lindex $fr 0] im] uniq] >= 65} { break }
+    sleep 0.05
+}
+# Playhead has advanced past 65; re-asserting the same seek 2.0 must jump back to ~51.
+Assert! tester wishes vidReSeek seeks to 2.0
+set matchedReSeek 0
+for {set try 0} {$try < 60} {incr try} {
+    set fr [Query! vidReSeek has video $clipShort frame /im/]
+    if {[llength $fr] > 0} {
+        set k [dict get [dict get [lindex $fr 0] im] uniq]
+        if {$k >= 51 && $k <= 58} { set matchedReSeek 1; break }
+    }
+    sleep 0.03
+}
+set stReSeek [Query! vidReSeek has video $clipShort decoder spawns /sp/ seeks /sk/]
+check "re-assert identical seek hits ring" [expr {$matchedReSeek && [dict getdef [lindex $stReSeek 0] sp 0] == 1 && [dict getdef [lindex $stReSeek 0] sk 0] == 0}] \
+    "matched=$matchedReSeek spawns=[dict getdef [lindex $stReSeek 0] sp ?] seeks=[dict getdef [lindex $stReSeek 0] sk ?]"
+Retract! tester wishes vidReSeek seeks to 2.0
+Retract! playReSeek
+sleep 0.4
+
+# --- Test 3: Reversed 720p clip (> ring cap) < 150 MB total & chunk-refills ---
+set rssBase [folkRssMb]
+Assert! when play720 {
+    Wish vid720 plays video $clip720 with muted true
+    Wish vid720 is reversed
+} with environment [list [list clip720 $clip720]]
+Assert! play720
+set r [waitFor {vid720 has video $clip720 frame /im/} 200]
+check "720p reversed starts" [expr {[llength $r] == 1}] "got first frame"
+
+# Sample Folk + decoder ffmpeg RSS across chunk refills without any test-helper
+# refFrame ffmpeg children running concurrently.
+set maxTotalMb 0.0
+set maxChildren 0
+for {set s 0} {$s < 35} {incr s} {
+    set nc [ffmpegChildren]
+    if {$nc > $maxChildren} { set maxChildren $nc }
+    set tot [expr {[folkRssMb] + [ffmpegRssMb]}]
+    if {$tot > $maxTotalMb} { set maxTotalMb $tot }
+    sleep 0.1
+}
+set memFolk [folkRssMb]
+set memFfmpeg [ffmpegRssMb]
+
+# Now snapshot chunk-refilled frames instantaneously (<0.1ms so 40ms frame ticks
+# never cancel the When), then compare against reference ffmpeg outside.
+set dObj [dict get [lindex [Query! the frame differ is /d/] 0] d]
+When vid720 has video $clip720 frame /im/ & the frame differ is /d/ {
+    if {[$d snapCount] >= 4} { return }
+    $d snapTake [dict get $im uniq] 12 $im
+}
+set deadline [expr {[clock milliseconds] + 6000}]
+while {[clock milliseconds] < $deadline} {
+    set st720 [Query! vid720 has video $clip720 decoder spawns /sp/ seeks /sk/]
+    if {[$dObj snapCount] >= 3 && [dict getdef [lindex $st720 0] sk 0] >= 1} { break }
+    sleep 0.1
+}
+set nSnaps [$dObj snapCount]
+set maxDiff [expr {$nSnaps > 0 ? 0.0 : 999.0}]
+for {set i 0} {$i < $nSnaps} {incr i} {
+    set k [$dObj snapK $i]
+    set t [expr {12.0 - 0.04 - fmod(($k - 1) / 25.0, 12.0)}]
+    set diff [$dObj snapDiff $i [refFrame $clip720 $t]]
+    if {$diff > $maxDiff} { set maxDiff $diff }
+}
+set st720 [Query! vid720 has video $clip720 decoder spawns /sp/ seeks /sk/]
+set sp720 [dict getdef [lindex $st720 0] sp 0]
+set sk720 [dict getdef [lindex $st720 0] sk 0]
+check "720p reversed chunk refill accuracy" [expr {$maxDiff < 1.5 && $nSnaps >= 3 && $sk720 >= 1}] \
+    "checked=$nSnaps maxDiff=$maxDiff (want <1.5), spawns=$sp720 seeks=$sk720"
+check "720p reversed total memory < 150 MB" [expr {$maxTotalMb < 150.0 && $maxChildren <= 1}] \
+    "peak total (Folk+ffmpeg)=[format %.1f $maxTotalMb] MB (Folk=[format %.1f $memFolk] ffmpeg=[format %.1f $memFfmpeg] children=$maxChildren)"
+
+# Also scrub the long 720p clip (> ring cap): local scrubbing = 0 restarts.
+Assert! review1 points up at vid720
+Assert! review1 has scrub position 0.500
+set rv720 [waitFor {review1 reviews vid720 at frame 150 time /t/}]
+set fr720 [waitFor {review1 has video $clip720 frame /im/}]
+sleep 0.3
+set stRev720Before [Query! review1 has video $clip720 decoder spawns /sp/ seeks /sk/]
+set spBefore [dict getdef [lindex $stRev720Before 0] sp 0]
+set skBefore [dict getdef [lindex $stRev720Before 0] sk 0]
+set prevP 0.500
+foreach pos {0.505 0.510 0.515 0.520 0.495 0.490} {
+    Retract! review1 has scrub position $prevP
+    Assert! review1 has scrub position $pos
+    set prevP $pos
+    set wantK [expr {int($pos * 300)}]
+    waitFor {review1 reviews vid720 at frame $wantK time /t/}
+    sleep 0.1
+}
+set stRev720After [Query! review1 has video $clip720 decoder spawns /sp/ seeks /sk/]
+set spAfter [dict getdef [lindex $stRev720After 0] sp 0]
+set skAfter [dict getdef [lindex $stRev720After 0] sk 0]
+check "long 720p review local scrub 0 restarts" [expr {$spAfter == $spBefore && $skAfter == $skBefore && $spBefore > 0}] \
+    "before=($spBefore,$skBefore) after=($spAfter,$skAfter)"
+
+# Editing the speed while scrubbing the long 720p clip keeps the scrubber's source alive.
+Assert! speed1 points up at vid720
+waitFor {vid720 plays video $clip720 from /f/ length /l/ at rate -2.0}
+sleep 0.2
+set stRevEdit [Query! review1 has video $clip720 decoder spawns /sp/ seeks /sk/]
+set spEdit [dict getdef [lindex $stRevEdit 0] sp 0]
+check "source edit keeps long review alive" [expr {$spEdit == $spAfter}] \
+    "spawns before=$spAfter after_edit=$spEdit"
+Retract! speed1 points up at vid720
+
+Retract! review1 has scrub position $prevP
+Retract! review1 points up at vid720
+Retract! play720
+sleep 0.5
+
+# --- Test 4: Long 720p forward loop wrap at 4x causes 0 seeks/restarts ---
+Assert! when playWrap720 {
+    Wish vidWrap720 plays video $clip720 with rate 4.0 muted true
+} with environment [list [list clip720 $clip720]]
+Assert! playWrap720
+set wrapped 0
+set deadline [expr {[clock milliseconds] + 8000}]
+while {[clock milliseconds] < $deadline} {
+    set fr [Query! vidWrap720 has video $clip720 frame /im/]
+    if {[llength $fr] > 0 && [dict get [dict get [lindex $fr 0] im] uniq] > 85} {
+        set wrapped 1; break
+    }
+    sleep 0.1
+}
+set stWrap [Query! vidWrap720 has video $clip720 decoder spawns /sp/ seeks /sk/]
+check "long 720p loop wrap 0 seeks" [expr {$wrapped && [dict getdef [lindex $stWrap 0] sp 0] == 1 && [dict getdef [lindex $stWrap 0] sk 0] == 0}] \
+    "wrapped=$wrapped spawns=[dict getdef [lindex $stWrap 0] sp ?] seeks=[dict getdef [lindex $stWrap 0] sk ?]"
+Retract! playWrap720
+sleep 1.0
+
+# --- Test 5: Past-EOF seek recovery (container duration > video stream) ---
+set clipShortVid $dir/shortvid.mkv
+exec ffmpeg -nostdin -loglevel quiet \
+    -f lavfi -i testsrc=duration=1:size=320x240:rate=25 \
+    -f lavfi -i sine=frequency=440:duration=6 \
+    -pix_fmt yuv420p $clipShortVid
+Assert! when playShortVid {
+    Wish vidShortVid plays video $clipShortVid with paused true muted true
+    Wish vidShortVid seeks to 4.0
+} with environment [list [list clipShortVid $clipShortVid]]
+Assert! playShortVid
+set rShortVid [waitFor {vidShortVid has video $clipShortVid frame /im/} 200]
+set durShortVid [Query! vidShortVid has video $clipShortVid duration /d/]
+set errsShortVid [Query! vidShortVid has error /e/ with info /i/]
+check "past-EOF seek recovers without error" \
+    [expr {[llength $rShortVid] == 1 && [llength $errsShortVid] == 0 &&
+           [llength $durShortVid] == 1 && [dict get [lindex $durShortVid 0] d] > 5.0}] \
+    "frames=[llength $rShortVid] dur=[dict getdef [lindex $durShortVid 0] d ?] errs=[llength $errsShortVid]"
+Retract! playShortVid
+sleep 0.5
+
+# --- Test 6: Early-ending audio stream must not stall video playback ---
+set clipShortAud $dir/shortaud.mp4
+exec ffmpeg -nostdin -loglevel quiet \
+    -f lavfi -i testsrc=duration=6:size=320x240:rate=25 \
+    -f lavfi -i sine=frequency=440:duration=1 \
+    -pix_fmt yuv420p -g 25 -c:a aac $clipShortAud
+Assert! when playShortAud {
+    Wish vidShortAud plays video $clipShortAud with rate 3.0
+} with environment [list [list clipShortAud $clipShortAud]]
+Assert! playShortAud
+set advOk 0
+set deadline [expr {[clock milliseconds] + 5000}]
+while {[clock milliseconds] < $deadline} {
+    set fr [Query! vidShortAud has video $clipShortAud frame /im/]
+    if {[llength $fr] > 0 && [dict get [dict get [lindex $fr 0] im] uniq] > 50} {
+        set advOk 1; break
+    }
+    sleep 0.05
+}
+check "short audio stream does not stall video" $advOk "advanced=$advOk"
+Retract! playShortAud
+sleep 0.4
+
+# Invalid initial rate reports error without spawning ffmpeg.
+Assert! when playBadRate {
+    Wish vidBadRate plays video $clipShort with rate 0.0
+} with environment [list [list clipShort $clipShort]]
+Assert! playBadRate
+set badErr [waitFor {vidBadRate has error /e/ with info /i/}]
+check "invalid initial rate reports error without spawn" \
+    [expr {[llength $badErr] == 1 && [ffmpegChildren] == 0}] \
+    "errs=[llength $badErr] ffmpegs=[ffmpegChildren]"
+Retract! playBadRate
+sleep 0.3
+
+# --- Test 7: Cancel window around ffprobe/videoOpen leaks 0 ffmpegs ---
+Assert! when cancelTarget /k/ {
+    Wish vidCancel$k plays video $clip720 with muted true
+} with environment [list [list clip720 $clip720]]
+for {set i 0} {$i < 16} {incr i} {
+    Assert! cancelTarget $i
+    sleep [expr {0.02 + ($i % 5) * 0.025}]
+    Retract! cancelTarget $i
+}
+set drainOk 0
+for {set t 0} {$t < 60} {incr t} {
+    if {[ffmpegChildren] == 0} { set drainOk 1; break }
+    sleep 0.1
+}
+check "cancel window leaks 0 ffmpegs" $drainOk "ffmpegs=[ffmpegChildren]"
+
+# --- Test 8: Inline resize/move and realtime audio ---
+Assert! when playFluid /w/ /pos/ {
+    Wish vidFluid plays video $clipShort with width $w position $pos
+} with environment [list [list clipShort $clipShort]]
+Assert! playFluid 0.12 {0.01 0.02}
+set rFluid0 [waitFor {vidFluid has video $clipShort frame /im/}]
+set u0 [dict get [dict get [lindex $rFluid0 0] im] uniq]
+
+# Rapid 30 Hz inline resize + move updates via warm handoff (0 ffmpeg restarts).
+set prevW 0.12
+set prevPos {0.01 0.02}
+foreach {w pos} {
+    0.14 {0.02 0.02}
+    0.16 {0.03 0.03}
+    0.18 {0.04 0.04}
+    0.20 {0.05 0.05}
+    0.22 {0.06 0.05}
+    0.24 {0.07 0.06}
+} {
+    Retract! playFluid $prevW $prevPos
+    Assert! playFluid $w $pos
+    set prevW $w; set prevPos $pos
+    sleep 0.03
+}
+sleep 0.25
+set rFluid1 [Query! vidFluid has video $clipShort frame /im/]
+set u1 [expr {[llength $rFluid1] > 0 ? [dict get [dict get [lindex $rFluid1 0] im] uniq] : 0}]
+set stFluid [Query! vidFluid has video $clipShort decoder spawns /sp/ seeks /sk/]
+set dOptsFluid [Query! vidFluid has video $clipShort player /pid/ display options /dOpts/]
+set curW [expr {[llength $dOptsFluid] > 0 ? [dict getdef [dict get [lindex $dOptsFluid 0] dOpts] width 0] : 0}]
+check "fluid inline resize+move 0 restarts & advances" \
+    [expr {$u1 > $u0 && [llength $stFluid] == 1 && [dict get [lindex $stFluid 0] sp] == 1 &&
+           [dict get [lindex $stFluid 0] sk] == 0 && abs($curW - 0.24) < 0.001}] \
+    "u0=$u0 u1=$u1 spawns=[dict getdef [lindex $stFluid 0] sp ?] width=$curW"
+
+# Realtime audio volume and mute changes with 0 decoder restarts.
+Assert! volCard wishes vidFluid has video volume 0.35
+waitFor {vidFluid has video audio volume 0.35 muted 0}
+sleep 0.1
+set volSet [$fakeAudio lastVolumeSet]
+check "realtime audio volume change" [expr {abs($volSet - 0.35) < 0.01}] "lastVol=$volSet"
+
+Assert! muteCard wishes vidFluid is muted
+waitFor {vidFluid has video audio volume 0.35 muted 1}
+sleep 0.15
+$fakeAudio resetSoundBytes
+sleep 0.25
+set sbMuted [$fakeAudio soundBytesWritten]
+check "realtime audio mute stops samples" [expr {$sbMuted == 0 && [$fakeAudio lastVolumeSet] == 0.0}] \
+    "bytes=$sbMuted vol=[$fakeAudio lastVolumeSet]"
+
+Retract! muteCard wishes vidFluid is muted
+waitFor {vidFluid has video audio volume 0.35 muted 0}
+$fakeAudio resetSoundBytes
+sleep 0.3
+set sbUnmuted [$fakeAudio soundBytesWritten]
+set stFluidEnd [Query! vidFluid has video $clipShort decoder spawns /sp/ seeks /sk/]
+check "realtime audio unmute resumes with 0 restarts" \
+    [expr {$sbUnmuted > 0 && abs([$fakeAudio lastVolumeSet] - 0.35) < 0.01 &&
+           [llength $stFluidEnd] == 1 && [dict get [lindex $stFluidEnd 0] sp] == 1}] \
+    "bytes=$sbUnmuted vol=[$fakeAudio lastVolumeSet] spawns=[dict getdef [lindex $stFluidEnd 0] sp ?]"
+
+Retract! volCard wishes vidFluid has video volume 0.35
+Retract! playFluid $prevW $prevPos
+sleep 0.4
+
+check "all ffmpegs stopped" [expr {[ffmpegChildren] == 0}] "[ffmpegChildren] ffmpegs"
+set errs [Query! /x/ has error /e/ with info /i/]
+check "no errors" [expr {[llength $errs] == 0}] [lmap e $errs {dict get $e e}]
+
+exec rm -rf $dir
+set failed [llength [lsearch -all -index 1 $::results 0]]
+puts "[llength $::results] checks, $failed failed"
+if {$failed == 0} { puts PASS; Exit! 0 } else { puts FAIL; Exit! 1 }
