@@ -461,6 +461,112 @@ fn cncClipPatch {polygon bed} {
     return $polygon
 }
 
+# Fit height as a function of local XY. Probes that line up on a vertical or
+# steeply tilted surface don't describe stock resting on the bed.
+fn cncFitProbePlane {points minDet} {
+    package require linalg
+    namespace import ::math::linearalgebra::*
+    set design [lmap p $points {list {*}[lrange $p 0 1] 1.0}]
+    set heights [lmap p $points {lindex $p 2}]
+    set Dt [transpose $design]
+    set gram [matmul $Dt $design]
+    if {abs([det $gram]) < $minDet} {return {}}
+    lassign [solvePGauss $gram [matmul $Dt $heights]] a b c
+    if {$a*$a+$b*$b > .02} {return {}}
+    return [list $a $b $c]
+}
+
+fn cncProbeTriples {count} {
+    set triples {}
+    if {$count <= 18} {
+        for {set i 0} {$i < $count-2} {incr i} {
+            for {set j [expr {$i+1}]} {$j < $count-1} {incr j} {
+                for {set k [expr {$j+1}]} {$k < $count} {incr k} {
+                    lappend triples [list $i $j $k]
+                }
+            }
+        }
+    } else {
+        # Keep a dense grid bounded and repeatable without modifying the
+        # interpreter's random state.
+        set seed 137
+        for {set n 0} {$n < 256} {incr n} {
+            set indices {}
+            while {[llength $indices] < 3} {
+                set seed [expr {(1664525*$seed+1013904223) & 0xffffffff}]
+                set i [expr {($seed >> 16) % $count}]
+                if {$i ni $indices} {lappend indices $i}
+            }
+            dict set unique [lsort -integer $indices] 1
+        }
+        set triples [dict keys $unique]
+    }
+    return $triples
+}
+
+fn cncProbeInliers {centers a b c} {
+    set limit [expr {.012*.012*(1+$a*$a+$b*$b)}]
+    set inliers {}
+    set loss 0.0
+    dict for {cell center} $centers {
+        lassign $center x y z
+        set residual [expr {$a*$x+$b*$y+$c-$z}]
+        set squared [expr {$residual*$residual}]
+        if {$squared <= $limit} {
+            lappend inliers $cell
+            set loss [expr {$loss+$squared}]
+        }
+    }
+    list $inliers $loss
+}
+
+# RANSAC gives each tag one vote. Preserve sparse maps, but require a
+# majority when there are enough tags to distinguish a surface from an outlier.
+fn cncProbeConsensus {samples} {
+    set count [dict size $samples]
+    if {$count < 4} {return $samples}
+    set centers {}
+    foreach cell [lsort -dictionary [dict keys $samples]] {
+        dict set centers $cell [lindex [dict get $samples $cell] 0]
+    }
+    set points [dict values $centers]
+    set best {}
+    set bestLoss Inf
+    foreach triple [cncProbeTriples $count] {
+        lassign [lmap i $triple {lindex $points $i}] p q r
+        lassign $p x y z
+        lassign $q qx qy qz
+        lassign $r rx ry rz
+        set ux [expr {$qx-$x}]
+        set uy [expr {$qy-$y}]
+        set uz [expr {$qz-$z}]
+        set vx [expr {$rx-$x}]
+        set vy [expr {$ry-$y}]
+        set vz [expr {$rz-$z}]
+        set area [expr {$ux*$vy-$uy*$vx}]
+        if {abs($area) < 1e-6} continue
+        set a [expr {($uz*$vy-$uy*$vz)/$area}]
+        set b [expr {($ux*$vz-$uz*$vx)/$area}]
+        if {$a*$a+$b*$b > .02} continue
+        set c [expr {$z-$a*$x-$b*$y}]
+        lassign [cncProbeInliers $centers $a $b $c] inliers loss
+        set size [llength $inliers]
+        if {$size > [llength $best] || ($size == [llength $best] && $loss < $bestLoss)} {
+            set best $inliers
+            set bestLoss $loss
+        }
+    }
+    if {[llength $best] < 4 || 2*[llength $best] <= $count} {return {}}
+
+    set plane [cncFitProbePlane [lmap cell $best {dict get $centers $cell}] 1e-10]
+    if {![llength $plane]} {return {}}
+    lassign [cncProbeInliers $centers {*}$plane] inliers _
+    if {[llength $inliers] < 4 || 2*[llength $inliers] <= $count} {return {}}
+    set result {}
+    foreach cell $inliers {dict set result $cell [dict get $samples $cell]}
+    return $result
+}
+
 # Use a common plane only when several tags across both axes agree. Extend the
 # supported rectangle by at most half a grid interval, capped at 24 cm,
 # so cuts just beyond the outer probe row can still use the measured plane.
@@ -472,33 +578,31 @@ fn cncProbePlanePatch {samples geometry} {
     set cols {}
     set xs {}
     set ys {}
-    set design {}
-    set heights {}
+    set centers {}
     dict for {cell points} $samples {
         lassign $cell row col
         lappend rows $row
         lappend cols $col
-        lassign [lindex $points 0] x y z
+        set center [lindex $points 0]
+        lassign $center x y
         lappend xs $x
         lappend ys $y
-        lappend design [list $x $y 1.0]
-        lappend heights $z
+        lappend centers $center
     }
     set rowCount [llength [lsort -unique $rows]]
     set colCount [llength [lsort -unique $cols]]
     if {$rowCount < 2 || $colCount < 2} {return {}}
-    set Dt [transpose $design]
-    set gram [matmul $Dt $design]
-    if {abs([det $gram]) < .002} {return {}}
-    lassign [solvePGauss $gram [matmul $Dt $heights]] a b c
-    if {$a*$a+$b*$b > .02} {return {}}
+    set plane [cncFitProbePlane $centers .002]
+    if {![llength $plane]} {return {}}
+    lassign $plane a b c
     set sum 0.0
-    foreach x $xs y $ys z $heights {
+    foreach center $centers {
+        lassign $center x y z
         set error [expr {$a*$x+$b*$y+$c-$z}]
         if {abs($error) > .022} {return {}}
         set sum [expr {$sum+$error*$error}]
     }
-    if {sqrt($sum/[llength $heights]) > .012} {return {}}
+    if {sqrt($sum/[llength $centers]) > .012} {return {}}
     set xs [lsort -real $xs]
     set ys [lsort -real $ys]
     set x0 [lindex $xs 0]; set x1 [lindex $xs end]
@@ -723,10 +827,15 @@ When the collected results for {camera /camera/ has width /w/ height /h/} are /c
             } finally {
                 foreach key {progress backdrop cells left right} {Hold! -on $probe -key $key {}}
             }
+            set confirmed [dict size $samples]
+            set samples [cncProbeConsensus $samples]
+            set used [dict size $samples]
             set patch [cncProbePlanePatch $samples $geometry]
             set map [cncHeightMap $samples $patch]
-            if {[llength $patch] >= 3} {
-                set probeStatus "Local surface fitted from [dict size $samples] of $tagCount stereo tags. Unmeasured areas use the bed plane."
+            if {$confirmed && !$used} {
+                set probeStatus "No dominant surface among $confirmed confirmed stereo tags. Using the bed plane."
+            } elseif {$used < $confirmed || [llength $patch] >= 3} {
+                set probeStatus "Surface preview uses $used of $confirmed confirmed stereo tags. Unmeasured areas use the bed plane."
             }
             When the CNC local position is /position/ {
                 try {
