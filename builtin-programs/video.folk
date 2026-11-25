@@ -75,8 +75,8 @@ When the image library is /imageLib/ {
         # capped at 640px wide and 25fps, since every one of them goes
         # through the pipe and onto the GPU.
         set ffmpeg [open |[list ffmpeg -nostdin -loglevel error \
-                               -re -stream_loop -1 -i $file \
-                               -an -vf "scale='min(640,iw)':-2,fps=25" \
+                               -stream_loop -1 -i $file \
+                               -an -vf "setpts='if(isnan(PREV_INPTS),0,PREV_OUTPTS+clip(PTS-PREV_INPTS,0.001/TB,0.1/TB))',scale='min(640,iw)':-2,fps=25,realtime" \
                                -f image2pipe -c:v ppm -] r]
         $ffmpeg readsize 65536 ;# the default is 256 bytes per read()
         set pid [pid $ffmpeg]
@@ -134,8 +134,8 @@ When /p/ plays video /path/ from /file/ through /audioLib/ with /...options/ &\
     # quiet because a video with no soundtrack is not an error here,
     # and any other problem with the file gets reported above.
     set ffmpeg [open |[list ffmpeg -nostdin -loglevel quiet \
-                           -re -stream_loop -1 -i $file \
-                           -vn -f s16le -ar 48000 -ac 2 -] r]
+                           -stream_loop -1 -i $file \
+                           -vn -af "asetpts='if(isnan(PREV_INPTS),0,PREV_OUTPTS+clip(PTS-PREV_INPTS,1,0.1/TB))',arealtime" -f s16le -ar 48000 -ac 2 -] r]
     $ffmpeg readsize 4096
 
     # As above: this is what stops the sound when the wish goes away.
