@@ -85,11 +85,12 @@ void appropriateWorkQueuePush(WorkQueueItem item) {
 // error handling.
 __thread Jim_Interp* interp = NULL;
 
-// Jim interpreters install and restore process-wide signal handlers. Keep a
-// permanent cancellation handler beneath them so freeing the first interpreter
-// cannot restore SIG_DFL and terminate a different worker on its next cancel.
+// SIGUSR1 is reserved for runtime cancellation. Ignore delayed deliveries
+// unless sysmon armed cancellation for this worker's current match.
 static void workerCancellationHandler(int signalNumber) {
-    if (interp != NULL) {
+    if (interp != NULL && self != NULL &&
+        self->currentMatchRef != 0 &&
+        self->cancellationSignalMatchRef == self->currentMatchRef) {
         // Mark this signal pending for Jim to handle during interpreter execution.
         interp->sigmask |= ((jim_wide)1 << signalNumber);
     }
@@ -1030,6 +1031,13 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
         }
         return;
     }
+    MatchRef current = matchRef(db, self->currentMatch);
+    workerBeginMatch(current);
+    // Retraction may have happened between insertion and publishing the worker
+    // reference. Once published, later removals can request cancellation directly.
+    if (matchIsRemoved(self->currentMatch)) {
+        workerRequestCancellation(self->index, current);
+    }
     // make sure this is initialized
     self->inSubscription = false;
 
@@ -1048,6 +1056,7 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     statementRelease(db, when);
     if (stmt != NULL) { statementRelease(db, stmt); }
 
+    workerCompleteMatch(current);
     matchCompleted(self->currentMatch);
     matchRelease(db, self->currentMatch);
     self->currentMatch = NULL;
@@ -1410,9 +1419,8 @@ void workerRun(WorkQueueItem item) {
     }
 #endif
 
-    self->currentItemStartTimestamp = timestamp_get(self->clockid);
-
     mutexLock(&self->currentItemMutex);
+    self->currentItemStartTimestamp = timestamp_get(self->clockid);
     self->currentItem = item;
     mutexUnlock(&self->currentItemMutex);
 
@@ -1469,8 +1477,9 @@ void workerRun(WorkQueueItem item) {
         FATAL("workerRun: Unknown work item op: %d\n", item.op);
     }
 
-    self->currentItemStartTimestamp = 0;
+    workerCompleteMatch((MatchRef){.val = self->currentMatchRef});
     mutexLock(&self->currentItemMutex);
+    self->currentItemStartTimestamp = 0;
     self->currentItem = (WorkQueueItem) { .op = NONE };
     mutexUnlock(&self->currentItemMutex);
 
@@ -1533,6 +1542,60 @@ void traceItem(char* buf, size_t bufsz, WorkQueueItem item) {
 }
 
 ssize_t unsafe_workQueueSize(WorkQueue* q);
+void workerBeginMatch(MatchRef match) {
+    mutexLock(&self->currentItemMutex);
+    self->currentMatchRef = match.val;
+    self->cancellationRequested = false;
+    self->cancellationSignalMatchRef = 0;
+    mutexUnlock(&self->currentItemMutex);
+}
+
+void workerRequestCancellation(int index, MatchRef match) {
+    ThreadControlBlock* thread = &threads[index];
+    mutexLock(&thread->currentItemMutex);
+    if (!matchRefIsNull(match) && thread->currentMatchRef == match.val) {
+        thread->cancellationRequested = true;
+    }
+    mutexUnlock(&thread->currentItemMutex);
+}
+
+void workerCompleteMatch(MatchRef match) {
+    if (matchRefIsNull(match)) { return; }
+    ThreadControlBlock* thread = self;
+    mutexLock(&thread->currentItemMutex);
+    bool completed = thread->currentMatchRef == match.val;
+    if (completed) {
+        thread->currentMatchRef = 0;
+        thread->cancellationRequested = false;
+        thread->cancellationSignalMatchRef = 0;
+    }
+    mutexUnlock(&thread->currentItemMutex);
+    // Signals already handled belong to the completed match; later deliveries
+    // see a cleared reference and are ignored by the handler.
+    if (completed && interp != NULL) {
+        interp->sigmask &= ~((jim_wide)1 << SIGUSR1);
+    }
+}
+
+void workerCancelPending(void) {
+    for (int i = 0; i < THREADS_MAX; i++) {
+        ThreadControlBlock* thread = &threads[i];
+        // Only an initialized, running worker can publish a request.
+        if (!thread->cancellationRequested) { continue; }
+        mutexLock(&thread->currentItemMutex);
+        if (thread->cancellationRequested && thread->currentMatchRef != 0 &&
+            thread->cancellationSignalMatchRef == 0 &&
+            timestamp_get(CLOCK_MONOTONIC) - thread->currentItemStartTimestamp >= 100000000) {
+            thread->cancellationSignalMatchRef = thread->currentMatchRef;
+            int error = pthread_kill(thread->pthread, SIGUSR1);
+            if (error != 0) {
+                thread->cancellationSignalMatchRef = 0;
+            }
+        }
+        mutexUnlock(&thread->currentItemMutex);
+    }
+}
+
 __thread unsigned int seedp;
 WorkQueueItem workerSteal() {
     int stealee;
@@ -1608,6 +1671,9 @@ void workerInit(int index) {
     self->clockid = CLOCK_MONOTONIC;
 /* #endif */
     self->currentItemStartTimestamp = 0;
+    self->currentMatchRef = 0;
+    self->cancellationRequested = false;
+    self->cancellationSignalMatchRef = 0;
     self->index = index;
     self->pthread = pthread_self();
 
@@ -1622,6 +1688,7 @@ void workerInit(int index) {
     interpBoot();
 }
 void workerExit() {
+    workerCompleteMatch((MatchRef){.val = self->currentMatchRef});
     // Need this so that this worker doesn't count as still being
     // alive and count toward the worker cap.
 

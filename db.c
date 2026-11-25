@@ -7,9 +7,7 @@
 #include <string.h>
 
 #include <pthread.h>
-#include <signal.h>
 #include <stdatomic.h>
-#include <sys/syscall.h>
 #include <unistd.h>
 
 #if __has_include ("tracy/TracyC.h")
@@ -966,16 +964,17 @@ void matchInheritStatementDestructors(Match* match, Statement* stmt) {
     pthread_mutex_unlock(&stmt->destructorSetMutex);
 }
 
+bool matchIsRemoved(Match* match) {
+    GenRc state = match->genRc;
+    return !state.alive;
+}
+
 void matchCompleted(Match* match) {
     match->isCompleted = true;
 }
 // Call matchRemoveSelf when ANY of the match's parent statements is
 // removed.
 //
-// FIXME: Make this thread-safe (if called by multiple removers at the
-// same time, it shouldn't double-free).
-extern ThreadControlBlock threads[];
-extern void traceItem(char* buf, size_t bufsz, WorkQueueItem item);
 void matchRemoveSelf(Db* db, Match* match) {
     /* assert(match > &db->matchPool[0] && match < &db->matchPool[65536]); */
     AtomicallyVersion* version = atomic_load(&match->pinnedAtomicallyVersion);
@@ -1023,22 +1022,7 @@ void matchRemoveSelf(Db* db, Match* match) {
     free(childStatements);
 
     if (!match->isCompleted) {
-        // Signal the match worker thread to terminate the match
-        // execution.
-        ThreadControlBlock *workerThread = &threads[match->workerThreadIndex];
-        if (timestamp_get(workerThread->clockid) - workerThread->currentItemStartTimestamp > 100000000) {
-            mutexLock(&workerThread->currentItemMutex);
-            WorkQueueItem item = workerThread->currentItem;
-            mutexUnlock(&workerThread->currentItemMutex);
-
-            char buf[10000]; traceItem(buf, sizeof(buf), item);
-            fprintf(stderr, "KILL (%.150s)\n", buf);
-#ifdef __LINUX__
-            syscall(SYS_tgkill, getpid(), workerThread->tid, SIGUSR1);
-#else
-            kill(workerThread->tid, SIGUSR1);
-#endif
-        }
+        workerRequestCancellation(match->workerThreadIndex, matchRef(db, match));
     }
 }
 

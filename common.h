@@ -41,6 +41,12 @@ typedef struct ThreadControlBlock {
     WorkQueueItem currentItem;
     Mutex currentItemMutex;
 
+    // Weak MatchRef values, including their existing generation. Updated under
+    // currentItemMutex; read atomically by the cancellation signal handler.
+    uint64_t _Atomic currentMatchRef;
+    bool _Atomic cancellationRequested;
+    uint64_t _Atomic cancellationSignalMatchRef;
+
     // Used for managing the threadpool.
     clockid_t clockid;
     int64_t _Atomic currentItemStartTimestamp;
@@ -65,6 +71,11 @@ typedef struct ThreadControlBlock {
 extern ThreadControlBlock threads[THREADS_MAX];
 extern int _Atomic threadCount;
 extern __thread ThreadControlBlock* self;
+
+void workerBeginMatch(MatchRef match);
+void workerRequestCancellation(int index, MatchRef match);
+void workerCompleteMatch(MatchRef match);
+void workerCancelPending(void);
 
 static inline int64_t timestamp_get(clockid_t clk_id) {
     // Returns timestamp in nanoseconds.

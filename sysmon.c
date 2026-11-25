@@ -108,6 +108,10 @@ void sysmon() {
     // Third: collect garbage.
     epochGlobalCollect();
 
+    // A retracted match gets its whole 100 ms grace period even if it was
+    // removed while young. Completion clears the pending request.
+    workerCancelPending();
+
     // Fourth: reap Atomically versions / attached statements that
     // haven't had a new convergence in 'a long time'.
     if (currentTick % 20 == 0) { // every 60ms or so.

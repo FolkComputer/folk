@@ -100,6 +100,7 @@ AtomicallyVersion* const* matchAtomicallyVersions(Match* m, int* count);
 
 void matchAddDestructor(Match* m, Destructor* d);
 
+bool matchIsRemoved(Match* m);
 void matchCompleted(Match* m);
 void matchRemoveSelf(Db* db, Match* m);
 

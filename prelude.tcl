@@ -1019,7 +1019,7 @@ if {[__isTracyEnabled]} {
     proc ::tracy {args} {}
 }
 
-signal handle SIGUSR1
+# The runtime owns SIGUSR1 so it can reject stale cancellation signals.
 
 source "lib/python.tcl"
 
