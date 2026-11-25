@@ -201,82 +201,68 @@ fn cncStereoGeometry {left right lk le rk re} {
     dict create origin $origin xAxis $xAxis yAxis $yAxis normal [crossproduct $xAxis $yAxis] corners $corners
 }
 
-# Match the live test at 3840 px: a 230 px tag with a 44 px white margin.
-# Select calibration IDs normally used for projection, avoiding printed IDs.
-# Target the probe at cutting moves, so a partially filled bed still yields
-# observations near the actual job. Rapid moves can span the entire table.
-fn cncCutBounds {paths} {
-    set xs {}
-    set ys {}
-    foreach path $paths {
-        if {$path(rapid)} continue
-        foreach point $path(points) {
-            lassign $point x y
-            lappend xs $x
-            lappend ys $y
-        }
-    }
-    if {![llength $xs]} {return {}}
-    set xs [lsort -real $xs]
-    set ys [lsort -real $ys]
-    list [lindex $xs 0] [lindex $ys 0] [lindex $xs end] [lindex $ys end]
-}
-
-fn cncProbeLayout {geometry pk pw ph modelLib {bounds {}}} {
-    package require linalg
-    namespace import ::math::linearalgebra::*
+# Uniform projector-space pitch keeps both the tag size and its white margin.
+# Start with calibration IDs, then use spare IDs from the same tag family
+# so a full grid can normally be projected in one pass.
+fn cncProbeLayouts {geometry pk pw ph modelLib} {
     fn cncProject
+    set model [$modelLib unitModel]
     set ids {}
-    foreach id [dict keys [$modelLib unitModel]] {
+    foreach id [dict keys $model] {
         if {[$modelLib isProjectedTag $id]} {lappend ids $id}
     }
+    foreach id [dict keys $model] {
+        if {![$modelLib isProjectedTag $id]} {lappend ids $id}
+    }
+    # tagStandard52h13 has 48,714 codes. Keep the extra IDs away from
+    # the calibration board's printed IDs.
+    for {set id 48680} {$id < 48714} {incr id} {lappend ids $id}
+    for {set id 48620} {$id < 48680} {incr id} {lappend ids $id}
     set side [expr {230.0*$pw/3840}]
     set margin [expr {159.0*$pw/3840}]
-    dict with geometry {}
-    lassign $bounds minX minY maxX maxY
-    set border [lmap p $corners {cncProject $pk $pw $ph $p}]
-    lassign $corners a b c d
+    set pitch [expr {2*$margin}]
+    set border [lmap p [dict get $geometry corners] {cncProject $pk $pw $ph $p}]
+    set xs [lsort -real [lmap p $border {lindex $p 0}]]
+    set ys [lsort -real [lmap p $border {lindex $p 1}]]
+    set xmin [expr {[lindex $xs 0] < 0 ? 0.0 : [lindex $xs 0]}]
+    set xmax [expr {[lindex $xs end] > $pw-1 ? $pw-1.0 : [lindex $xs end]}]
+    set ymin [expr {[lindex $ys 0] < 0 ? 0.0 : [lindex $ys 0]}]
+    set ymax [expr {[lindex $ys end] > $ph-1 ? $ph-1.0 : [lindex $ys end]}]
+    set columns [expr {int(floor(($xmax-$xmin)/$pitch))}]
+    set rows [expr {int(floor(($ymax-$ymin)/$pitch))}]
+    set startX [expr {($xmin+$xmax-($columns-1)*$pitch)*.5}]
+    set startY [expr {($ymin+$ymax-($rows-1)*$pitch)*.5}]
+    set next [concat [lrange $border 1 end] [list [lindex $border 0]]]
+    set layouts {}
     set tags {}
-    # Place the center tag first so a small but usable bed can still be probed.
-    foreach cell {{1 1} {0 0} {0 2} {2 0} {2 2} {0 1} {1 0} {1 2} {2 1}} {
-        lassign $cell row col
-        if {[llength $bounds]} {
-            set u [lindex {.18 .5 .86} $row]
-            set v [lindex {.14 .5 .86} $col]
-            set p [add $origin [add [scale [expr {$minX+$u*($maxX-$minX)}] $xAxis] \
-                [scale [expr {$minY+$v*($maxY-$minY)}] $yAxis]]]
-        } else {
-            set u [lindex {.16 .5 .84} $row]
-            set v [lindex {.16 .5 .84} $col]
-            set p [add [scale [expr {(1-$u)*(1-$v)}] $a] [scale [expr {$u*(1-$v)}] $b]]
-            set p [add $p [add [scale [expr {$u*$v}] $c] [scale [expr {(1-$u)*$v}] $d]]]
-        }
-        lassign [cncProject $pk $pw $ph $p] x y
-        set x0 [expr {$x-$margin}]
-        set x1 [expr {$x+$margin}]
-        set y0 [expr {$y-$margin}]
-        set y1 [expr {$y+$margin}]
-        if {$x0 < 0 || $y0 < 0 || $x1 >= $pw || $y1 >= $ph} continue
-        set fits true
-        foreach xx [list $x0 $x1 $x1 $x0] yy [list $y0 $y0 $y1 $y1] {
-            set signs {}
-            foreach a0 $border b0 [concat [lrange $border 1 end] [list [lindex $border 0]]] {
-                lassign $a0 ax ay
-                lassign $b0 bx by
-                lappend signs [expr {($bx-$ax)*($yy-$ay)-($by-$ay)*($xx-$ax) >= 0}]
+    for {set row 0} {$row < $rows} {incr row} {
+        set y [expr {$startY+$row*$pitch}]
+        for {set col 0} {$col < $columns} {incr col} {
+            set x [expr {$startX+$col*$pitch}]
+            set fits true
+            foreach dx {-1 1 1 -1} dy {-1 -1 1 1} {
+                set px [expr {$x+$dx*$margin}]
+                set py [expr {$y+$dy*$margin}]
+                set inside {}
+                foreach a $border b $next {
+                    lassign $a ax ay
+                    lassign $b bx by
+                    set cross [expr {($bx-$ax)*($py-$ay)-($by-$ay)*($px-$ax)}]
+                    if {abs($cross) > 1e-6} {lappend inside [expr {$cross > 0}]}
+                }
+                if {[llength [lsort -unique $inside]] > 1} {set fits false; break}
             }
-            if {[llength [lsort -unique $signs]] > 1} {set fits false; break}
+            if {!$fits} continue
+            set id [lindex $ids [dict size $tags]]
+            dict set tags $id [dict create cell [list $row $col] center [list $x $y] side $side margin $margin]
+            if {[dict size $tags] == [llength $ids]} {
+                lappend layouts $tags
+                set tags {}
+            }
         }
-        dict for {id tag} $tags {
-            lassign $tag(center) tx ty
-            if {abs($tx-$x) < 2*$margin && abs($ty-$y) < 2*$margin} {set fits false; break}
-        }
-        if {!$fits} continue
-        set id [lindex $ids [dict size $tags]]
-        if {$id eq ""} break
-        dict set tags $id [dict create cell $cell center [list $x $y] side $side margin $margin]
     }
-    return $tags
+    if {[dict size $tags]} {lappend layouts $tags}
+    return $layouts
 }
 
 fn cncProbeRect {matrix x0 y0 x1 y1 color} {
@@ -366,51 +352,87 @@ fn cncProbePoint {left right expected cameras pk pw ph geometry} {
     list [dotproduct $delta $xAxis] [dotproduct $delta $yAxis] [dotproduct $delta $normal]
 }
 
-# Collect the same ID in two fresh stereo pairs. The center and four inner
-# corners give one tag a measured footprint even when its neighbors are hidden.
+# Pair any two camera observations of the same projected pattern. Validate
+# the center and corners against the projector, rejecting a printed copy of
+# the same ID and frames that still contain the previous batch.
+fn cncProbePair {tag left right cameras pk pw ph geometry} {
+    fn cncProbePoint
+    if {[llength $left(p)] != 4 || [llength $right(p)] != 4} {return {}}
+    lassign $tag(center) x y
+    set offset [expr {.3*$tag(side)}]
+    set samples {}
+    foreach a [concat [list $left(c)] $left(p)] b [concat [list $right(c)] $right(p)] \
+            dx {0 -1 1 1 -1} dy {0 1 1 -1 -1} {
+        set uv [list [expr {$x+$dx*$offset}] [expr {$y+$dy*$offset}]]
+        if {[catch {cncProbePoint $a $b $uv $cameras $pk $pw $ph $geometry} point]} {return {}}
+        lappend samples $point
+    }
+    return $samples
+}
+
+fn cncProbeConfirm {tag left right cameras pk pw ph geometry} {
+    fn cncProbePair
+    set pairs {}
+    foreach a $left {
+        set matches {}
+        foreach b $right {
+            lappend matches [cncProbePair $tag $a $b $cameras $pk $pw $ph $geometry]
+        }
+        lappend pairs $matches
+    }
+    # Look for two valid pairs that share neither left nor right frames.
+    for {set i 0} {$i < [llength $left]} {incr i} {
+        for {set j 0} {$j < [llength $right]} {incr j} {
+            set first [lindex $pairs $i $j]
+            if {![llength $first]} continue
+            for {set k [expr {$i+1}]} {$k < [llength $left]} {incr k} {
+                for {set l 0} {$l < [llength $right]} {incr l} {
+                    set second [lindex $pairs $k $l]
+                    if {$j == $l || ![llength $second]} continue
+                    return [lmap a $first b $second {lmap av $a bv $b {expr {($av+$bv)*.5}}}]
+                }
+            }
+        }
+    }
+    return {}
+}
+
+# Accumulate each camera independently. A tag can be visible in the left and
+# right views at different times while the projected pattern is stationary.
 fn cncProbeSample {tags left right cameras pk pw ph geometry timeout} {
     fn cncProbeDetections
-    fn cncProbePoint
+    fn cncProbeConfirm
     set started [clock milliseconds]
     set since [expr {$started/1000.0 + .15}]
     set deadline [expr {$started+$timeout}]
     set settle [expr {$started+2200}]
-    set lastLeft $since
-    set lastRight $since
-    set previous {}
+    set last(left) $since
+    set last(right) $since
+    set observations(left) {}
+    set observations(right) {}
     set confirmed {}
     while {[clock milliseconds] < $deadline} {
-        lassign [cncProbeDetections $left $since] lt ltags
-        lassign [cncProbeDetections $right $since] rt rtags
-        if {$lt > $lastLeft && $rt > $lastRight} {
-            set lastLeft $lt
-            set lastRight $rt
-            dict for {id tag} $tags {
-                if {![dict exists $ltags $id] || ![dict exists $rtags $id]} continue
-                set l [dict get $ltags $id]
-                set r [dict get $rtags $id]
-                if {[llength $l(p)] != 4 || [llength $r(p)] != 4} continue
-                lassign $tag(center) x y
-                set offset [expr {.3*$tag(side)}]
-                set samples {}
-                foreach a [concat [list $l(c)] $l(p)] b [concat [list $r(c)] $r(p)] \
-                        dx {0 -1 1 1 -1} dy {0 1 1 -1 -1} {
-                    set uv [list [expr {$x+$dx*$offset}] [expr {$y+$dy*$offset}]]
-                    if {[catch {cncProbePoint $a $b $uv $cameras $pk $pw $ph $geometry} point]} break
-                    lappend samples $point
-                }
-                if {[llength $samples] != 5} continue
-                if {[dict exists $previous $id]} {
-                    set mean {}
-                    foreach a [dict get $previous $id] b $samples {
-                        lappend mean [lmap av $a bv $b {expr {($av+$bv)*.5}}]
-                    }
-                    dict set confirmed $tag(cell) $mean
-                }
-                dict set previous $id $samples
+        set changed {}
+        foreach camera [list $left $right] side {left right} {
+            lassign [cncProbeDetections $camera $since] ts detections
+            if {$ts <= $last($side)} continue
+            set last($side) $ts
+            dict for {id det} $detections {
+                if {![dict exists $tags $id] || [dict exists $confirmed [dict get $tags $id cell]]} continue
+                set recent [dict getdef $observations($side) $id {}]
+                dict set observations($side) $id [lrange [linsert $recent 0 $det] 0 2]
+                dict set changed $id 1
             }
-            if {[dict size $confirmed] == [dict size $tags]} break
         }
+        foreach id [dict keys $changed] {
+            set a [dict getdef $observations(left) $id {}]
+            set b [dict getdef $observations(right) $id {}]
+            if {[llength $a] < 2 || [llength $b] < 2} continue
+            set tag [dict get $tags $id]
+            set samples [cncProbeConfirm $tag $a $b $cameras $pk $pw $ph $geometry]
+            if {[llength $samples]} {dict set confirmed $tag(cell) $samples}
+        }
+        if {[dict size $confirmed] == [dict size $tags]} break
         if {[dict size $confirmed] && [clock milliseconds] >= $settle} break
         sleep .04
     }
@@ -519,16 +541,22 @@ fn cncHeightMap {samples {patch {}}} {
     foreach a [lrange $patch 1 end-1] b [lrange $patch 2 end] {
         lappend triangles [list $first $a $b]
     }
-    foreach row {0 1} {
-        foreach col {0 1} {
-            set quad {}
-            foreach dr {0 1 1 0} dc {0 0 1 1} {
-                set key [list [expr {$row+$dr}] [expr {$col+$dc}]]
-                if {[dict exists $samples $key]} {lappend quad [lindex [dict get $samples $key] 0]}
-            }
-            if {[llength $quad] >= 3} {lappend triangles [lrange $quad 0 2]}
-            if {[llength $quad] == 4} {lappend triangles [list [lindex $quad 0] {*}[lrange $quad 2 3]]}
+    set cells {}
+    foreach position [dict keys $samples] {
+        lassign $position row col
+        foreach dr {-1 0 0 -1} dc {-1 -1 0 0} {
+            dict set cells [list [expr {$row+$dr}] [expr {$col+$dc}]] 1
         }
+    }
+    foreach cell [dict keys $cells] {
+        lassign $cell row col
+        set quad {}
+        foreach dr {0 1 1 0} dc {0 0 1 1} {
+            set key [list [expr {$row+$dr}] [expr {$col+$dc}]]
+            if {[dict exists $samples $key]} {lappend quad [lindex [dict get $samples $key] 0]}
+        }
+        if {[llength $quad] >= 3} {lappend triangles [lrange $quad 0 2]}
+        if {[llength $quad] == 4} {lappend triangles [list [lindex $quad 0] {*}[lrange $quad 2 3]]}
     }
     dict for {cell points} $samples {
         lassign $points center a b c d
@@ -664,9 +692,7 @@ When the collected results for {camera /camera/ has width /w/ height /h/} are /c
         Claim CNC setup status is "Point 5 is set. The preview uses local coordinates."
         # Probe once per job. Position updates only refresh the preview.
         When the CNC gcode is /gcode/ {
-            fn cncProbeLayout
-            fn cncCutBounds
-            fn cncGcodePaths
+            fn cncProbeLayouts
             fn cncProbeDraw
             fn cncProbeSample
             fn cncHeightMap
@@ -687,16 +713,8 @@ When the collected results for {camera /camera/ has width /w/ height /h/} are /c
                 set printLib [QueryOne! the print library is /./]
                 set canvas [QueryOne! $display has canvas /./ with /...options/]
                 set matrix [QueryOne! $display has canvas projection /./]
-                set bounds {}
-                if {![catch {QueryOne! the CNC local position is /./} position] &&
-                    ![catch {cncGcodePaths $gcode $position} paths]} {
-                    set bounds [cncCutBounds $paths]
-                }
-                set tags [cncProbeLayout $geometry $pk $pw $ph $modelLib $bounds]
-                if {![dict size $tags] && [llength $bounds]} {
-                    set tags [cncProbeLayout $geometry $pk $pw $ph $modelLib]
-                }
-                if {![dict size $tags]} {error "No full-size probe tag fits inside the selected bed."}
+                set layouts [cncProbeLayouts $geometry $pk $pw $ph $modelLib]
+                if {![llength $layouts]} {error "No full-size probe tag fits inside the selected bed."}
                 set cameras {}
                 foreach camera [list $left $right] k [list $lk $rk] e [list $le $re] key {left right} {
                     set size [lindex [Query! camera $camera has width /w/ height /h/] 0]
@@ -705,17 +723,19 @@ When the collected results for {camera /camera/ has width /w/ height /h/} are /c
                         Hold! -on $probe -key $key Wish camera $camera detects tags
                     }
                 }
-                lassign [cncProbeDraw $tags $matrix $printLib $imageLib] backdrop cells
+                set tagCount 0
                 Hold! -on $probe -key progress Claim CNC preview status is "Probing the bed with AprilTags…"
-                # Batch the white surrounds, dark tag backgrounds, and light tag
-                # cells in drawing order. The pattern uses calibration polarity.
-                Hold! -on $probe -key backdrop Wish the GPU draws pipeline fillTriangle onto canvas $canvas \
-                    with instances $backdrop layer 154
-                Hold! -on $probe -key cells Wish the GPU draws pipeline fillTriangle onto canvas $canvas \
-                    with instances $cells layer 155
-                set samples [cncProbeSample $tags $left $right $cameras $pk $pw $ph $geometry 6000]
+                foreach tags $layouts {
+                    incr tagCount [dict size $tags]
+                    lassign [cncProbeDraw $tags $matrix $printLib $imageLib] backdrop cells
+                    Hold! -on $probe -key backdrop Wish the GPU draws pipeline fillTriangle onto canvas $canvas \
+                        with instances $backdrop layer 154
+                    Hold! -on $probe -key cells Wish the GPU draws pipeline fillTriangle onto canvas $canvas \
+                        with instances $cells layer 155
+                    set samples [dict merge $samples [cncProbeSample $tags $left $right $cameras $pk $pw $ph $geometry 6000]]
+                }
                 if {[dict size $samples]} {
-                    set probeStatus "Height map from [dict size $samples] of [dict size $tags] stereo tags. Unmeasured areas use the bed plane."
+                    set probeStatus "Height map from [dict size $samples] of $tagCount stereo tags. Unmeasured areas use the bed plane."
                 } else {
                     set probeStatus "No tags confirmed in two stereo frames. Using the bed plane."
                 }
@@ -727,7 +747,7 @@ When the collected results for {camera /camera/ has width /w/ height /h/} are /c
             set patch [cncProbePlanePatch $samples $geometry]
             set map [cncHeightMap $samples $patch]
             if {[llength $patch] >= 3} {
-                set probeStatus "Local surface fitted from [dict size $samples] of [dict size $tags] stereo tags. Unmeasured areas use the bed plane."
+                set probeStatus "Local surface fitted from [dict size $samples] of $tagCount stereo tags. Unmeasured areas use the bed plane."
             }
             When the CNC local position is /position/ {
                 fn cncGcodePaths
