@@ -1718,7 +1718,7 @@ set browserBinary ""
 set candidates [list]
 if {[info exists ::env(FOLK_BROWSER)]} { lappend candidates $::env(FOLK_BROWSER) }
 set pwDirs [list /opt/pw-browsers]
-if {[info exists ::env(PLAYWRIGHT_BROWSERS_PATH)]} { linsert $pwDirs 0 $::env(PLAYWRIGHT_BROWSERS_PATH) }
+if {[info exists ::env(PLAYWRIGHT_BROWSERS_PATH)]} { set pwDirs [linsert $pwDirs 0 $::env(PLAYWRIGHT_BROWSERS_PATH)] }
 if {[info exists ::env(HOME)]} { lappend pwDirs $::env(HOME)/.cache/ms-playwright }
 lappend candidates chromium-headless-shell
 foreach pwDir $pwDirs {
