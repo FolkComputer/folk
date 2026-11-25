@@ -1717,10 +1717,18 @@ Claim the web browser library is $browserLib
 set browserBinary ""
 set candidates [list]
 if {[info exists ::env(FOLK_BROWSER)]} { lappend candidates $::env(FOLK_BROWSER) }
-lappend candidates chromium-headless-shell \
-    {*}[lsort -decreasing [glob -nocomplain /opt/pw-browsers/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell]] \
-    chromium chromium-browser google-chrome \
-    {*}[lsort -decreasing [glob -nocomplain /opt/pw-browsers/chromium-*/chrome-linux64/chrome]]
+set pwDirs [list /opt/pw-browsers]
+if {[info exists ::env(PLAYWRIGHT_BROWSERS_PATH)]} { linsert $pwDirs 0 $::env(PLAYWRIGHT_BROWSERS_PATH) }
+if {[info exists ::env(HOME)]} { lappend pwDirs $::env(HOME)/.cache/ms-playwright }
+lappend candidates chromium-headless-shell
+foreach pwDir $pwDirs {
+    lappend candidates {*}[lsort -decreasing [glob -nocomplain $pwDir/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell]]
+}
+lappend candidates chromium chromium-browser google-chrome
+foreach pwDir $pwDirs {
+    lappend candidates {*}[lsort -decreasing [glob -nocomplain $pwDir/chromium-*/chrome-linux64/chrome]]
+}
+unset -nocomplain pwDirs pwDir
 foreach candidate $candidates {
     if {[string first / $candidate] >= 0} {
         if {[file executable $candidate]} { set browserBinary $candidate; break }
@@ -1744,6 +1752,10 @@ lappend browserArgv --remote-debugging-pipe --hide-scrollbars --force-device-sca
     --disable-features=Translate --autoplay-policy=no-user-gesture-required
 if {[exec id -u] == 0} {
     puts stderr "browser: Folk runs as root, so Chromium runs without its sandbox: a renderer bug in a page shown is a root compromise"
+    lappend browserArgv --no-sandbox
+} elseif {[file readable /proc/sys/kernel/apparmor_restrict_unprivileged_userns] &&
+          [string trim [exec cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns]] eq "1"} {
+    puts stderr "browser: unprivileged user namespaces are restricted by AppArmor, so Chromium runs with --no-sandbox"
     lappend browserArgv --no-sandbox
 }
 if {[info exists ::env(FOLK_BROWSER_FLAGS)]} { lappend browserArgv {*}$::env(FOLK_BROWSER_FLAGS) }
