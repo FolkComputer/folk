@@ -837,7 +837,11 @@ When the collected results for {camera /camera/ has width /w/ height /h/} are /c
             } elseif {$used < $confirmed || [llength $patch] >= 3} {
                 set probeStatus "Surface preview uses $used of $confirmed confirmed stereo tags. Unmeasured areas use the bed plane."
             }
-            When the CNC local position is /position/ {
+            When the collected results for {the CNC local position is /position/} are /positions/ {
+                set position {0mm 0mm 0mm}
+                if {[llength $positions]} {
+                    set position [dict get [lindex $positions 0] position]
+                }
                 try {
                     set projectedPaths {}
                     foreach path [cncGcodePaths $gcode $position] {
@@ -855,7 +859,11 @@ When the collected results for {camera /camera/ has width /w/ height /h/} are /c
                     Wish to draw a line onto $display with points $pixels width 3 color $color layer 115
                 }
                 if {[llength $projectedPaths]} {
-                    Claim CNC preview status is $probeStatus
+                    set status $probeStatus
+                    if {![llength $positions]} {
+                        append status " Waiting for the controller's position. The preview starts at local zero."
+                    }
+                    Claim CNC preview status is $status
                 } else {
                     Claim CNC preview status is "The G-code has no XY moves to preview."
                 }
@@ -897,7 +905,7 @@ Wish the web server handles route {/cnc} with handler {
             setup.textContent = matches[0]?.status ?? setup.dataset.waiting;
         });
         ws.watchCollected('/any/ claims CNC preview status is /status/', matches => {
-            preview.textContent = matches[0]?.status ?? 'The preview needs completed setup, G-code, and a local position.';
+            preview.textContent = matches[0]?.status ?? 'The preview needs completed setup and G-code.';
         });
 
         document.querySelectorAll('.cameras section').forEach(panel => {
