@@ -40,7 +40,6 @@ fn cncPositionMeters {pos} {
 }
 
 fn cncGcodePaths {gcode pos} {
-    fn cncPositionMeters
     lassign [cncPositionMeters $pos] x y
     set unit .0254;set absolute 1;set motion 0;set paths {};set points {};set lastRapid -1
     foreach line [split $gcode \n] {
@@ -104,8 +103,6 @@ fn cncGcodePaths {gcode pos} {
 fn cncStereoGeometry {left right lk le rk re} {
     package require linalg
     namespace import ::math::linearalgebra::*
-    fn cncRay
-    fn cncProject
 
     if {[norm [sub $le(t) $re(t)]] < .01} {
         error "The calibrated stereo baseline is too small."
@@ -205,7 +202,6 @@ fn cncStereoGeometry {left right lk le rk re} {
 # Start with calibration IDs, then use spare IDs from the same tag family
 # so a full grid can normally be projected in one pass.
 fn cncProbeLayouts {geometry pk pw ph modelLib} {
-    fn cncProject
     set model [$modelLib unitModel]
     set ids {}
     foreach id [dict keys $model] {
@@ -274,7 +270,6 @@ fn cncProbeRect {matrix x0 y0 x1 y1 color} {
 }
 
 fn cncProbeDraw {tags matrix printLib imageLib} {
-    fn cncProbeRect
     set backgrounds {}
     set cells {}
     dict for {id tag} $tags {
@@ -323,8 +318,6 @@ fn cncProbeDetections {camera since} {
 fn cncProbePoint {left right expected cameras pk pw ph geometry} {
     package require linalg
     namespace import ::math::linearalgebra::*
-    fn cncRay
-    fn cncProject
     set matrix {}
     foreach camera $cameras pixel [list $left $right] {
         lassign $camera k e w h
@@ -356,7 +349,6 @@ fn cncProbePoint {left right expected cameras pk pw ph geometry} {
 # the center and corners against the projector, rejecting a printed copy of
 # the same ID and frames that still contain the previous batch.
 fn cncProbePair {tag left right cameras pk pw ph geometry} {
-    fn cncProbePoint
     if {[llength $left(p)] != 4 || [llength $right(p)] != 4} {return {}}
     lassign $tag(center) x y
     set offset [expr {.3*$tag(side)}]
@@ -371,7 +363,6 @@ fn cncProbePair {tag left right cameras pk pw ph geometry} {
 }
 
 fn cncProbeConfirm {tag left right cameras pk pw ph geometry} {
-    fn cncProbePair
     set pairs {}
     foreach a $left {
         set matches {}
@@ -400,8 +391,6 @@ fn cncProbeConfirm {tag left right cameras pk pw ph geometry} {
 # Accumulate each camera independently. A tag can be visible in the left and
 # right views at different times while the projected pattern is stationary.
 fn cncProbeSample {tags left right cameras pk pw ph geometry timeout} {
-    fn cncProbeDetections
-    fn cncProbeConfirm
     set started [clock milliseconds]
     set since [expr {$started/1000.0 + .15}]
     set deadline [expr {$started+$timeout}]
@@ -479,7 +468,6 @@ fn cncProbePlanePatch {samples geometry} {
     if {[dict size $samples] < 4 || $geometry eq ""} {return {}}
     package require linalg
     namespace import ::math::linearalgebra::*
-    fn cncClipPatch
     set rows {}
     set cols {}
     set xs {}
@@ -641,8 +629,6 @@ fn cncHeightIntervals {a b map} {
 fn cncProjectPath {points map geometry pk pw ph} {
     package require linalg
     namespace import ::math::linearalgebra::*
-    fn cncHeightIntervals
-    fn cncProject
     dict with geometry {}
     set lines {}
     set line {}
@@ -672,7 +658,6 @@ fn cncCameraPair {cameras} {
 }
 
 When the collected results for {camera /camera/ has width /w/ height /h/} are /cameras/ {
-    fn cncCameraPair
     lassign [cncCameraPair $cameras] left right
     if {$right eq ""} return
     When cnc claims camera $left has CNC setup points /lp/ with width /lw/ height /lh/ &\
@@ -681,7 +666,6 @@ When the collected results for {camera /camera/ has width /w/ height /h/} are /c
          camera $left to display /display/ has extrinsics /le/ &\
          camera $right to display /display/ has extrinsics /re/ &\
          display /display/ has intrinsics /pk/ & display /display/ has width /pw/ height /ph/ {
-        fn cncStereoGeometry
         try {
             set geometry [cncStereoGeometry [dict create points $lp width $lw height $lh] \
                 [dict create points $rp width $rw height $rh] $lk $le $rk $re]
@@ -692,11 +676,6 @@ When the collected results for {camera /camera/ has width /w/ height /h/} are /c
         Claim CNC setup status is "Point 5 is set. The preview uses local coordinates."
         # Probe once per job. Position updates only refresh the preview.
         When the CNC gcode is /gcode/ {
-            fn cncProbeLayouts
-            fn cncProbeDraw
-            fn cncProbeSample
-            fn cncHeightMap
-            fn cncProbePlanePatch
             set probe [list $this probe $display [clock microseconds]]
             set samples {}
             set probeStatus {}
@@ -750,8 +729,6 @@ When the collected results for {camera /camera/ has width /w/ height /h/} are /c
                 set probeStatus "Local surface fitted from [dict size $samples] of $tagCount stereo tags. Unmeasured areas use the bed plane."
             }
             When the CNC local position is /position/ {
-                fn cncGcodePaths
-                fn cncProjectPath
                 try {
                     set projectedPaths {}
                     foreach path [cncGcodePaths $gcode $position] {
@@ -779,7 +756,6 @@ When the collected results for {camera /camera/ has width /w/ height /h/} are /c
 }
 
 Wish the web server handles route {/cnc} with handler {
-    fn cncCameraPair
     set cameras [cncCameraPair [Query! camera /camera/ has width /w/ height /h/]]
     set panels {}
     foreach camera $cameras {
