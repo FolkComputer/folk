@@ -1,0 +1,103 @@
+# Stress test for builtin-programs/video.folk with real sound
+# (audio.folk, miniaudio, volume 0). Starts and stops several videos
+# with sound at random, hundreds of times, from the moment Folk
+# starts, the way video cards on a table come and go when their tags
+# flicker. Each stop closes a video's player and its sound stream at
+# about the same time, from different workers.
+#
+# A stream must not be written to once it is closed (on the table that
+# was a SIGFPE in audioStreamWriteBytes). Run it with an ASan build
+# (`make ASAN_ENABLE=1`, then `ASAN_ENABLE=1 ./folk ...`) to catch
+# that.
+#
+# Also prints the process's RSS as it goes, to look for memory that
+# keeps growing.
+#
+# Env: STRESS_TOGGLES (default 600), STRESS_VIDEOS (default 4),
+# STRESS_HOLD_S (seconds to play all videos at the end, default 10).
+#
+# Needs ffmpeg in PATH and a sound device (or miniaudio's null one).
+
+When { source builtin-programs/image/image-lib.folk }
+When { source builtin-programs/collect.folk }
+When { source builtin-programs/audio.folk }
+When { source builtin-programs/video.folk }
+
+set toggles [expr {[info exists ::env(STRESS_TOGGLES)] ? $::env(STRESS_TOGGLES) : 600}]
+set videos [expr {[info exists ::env(STRESS_VIDEOS)] ? $::env(STRESS_VIDEOS) : 4}]
+set holdS [expr {[info exists ::env(STRESS_HOLD_S)] ? $::env(STRESS_HOLD_S) : 10}]
+
+set dir [string trim [exec mktemp -d]]
+set clip $dir/clip.mp4
+exec ffmpeg -nostdin -loglevel quiet \
+    -f lavfi -i testsrc=duration=4:size=320x240:rate=25 \
+    -f lavfi -i sine=frequency=440:duration=4 \
+    -pix_fmt yuv420p -c:a aac -shortest $clip
+set errorLog $dir/errors
+
+When we should play /k/ {
+    Wish video$k plays video $clip with volume 0
+}
+When /p/ has error /e/ with info /i/ {
+    exec sh -c "echo '$p: $e' >> $errorLog"
+}
+
+proc rssMb {} {
+    expr {[string trim [exec ps -o rss= -p [pid]]] / 1024.0}
+}
+proc ffmpegChildren {} {
+    string trim [exec sh -c "pgrep -P [pid] ffmpeg | wc -l"]
+}
+
+# Start straight away, while audio.folk and video.folk are still
+# compiling, so some stops land during startup too.
+set on [lrepeat $videos 0]
+set t0 [clock milliseconds]
+for {set i 0} {$i < $toggles} {incr i} {
+    set k [expr {int(rand() * $videos)}]
+    if {[lindex $on $k]} {
+        Retract! we should play $k
+        lset on $k 0
+    } else {
+        Assert! we should play $k
+        lset on $k 1
+    }
+    # Mostly short gaps (a flicker), sometimes long enough for the
+    # sound to start.
+    set r [expr {rand()}]
+    sleep [expr {$r < 0.6 ? $r * 0.05 : ($r < 0.9 ? 0.15 : 0.5)}]
+    if {$i % 100 == 0} {
+        puts "STRESS: toggle $i at [expr {([clock milliseconds] - $t0) / 1000}]s, RSS [format %.1f [rssMb]] MB, ffmpeg [ffmpegChildren]"
+    }
+}
+
+# Then everything plays for a while: RSS should stay flat.
+for {set k 0} {$k < $videos} {incr k} {
+    if {![lindex $on $k]} { Assert! we should play $k; lset on $k 1 }
+}
+for {set s 0} {$s < $holdS} {incr s} {
+    sleep 1
+    if {$s % 5 == 0} {
+        puts "STRESS: all playing, ${s}s, RSS [format %.1f [rssMb]] MB, ffmpeg [ffmpegChildren]"
+    }
+}
+set playing [ffmpegChildren]
+set frames 0
+for {set k 0} {$k < $videos} {incr k} {
+    incr frames [llength [Query! video$k has video $clip frame /im/]]
+}
+for {set k 0} {$k < $videos} {incr k} { Retract! we should play $k }
+sleep 2
+set left [ffmpegChildren]
+set errors [expr {[file exists $errorLog] ? [string trim [exec cat $errorLog]] : ""}]
+exec rm -rf $dir
+
+puts "STRESS: playing $playing (want $videos), frames $frames (want $videos), left $left, RSS [format %.1f [rssMb]] MB"
+if {$errors ne ""} { puts "STRESS: errors:\n$errors" }
+if {$playing == $videos && $frames == $videos && $left == 0 && $errors eq ""} {
+    puts "PASS"
+    Exit! 0
+} else {
+    puts "FAIL"
+    Exit! 1
+}

@@ -1,0 +1,101 @@
+# Headless test for builtin-programs/video.folk. The sound goes to a
+# stub audio library, so no sound card is needed. Checks that each
+# video (picture and sound) is one ffmpeg, that frames and sound come
+# in, that playing doesn't keep any Folk worker busy, that retracting
+# the wish leaves no ffmpeg behind, and that stopping reports no error.
+#
+# Needs ffmpeg in PATH.
+
+When { source builtin-programs/image/image-lib.folk }
+When { source builtin-programs/collect.folk }
+set cc [C]
+$cc code {
+    typedef struct AudioStream { int unused; } AudioStream;
+    static AudioStream theStream;
+    static int _Atomic soundBytes;
+}
+$cc proc audioStreamOpen {int r int c} AudioStream* { return &theStream; }
+$cc proc audioStreamSetVolume {AudioStream* s double v} void {}
+$cc proc audioStreamWriteBytes {AudioStream* s char* bytes int len} void {
+    soundBytes += len;
+}
+$cc proc audioStreamWrite {AudioStream* s Jim_Obj* pcm} void {
+    int len; Jim_GetString(pcm, &len); soundBytes += len;
+}
+$cc proc audioStreamClose {AudioStream* s} void {}
+$cc proc soundBytesWritten {} int { return soundBytes; }
+set fake [$cc compile]
+
+# How many workers are in the middle of a work item that started over
+# a second ago (a When body that never returns, say)?
+set wc [C]
+$wc cflags -I. -I./vendor/tracy/public
+$wc include "workqueue.h"
+$wc include "common.h"
+$wc code {
+    extern ThreadControlBlock threads[];
+    extern int _Atomic threadCount;
+}
+$wc proc longItemsCount {} int {
+    int n = 0;
+    for (int i = 0; i < threadCount; i++) {
+        int64_t start = threads[i].currentItemStartTimestamp;
+        if (threads[i].tid == 0 || start == 0) { continue; }
+        if (timestamp_get(threads[i].clockid) - start > 1000000000LL) { n++; }
+    }
+    return n;
+}
+set workers [$wc compile]
+Claim the audio library is $fake
+When { source builtin-programs/video.folk }
+
+set dir [string trim [exec mktemp -d]]
+set clip $dir/clip.mp4
+exec ffmpeg -nostdin -loglevel quiet \
+    -f lavfi -i testsrc=duration=3:size=320x240:rate=25 \
+    -f lavfi -i sine=frequency=440:duration=3 \
+    -pix_fmt yuv420p -c:a aac -shortest $clip
+set errorLog $dir/errors
+
+When we should play {
+    Wish prog plays video $clip with scale 1.0
+    Wish prog plays video $clip with scale 0.5
+}
+When prog has error /e/ with info /i/ {
+    exec sh -c "echo '$e' >> $errorLog"
+}
+
+# Two videos, each one ffmpeg for picture and sound.
+proc ffmpegChildren {} {
+    string trim [exec sh -c "pgrep -P [pid] ffmpeg | wc -l"]
+}
+
+# This test's own body is one long work item.
+sleep 2
+set busyBefore [$workers longItemsCount]
+Assert! we should play
+sleep 4
+set running [ffmpegChildren]
+set busyDuring [$workers longItemsCount]
+set frames [llength [Query! prog has video $clip frame /im/]]
+set sound [$fake soundBytesWritten]
+Retract! we should play
+sleep 3
+set after [ffmpegChildren]
+set errors [exec sh -c "cat $errorLog 2>/dev/null | wc -l"]
+exec rm -rf $dir
+
+puts "RUNNING: $running (want 2)"
+puts "FRAMES: $frames (want 2)"
+puts "SOUND BYTES: $sound (want > 0)"
+puts "BUSY WORKERS: $busyDuring (want $busyBefore, as before playing)"
+puts "AFTER RETRACT: $after (want 0)"
+puts "ERRORS: [string trim $errors] (want 0)"
+if {$running == 2 && $frames == 2 && $sound > 0 && $busyDuring == $busyBefore &&
+    $after == 0 && [string trim $errors] == 0} {
+    puts "PASS"
+    Exit! 0
+} else {
+    puts "FAIL"
+    Exit! 1
+}
