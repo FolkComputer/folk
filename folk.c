@@ -556,9 +556,7 @@ static int __statementOfCurrentMatchSourceInfoFunc(Zicl_Interp *interp, int argc
         ziclNewString(fileName ? fileName : "", -1),
         Zicl_NewLong(lineNumber),
     };
-    int resultN = sizeof(result)/sizeof(Zicl_Val);
-    defer { Zicl_DropRefArrayItems(result, resultN); }
-    Zicl_SetResultOwning(interp, Zicl_BoxList(ziclNewList(result, resultN)));
+    Zicl_SetResultOwning(interp, Zicl_BoxList(ziclNewListOwning(result, sizeof(result)/sizeof(Zicl_Val))));
 
     return ZICL_OK;
 }
@@ -721,6 +719,15 @@ static void interpSetupEnv(Zicl_Interp *interp) {
     defer { Zicl_DropRef(stderrValue); }
     Zicl_SetVariableString(interp, "realStdout", stdoutValue);
     Zicl_SetVariableString(interp, "realStderr", stderrValue);
+
+    Zicl_Dict *platformDict = ziclNewDict(NULL, 0);
+    defer { Zicl_DropRefDict(platformDict); }
+#ifdef __APPLE__
+    ziclDictPut(platformDict, Zicl_InternStr("os"), Zicl_InternStr("darwin"));
+#elif defined(__linux__)
+    ziclDictPut(platformDict, Zicl_InternStr("os"), Zicl_InternStr("linux"));
+#endif
+    Zicl_SetVariableString(interp, "tcl_platform", Zicl_BoxDict(platformDict));
 }
 
 void initSysmonInterp() {

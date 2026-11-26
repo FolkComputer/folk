@@ -130,9 +130,3 @@ fn wsUpgradeHandshake {clientKey} {
     return [codec encode base64 $acceptHash]
 }
 
-# Aliases for module usage.
-set send $wsSend
-set readMsg $wsReadMsg
-set upgradeHandshake $wsUpgradeHandshake
-
-

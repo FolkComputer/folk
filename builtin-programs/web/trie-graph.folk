@@ -175,8 +175,7 @@ void tfree(void *ptr) {
             resultObjs[i] = Zicl_NewLong(results[i]);
         }
 
-        Zicl_Val result = Zicl_BoxList(ziclNewList(resultObjs, resultCount));
-        for (int i = 0; i < resultCount; i++) Zicl_DropRef(resultObjs[i]);
+        Zicl_Val result = Zicl_BoxList(ziclNewListOwning(resultObjs, resultCount));
         return result;
     }
     cc::proc remove_ {Zicl_Shim* trieShim Zicl_Val patternObj} Zicl_Val {

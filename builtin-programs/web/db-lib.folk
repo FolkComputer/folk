@@ -170,10 +170,7 @@ Claim the db library is [apply [fn {} {
             statementRelease(db, stmt);
 
             Zicl_Val holdItems[] = { keyStr, Zicl_NewLong(hold->version), refStr, clauseValStr };
-            Zicl_Val holdVal = Zicl_BoxList(ziclNewList(holdItems, sizeof(holdItems)/sizeof(holdItems[0])));
-            Zicl_DropRef(keyStr);
-            Zicl_DropRef(refStr);
-            Zicl_DropRef(clauseValStr);
+            Zicl_Val holdVal = Zicl_BoxList(ziclNewListOwning(holdItems, sizeof(holdItems)/sizeof(holdItems[0])));
 
             ziclListAppend(retList, holdVal);
             Zicl_DropRef(holdVal);
@@ -211,8 +208,8 @@ Claim the db library is [apply [fn {} {
                 Zicl_NewLong(latestConvergedNumber),
                 Zicl_NewLong(versionCount)
             };
-            Zicl_Val atomicallyVal = Zicl_BoxList(ziclNewList(atomicallyItems, sizeof(atomicallyItems)/sizeof(atomicallyItems[0])));
-            Zicl_DropRef(keyStr);
+            Zicl_Val atomicallyVal = Zicl_BoxList(ziclNewListOwning(
+                atomicallyItems, sizeof(atomicallyItems)/sizeof(atomicallyItems[0])));
 
             ziclListAppend(retList, atomicallyVal);
             Zicl_DropRef(atomicallyVal);

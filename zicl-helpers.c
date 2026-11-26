@@ -58,6 +58,13 @@ Zicl_List *ziclNewList(const Zicl_Val *values, int n_values) {
     return list;
 }
 
+Zicl_List *ziclNewListOwning(Zicl_Val *values, int n_values) {
+    Zicl_List *list = Zicl_NewList(values, n_values);
+    if (list == NULL) folkZiclAssert(ZICL_OOM);
+    Zicl_DropRefArrayItems(values, n_values);
+    return list;
+}
+
 Zicl_List *ziclNewListFromShims(Zicl_Shim *values, int n_values) {
     Zicl_List *list = Zicl_NewListFromShims(values, n_values);
     if (list == NULL) folkZiclAssert(ZICL_OOM);
@@ -66,6 +73,11 @@ Zicl_List *ziclNewListFromShims(Zicl_Shim *values, int n_values) {
 
 void ziclListAppend(Zicl_List *list, Zicl_Val item) {
     folkZiclAssert(Zicl_ListAppend(list, item));
+}
+
+void ziclListAppendOwning(Zicl_List *list, Zicl_Val item) {
+    folkZiclAssert(Zicl_ListAppend(list, item));
+    Zicl_DropRef(item);
 }
 
 Zicl_Dict *ziclNewDict(Zicl_Val *values, int n_values) {

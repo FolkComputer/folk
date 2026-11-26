@@ -324,7 +324,7 @@ cc::proc monoRefineCalibrationOptimize {double[paramsCount] params} Zicl_Val {
         FOLK_ENSURE(!isnan(params[i]));
         paramObjs[1 + i] = Zicl_NewDouble(params[i]);
     }
-    return Zicl_BoxList(ziclNewList(paramObjs, 1 + paramsCount));
+    return Zicl_BoxList(ziclNewListOwning(paramObjs, 1 + paramsCount));
 }
 
 # Stereo calibration
@@ -491,7 +491,7 @@ cc::proc stereoRefineCalibrationOptimize {double[paramsCount] params} Zicl_Val {
     for (int i = 0; i < paramsCount; i++) {
         paramObjs[1 + i] = Zicl_NewDouble(params[i]);
     }
-    return Zicl_BoxList(ziclNewList(paramObjs, 1 + paramsCount));
+    return Zicl_BoxList(ziclNewListOwning(paramObjs, 1 + paramsCount));
 }
 
 # Folk level

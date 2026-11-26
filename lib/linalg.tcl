@@ -4,7 +4,7 @@
 #     see CLAUDE.md for how [import]/[dict assign] replace real
 #     namespaces here. Meant to be loaded with [import], not [source]:
 #
-#         set linalg [import lib/linearalgebra.tcl]
+#         set linalg [import lib/linalg.tcl]
 #         dict assign $linalg add sub scale matmul
 #
 # Mechanical port: `proc ::math::linearalgebra::NAME` -> `fn NAME`,

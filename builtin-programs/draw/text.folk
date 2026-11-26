@@ -68,7 +68,7 @@ cc::proc vec2f_rotate {vec2f a float radians} vec2f {
 }
 cc::proc vec2f_toObj {vec2f a} Zicl_Val {
     Zicl_Val v[] = { Zicl_NewDouble(a.x), Zicl_NewDouble(a.y) };
-    return Zicl_BoxList(ziclNewList(v, 2));
+    return Zicl_BoxList(ziclNewListOwning(v, 2));
 }
 cc::proc charOrFallback {Font* font int ch} int {
     if (ch < ' ' || ch >= sizeof(font->glyphInfos)/sizeof(font->glyphInfos[0])) {

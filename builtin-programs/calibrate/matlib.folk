@@ -304,7 +304,7 @@ cc::proc applyHomography {matd_t* H double[2] xy} Zicl_Val {
     homography_project(H, xy[0], xy[1], &out[0], &out[1]);
 
     Zicl_Val retObjs[2] = { Zicl_NewDouble(out[0]), Zicl_NewDouble(out[1]) };
-    return Zicl_BoxList(ziclNewList(retObjs, 2));
+    return Zicl_BoxList(ziclNewListOwning(retObjs, 2));
 }
 cc::proc matdMul {matd_t* a matd_t* b} matd_t* {
     return matd_multiply(a, b);

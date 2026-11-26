@@ -90,7 +90,7 @@ cc::proc jpegDimensions {Jpeg jpeg} Zicl_Val {
     Zicl_Val elems[2];
     elems[0] = Zicl_NewLong(width);
     elems[1] = Zicl_NewLong(height);
-    return Zicl_BoxList(ziclNewList(elems, 2));
+    return Zicl_BoxList(ziclNewListOwning(elems, 2));
 }
 
 cc::proc jpegData {Jpeg jpeg} Zicl_Val {

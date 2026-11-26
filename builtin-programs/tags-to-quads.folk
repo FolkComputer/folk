@@ -60,7 +60,7 @@ cc::proc project {Intrinsics intr double width double height
         Zicl_NewDouble(out[0]),
         Zicl_NewDouble(out[1])
     };
-    return Zicl_BoxList(ziclNewList(retObjs, 2));
+    return Zicl_BoxList(ziclNewListOwning(retObjs, 2));
 }
 cc::proc rescaleAndUndistort {Intrinsics intr
                               double cameraWidth double cameraHeight

@@ -156,8 +156,7 @@ cc::proc detect {Image gray int threshold} Zicl_Val {
 
     blob_detections_destroy(detections);
 
-    Zicl_Val result = Zicl_BoxList(ziclNewList(detectionObjs, detectionCount));
-    for (int i = 0; i < detectionCount; i++) Zicl_DropRef(detectionObjs[i]);
+    Zicl_Val result = Zicl_BoxList(ziclNewListOwning(detectionObjs, detectionCount));
     return result;
 }
 

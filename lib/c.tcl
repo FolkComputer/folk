@@ -84,239 +84,236 @@ fn foreachZiclValueField {fields structExpr opTemplate} {
     }] "\n"
 }
 
-set C {
-    compiler cc
-    prelude {
-        #include <inttypes.h>
-        #include <stdint.h>
-        #include <assert.h>
-        #include <stdbool.h>
-        #include <stdio.h>
-        #include <stdlib.h>
-        #include <stddef.h>
-        #include <string.h>
-        #include <setjmp.h>
-        #include <libzicl.h>
-        #include "zicl-helpers.h"
+set C {}
+set C::compiler cc
+set C::prelude {
+    #include <inttypes.h>
+    #include <stdint.h>
+    #include <assert.h>
+    #include <stdbool.h>
+    #include <stdio.h>
+    #include <stdlib.h>
+    #include <stddef.h>
+    #include <string.h>
+    #include <setjmp.h>
+    #include <libzicl.h>
+    #include "zicl-helpers.h"
 
-        #if __has_include ("tracy/TracyC.h")
-        #include "tracy/TracyC.h"
-        #endif
+    #if __has_include ("tracy/TracyC.h")
+    #include "tracy/TracyC.h"
+    #endif
 
-        extern __thread Zicl_Interp* interp;
-        extern __thread jmp_buf __onError;
-        extern __thread bool __onErrorIsSet;
+    extern __thread Zicl_Interp* interp;
+    extern __thread jmp_buf __onError;
+    extern __thread bool __onErrorIsSet;
 
-        #define __ENSURE(EXPR) if (!(EXPR)) { Zicl_SetErrorString(interp, "failed to convert argument from Tcl to C in: " #EXPR, -1); longjmp(__onError, 0); }
-        #define __ENSURE_OK(EXPR) if ((EXPR) != ZICL_OK) { longjmp(__onError, 0); }
+    #define __ENSURE(EXPR) if (!(EXPR)) { Zicl_SetErrorString(interp, "failed to convert argument from Tcl to C in: " #EXPR, -1); longjmp(__onError, 0); }
+    #define __ENSURE_OK(EXPR) if ((EXPR) != ZICL_OK) { longjmp(__onError, 0); }
 
-        #define FOLK_ERROR(...) do { \
-            char __msg[1024]; snprintf(__msg, 1024, ##__VA_ARGS__); \
-            Zicl_SetErrorString(interp, __msg, -1); \
-            longjmp(__onError, 0); \
-          } while (0)
-        #define FOLK_ABORT() longjmp(__onError, 0)
-        #define FOLK_ENSURE(EXPR) if (!(EXPR)) { Zicl_SetErrorString(interp, "assertion failed: " #EXPR, -1); longjmp(__onError, 0); }
-        #define FOLK_CHECK(EXPR, MSG) if (!(EXPR)) { FOLK_ERROR(MSG); }
+    #define FOLK_ERROR(...) do { \
+        char __msg[1024]; snprintf(__msg, 1024, ##__VA_ARGS__); \
+        Zicl_SetErrorString(interp, __msg, -1); \
+        longjmp(__onError, 0); \
+        } while (0)
+    #define FOLK_ABORT() longjmp(__onError, 0)
+    #define FOLK_ENSURE(EXPR) if (!(EXPR)) { Zicl_SetErrorString(interp, "assertion failed: " #EXPR, -1); longjmp(__onError, 0); }
+    #define FOLK_CHECK(EXPR, MSG) if (!(EXPR)) { FOLK_ERROR(MSG); }
 
-        typedef struct __DeferredFunc {
-            void *ptr;
-            void (*run)(void*);
-        } __DeferredFunc;
-        #define __MAX_DEFERRED_FUNCS 16
-        static __thread __DeferredFunc __deferred_funcs[__MAX_DEFERRED_FUNCS] __attribute__((unused));
-        static __thread int __deferred_count __attribute__((unused)) = 0;
+    typedef struct __DeferredFunc {
+        void *ptr;
+        void (*run)(void*);
+    } __DeferredFunc;
+    #define __MAX_DEFERRED_FUNCS 16
+    static __thread __DeferredFunc __deferred_funcs[__MAX_DEFERRED_FUNCS] __attribute__((unused));
+    static __thread int __deferred_count __attribute__((unused)) = 0;
 
-        static inline __attribute__((unused)) void __defer(void (*run)(void*), void* ptr) {
-            assert(__onErrorIsSet);
-            if (__deferred_count >= __MAX_DEFERRED_FUNCS) {
-                if (run) run(ptr);
-                FOLK_ERROR("out of deferred function slots");
-            }
-            __deferred_funcs[__deferred_count++] = (__DeferredFunc){ .ptr = ptr, .run = run };
+    static inline __attribute__((unused)) void __defer(void (*run)(void*), void* ptr) {
+        assert(__onErrorIsSet);
+        if (__deferred_count >= __MAX_DEFERRED_FUNCS) {
+            if (run) run(ptr);
+            FOLK_ERROR("out of deferred function slots");
         }
+        __deferred_funcs[__deferred_count++] = (__DeferredFunc){ .ptr = ptr, .run = run };
+    }
 
-        static inline __attribute__((unused)) void __deferredRunTo(int base) {
-            while (__deferred_count > base) {
-                __deferred_count--;
-                if (__deferred_funcs[__deferred_count].run) {
-                    __deferred_funcs[__deferred_count].run(__deferred_funcs[__deferred_count].ptr);
-                }
+    static inline __attribute__((unused)) void __deferredRunTo(int base) {
+        while (__deferred_count > base) {
+            __deferred_count--;
+            if (__deferred_funcs[__deferred_count].run) {
+                __deferred_funcs[__deferred_count].run(__deferred_funcs[__deferred_count].ptr);
             }
-        }
-
-        static inline void __capDropInFlight(void* ptr) {
-            Zicl_CapDropInFlight((Zicl_CapHead*)ptr);
         }
     }
-    addedCode {}
 
-    vars {}
-    procs {}
-
-    objtypes {}
-    extendedObjtypes {}
-
-    extends {}
-
-    ___argtypes_comment {
-        # Tcl->C conversion logic, when a value is passed from Tcl
-        # to a C function as an argument.
+    static inline void __capDropInFlight(void* ptr) {
+        Zicl_CapDropInFlight((Zicl_CapHead*)ptr);
     }
-    argtypes {
-        int {identity { long _$argname; __ENSURE_OK(Zicl_GetLong(interp, $shim, &_$argname)); int $argname = (int)_$argname; }}
-        double {identity { double $argname; __ENSURE_OK(Zicl_GetDouble(interp, $shim, &$argname)); }}
-        float {identity { double _$argname; __ENSURE_OK(Zicl_GetDouble(interp, $shim, &_$argname)); float $argname = (float)_$argname; }}
-        bool {identity { int _$argname; __ENSURE_OK(Zicl_GetBoolean(interp, $shim, &_$argname)); bool $argname = !!_$argname; }}
-        int32_t {identity { long _$argname; __ENSURE_OK(Zicl_GetLong(interp, $shim, &_$argname)); int32_t $argname = (int)_$argname; }}
-        char {identity {
-            char $argname;
-            {
-                int _len_$argname;
-                char* _tmp_$argname = ziclShimGetString($shim, &_len_$argname);
-                __ENSURE(_len_$argname >= 1);
-                $argname = _tmp_$argname[0];
+}
+set C::addedCode {}
+set C::vars {}
+set C::procs {}
+
+set C::objtypes {}
+
+# These are object types that came from extending a different
+# C instance.
+set C::extendedObjtypes {}
+set C::extends {}
+
+# Tcl->C conversion logic, when a value is passed from Tcl
+# to a C function as an argument.
+set C::argtypes {
+    int {identity { long _$argname; __ENSURE_OK(Zicl_GetLong(interp, $shim, &_$argname)); int $argname = (int)_$argname; }}
+    double {identity { double $argname; __ENSURE_OK(Zicl_GetDouble(interp, $shim, &$argname)); }}
+    float {identity { double _$argname; __ENSURE_OK(Zicl_GetDouble(interp, $shim, &_$argname)); float $argname = (float)_$argname; }}
+    bool {identity { int _$argname; __ENSURE_OK(Zicl_GetBoolean(interp, $shim, &_$argname)); bool $argname = !!_$argname; }}
+    int32_t {identity { long _$argname; __ENSURE_OK(Zicl_GetLong(interp, $shim, &_$argname)); int32_t $argname = (int)_$argname; }}
+    char {identity {
+        char $argname;
+        {
+            int _len_$argname;
+            char* _tmp_$argname = ziclShimGetString($shim, &_len_$argname);
+            __ENSURE(_len_$argname >= 1);
+            $argname = _tmp_$argname[0];
+        }
+    }}
+    size_t {identity { size_t $argname; __ENSURE_OK(Zicl_GetLong(interp, $shim, (long *)&$argname)); }}
+    intptr_t {identity { intptr_t $argname; __ENSURE_OK(Zicl_GetLong(interp, $shim, (long *)&$argname)); }}
+    uint16_t {identity { uint16_t $argname; { long _wide_$argname; __ENSURE_OK(Zicl_GetLong(interp, $shim, &_wide_$argname)); $argname = (uint16_t)_wide_$argname; } }}
+    uint32_t {identity { uint32_t $argname; { long _wide_$argname; __ENSURE_OK(Zicl_GetLong(interp, $shim, &_wide_$argname)); $argname = (uint32_t)_wide_$argname; } }}
+    uint64_t {identity {
+        uint64_t $argname;
+        {
+            long _wide_$argname;
+            __ENSURE_OK(Zicl_GetLong(interp, $shim, &_wide_$argname));
+            __ENSURE(_wide_$argname >= 0);
+            $argname = (uint64_t)_wide_$argname;
+        }
+    }}
+    char* {identity { char* $argname = (char*) ziclShimString($shim); } }
+    Zicl_Val {identity { Zicl_Val $argname = Zicl_Current($shim); }}
+    Zicl_Shim* {identity { Zicl_Shim* $argname = $shim; }}
+    default {
+        if {[string index $argtype end] eq "*"} {
+            identity {
+                $argtype $argname;
+                __ENSURE(sscanf(ziclShimString($shim), "($argtype) 0x%p", (void**) &$argname) == 1 ||
+                            sscanf(ziclShimString($shim), "0x%p", (void**) &$argname) == 1);
             }
-        }}
-        size_t {identity { size_t $argname; __ENSURE_OK(Zicl_GetLong(interp, $shim, (long *)&$argname)); }}
-        intptr_t {identity { intptr_t $argname; __ENSURE_OK(Zicl_GetLong(interp, $shim, (long *)&$argname)); }}
-        uint16_t {identity { uint16_t $argname; { long _wide_$argname; __ENSURE_OK(Zicl_GetLong(interp, $shim, &_wide_$argname)); $argname = (uint16_t)_wide_$argname; } }}
-        uint32_t {identity { uint32_t $argname; { long _wide_$argname; __ENSURE_OK(Zicl_GetLong(interp, $shim, &_wide_$argname)); $argname = (uint32_t)_wide_$argname; } }}
-        uint64_t {identity {
-            uint64_t $argname;
-            {
-                long _wide_$argname;
-                __ENSURE_OK(Zicl_GetLong(interp, $shim, &_wide_$argname));
-                __ENSURE(_wide_$argname >= 0);
-                $argname = (uint64_t)_wide_$argname;
-            }
-        }}
-        char* {identity { char* $argname = (char*) ziclShimString($shim); } }
-        Zicl_Val {identity { Zicl_Val $argname = Zicl_Current($shim); }}
-        Zicl_Shim* {identity { Zicl_Shim* $argname = $shim; }}
-        default {
-            if {[string index $argtype end] eq "*"} {
-                identity {
-                    $argtype $argname;
-                    __ENSURE(sscanf(ziclShimString($shim), "($argtype) 0x%p", (void**) &$argname) == 1 ||
-                             sscanf(ziclShimString($shim), "0x%p", (void**) &$argname) == 1);
-                }
-            } elseif {[regexp {(^[^\[]+)\[([^\]]*)\]$} $argtype -> basetype arraylen]} {
-                # note: arraylen can be "" or a named identifier
-                if {$basetype eq "char"} {identity {
-                    int $[set argname]_len; const char *$[set argname]_bytes = ziclShimGetString($shim, &$[set argname]_len);
-                    if ($[set argname]_len > $arraylen) $[set argname]_len = $arraylen;
-                    char $argname[$arraylen];
-                    memset($argname, 0, $arraylen);
-                    memcpy($argname, $[set argname]_bytes, $[set argname]_len);
-                } } else {
-                    if {[regexp {^[a-zA-Z_]} $arraylen]} {
-                        set countvar $arraylen
-                    } else {
-                        set countvar ${argname}_objc
-                    }
-                    identity {
-                    const Zicl_List *$[set argname]_list;
-                    __ENSURE_OK(Zicl_ShimmerToList(interp, $shim, &$[set argname]_list));
-                    int $countvar = Zicl_ListLength($[set argname]_list);
-                    const Zicl_Val *$[set argname]_objv = Zicl_ListItems($[set argname]_list);
-                    $basetype $argname[$countvar];
-                    {
-                        for (int i = 0; i < $countvar; i++) {
-                            Zicl_Shim $[set argname]_shim = Zicl_NewShim($[set argname]_objv[i]);
-                            defer { Zicl_ShimDiscardChanges(&$[set argname]_shim); }
-                            $[self::arg $basetype ${argname}_i "&[set argname]_shim"]
-                            $argname[i] = $[set argname]_i;
-                        }
-                    }
-                } }
-            } elseif {[regexp {(^[^\[]+)\[([^\]]*)\]\[(\d*)\]$} $argtype -> basetype arraylen arraylen2]} {
-                # If arraylen is a named identifier, expose it as that C variable name.
+        } elseif {[regexp {(^[^\[]+)\[([^\]]*)\]$} $argtype -> basetype arraylen]} {
+            # note: arraylen can be "" or a named identifier
+            if {$basetype eq "char"} {identity {
+                int $[set argname]_len; const char *$[set argname]_bytes = ziclShimGetString($shim, &$[set argname]_len);
+                if ($[set argname]_len > $arraylen) $[set argname]_len = $arraylen;
+                char $argname[$arraylen];
+                memset($argname, 0, $arraylen);
+                memcpy($argname, $[set argname]_bytes, $[set argname]_len);
+            } } else {
                 if {[regexp {^[a-zA-Z_]} $arraylen]} {
                     set countvar $arraylen
                 } else {
                     set countvar ${argname}_objc
                 }
                 identity {
-                    const Zicl_List *$[set argname]_list;
-                    __ENSURE_OK(Zicl_ShimmerToList(interp, $shim, &$[set argname]_list));
-                    int $countvar = Zicl_ListLength($[set argname]_list);
-                    const Zicl_Val *$[set argname]_objv = Zicl_ListItems($[set argname]_list);
-                    $basetype $argname[$countvar][$arraylen2];
-                    {
-                        for (int j = 0; j < $countvar; j++) {
-                            Zicl_Shim $[set argname]_shim = Zicl_NewShim($[set argname]_objv[j]);
-                            defer { Zicl_ShimDiscardChanges(&$[set argname]_shim); }
-                            $[self::arg $basetype\[\] ${argname}_j "&[set argname]_shim"]
-                            memcpy(${argname}[j], ${argname}_j, sizeof(${argname}_j));
-                        }
+                const Zicl_List *$[set argname]_list;
+                __ENSURE_OK(Zicl_ShimmerToList(interp, $shim, &$[set argname]_list));
+                int $countvar = Zicl_ListLength($[set argname]_list);
+                const Zicl_Val *$[set argname]_objv = Zicl_ListItems($[set argname]_list);
+                $basetype $argname[$countvar];
+                {
+                    for (int i = 0; i < $countvar; i++) {
+                        Zicl_Shim $[set argname]_shim = Zicl_NewShim($[set argname]_objv[i]);
+                        defer { Zicl_ShimDiscardChanges(&$[set argname]_shim); }
+                        $[self::arg $basetype ${argname}_i "&[set argname]_shim"]
+                        $argname[i] = $[set argname]_i;
                     }
                 }
+            } }
+        } elseif {[regexp {(^[^\[]+)\[([^\]]*)\]\[(\d*)\]$} $argtype -> basetype arraylen arraylen2]} {
+            # If arraylen is a named identifier, expose it as that C variable name.
+            if {[regexp {^[a-zA-Z_]} $arraylen]} {
+                set countvar $arraylen
             } else {
-                error "Unrecognized argtype $argtype"
+                set countvar ${argname}_objc
             }
+            identity {
+                const Zicl_List *$[set argname]_list;
+                __ENSURE_OK(Zicl_ShimmerToList(interp, $shim, &$[set argname]_list));
+                int $countvar = Zicl_ListLength($[set argname]_list);
+                const Zicl_Val *$[set argname]_objv = Zicl_ListItems($[set argname]_list);
+                $basetype $argname[$countvar][$arraylen2];
+                {
+                    for (int j = 0; j < $countvar; j++) {
+                        Zicl_Shim $[set argname]_shim = Zicl_NewShim($[set argname]_objv[j]);
+                        defer { Zicl_ShimDiscardChanges(&$[set argname]_shim); }
+                        $[self::arg $basetype\[\] ${argname}_j "&[set argname]_shim"]
+                        memcpy(${argname}[j], ${argname}_j, sizeof(${argname}_j));
+                    }
+                }
+            }
+        } else {
+            error "Unrecognized argtype $argtype"
         }
     }
-
-    ___rtypes_comment {
-        # C->Tcl conversion logic, when a value is returned from a
-        # C function to Tcl.
-    }
-    rtypes {
-        int {identity { $robj = Zicl_NewLong($rvalue); }}
-        int32_t {identity { $robj = Zicl_NewLong($rvalue); }}
-        double {identity { $robj = Zicl_NewDouble($rvalue); }}
-        float {identity { $robj = Zicl_NewDouble($rvalue); }}
-        char {identity { $robj = ziclNewString(&$rvalue, 1); }}
-        bool {identity { $robj = Zicl_NewBool($rvalue); }}
-        uint8_t {identity { $robj = Zicl_NewLong($rvalue); }}
-        uint16_t {identity { $robj = Zicl_NewLong($rvalue); }}
-        uint32_t {identity { $robj = Zicl_NewLong($rvalue); }}
-        uint64_t {identity {
-            if ((uint64_t)$rvalue > (uint64_t)INT64_MAX) {
-                FOLK_ERROR("uint64_t value %" PRIu64 " exceeds INT64_MAX", (uint64_t)$rvalue);
-            }
-            $robj = Zicl_NewLong((long)$rvalue);
-        }}
-        size_t {identity { $robj = Zicl_NewLong($rvalue); }}
-        intptr_t {identity { $robj = Zicl_NewLong($rvalue); }}
-        char* {identity { $robj = ziclNewString($rvalue, -1); } }
-        Zicl_Val {identity { $robj = $rvalue; }}
-        default {
-            if {[string index $rtype end] eq "*"} {
-                identity { folkZiclAssert(Zicl_NewStringFormatted(&$robj, "($rtype) 0x%" PRIxPTR, (uintptr_t) $rvalue)); }
-            } elseif {[regexp {(^[^\[]+)\[(\d*)\]$} $rtype -> basetype arraylen]} {
-                if {$basetype eq "char"} {identity {
-                    $robj = ziclNewString($rvalue, strnlen($rvalue, $arraylen));
-                } } else {identity {
-                    {
-                        Zicl_Val objv[$arraylen];
-                        for (int i = 0; i < $arraylen; i++) {
-                            $[self::ret $basetype objv\[i\] $rvalue\[i\]]
-                        }
-                        $robj = Zicl_BoxList(ziclNewList(objv, $arraylen));
-                    }
-                } }
-            } elseif {[regexp {(^[^\[]+)\[(\d*)\]\[(\d*)\]$} $rtype -> basetype arraylen arraylen2]} {
-                identity {
-                    {
-                        Zicl_Val objv[$arraylen];
-                        for (int i = 0; i < $arraylen; i++) {
-                            $basetype* rrow = $rvalue[i];
-                            Zicl_Val* objrow = &objv[i];
-                            $[self::ret ${basetype}\[${arraylen2}\] *objrow rrow]
-                        }
-                        $robj = Zicl_BoxList(ziclNewList(objv, $arraylen));
-                    }
-            } } else {
-                error "Unrecognized rtype $rtype"
-            }
-        }
-    }
-
-    addedCflags {-I./vendor/zicl/zig-out/include -I./}
-    addedEndCflags {}
 }
+
+# C->Tcl conversion logic, when a value is returned from a
+# C function to Tcl.
+set C::rtypes {
+    int {identity { $robj = Zicl_NewLong($rvalue); }}
+    int32_t {identity { $robj = Zicl_NewLong($rvalue); }}
+    double {identity { $robj = Zicl_NewDouble($rvalue); }}
+    float {identity { $robj = Zicl_NewDouble($rvalue); }}
+    char {identity { $robj = ziclNewString(&$rvalue, 1); }}
+    bool {identity { $robj = Zicl_NewBool($rvalue); }}
+    uint8_t {identity { $robj = Zicl_NewLong($rvalue); }}
+    uint16_t {identity { $robj = Zicl_NewLong($rvalue); }}
+    uint32_t {identity { $robj = Zicl_NewLong($rvalue); }}
+    uint64_t {identity {
+        if ((uint64_t)$rvalue > (uint64_t)INT64_MAX) {
+            FOLK_ERROR("uint64_t value %" PRIu64 " exceeds INT64_MAX", (uint64_t)$rvalue);
+        }
+        $robj = Zicl_NewLong((long)$rvalue);
+    }}
+    size_t {identity { $robj = Zicl_NewLong($rvalue); }}
+    intptr_t {identity { $robj = Zicl_NewLong($rvalue); }}
+    char* {identity { $robj = ziclNewString($rvalue, -1); } }
+    Zicl_Val {identity { $robj = $rvalue; }}
+    default {
+        if {[string index $rtype end] eq "*"} {
+            identity { folkZiclAssert(Zicl_NewStringFormatted(&$robj, "($rtype) 0x%" PRIxPTR, (uintptr_t) $rvalue)); }
+        } elseif {[regexp {(^[^\[]+)\[(\d*)\]$} $rtype -> basetype arraylen]} {
+            if {$basetype eq "char"} {identity {
+                $robj = ziclNewString($rvalue, strnlen($rvalue, $arraylen));
+            } } else {identity {
+                {
+                    Zicl_Val objv[$arraylen];
+                    for (int i = 0; i < $arraylen; i++) {
+                        $[self::ret $basetype objv\[i\] $rvalue\[i\]]
+                    }
+                    $robj = Zicl_BoxList(ziclNewListOwning(objv, $arraylen));
+                }
+            } }
+        } elseif {[regexp {(^[^\[]+)\[(\d*)\]\[(\d*)\]$} $rtype -> basetype arraylen arraylen2]} {
+            identity {
+                {
+                    Zicl_Val objv[$arraylen];
+                    for (int i = 0; i < $arraylen; i++) {
+                        $basetype* rrow = $rvalue[i];
+                        Zicl_Val* objrow = &objv[i];
+                        $[self::ret ${basetype}\[${arraylen2}\] *objrow rrow]
+                    }
+                    $robj = Zicl_BoxList(ziclNewListOwning(objv, $arraylen));
+                }
+            }
+        } else {
+            error "Unrecognized rtype $rtype"
+        }
+    }
+}
+
+set C::addedCflags {-I./vendor/zicl/zig-out/include -I./}
+set C::addedEndCflags {}
 
 # Registers a new argtype.
 method C::argtype {self t h} {
@@ -360,6 +357,7 @@ $newcode
 method C::define {self newvars} {
     lappend self::addedCode $newvars :noextend
 
+    # Remove comments.
     regsub -all -line {/\*.*?\*/} $newvars "" newvars
     regsub -all -line {//.*$} $newvars "" newvars
     regsub -all {=[^;]*;} $newvars "" newvars

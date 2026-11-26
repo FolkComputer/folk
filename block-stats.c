@@ -8,7 +8,6 @@
 #include <libzicl.h>
 #include "zicl-helpers.h"
 
-#include "common.h"
 #include "block-stats.h"
 
 // Running EWMA of block eval runtime per filename:lineno.
@@ -70,10 +69,8 @@ int __blockRuntimeStatsFunc(Zicl_Interp *interp, int argc, Zicl_Shim *argv) {
             Zicl_NewDouble(blockStats[i].ewma_ns),
             Zicl_NewLong(blockStats[i].count),
         };
-        defer { Zicl_DropRefArrayItems(items, sizeof(items)/sizeof(Zicl_Val)); };
-        Zicl_Val entry = Zicl_BoxList(ziclNewList(items, 3));
-        defer { Zicl_DropRef(entry); }
-        ziclListAppend(result, entry);
+        Zicl_Val entry = Zicl_BoxList(ziclNewListOwning(items, 3));
+        ziclListAppendOwning(result, entry);
     }
     pthread_rwlock_unlock(&blockStatsLock);
     Zicl_SetResultOwning(interp, Zicl_BoxList(result));

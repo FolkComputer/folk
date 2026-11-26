@@ -77,12 +77,11 @@ cc::proc Recollect! {Zicl_Val patternObj bool isAtomically} bool {
     collectorTerms[3] = ziclNewString("collect", -1);
     collectorTerms[4] = ziclNewString("results", -1);
     collectorTerms[5] = ziclNewString("for", -1);
-    collectorTerms[6] = patternObj;
+    collectorTerms[6] = Zicl_Ref(patternObj);
     collectorTerms[7] = ziclNewString("with", -1);
     collectorTerms[8] = ziclNewString("settle", -1);
     collectorTerms[9] = ziclNewString("/settle/", -1);
-    Zicl_List* collectorPattern = ziclNewList(collectorTerms, 10);
-    for (int i = 0; i < 10; i++) { if (i != 6) Zicl_DropRef(collectorTerms[i]); }
+    Zicl_List* collectorPattern = ziclNewListOwning(collectorTerms, 10);
 
     char* collectKey = makeCollectKey(patternObj);
 
@@ -91,6 +90,7 @@ cc::proc Recollect! {Zicl_Val patternObj bool isAtomically} bool {
         Zicl_List* emptyClause = ziclNewList(NULL, 0);
         HoldStatementGlobally(collectKey, version++,
                               emptyClause, 0, ZICL_NONE, NULL, 0);
+        Zicl_DropRefList(emptyClause);
     } else {
         Zicl_List* pattern; folkZiclAssert(Zicl_DupAsList(interp, patternObj, &pattern));
 
@@ -175,17 +175,16 @@ cc::proc Recollect! {Zicl_Val patternObj bool isAtomically} bool {
         collectedTerms[3] = ziclNewString("collected", -1);
         collectedTerms[4] = ziclNewString("results", -1);
         collectedTerms[5] = ziclNewString("for", -1);
-        collectedTerms[6] = patternObj;
+        collectedTerms[6] = Zicl_Ref(patternObj);
         collectedTerms[7] = ziclNewString("are", -1);
         collectedTerms[8] = resultsVal;
         Zicl_List* collectedClause = ziclNewList(collectedTerms, 9);
-        for (int i = 0; i < 9; i++) { if (i != 6 && i != 8) Zicl_DropRef(collectedTerms[i]); }
-        Zicl_DropRef(resultsVal);
 
         Statement* stmt =
             HoldStatementGloballyAcquiring(collectKey, version++,
                                            collectedClause, 0, ZICL_NONE,
                                            NULL, 0);
+        Zicl_DropRefList(collectedClause);
 
         // Now inherit the destructors of all the statements in rs
         // into the new collection statement, and release all the
