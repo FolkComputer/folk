@@ -30,6 +30,7 @@ $cc code {
 }
 
 $cc include <pthread.h>
+$cc include <signal.h>
 $cc include <stdio.h>
 $cc include <stdint.h>
 $cc include <stdlib.h>
@@ -242,9 +243,24 @@ $cc code {
 }
 
 $cc proc audioInit {} bool {
+    // Jim's SIGUSR1 handler (used to cancel When blocks) dereferences
+    // a thread-local that is NULL on non-Tcl threads, so miniaudio's
+    // threads must never take a SIGUSR1. Block it while they start,
+    // so that they inherit the mask.
+    //
+    // db.c sends SIGUSR1 with kill() on Linux, which is
+    // process-directed and can land on any thread that doesn't block
+    // it, so keep this mask even if cancellation later moves to
+    // tgkill().
+    sigset_t cancel, old;
+    sigemptyset(&cancel); sigaddset(&cancel, SIGUSR1);
+    pthread_sigmask(SIG_BLOCK, &cancel, &old);
+
     pthread_mutex_lock(&g_state_mtx);
     bool success = audio_init_impl();
     pthread_mutex_unlock(&g_state_mtx);
+
+    pthread_sigmask(SIG_SETMASK, &old, NULL);
 
     if (success) {
         return true;
@@ -338,6 +354,155 @@ $cc proc playSound {char* path} ma_sound* {
 
     fprintf(stderr, "miniaudio: playing %s\n", path);
     return snd;
+}
+
+# A stream of raw PCM that another program feeds a chunk at a time,
+# mixed with everything else that is playing. (video.folk uses this
+# for a video's soundtrack.)
+$cc code {
+    // In every open stream, and cleared when it is closed, so that a
+    // write to a closed (freed) stream is caught instead of reading
+    // garbage.
+    #define AUDIO_STREAM_MAGIC 0x41535452u // "ASTR"
+
+    typedef struct AudioStream {
+        uint32_t  magic;
+        ma_pcm_rb rb;
+        ma_sound  snd;
+        int       channels;
+        bool      started;
+        // The end of a write that wasn't a whole frame (a read can
+        // come back short), kept for the start of the next write so
+        // the samples stay lined up.
+        char      partial[8];
+        int       partialLen;
+    } AudioStream;
+
+    // A stream that is open and whole. Writers (video.folk's reader
+    // thread) have no Jim interp, so a bad stream is reported and its
+    // samples dropped, rather than taking the whole process down.
+    static bool audioStreamValid(AudioStream* s) {
+        if (s != NULL && s->magic == AUDIO_STREAM_MAGIC &&
+            s->channels >= 1 && s->channels <= 4) {
+            return true;
+        }
+        fprintf(stderr, "miniaudio: write to a closed or corrupt AudioStream %p"
+                " (magic 0x%x, channels %d), dropping samples\n",
+                (void*) s, s ? s->magic : 0, s ? s->channels : 0);
+        return false;
+    }
+
+    // Queues whole frames. Waits while the stream is full, so
+    // whoever is writing gets slowed down to the speed of playback.
+    static void audioStreamWriteFrames(AudioStream* s, const char* bytes,
+                                       ma_uint32 frames) {
+        int frameSize = 2 * s->channels;
+        int waitedMs = 0;
+        while (frames > 0) {
+            ma_uint32 n = frames; void* buf;
+            if (ma_pcm_rb_acquire_write(&s->rb, &n, &buf) != MA_SUCCESS) { return; }
+            if (n == 0) {
+                // Full. If nothing gets played for a whole second, the
+                // audio device is stuck: drop these samples.
+                if (waitedMs >= 1000) {
+                    fprintf(stderr, "miniaudio: audioStreamWrite: stream full for 1s, dropping samples\n");
+                    return;
+                }
+                usleep(5 * 1000); waitedMs += 5;
+                continue;
+            }
+            memcpy(buf, bytes, (size_t)n * frameSize);
+            ma_pcm_rb_commit_write(&s->rb, n);
+            bytes += (size_t)n * frameSize; frames -= n;
+            waitedMs = 0;
+        }
+    }
+}
+
+# The samples are signed 16-bit, interleaved.
+$cc proc audioStreamOpen {int sampleRate int channels} AudioStream* {
+    FOLK_ENSURE(channels >= 1 && channels <= 4); // see AudioStream.partial
+    AudioStream* s = calloc(1, sizeof *s);
+    FOLK_ENSURE(s != NULL);
+    s->magic = AUDIO_STREAM_MAGIC;
+    s->channels = channels;
+
+    // Room for a quarter of a second.
+    ma_result r = ma_pcm_rb_init(ma_format_s16, channels, sampleRate / 4,
+                                 NULL, NULL, &s->rb);
+    if (r != MA_SUCCESS) {
+        free(s);
+        FOLK_ERROR("miniaudio: audioStreamOpen: buffer init failed: %s (%d)\n",
+                   ma_result_description(r), (int)r);
+    }
+    ma_pcm_rb_set_sample_rate(&s->rb, sampleRate);
+
+    r = ma_sound_init_from_data_source(&g_engine, &s->rb,
+                                       MA_SOUND_FLAG_NO_SPATIALIZATION,
+                                       &g_group, &s->snd);
+    if (r != MA_SUCCESS) {
+        ma_pcm_rb_uninit(&s->rb);
+        free(s);
+        FOLK_ERROR("miniaudio: audioStreamOpen: sound init failed: %s (%d)\n",
+                   ma_result_description(r), (int)r);
+    }
+    return s;
+}
+
+$cc proc audioStreamSetVolume {AudioStream* s double volume} void {
+    ma_sound_set_volume(&s->snd, (float)volume);
+}
+
+# Queues `len` bytes of samples, which can be any number of bytes.
+# Waits while the stream is full. (Also called from C: video.folk's
+# reader thread writes a video's sound with it.) The stream must stay
+# open until the write returns; a write to a closed stream is reported
+# on stderr and dropped.
+$cc proc audioStreamWriteBytes {AudioStream* s char* bytes int len} void {
+    if (!audioStreamValid(s) || len <= 0) { return; }
+    int frameSize = 2 * s->channels;
+
+    if (s->partialLen > 0) {
+        int need = frameSize - s->partialLen;
+        int take = len < need ? len : need;
+        memcpy(s->partial + s->partialLen, bytes, take);
+        s->partialLen += take; bytes += take; len -= take;
+        if (s->partialLen < frameSize) { return; }
+        audioStreamWriteFrames(s, s->partial, 1);
+        s->partialLen = 0;
+    }
+
+    ma_uint32 frames = len / frameSize;
+    audioStreamWriteFrames(s, bytes, frames);
+    s->partialLen = len - (int)frames * frameSize;
+    memcpy(s->partial, bytes + (size_t)frames * frameSize, s->partialLen);
+
+    // Playback starts once the stream is half full, so that a late
+    // chunk doesn't immediately run it dry.
+    if (!s->started &&
+        ma_pcm_rb_available_read(&s->rb) >= ma_pcm_rb_available_write(&s->rb)) {
+        s->started = true;
+        ma_sound_start(&s->snd);
+    }
+}
+
+# Queues the samples in `pcm`, which can be any number of bytes.
+# Waits while the stream is full.
+$cc proc audioStreamWrite {AudioStream* s Jim_Obj* pcm} void {
+    FOLK_ENSURE(s != NULL && s->magic == AUDIO_STREAM_MAGIC);
+    int len; const char* bytes = Jim_GetString(pcm, &len);
+    audioStreamWriteBytes(s, (char*) bytes, len);
+}
+
+# Nobody may be writing to `s` (or write to it again) once this is
+# called.
+$cc proc audioStreamClose {AudioStream* s} void {
+    FOLK_ENSURE(s != NULL && s->magic == AUDIO_STREAM_MAGIC);
+    s->magic = 0;
+    ma_sound_stop(&s->snd);
+    ma_sound_uninit(&s->snd);
+    ma_pcm_rb_uninit(&s->rb);
+    free(s);
 }
 
 try {

@@ -1,0 +1,52 @@
+# Headless test for builtin-programs/video.folk: start and stop the
+# same video more times than Folk has Atomically slots (256). Every
+# frame is shown through a When -atomically, and each distinct key
+# for one takes a slot for good, so if the key changed on every start
+# (say, if it had the ffmpeg pid in it) Folk would exit here with
+# "Ran out of Atomically slots".
+#
+# Needs ffmpeg in PATH. Takes about a minute.
+
+When { source builtin-programs/image/image-lib.folk }
+When { source builtin-programs/collect.folk }
+When { source builtin-programs/video.folk }
+
+set dir [string trim [exec mktemp -d]]
+set clip $dir/clip.mp4
+exec ffmpeg -nostdin -loglevel quiet \
+    -f lavfi -i testsrc=duration=1:size=64x48:rate=25 \
+    -pix_fmt yuv420p $clip
+
+When we should play {
+    Wish prog plays video $clip with muted true
+}
+
+set restarts 270
+set shown 0
+for {set i 0} {$i < $restarts} {incr i} {
+    Assert! we should play
+    # Wait for a frame, so that the When -atomically has run.
+    for {set t 0} {$t < 150} {incr t} {
+        if {[llength [Query! prog has video $clip frame /im/]] > 0} {
+            incr shown
+            break
+        }
+        sleep 0.02
+    }
+    Retract! we should play
+    # Wait for the frame to go, so the next start's frame is its own.
+    for {set t 0} {$t < 150} {incr t} {
+        if {[llength [Query! prog has video $clip frame /im/]] == 0} { break }
+        sleep 0.02
+    }
+}
+exec rm -rf $dir
+
+puts "SHOWN: $shown (want $restarts)"
+if {$shown == $restarts} {
+    puts "PASS"
+    Exit! 0
+} else {
+    puts "FAIL"
+    Exit! 1
+}

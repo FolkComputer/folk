@@ -1,0 +1,2748 @@
+# Plays a video file on a program, like an image.
+# Requires ffmpeg in PATH (e.g. `sudo apt install ffmpeg`).
+#
+# Examples:
+#
+# Play ~/folk-data/video/demo.mp4:
+#
+#    Wish $this plays video "demo.mp4"
+#    Wish $this plays video "demo.mp4" with width 0.2 position {0.05 0}
+#
+# Play it without sound, or quieter:
+#
+#    Wish $this plays video "demo.mp4" with muted true
+#    Wish $this plays video "demo.mp4" with volume 0.3
+#
+# Play a file somewhere else (an absolute path, or ~/...):
+#
+#    Wish $this plays video "~/folk-data/captures/demo.mp4"
+#
+# `displays video` works too, like `displays image` for pictures:
+#
+#    Wish $this displays video "demo.mp4" with volume 0.3
+#
+# The other options are the same as for `Wish $this displays image`.
+# Playback loops forever. Removing the wish stops it; wishing again
+# restarts from the beginning.
+#
+# Programs that want the frames themselves (for effects, say) can
+# match the claim that every frame is published as:
+#
+#    When $this has video /path/ frame /im/ { ... }
+#
+# Besides the image options, a video takes `rate` (0.1 to 16),
+# `reverse`, `from` and `to` (seconds into the file), `crop` (x y
+# width height, as parts of the picture from 0 to 1), `paused`,
+# `volume`, and `muted`. With `source $prog`, it shares the decoder
+# of the same file playing on $prog, if that clip fits in its ring.
+#
+# Other programs can change a video while it plays,
+# by wishing on the program that plays it. None of these restart it:
+#
+#    Wish $video is sped up by 2        ;# several of these multiply
+#    Wish $video is reversed
+#    Wish $video plays from 1.5 to 3
+#    Wish $video is cropped to {0.25 0.25 0.5 0.5}
+#    Wish $video seeks to 2.0
+#    Wish $video is paused
+#    Wish $video has video volume 0.5
+#    Wish $video is muted
+#
+# Two or more videos play as one picture with
+#
+#    Wish $this plays video "a.mp4" with beside {"b.mp4"}
+#    Wish $this plays video "a.mp4" with then {"b.mp4"}
+#
+# Each playing video claims which part of the file it plays, and the
+# speed it settled on:
+#
+#    $p plays video $path from $from length $length at rate $rate
+#    $p has video $path duration $seconds
+#    $p has negotiated video speed $rate
+#    $p has video $path decoder spawns $spawns seeks $seeks
+#
+# A single ffmpeg per source decodes into a memory-capped decoded-frame
+# ring (26 MB default, overridable via FOLK_VIDEO_RING_MB). Readers
+# expose seek T, rate R (negative = reverse, served from the ring by
+# walking backwards and refilling chunks with an input seek), and
+# range A B. Sound uses Waveform Similarity Overlap-Add (WSOLA)
+# time-scaling (atempo) when |rate| != 1 and is muted when reversed or paused.
+
+When /someone/ wishes /p/ plays video /path/ {
+    Wish $p plays video $path with position {0 0}
+}
+When /someone/ wishes /p/ displays video /path/ {
+    Wish $p plays video $path
+}
+When /someone/ wishes /p/ displays video /path/ with /...options/ {
+    Wish $p plays video $path with {*}$options
+}
+
+When the image library is /imageLib/ {
+    set cc [C]
+    $cc extend $imageLib
+    $cc cflags -I.
+    if {$::tcl_platform(os) eq "Linux"} { $cc cflags -D_GNU_SOURCE } ;# for pipe2
+    if {$::tcl_platform(os) ne "Darwin"} { $cc endcflags -lm }
+    foreach header {string.h stdlib.h stdbool.h stdatomic.h inttypes.h unistd.h fcntl.h
+                    errno.h poll.h signal.h spawn.h pthread.h math.h time.h
+                    sys/mman.h sys/stat.h sys/wait.h} {
+        $cc include <$header>
+    }
+    $cc include "trie.h"
+    $cc include "db.h"
+    $cc code {
+        #ifndef MAP_ANON
+        #define MAP_ANON MAP_ANONYMOUS
+        #endif
+        extern char** environ;
+        extern void HoldStatementGlobally(const char *key, double version,
+                                          Clause *clause, long keepMs, Destructor* destructor,
+                                          const char *sourceFileName, int sourceLineNumber);
+        extern void epochThreadInit();
+        extern void epochThreadDestroy();
+
+        typedef void (*VideoSoundSink)(void* ctx, const char* bytes, int len);
+        typedef void* (*VideoAudioOpenFn)(int sampleRate, int channels);
+        typedef void (*VideoAudioCloseFn)(void* stream);
+
+        #define VIDEO_SOURCES_MAX 64
+        #define VIDEO_PLAYERS_MAX 128
+        #define PROBE_CACHE_MAX 64
+        #define RING_MAX_SLOTS 1024
+        #define AUDIO_FRAME_BYTES 7680 // 48000 Hz * 2 ch * 2 bytes / 25 fps
+        #define AUDIO_FRAME_SAMPLES 1920
+        #define WSOLA_HALF 480         // 10ms hop; 4 hops = 1920 samples = 1 frame
+        #define WSOLA_WIN (WSOLA_HALF * 2)
+        #define WSOLA_SEARCH 96
+        #define VIDEO_WARM_HOLD_NS 80000000LL // 80ms handoff window for live option edits
+
+        static size_t videoRingMaxBytes(void) {
+            const char* env = getenv("FOLK_VIDEO_RING_MB");
+            if (env && env[0]) {
+                long mb = strtol(env, NULL, 10);
+                if (mb >= 4 && mb <= 256) { return (size_t)mb * 1024 * 1024; }
+            }
+            return 26ULL * 1024 * 1024;
+        }
+
+        static int64_t videoNowNs(void) {
+            struct timespec ts;
+            clock_gettime(CLOCK_MONOTONIC, &ts);
+            return (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+        }
+
+        static void videoCondWaitNs(pthread_cond_t* cond, pthread_mutex_t* mu, int64_t waitNs) {
+            if (waitNs <= 0) { return; }
+            if (waitNs > 100000000LL) { waitNs = 100000000LL; }
+            struct timespec ts;
+            clock_gettime(CLOCK_REALTIME, &ts);
+            ts.tv_nsec += (long)waitNs;
+            while (ts.tv_nsec >= 1000000000L) {
+                ts.tv_sec++;
+                ts.tv_nsec -= 1000000000L;
+            }
+            pthread_cond_timedwait(cond, mu, &ts);
+        }
+
+        typedef struct RingFrame {
+            int fileFrame; // -1 if empty
+            int width, height;
+            uint8_t* rgb;
+        } RingFrame;
+
+        typedef struct AudioSlot {
+            int fileFrame; // -1 if empty
+            uint8_t pcm[AUDIO_FRAME_BYTES];
+            int len;
+        } AudioSlot;
+
+        typedef struct VideoSource {
+            int id;
+            char* ownerProg;
+            char* filePath;
+            int refCount;
+            bool canShare;
+
+            bool isCustomArgs;
+            bool isCustomLoop;
+            char** customArgs; int customArgsCount;
+            int withSound;
+            int maxWidth;
+            int totalFrames; // 0 if unknown
+
+            pthread_mutex_t mu;
+            pthread_cond_t decodeCond;
+            pthread_cond_t frameCond;
+            pthread_t decodeThread;
+            int wakeFds[2];
+
+            // Ring buffer (protected by mu). Allocated with mmap/munmap so
+            // open/close churn returns pages immediately to the OS instead of
+            // sitting in malloc's MADV_FREE cache or fragmenting small arenas.
+            int ringCap;
+            int ringW, ringH;
+            size_t ringFrameBytes;
+            size_t ringSlabBytes;
+            size_t audioRingBytes;
+            uint8_t* ringSlab;
+            RingFrame* ring;
+            AudioSlot* audioRing;
+            int winStartSeq;
+            int winCount;
+            int aWinStartSeq;
+            int aWinCount;
+            bool allCached;
+            bool allAudioCached;
+            int lastHitSlot;
+
+            // Decoder status / counters (protected by mu).
+            int spawns;
+            int seeks;
+            bool failed;
+            char errTail[512];
+
+            // Decoder control (protected by mu).
+            bool closing;
+            bool decAlive;
+            bool passEnded;
+            bool seekRequested;
+            int seekTargetFrame;
+            int activeReadFrame;
+            bool reverseHint;
+            int forceDecodeToSeq;
+            int nextDecFileFrame;
+            int nextDecAudioFrame;
+            int decStartFrame;
+            bool decLooping;
+
+            // Warm handoff state across live option updates (protected by videoRegistryMutex / mu).
+            int64_t warmUntilNs;
+            bool reaperRunning;
+            bool savedValid;
+            uint64_t savedSeqUniq;
+            bool savedInPartialCycle;
+            int64_t savedNextFrameNs;
+            int savedLastFileFrame;
+            double savedFrom, savedLen, savedRate;
+            bool savedPaused;
+            double savedAudioSrcSample;
+            int64_t savedPrevContSample;
+            int16_t savedPrevTail[WSOLA_HALF * 2];
+            bool savedWsolaPrimed;
+
+            // Persistent AudioStream across rapid option handoffs.
+            void* audioStream;
+            VideoAudioCloseFn audioStreamCloseFn;
+        } VideoSource;
+
+        typedef struct VideoPlayer {
+            int id;
+            int token;
+            bool claimed;
+            bool isOwnerPlayer;
+            bool inheritedPlayhead;
+            VideoSource* src;
+            pthread_t playThread;
+            pthread_mutex_t mu;
+            pthread_cond_t playCond;
+            _Atomic bool closing;
+            _Atomic bool muted;
+
+            // Hold! keys and clauses (set up by Tcl).
+            char* frameKey; char** frameTerms; int frameTermsCount;
+            char* errorKey; char** errorTerms; int errorTermsCount;
+            char* statsKey; char** statsTerms; int statsTermsCount;
+
+            // Playback parameters (protected by mu; paused/paramsGen also atomic
+            // so readerFetchFrame never locks p->mu while holding src->mu).
+            double rate;
+            double fromSec;
+            double lengthSec;
+            bool hasSeek;
+            double seekSec;
+            int seekGen;
+            _Atomic bool paused;
+            bool hasCrop;
+            double crop[4];
+            _Atomic int paramsGen;
+
+            // Audio WSOLA state (owned by playThread).
+            double audioSrcSample;
+            int64_t prevContSample;
+            int16_t prevTail[WSOLA_HALF * 2];
+            bool wsolaPrimed;
+
+            // Where the sound goes (audio.folk), or nowhere.
+            pthread_mutex_t sinkMutex;
+            VideoSoundSink sink; void* sinkCtx;
+        } VideoPlayer;
+
+        typedef struct ProbeCacheEntry {
+            char path[512];
+            time_t mtime;
+            off_t size;
+            double duration;
+            int width, height, hasAudio;
+            bool valid;
+        } ProbeCacheEntry;
+
+        static pthread_mutex_t videoRegistryMutex = PTHREAD_MUTEX_INITIALIZER;
+        static VideoSource* videoSources[VIDEO_SOURCES_MAX];
+        static VideoPlayer* videoPlayers[VIDEO_PLAYERS_MAX];
+        static ProbeCacheEntry videoProbeCache[PROBE_CACHE_MAX];
+        static int videoProbeCacheNext = 0;
+        static int videoNextSourceId = 1;
+        static int videoNextPlayerId = 1;
+        static int videoNextToken = 1;
+
+        static int videoThreadCreateBlocked(pthread_t* th, void* (*fn)(void*), void* arg) {
+            // Threads spawned here must never take process-directed SIGUSR1
+            // (used to cancel Tcl workers; they have no Jim interp).
+            sigset_t usr1, oldMask;
+            sigemptyset(&usr1); sigaddset(&usr1, SIGUSR1);
+            pthread_sigmask(SIG_BLOCK, &usr1, &oldMask);
+            int rc = pthread_create(th, NULL, fn, arg);
+            pthread_sigmask(SIG_SETMASK, &oldMask, NULL);
+            return rc;
+        }
+
+        static void videoSetNonblock(int fd) {
+            int fl = fcntl(fd, F_GETFL, 0);
+            if (fl >= 0) { fcntl(fd, F_SETFL, fl | O_NONBLOCK); }
+        }
+        static int videoPipeCloexec(int fds[2]) {
+#ifdef __linux__
+            extern int pipe2(int pipefd[2], int flags);
+            return pipe2(fds, O_CLOEXEC);
+#else
+            if (pipe(fds) != 0) { return -1; }
+            fcntl(fds[0], F_SETFD, fcntl(fds[0], F_GETFD) | FD_CLOEXEC);
+            fcntl(fds[1], F_SETFD, fcntl(fds[1], F_GETFD) | FD_CLOEXEC);
+            return 0;
+#endif
+        }
+        static char** videoStrings(Jim_Interp* interp, Jim_Obj* list, int* count) {
+            *count = Jim_ListLength(interp, list);
+            char** ret = calloc(*count, sizeof(char*));
+            for (int i = 0; i < *count; i++) {
+                ret[i] = strdup(Jim_String(Jim_ListGetIndex(interp, list, i)));
+            }
+            return ret;
+        }
+        static void videoFreeStrings(char** strs, int count) {
+            for (int i = 0; i < count; i++) { free(strs[i]); }
+            free(strs);
+        }
+
+        static void videoHold(const char* key, char** terms, int termsCount,
+                              const char* last, Destructor* destructor) {
+            Clause* clause = clauseNew(termsCount + 1);
+            for (int i = 0; i < termsCount; i++) {
+                clause->terms[i] = termNew(terms[i], -1);
+            }
+            clause->terms[termsCount] = termNew(last, -1);
+            if (destructor != NULL) { destructorRetain(destructor); }
+            HoldStatementGlobally(key, -1, clause, 0, destructor,
+                                  "builtin-programs/video.folk", __LINE__);
+            if (destructor != NULL) { destructorRelease(destructor); }
+        }
+        static void videoRetractKey(const char* key) {
+            HoldStatementGlobally(key, -1, clauseNew(0), 0, NULL,
+                                  "builtin-programs/video.folk", __LINE__);
+        }
+        static void videoFreeFrame(void* data) {
+            imageFree((Image) { .data = data });
+        }
+
+        static void videoPublish(VideoPlayer* p, Image im) {
+            char imStr[300];
+            snprintf(imStr, sizeof(imStr),
+                     "width {%" PRIu32 "} height {%" PRIu32 "} components {%d} "
+                     "bytesPerRow {%" PRIu32 "} uniq {%" PRIu64 "} "
+                     "data {(uint8_t*) 0x%" PRIxPTR "}",
+                     im.width, im.height, im.components, im.bytesPerRow,
+                     im.uniq, (uintptr_t) im.data);
+            videoHold(p->frameKey, p->frameTerms, p->frameTermsCount, imStr,
+                      destructorNew(videoFreeFrame, im.data));
+        }
+
+        static void videoPublishStats(VideoPlayer* p, int spawns, int seeks) {
+            char sBuf[32], kBuf[32];
+            snprintf(sBuf, sizeof(sBuf), "%d", spawns);
+            snprintf(kBuf, sizeof(kBuf), "%d", seeks);
+            // statsTerms ends with "spawns"; append $spawns, "seeks", $seeks.
+            Clause* clause = clauseNew(p->statsTermsCount + 3);
+            for (int i = 0; i < p->statsTermsCount; i++) {
+                clause->terms[i] = termNew(p->statsTerms[i], -1);
+            }
+            clause->terms[p->statsTermsCount] = termNew(sBuf, -1);
+            clause->terms[p->statsTermsCount + 1] = termNew("seeks", -1);
+            clause->terms[p->statsTermsCount + 2] = termNew(kBuf, -1);
+            HoldStatementGlobally(p->statsKey, -1, clause, 0, NULL,
+                                  "builtin-programs/video.folk", __LINE__);
+        }
+
+        // Caller holds src->mu. Returns ring slot index or -1.
+        static int ringFindFrame(VideoSource* src, int fileFrame) {
+            if (src->ringCap <= 0 || src->winCount <= 0) { return -1; }
+            if (src->allCached && fileFrame >= 0 && fileFrame < src->winCount &&
+                src->ring[fileFrame].fileFrame == fileFrame) {
+                return fileFrame;
+            }
+            int hint = src->lastHitSlot;
+            if (hint >= 0 && hint < src->ringCap && src->ring[hint].fileFrame == fileFrame) {
+                return hint;
+            }
+            for (int i = src->winCount - 1; i >= 0; i--) {
+                int slot = (src->winStartSeq + i) % src->ringCap;
+                if (src->ring[slot].fileFrame == fileFrame) {
+                    src->lastHitSlot = slot;
+                    return slot;
+                }
+            }
+            return -1;
+        }
+
+        // Caller holds src->mu. Returns audio ring slot index or -1.
+        static int audioRingFindFrame(VideoSource* src, int fileFrame) {
+            if (!src->withSound || src->ringCap <= 0 || src->aWinCount <= 0) { return -1; }
+            if (src->allAudioCached && fileFrame >= 0 && fileFrame < src->ringCap &&
+                src->audioRing[fileFrame].fileFrame == fileFrame) {
+                return fileFrame;
+            }
+            for (int i = src->aWinCount - 1; i >= 0; i--) {
+                int slot = (src->aWinStartSeq + i) % src->ringCap;
+                if (src->audioRing[slot].fileFrame == fileFrame) {
+                    return slot;
+                }
+            }
+            return -1;
+        }
+
+        static bool ringPtrInSlab(const VideoSource* src, const uint8_t* p) {
+            if (!src->ringSlab || !p) { return false; }
+            const uint8_t* end = src->ringSlab + (size_t)src->ringCap * src->ringFrameBytes;
+            return p >= src->ringSlab && p < end;
+        }
+
+        // Caller holds src->mu. Allocates ring lazily when first dimensions arrive.
+        static bool ringEnsureInit(VideoSource* src, int width, int height) {
+            if (src->ringCap > 0) { return true; }
+            size_t frameRgbBytes = (size_t)width * height * 3;
+            size_t frameBytes = frameRgbBytes +
+                                (src->withSound ? AUDIO_FRAME_BYTES : 0);
+            size_t maxBytes = videoRingMaxBytes();
+            int cap = frameBytes > 0 ? (int)(maxBytes / frameBytes) : 64;
+            if (src->totalFrames > 0 && src->totalFrames + 2 < cap) {
+                cap = src->totalFrames + 2;
+            }
+            if (cap < 8) { cap = 8; }
+            if (cap > RING_MAX_SLOTS) { cap = RING_MAX_SLOTS; }
+            src->ring = calloc(cap, sizeof(RingFrame));
+            if (!src->ring) { return false; }
+            size_t slabBytes = (size_t)cap * frameRgbBytes;
+            void* mem = mmap(NULL, slabBytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+            if (mem == MAP_FAILED) { free(src->ring); src->ring = NULL; return false; }
+            src->ringSlab = (uint8_t*)mem;
+            src->ringSlabBytes = slabBytes;
+            src->ringW = width;
+            src->ringH = height;
+            src->ringFrameBytes = frameRgbBytes;
+            for (int i = 0; i < cap; i++) {
+                src->ring[i].fileFrame = -1;
+                src->ring[i].width = width;
+                src->ring[i].height = height;
+                src->ring[i].rgb = src->ringSlab + (size_t)i * frameRgbBytes;
+            }
+            if (src->withSound) {
+                size_t audioBytes = (size_t)cap * sizeof(AudioSlot);
+                void* amem = mmap(NULL, audioBytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+                if (amem == MAP_FAILED) {
+                    munmap(src->ringSlab, src->ringSlabBytes);
+                    src->ringSlab = NULL; src->ringSlabBytes = 0;
+                    free(src->ring); src->ring = NULL;
+                    return false;
+                }
+                src->audioRing = (AudioSlot*)amem;
+                src->audioRingBytes = audioBytes;
+                for (int i = 0; i < cap; i++) { src->audioRing[i].fileFrame = -1; }
+            }
+            src->ringCap = cap;
+            return true;
+        }
+
+        typedef struct DecSpawnState {
+            pid_t pid;
+            int videoFd, soundFd, errFd;
+            int startFrame;
+            bool looping;
+            int framesReadInPass;
+            int audioFramesInPass;
+            uint8_t* curRgb;
+            int curW, curH, curOff, curSize;
+            char stage[4096]; int stageLen;
+            uint8_t audioBuf[AUDIO_FRAME_BYTES]; int audioBufLen;
+            char errTail[512]; int errTailLen;
+        } DecSpawnState;
+
+        static void decKillAndCleanup(DecSpawnState* ds) {
+            if (ds->pid > 0) {
+                if (waitpid(ds->pid, NULL, WNOHANG) == 0) {
+                    kill(ds->pid, SIGKILL);
+                    while (waitpid(ds->pid, NULL, 0) < 0 && errno == EINTR) {}
+                }
+                ds->pid = 0;
+            }
+            if (ds->videoFd >= 0) { close(ds->videoFd); ds->videoFd = -1; }
+            if (ds->soundFd >= 0) { close(ds->soundFd); ds->soundFd = -1; }
+            if (ds->errFd >= 0) { close(ds->errFd); ds->errFd = -1; }
+            free(ds->curRgb); ds->curRgb = NULL;
+            ds->curW = ds->curH = ds->curOff = ds->curSize = 0;
+            ds->stageLen = 0;
+            ds->audioBufLen = 0;
+        }
+
+        static bool decSpawnFfmpeg(VideoSource* src, DecSpawnState* ds,
+                                   int startFrame, bool looping) {
+            decKillAndCleanup(ds);
+            ds->errTail[0] = '\0'; ds->errTailLen = 0;
+            ds->startFrame = startFrame;
+            ds->looping = looping;
+            ds->framesReadInPass = 0;
+            ds->audioFramesInPass = 0;
+
+            int videoPipe[2], soundPipe[2] = {-1, -1}, errPipe[2];
+            if (videoPipeCloexec(videoPipe) != 0) { return false; }
+            if (src->withSound && videoPipeCloexec(soundPipe) != 0) {
+                close(videoPipe[0]); close(videoPipe[1]);
+                return false;
+            }
+            if (videoPipeCloexec(errPipe) != 0) {
+                close(videoPipe[0]); close(videoPipe[1]);
+                if (src->withSound) { close(soundPipe[0]); close(soundPipe[1]); }
+                return false;
+            }
+            int videoOut = fcntl(videoPipe[1], F_DUPFD_CLOEXEC, 10);
+            close(videoPipe[1]);
+            int errOut = fcntl(errPipe[1], F_DUPFD_CLOEXEC, 10);
+            close(errPipe[1]);
+            int soundOut = -1;
+            if (src->withSound) {
+                soundOut = fcntl(soundPipe[1], F_DUPFD_CLOEXEC, 10);
+                close(soundPipe[1]);
+            }
+            if (videoOut < 0 || errOut < 0 || (src->withSound && soundOut < 0)) {
+                close(videoPipe[0]); if (videoOut >= 0) close(videoOut);
+                close(errPipe[0]); if (errOut >= 0) close(errOut);
+                if (src->withSound) { close(soundPipe[0]); if (soundOut >= 0) close(soundOut); }
+                return false;
+            }
+
+            const char* argv[140]; int argc = 0;
+            char ssBuf[32], vfBuf[96];
+            argv[argc++] = "ffmpeg";
+            if (src->isCustomArgs) {
+                for (int i = 0; i < src->customArgsCount && argc < 138; i++) {
+                    argv[argc++] = src->customArgs[i];
+                }
+            } else {
+                argv[argc++] = "-nostdin";
+                argv[argc++] = "-loglevel";
+                argv[argc++] = "error";
+                argv[argc++] = "-threads";
+                argv[argc++] = "2";
+                if (startFrame > 0) {
+                    snprintf(ssBuf, sizeof(ssBuf), "%.3f", startFrame / 25.0);
+                    argv[argc++] = "-ss";
+                    argv[argc++] = ssBuf;
+                }
+                if (looping) {
+                    argv[argc++] = "-stream_loop";
+                    argv[argc++] = "-1";
+                }
+                argv[argc++] = "-i";
+                argv[argc++] = src->filePath;
+                snprintf(vfBuf, sizeof(vfBuf), "scale='min(%d,iw)':-2,fps=25", src->maxWidth);
+                argv[argc++] = "-map";
+                argv[argc++] = "0:v:0";
+                argv[argc++] = "-vf";
+                argv[argc++] = vfBuf;
+                argv[argc++] = "-f";
+                argv[argc++] = "image2pipe";
+                argv[argc++] = "-c:v";
+                argv[argc++] = "ppm";
+                argv[argc++] = "pipe:1";
+                if (src->withSound) {
+                    argv[argc++] = "-map";
+                    argv[argc++] = "0:a:0";
+                    argv[argc++] = "-af";
+                    argv[argc++] = "aresample=48000";
+                    argv[argc++] = "-f";
+                    argv[argc++] = "s16le";
+                    argv[argc++] = "-ar";
+                    argv[argc++] = "48000";
+                    argv[argc++] = "-ac";
+                    argv[argc++] = "2";
+                    argv[argc++] = "pipe:3";
+                }
+            }
+            argv[argc] = NULL;
+
+            posix_spawn_file_actions_t actions;
+            posix_spawn_file_actions_init(&actions);
+            posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0);
+            posix_spawn_file_actions_adddup2(&actions, videoOut, 1);
+            posix_spawn_file_actions_adddup2(&actions, errOut, 2);
+            if (src->withSound) { posix_spawn_file_actions_adddup2(&actions, soundOut, 3); }
+            posix_spawnattr_t attr;
+            posix_spawnattr_init(&attr);
+            sigset_t none; sigemptyset(&none);
+            sigset_t defaults; sigemptyset(&defaults);
+            sigaddset(&defaults, SIGPIPE); sigaddset(&defaults, SIGUSR1);
+            posix_spawnattr_setsigmask(&attr, &none);
+            posix_spawnattr_setsigdefault(&attr, &defaults);
+            short flags = POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF;
+#ifdef POSIX_SPAWN_CLOEXEC_DEFAULT
+            flags |= POSIX_SPAWN_CLOEXEC_DEFAULT;
+#endif
+            posix_spawnattr_setflags(&attr, flags);
+
+            pid_t pid = 0;
+            int err = posix_spawnp(&pid, "ffmpeg", &actions, &attr,
+                                   (char* const*)argv, environ);
+            posix_spawn_file_actions_destroy(&actions);
+            posix_spawnattr_destroy(&attr);
+            close(videoOut); close(errOut);
+            if (src->withSound) { close(soundOut); }
+            if (err != 0) {
+                close(videoPipe[0]); close(errPipe[0]);
+                if (src->withSound) { close(soundPipe[0]); }
+                snprintf(ds->errTail, sizeof(ds->errTail),
+                         "video: could not run ffmpeg: %s", strerror(err));
+                return false;
+            }
+            videoSetNonblock(videoPipe[0]);
+            videoSetNonblock(errPipe[0]);
+            if (src->withSound) { videoSetNonblock(soundPipe[0]); }
+            ds->pid = pid;
+            ds->videoFd = videoPipe[0];
+            ds->soundFd = soundPipe[0];
+            ds->errFd = errPipe[0];
+
+            pthread_mutex_lock(&src->mu);
+            src->spawns++;
+            src->decAlive = true;
+            src->passEnded = false;
+            src->decStartFrame = startFrame;
+            src->decLooping = looping;
+            src->nextDecFileFrame = startFrame;
+            src->nextDecAudioFrame = startFrame;
+            pthread_cond_broadcast(&src->frameCond);
+            pthread_mutex_unlock(&src->mu);
+            return true;
+        }
+
+        static void decStoreVideoFrame(VideoSource* src, DecSpawnState* ds) {
+            int w = ds->curW, h = ds->curH;
+            size_t sz = (size_t)w * h * 3;
+            pthread_mutex_lock(&src->mu);
+            if (!ringEnsureInit(src, w, h)) {
+                free(ds->curRgb); ds->curRgb = NULL;
+                pthread_mutex_unlock(&src->mu);
+                return;
+            }
+            int fileFrame = src->nextDecFileFrame;
+            if (ds->looping && src->totalFrames > 0) {
+                fileFrame = ((fileFrame % src->totalFrames) + src->totalFrames) % src->totalFrames;
+            }
+            src->nextDecFileFrame++;
+            ds->framesReadInPass++;
+
+            int slot;
+            if (src->winCount < src->ringCap) {
+                slot = (src->winStartSeq + src->winCount) % src->ringCap;
+                src->winCount++;
+            } else {
+                slot = src->winStartSeq % src->ringCap;
+                src->winStartSeq++;
+            }
+            RingFrame* rf = &src->ring[slot];
+            if (w == src->ringW && h == src->ringH && ringPtrInSlab(src, rf->rgb)) {
+                memcpy(rf->rgb, ds->curRgb, sz);
+            } else {
+                if (rf->rgb != NULL && !ringPtrInSlab(src, rf->rgb)) {
+                    free(rf->rgb);
+                }
+                rf->rgb = malloc(sz);
+                if (rf->rgb) { memcpy(rf->rgb, ds->curRgb, sz); }
+            }
+            rf->width = w;
+            rf->height = h;
+            rf->fileFrame = rf->rgb ? fileFrame : -1;
+
+            if (!src->allCached && ds->startFrame == 0 && src->totalFrames > 0 &&
+                src->totalFrames <= src->ringCap && src->winCount >= src->totalFrames) {
+                src->allCached = true;
+            }
+            pthread_cond_broadcast(&src->frameCond);
+            pthread_mutex_unlock(&src->mu);
+        }
+
+        static void decStoreAudioFrame(VideoSource* src, DecSpawnState* ds) {
+            pthread_mutex_lock(&src->mu);
+            if (!src->withSound || src->ringCap <= 0 || src->audioRing == NULL) {
+                pthread_mutex_unlock(&src->mu);
+                return;
+            }
+            int fileFrame = src->nextDecAudioFrame;
+            if (ds->looping && src->totalFrames > 0) {
+                fileFrame = ((fileFrame % src->totalFrames) + src->totalFrames) % src->totalFrames;
+            }
+            src->nextDecAudioFrame++;
+            ds->audioFramesInPass++;
+
+            int slot;
+            if (src->aWinCount < src->ringCap) {
+                slot = (src->aWinStartSeq + src->aWinCount) % src->ringCap;
+                src->aWinCount++;
+            } else {
+                slot = src->aWinStartSeq % src->ringCap;
+                src->aWinStartSeq++;
+            }
+            AudioSlot* as = &src->audioRing[slot];
+            memcpy(as->pcm, ds->audioBuf, AUDIO_FRAME_BYTES);
+            as->len = AUDIO_FRAME_BYTES;
+            as->fileFrame = fileFrame;
+
+            if (!src->allAudioCached && ds->startFrame == 0 && src->totalFrames > 0 &&
+                src->totalFrames <= src->ringCap && src->aWinCount >= src->totalFrames) {
+                src->allAudioCached = true;
+            }
+            pthread_cond_broadcast(&src->frameCond);
+            pthread_mutex_unlock(&src->mu);
+        }
+
+        static bool decUseStage(VideoSource* src, DecSpawnState* ds) {
+            while (ds->stageLen > 0) {
+                if (ds->curSize > 0) {
+                    int n = ds->curSize - ds->curOff;
+                    if (n > ds->stageLen) { n = ds->stageLen; }
+                    memcpy(ds->curRgb + ds->curOff, ds->stage, n);
+                    ds->curOff += n;
+                    memmove(ds->stage, ds->stage + n, ds->stageLen - n);
+                    ds->stageLen -= n;
+                    if (ds->curOff == ds->curSize) {
+                        decStoreVideoFrame(src, ds);
+                        ds->curOff = 0; ds->curSize = 0;
+                        return true;
+                    }
+                    continue;
+                }
+                int len = 0, lines = 0;
+                while (len < ds->stageLen && lines < 3) {
+                    if (ds->stage[len++] == '\n') { lines++; }
+                }
+                if (lines < 3) { return len < 64; }
+                if (len >= 64) { return false; }
+                char header[64];
+                memcpy(header, ds->stage, len); header[len] = '\0';
+                memmove(ds->stage, ds->stage + len, ds->stageLen - len);
+                ds->stageLen -= len;
+                int w, h, maxval;
+                if (sscanf(header, "P6 %d %d %d", &w, &h, &maxval) != 3 ||
+                    w <= 0 || h <= 0 || w > 8192 || h > 8192 || maxval != 255) {
+                    return false;
+                }
+                if (ds->curRgb == NULL || ds->curW != w || ds->curH != h) {
+                    free(ds->curRgb);
+                    ds->curRgb = malloc((size_t)w * h * 3);
+                    if (!ds->curRgb) { return false; }
+                }
+                ds->curW = w; ds->curH = h;
+                ds->curOff = 0;
+                ds->curSize = w * h * 3;
+            }
+            return true;
+        }
+
+        static int decReadPicture(VideoSource* src, DecSpawnState* ds) {
+            // Returns 1 = ok, 0 = EOF, -1 = error.
+            // When curSize == 0 we are between frames and must parse the next header.
+            ssize_t r;
+            if (ds->curSize > 0 && ds->stageLen == 0) {
+                r = read(ds->videoFd, ds->curRgb + ds->curOff, ds->curSize - ds->curOff);
+                if (r > 0) {
+                    ds->curOff += r;
+                    if (ds->curOff == ds->curSize) {
+                        decStoreVideoFrame(src, ds);
+                        ds->curOff = 0; ds->curSize = 0;
+                    }
+                    return 1;
+                }
+            } else {
+                r = read(ds->videoFd, ds->stage + ds->stageLen,
+                         sizeof(ds->stage) - ds->stageLen);
+                if (r > 0) {
+                    ds->stageLen += r;
+                    while (ds->stageLen > 0) {
+                        int prevLen = ds->stageLen;
+                        int prevSize = ds->curSize;
+                        if (!decUseStage(src, ds)) { return -1; }
+                        if (ds->stageLen == prevLen && ds->curSize == prevSize) { break; }
+                    }
+                    return 1;
+                }
+            }
+            if (r == 0) { return 0; }
+            return (errno == EINTR || errno == EAGAIN) ? 1 : -1;
+        }
+
+        static void decReadStderr(DecSpawnState* ds) {
+            char buf[256];
+            ssize_t r = read(ds->errFd, buf, sizeof(buf));
+            if (r > 0) {
+                (void) !write(STDERR_FILENO, buf, r);
+                int keep = (int)sizeof(ds->errTail) - 1;
+                if (ds->errTailLen + (int)r > keep) {
+                    int drop = ds->errTailLen + (int)r - keep;
+                    memmove(ds->errTail, ds->errTail + drop, ds->errTailLen - drop);
+                    ds->errTailLen -= drop;
+                }
+                memcpy(ds->errTail + ds->errTailLen, buf, (size_t)r);
+                ds->errTailLen += (int)r;
+                ds->errTail[ds->errTailLen] = '\0';
+            } else if (r == 0 || (errno != EINTR && errno != EAGAIN)) {
+                close(ds->errFd); ds->errFd = -1;
+            }
+        }
+
+        static void decResetRingForSeek(VideoSource* src) {
+            // Caller holds src->mu. Keeps allocated rgb pointers in place; resets validity.
+            for (int i = 0; i < src->ringCap; i++) { src->ring[i].fileFrame = -1; }
+            for (int i = 0; src->audioRing && i < src->ringCap; i++) {
+                src->audioRing[i].fileFrame = -1;
+            }
+            src->winStartSeq = 0; src->winCount = 0;
+            src->aWinStartSeq = 0; src->aWinCount = 0;
+            src->allCached = false; src->allAudioCached = false;
+            src->passEnded = false;
+            src->lastHitSlot = 0;
+        }
+
+        static bool decSpawnOrFail(VideoSource* src, DecSpawnState* ds,
+                                   int startFrame, bool looping) {
+            if (decSpawnFfmpeg(src, ds, startFrame, looping)) { return true; }
+            pthread_mutex_lock(&src->mu);
+            snprintf(src->errTail, sizeof(src->errTail), "%s", ds->errTail);
+            src->failed = true;
+            pthread_cond_broadcast(&src->frameCond);
+            pthread_mutex_unlock(&src->mu);
+            return false;
+        }
+
+        static void* videoDecodeThread(void* arg) {
+            VideoSource* src = arg;
+            sigset_t all; sigfillset(&all);
+            pthread_sigmask(SIG_BLOCK, &all, NULL);
+
+            DecSpawnState ds = { .videoFd = -1, .soundFd = -1, .errFd = -1 };
+            bool initialSpawned = false;
+            bool pausedAtPassEnd = false;
+
+            while (true) {
+                pthread_mutex_lock(&src->mu);
+                if (src->closing) {
+                    pthread_mutex_unlock(&src->mu);
+                    break;
+                }
+
+                if (!initialSpawned && src->seekRequested) {
+                    int target = src->seekTargetFrame;
+                    src->seekRequested = false;
+                    pthread_mutex_unlock(&src->mu);
+                    bool looping = (target == 0 && !src->isCustomArgs);
+                    if (!decSpawnOrFail(src, &ds, target, looping)) { break; }
+                    initialSpawned = true;
+                    pausedAtPassEnd = false;
+                    continue;
+                }
+
+                if (!initialSpawned) {
+                    int start = 0;
+                    bool looping = !src->isCustomArgs || src->isCustomLoop;
+                    pthread_mutex_unlock(&src->mu);
+                    if (!decSpawnOrFail(src, &ds, start, looping)) { break; }
+                    initialSpawned = true;
+                    pausedAtPassEnd = false;
+                    continue;
+                }
+
+                // Handle mid-run seek request (triggered ONLY when target is out-of-ring).
+                if (src->seekRequested) {
+                    int target = src->seekTargetFrame;
+                    src->seekRequested = false;
+                    decResetRingForSeek(src);
+                    src->seeks++;
+                    pthread_mutex_unlock(&src->mu);
+                    bool looping = (target == 0 && !src->isCustomArgs);
+                    if (!decSpawnOrFail(src, &ds, target, looping)) { break; }
+                    pausedAtPassEnd = false;
+                    continue;
+                }
+
+                if (pausedAtPassEnd) {
+                    pthread_cond_wait(&src->decodeCond, &src->mu);
+                    pthread_mutex_unlock(&src->mu);
+                    continue;
+                }
+
+                // Decide whether we can read more video / audio into the ring.
+                bool fullyCached = src->allCached &&
+                    (!src->withSound || src->allAudioCached || ds.soundFd < 0);
+                bool pauseVideo = false;
+                bool pauseAudio = false;
+
+                if (fullyCached) {
+                    pauseVideo = true;
+                    pauseAudio = true;
+                } else if (src->ringCap > 0) {
+                    bool midVideoFrame = (ds.curSize > 0);
+                    if (!midVideoFrame) {
+                        if (src->allCached) {
+                            pauseVideo = true;
+                        } else if (src->winCount >= src->ringCap) {
+                            int pos = ringFindFrame(src, src->activeReadFrame);
+                            int off = -1;
+                            if (pos >= 0) {
+                                int raw = pos - (src->winStartSeq % src->ringCap);
+                                off = (raw + src->ringCap) % src->ringCap;
+                            }
+                            if (src->forceDecodeToSeq >= 0 &&
+                                src->nextDecFileFrame > src->forceDecodeToSeq) {
+                                src->forceDecodeToSeq = -1;
+                            }
+                            bool allowAdvance = false;
+                            if (src->forceDecodeToSeq >= 0) {
+                                allowAdvance = true;
+                            } else if (!src->reverseHint &&
+                                       (off > src->ringCap / 4 ||
+                                        (src->withSound && ds.soundFd >= 0 &&
+                                         src->nextDecFileFrame < src->nextDecAudioFrame))) {
+                                allowAdvance = true;
+                            }
+                            if (!allowAdvance) { pauseVideo = true; }
+                        }
+                        if (!pauseVideo && src->forceDecodeToSeq < 0 &&
+                            src->withSound && ds.soundFd >= 0 &&
+                            src->nextDecFileFrame > src->nextDecAudioFrame + src->ringCap / 2) {
+                            int pos = ringFindFrame(src, src->activeReadFrame);
+                            int ahead = 0;
+                            if (pos >= 0 && src->winCount > 0) {
+                                int raw = pos - (src->winStartSeq % src->ringCap);
+                                int off = (raw + src->ringCap) % src->ringCap;
+                                ahead = (src->winCount - 1) - off;
+                            }
+                            if (ahead > 4) { pauseVideo = true; }
+                        }
+                    }
+
+                    if (src->withSound && ds.soundFd >= 0) {
+                        if (src->allAudioCached) {
+                            pauseAudio = true;
+                        } else if (src->aWinCount >= src->ringCap) {
+                            int aPos = audioRingFindFrame(src, src->activeReadFrame);
+                            int aOff = -1;
+                            if (aPos >= 0) {
+                                int raw = aPos - (src->aWinStartSeq % src->ringCap);
+                                aOff = (raw + src->ringCap) % src->ringCap;
+                            }
+                            bool allowAudio = false;
+                            if (src->forceDecodeToSeq >= 0) {
+                                allowAudio = true;
+                            } else if (!src->reverseHint &&
+                                       (aOff > src->ringCap / 4 ||
+                                        src->nextDecAudioFrame < src->nextDecFileFrame)) {
+                                allowAudio = true;
+                            }
+                            if (!allowAudio) { pauseAudio = true; }
+                        }
+                        if (!pauseAudio && ds.videoFd >= 0 &&
+                            src->nextDecAudioFrame > src->nextDecFileFrame + src->ringCap / 2) {
+                            pauseAudio = true;
+                        }
+                    } else {
+                        pauseAudio = true;
+                    }
+                }
+
+                if (pauseVideo && pauseAudio) {
+                    // The ring is far enough ahead of every reader: sleep until
+                    // a reader moves, seeks or closes (each signals decodeCond).
+                    // stderr can wait; it only matters once ffmpeg exits.
+                    pthread_cond_wait(&src->decodeCond, &src->mu);
+                    pthread_mutex_unlock(&src->mu);
+                    continue;
+                }
+                pthread_mutex_unlock(&src->mu);
+
+                struct pollfd fds[4];
+                int n = 0, videoIdx = -1, soundIdx = -1, errIdx = -1;
+                fds[n++] = (struct pollfd) { .fd = src->wakeFds[0], .events = POLLIN };
+                if (!pauseVideo && ds.videoFd >= 0) {
+                    videoIdx = n;
+                    fds[n++] = (struct pollfd) { .fd = ds.videoFd, .events = POLLIN };
+                }
+                if (!pauseAudio && ds.soundFd >= 0) {
+                    soundIdx = n;
+                    fds[n++] = (struct pollfd) { .fd = ds.soundFd, .events = POLLIN };
+                }
+                if (ds.errFd >= 0) {
+                    errIdx = n;
+                    fds[n++] = (struct pollfd) { .fd = ds.errFd, .events = POLLIN };
+                }
+
+                int pr = poll(fds, n, 50);
+                if (pr < 0) {
+                    if (errno == EINTR) { continue; }
+                    break;
+                }
+                if (fds[0].revents) {
+                    char drain[64];
+                    while (read(src->wakeFds[0], drain, sizeof(drain)) > 0) {}
+                    pthread_mutex_lock(&src->mu);
+                    bool urgent = src->closing || src->seekRequested;
+                    pthread_mutex_unlock(&src->mu);
+                    if (urgent) { continue; }
+                }
+                if (errIdx >= 0 && fds[errIdx].revents) { decReadStderr(&ds); }
+                if (soundIdx >= 0 && fds[soundIdx].revents) {
+                    ssize_t r = read(ds.soundFd, ds.audioBuf + ds.audioBufLen,
+                                     AUDIO_FRAME_BYTES - ds.audioBufLen);
+                    if (r > 0) {
+                        ds.audioBufLen += r;
+                        if (ds.audioBufLen == AUDIO_FRAME_BYTES) {
+                            decStoreAudioFrame(src, &ds);
+                            ds.audioBufLen = 0;
+                        }
+                    } else if (r == 0 || (errno != EINTR && errno != EAGAIN)) {
+                        close(ds.soundFd); ds.soundFd = -1;
+                        pthread_mutex_lock(&src->mu);
+                        if (src->allCached) { pthread_cond_broadcast(&src->frameCond); }
+                        pthread_mutex_unlock(&src->mu);
+                    }
+                }
+                if (videoIdx >= 0 && fds[videoIdx].revents) {
+                    int vr = decReadPicture(src, &ds);
+                    if (vr <= 0) {
+                        // Video pipe hit EOF or error. Wait briefly for remaining stderr.
+                        while (ds.errFd >= 0) {
+                            struct pollfd efds[2] = {
+                                { .fd = src->wakeFds[0], .events = POLLIN },
+                                { .fd = ds.errFd, .events = POLLIN },
+                            };
+                            int er = poll(efds, 2, 200);
+                            if (er < 0 && errno == EINTR) { continue; }
+                            if (er <= 0) { break; }
+                            if (efds[0].revents) { break; }
+                            decReadStderr(&ds);
+                        }
+                        decKillAndCleanup(&ds);
+
+                        pthread_mutex_lock(&src->mu);
+                        src->decAlive = false;
+                        if (src->closing) {
+                            pthread_mutex_unlock(&src->mu);
+                            break;
+                        }
+                        // Was this a normal pass-end of a seeked chunk, past-EOF seek, or a finite `then`?
+                        if (vr == 0 && !ds.looping &&
+                            (ds.framesReadInPass > 0 || (ds.startFrame > 0 && ds.errTailLen == 0))) {
+                            if (src->isCustomArgs && ds.startFrame == 0) {
+                                src->totalFrames = ds.framesReadInPass;
+                                if (ds.framesReadInPass <= src->ringCap &&
+                                    src->winCount == ds.framesReadInPass) {
+                                    src->allCached = true;
+                                    src->allAudioCached = true;
+                                }
+                            } else if (!src->isCustomArgs) {
+                                int passEnd = ds.startFrame + ds.framesReadInPass;
+                                if (src->totalFrames == 0 || passEnd < src->totalFrames) {
+                                    src->totalFrames = passEnd > 0 ? passEnd : 1;
+                                }
+                            }
+                            src->passEnded = true;
+                            pausedAtPassEnd = true;
+                            pthread_cond_broadcast(&src->frameCond);
+                            pthread_mutex_unlock(&src->mu);
+                            continue;
+                        }
+                        // Unexpected failure (e.g. bad file).
+                        snprintf(src->errTail, sizeof(src->errTail), "%s", ds.errTail);
+                        src->failed = true;
+                        pthread_cond_broadcast(&src->frameCond);
+                        pthread_mutex_unlock(&src->mu);
+                        break;
+                    }
+                }
+            }
+
+            decKillAndCleanup(&ds);
+            return NULL;
+        }
+
+        // Request wake for decodeThread (safe to call with or without src->mu).
+        static void sourceWakeDecoder(VideoSource* src) {
+            char c = 0;
+            ssize_t r;
+            do { r = write(src->wakeFds[1], &c, 1); } while (r < 0 && errno == EINTR);
+            pthread_cond_broadcast(&src->decodeCond);
+        }
+
+        // Fetch a copy of `targetFrame` (cropped if requested) into `*outIm`.
+        // Waits if frame isn't in ring yet, triggering a decoder seek if needed.
+        // Never locks p->mu (lock order is strictly videoRegistryMutex -> p->mu -> src->mu).
+        // Returns true on success, false if source closing/failed or player closing.
+        static bool readerFetchFrame(VideoPlayer* p, int targetFrame, bool isReverse,
+                                     bool paused, bool hasCrop, const double crop[4],
+                                     int paramsGen, uint64_t uniq,
+                                     Image* outIm, bool* outFailed) {
+            VideoSource* src = p->src;
+            *outFailed = false;
+            pthread_mutex_lock(&src->mu);
+            src->reverseHint = isReverse;
+            src->activeReadFrame = targetFrame;
+            int myForceSeq = -1;
+
+            while (true) {
+                if (atomic_load(&p->closing) || src->closing) {
+                    if (myForceSeq >= 0 && src->forceDecodeToSeq == myForceSeq) {
+                        src->forceDecodeToSeq = -1;
+                    }
+                    pthread_mutex_unlock(&src->mu);
+                    return false;
+                }
+                if (src->failed) {
+                    *outFailed = true;
+                    pthread_mutex_unlock(&src->mu);
+                    return false;
+                }
+                if (src->totalFrames > 0 && targetFrame >= src->totalFrames) {
+                    targetFrame = src->totalFrames - 1;
+                    if (targetFrame < 0) { targetFrame = 0; }
+                    src->activeReadFrame = targetFrame;
+                }
+                int slot = ringFindFrame(src, targetFrame);
+                if (slot >= 0) {
+                    if (myForceSeq >= 0 && src->forceDecodeToSeq == myForceSeq) {
+                        src->forceDecodeToSeq = -1;
+                    }
+                    RingFrame* rf = &src->ring[slot];
+                    if (!rf->rgb) {
+                        pthread_mutex_unlock(&src->mu);
+                        return false;
+                    }
+                    int w = rf->width, h = rf->height;
+                    int cx = 0, cy = 0, cw = w, ch = h;
+                    if (hasCrop) {
+                        cx = ((int)floor(crop[0] * w)) & ~1;
+                        cy = ((int)floor(crop[1] * h)) & ~1;
+                        cw = ((int)floor(crop[2] * w)) & ~1;
+                        ch = ((int)floor(crop[3] * h)) & ~1;
+                        if (cx < 0) cx = 0; if (cy < 0) cy = 0;
+                        if (cx >= w) cx = w - 2; if (cy >= h) cy = h - 2;
+                        if (cw < 2) cw = 2; if (ch < 2) ch = 2;
+                        if (cx + cw > w) cw = (w - cx) & ~1;
+                        if (cy + ch > h) ch = (h - cy) & ~1;
+                    }
+
+                    Image im = imageNew(cw, ch, 3, uniq);
+                    if (!im.data) {
+                        pthread_mutex_unlock(&src->mu);
+                        return false;
+                    }
+                    if (cx == 0 && cy == 0 && cw == w && ch == h) {
+                        memcpy(im.data, rf->rgb, (size_t)w * h * 3);
+                    } else {
+                        size_t srcStride = (size_t)w * 3;
+                        size_t rowBytes = (size_t)cw * 3;
+                        for (int y = 0; y < ch; y++) {
+                            memcpy(im.data + (size_t)y * im.bytesPerRow,
+                                   rf->rgb + (size_t)(cy + y) * srcStride + (size_t)cx * 3,
+                                   rowBytes);
+                        }
+                    }
+                    // Wake decoder if reader has moved far enough for sliding window.
+                    pthread_cond_broadcast(&src->decodeCond);
+                    pthread_mutex_unlock(&src->mu);
+                    *outIm = im;
+                    return true;
+                }
+
+                // Frame not in ring. Wait for first frame to establish ringCap before
+                // deciding whether an initial reverse/seek exceeds the ring capacity.
+                bool shouldSeek = false;
+                if (src->ringCap == 0 && !src->passEnded && !src->seekRequested) {
+                    // Initial spawn is decoding frame 0 (or initial seek target).
+                } else if (src->isCustomArgs) {
+                    // Custom filter graphs (beside/then) cannot -ss seek mid-stream:
+                    // wait for forward frames, or restart finite `then` from 0 on wrap.
+                    if (src->isCustomLoop) {
+                        if (src->totalFrames > 0) {
+                            int cur = ((src->nextDecFileFrame % src->totalFrames) + src->totalFrames) % src->totalFrames;
+                            int fwdDist = (targetFrame - cur + src->totalFrames) % src->totalFrames;
+                            myForceSeq = src->nextDecFileFrame + fwdDist;
+                            src->forceDecodeToSeq = myForceSeq;
+                        } else if (targetFrame >= src->nextDecFileFrame) {
+                            myForceSeq = targetFrame;
+                            src->forceDecodeToSeq = myForceSeq;
+                        }
+                    } else if (!src->seekRequested) {
+                        if (src->ringCap > 0 && src->allCached) {
+                            int clamped = targetFrame;
+                            if (src->winCount > 0 && clamped >= src->winCount) {
+                                clamped = src->winCount - 1;
+                            }
+                            if (clamped != targetFrame) { targetFrame = clamped; continue; }
+                        } else if (src->decAlive && !src->passEnded &&
+                                   targetFrame >= src->nextDecFileFrame) {
+                            myForceSeq = targetFrame;
+                            src->forceDecodeToSeq = myForceSeq;
+                        } else if ((src->winCount > 0 &&
+                                    targetFrame < src->nextDecFileFrame - src->winCount) ||
+                                   src->passEnded) {
+                            shouldSeek = true;
+                        } else {
+                            myForceSeq = targetFrame;
+                            src->forceDecodeToSeq = myForceSeq;
+                        }
+                    }
+                } else if (src->ringCap > 0 && src->allCached) {
+                    // Target out of bounds of totalFrames? Clamp safely.
+                    int clamped = targetFrame;
+                    if (src->winCount > 0 && clamped >= src->winCount) {
+                        clamped = src->winCount - 1;
+                    }
+                    if (clamped != targetFrame) { targetFrame = clamped; continue; }
+                } else if (!src->seekRequested) {
+                    int cap = src->ringCap > 0 ? src->ringCap : 64;
+                    int fwdDist;
+                    if (src->decLooping && src->totalFrames > 0) {
+                        int cur = ((src->nextDecFileFrame % src->totalFrames) + src->totalFrames) % src->totalFrames;
+                        fwdDist = (targetFrame - cur + src->totalFrames) % src->totalFrames;
+                    } else {
+                        fwdDist = targetFrame - src->nextDecFileFrame;
+                    }
+                    bool activePassWillReach = src->decAlive && !src->passEnded && fwdDist >= 0 &&
+                        ((!src->decLooping && targetFrame - src->decStartFrame < cap) ||
+                         (src->decLooping && src->totalFrames > 0 && fwdDist < cap && targetFrame < src->totalFrames) ||
+                         (!isReverse && fwdDist < (cap > 32 ? 32 : cap / 2)));
+                    if (src->ringCap == 0 && !src->decAlive) {
+                        if (targetFrame > 8 && (paused || isReverse)) {
+                            shouldSeek = true;
+                        }
+                    } else if (activePassWillReach) {
+                        if (src->ringCap > 0 && src->winCount >= src->ringCap) {
+                            myForceSeq = src->nextDecFileFrame + fwdDist;
+                            src->forceDecodeToSeq = myForceSeq;
+                        }
+                    } else if (src->ringCap > 0) {
+                        shouldSeek = true;
+                    } else if (targetFrame > 8 && (paused || isReverse)) {
+                        shouldSeek = true;
+                    }
+                }
+
+                if (shouldSeek) {
+                    int cap = src->ringCap > 0 ? src->ringCap : 64;
+                    int chunkStart;
+                    if (src->isCustomArgs || (src->totalFrames > 0 && src->totalFrames <= cap)) {
+                        chunkStart = 0;
+                    } else if (src->passEnded && src->winCount == 0 && targetFrame > cap) {
+                        chunkStart = targetFrame / 2;
+                    } else if (isReverse) {
+                        int margin = cap > 12 ? cap - 6 : cap - 2;
+                        chunkStart = targetFrame - margin;
+                    } else if (paused) {
+                        chunkStart = targetFrame - cap / 2;
+                    } else {
+                        chunkStart = targetFrame - 4;
+                    }
+                    if (chunkStart < 0) { chunkStart = 0; }
+                    src->seekRequested = true;
+                    src->seekTargetFrame = chunkStart;
+                    src->forceDecodeToSeq = -1;
+                    myForceSeq = -1;
+                    sourceWakeDecoder(src);
+                } else {
+                    pthread_cond_broadcast(&src->decodeCond);
+                }
+
+                // Wait until a new frame arrives or params/closing wake us.
+                if (atomic_load(&p->paramsGen) == paramsGen) {
+                    videoCondWaitNs(&src->frameCond, &src->mu, 50000000LL);
+                }
+                if (atomic_load(&p->paramsGen) != paramsGen) {
+                    // Playback parameters changed; let playThread re-evaluate.
+                    if (myForceSeq >= 0 && src->forceDecodeToSeq == myForceSeq) {
+                        src->forceDecodeToSeq = -1;
+                    }
+                    pthread_mutex_unlock(&src->mu);
+                    return false;
+                }
+                paused = atomic_load(&p->paused);
+            }
+        }
+
+        // Read audio samples starting at `sampleIdx` (relative to `rangeStartFrame`)
+        // wrapping modulo `rangeLenSamples`, filling 0 if slot missing. Caller holds src->mu.
+        static void readAudioSamplesLocked(VideoSource* src, int rangeStartFrame,
+                                           int rangeLenFrames, int64_t sampleIdx,
+                                           int count, int16_t* dst) {
+            int64_t totalS = (int64_t)rangeLenFrames * AUDIO_FRAME_SAMPLES;
+            if (totalS <= 0) {
+                memset(dst, 0, (size_t)count * 2 * sizeof(int16_t));
+                return;
+            }
+            int done = 0;
+            while (done < count) {
+                int64_t s = ((sampleIdx + done) % totalS + totalS) % totalS;
+                int fOff = (int)(s / AUDIO_FRAME_SAMPLES);
+                int inFrame = (int)(s % AUDIO_FRAME_SAMPLES);
+                int take = AUDIO_FRAME_SAMPLES - inFrame;
+                if (take > count - done) { take = count - done; }
+                int fileFrame = rangeStartFrame + fOff;
+                if (src->totalFrames > 0) { fileFrame %= src->totalFrames; }
+                int slot = audioRingFindFrame(src, fileFrame);
+                if (slot >= 0) {
+                    const int16_t* pcm = (const int16_t*)src->audioRing[slot].pcm;
+                    memcpy(dst + done * 2, pcm + inFrame * 2, (size_t)take * 2 * sizeof(int16_t));
+                } else {
+                    memset(dst + done * 2, 0, (size_t)take * 2 * sizeof(int16_t));
+                }
+                done += take;
+            }
+        }
+
+        // Synthesize 1 frame (1920 stereo samples) of time-scaled audio using WSOLA
+        // when |rate| != 1.0, or copy directly when rate == 1.0.
+        static void playerWriteFrameAudio(VideoPlayer* p, int targetFrame,
+                                          int rangeStartFrame, int rangeLenFrames,
+                                          double rate) {
+            if (!p->src->withSound || rate <= 0.0 || atomic_load(&p->muted)) {
+                p->wsolaPrimed = false;
+                return;
+            }
+            pthread_mutex_lock(&p->sinkMutex);
+            VideoSoundSink sink = p->sink;
+            void* sinkCtx = p->sinkCtx;
+            if (sink == NULL) {
+                pthread_mutex_unlock(&p->sinkMutex);
+                return;
+            }
+
+            if (fabs(rate - 1.0) < 1e-4) {
+                uint8_t buf[AUDIO_FRAME_BYTES];
+                bool have = false;
+                pthread_mutex_lock(&p->src->mu);
+                int slot = audioRingFindFrame(p->src, targetFrame);
+                if (slot >= 0) {
+                    memcpy(buf, p->src->audioRing[slot].pcm, AUDIO_FRAME_BYTES);
+                    have = true;
+                }
+                pthread_mutex_unlock(&p->src->mu);
+                if (have) {
+                    sink(sinkCtx, (const char*)buf, AUDIO_FRAME_BYTES);
+                }
+                pthread_mutex_unlock(&p->sinkMutex);
+                p->wsolaPrimed = false;
+                return;
+            }
+
+            // WSOLA overlap-add (4 hops of 480 samples, 960-sample Hann crossfade).
+            int16_t out[AUDIO_FRAME_SAMPLES * 2];
+            int16_t refBuf[WSOLA_HALF * 2];
+            int16_t win[(WSOLA_SEARCH * 2 + WSOLA_WIN) * 2];
+            int64_t totalS = (int64_t)rangeLenFrames * AUDIO_FRAME_SAMPLES;
+            if (totalS <= 0) {
+                pthread_mutex_unlock(&p->sinkMutex);
+                return;
+            }
+            if (!p->wsolaPrimed) {
+                pthread_mutex_lock(&p->src->mu);
+                readAudioSamplesLocked(p->src, rangeStartFrame, rangeLenFrames,
+                                       (int64_t)llround(p->audioSrcSample), WSOLA_HALF, p->prevTail);
+                pthread_mutex_unlock(&p->src->mu);
+                p->prevContSample = (int64_t)llround(p->audioSrcSample) + WSOLA_HALF;
+                p->wsolaPrimed = true;
+            }
+
+            for (int h = 0; h < 4; h++) {
+                int64_t nom = (int64_t)llround(p->audioSrcSample);
+                int bestDelta = 0;
+                // Snapshot refBuf and candidate search window under one lock per hop.
+                pthread_mutex_lock(&p->src->mu);
+                readAudioSamplesLocked(p->src, rangeStartFrame, rangeLenFrames,
+                                       p->prevContSample, WSOLA_HALF, refBuf);
+                readAudioSamplesLocked(p->src, rangeStartFrame, rangeLenFrames,
+                                       nom - WSOLA_SEARCH, WSOLA_SEARCH * 2 + WSOLA_WIN, win);
+                pthread_mutex_unlock(&p->src->mu);
+                int64_t bestScore = INT64_MIN;
+                for (int d = -WSOLA_SEARCH; d <= WSOLA_SEARCH; d += 4) {
+                    const int16_t* probe = &win[(WSOLA_SEARCH + d) * 2];
+                    int64_t acc = 0;
+                    for (int i = 0; i < WSOLA_HALF; i += 8) {
+                        acc += (int64_t)refBuf[i * 2] * probe[i * 2] +
+                               (int64_t)refBuf[i * 2 + 1] * probe[i * 2 + 1];
+                    }
+                    if (acc > bestScore) { bestScore = acc; bestDelta = d; }
+                }
+                int64_t chosen = nom + bestDelta;
+                const int16_t* cand = &win[(WSOLA_SEARCH + bestDelta) * 2];
+                int16_t* dst = out + h * WSOLA_HALF * 2;
+                for (int i = 0; i < WSOLA_HALF; i++) {
+                    double wUp = 0.5 * (1.0 - cos(M_PI * (i + 0.5) / WSOLA_HALF));
+                    double wDn = 1.0 - wUp;
+                    for (int c = 0; c < 2; c++) {
+                        double v = p->prevTail[i * 2 + c] * wDn + cand[i * 2 + c] * wUp;
+                        int iv = (int)llround(v);
+                        if (iv > 32767) iv = 32767;
+                        if (iv < -32768) iv = -32768;
+                        dst[i * 2 + c] = (int16_t)iv;
+                    }
+                }
+                memcpy(p->prevTail, cand + WSOLA_HALF * 2, WSOLA_HALF * 2 * sizeof(int16_t));
+                p->prevContSample = chosen + WSOLA_HALF;
+                p->audioSrcSample += WSOLA_HALF * rate;
+                if (p->audioSrcSample >= (double)totalS) {
+                    p->audioSrcSample = fmod(p->audioSrcSample, (double)totalS);
+                }
+            }
+            sink(sinkCtx, (const char*)out, AUDIO_FRAME_BYTES);
+            pthread_mutex_unlock(&p->sinkMutex);
+        }
+
+        static void videoSaveSourcePlayheadLocked(VideoPlayer* p, uint64_t seqUniq,
+                                                  bool inPartialCycle, int64_t nextFrameNs,
+                                                  int lastPubFileFrame, double fromSec,
+                                                  double lengthSec, double rate, bool paused) {
+            if (!p->isOwnerPlayer || !p->src) { return; }
+            VideoSource* s = p->src;
+            s->savedValid = true;
+            s->savedSeqUniq = seqUniq;
+            s->savedInPartialCycle = inPartialCycle;
+            s->savedNextFrameNs = nextFrameNs;
+            s->savedLastFileFrame = lastPubFileFrame;
+            s->savedFrom = fromSec;
+            s->savedLen = lengthSec;
+            s->savedRate = rate;
+            s->savedPaused = paused;
+            s->savedAudioSrcSample = p->audioSrcSample;
+            s->savedPrevContSample = p->prevContSample;
+            memcpy(s->savedPrevTail, p->prevTail, sizeof(p->prevTail));
+            s->savedWsolaPrimed = p->wsolaPrimed;
+        }
+
+        static void* videoPlayThread(void* arg) {
+            VideoPlayer* p = arg;
+            sigset_t all; sigfillset(&all);
+            pthread_sigmask(SIG_BLOCK, &all, NULL);
+            epochThreadInit();
+
+            int lastGen = -1;
+            double lastFrom = -1.0, lastLen = -1.0, lastRate = 0.0;
+            bool lastPaused = false;
+            int lastSeekGen = -1;
+            int lastPubFileFrame = -1;
+            double lastPubCrop[4] = {-1, -1, -1, -1};
+            bool hasPublished = false;
+            bool errorPublished = false;
+            int lastSpawns = -1, lastSeeks = -1;
+
+            uint64_t seqUniq = 0;
+            bool inPartialCycle = false;
+            int64_t nextFrameNs = videoNowNs();
+
+            if (p->inheritedPlayhead && p->src) {
+                pthread_mutex_lock(&p->mu);
+                double curRate = p->rate, curFrom = p->fromSec, curLen = p->lengthSec;
+                bool curPaused = atomic_load(&p->paused);
+                bool curHasSeek = p->hasSeek;
+                bool curHasCrop = p->hasCrop;
+                double curCrop[4] = {p->crop[0], p->crop[1], p->crop[2], p->crop[3]};
+                int curGen = atomic_load(&p->paramsGen);
+                pthread_mutex_unlock(&p->mu);
+
+                int immFrame = -1;
+                pthread_mutex_lock(&p->src->mu);
+                if (p->src->savedValid) {
+                    seqUniq = p->src->savedSeqUniq;
+                    inPartialCycle = p->src->savedInPartialCycle;
+                    nextFrameNs = p->src->savedNextFrameNs;
+                    lastPubFileFrame = p->src->savedLastFileFrame;
+                    lastFrom = p->src->savedFrom;
+                    lastLen = p->src->savedLen;
+                    lastRate = p->src->savedRate;
+                    lastPaused = p->src->savedPaused;
+                    p->audioSrcSample = p->src->savedAudioSrcSample;
+                    p->prevContSample = p->src->savedPrevContSample;
+                    memcpy(p->prevTail, p->src->savedPrevTail, sizeof(p->prevTail));
+                    p->wsolaPrimed = p->src->savedWsolaPrimed;
+                    if (lastPubFileFrame >= 0 && ringFindFrame(p->src, lastPubFileFrame) >= 0) {
+                        immFrame = lastPubFileFrame;
+                    }
+                    bool sameParams = (!curPaused && !lastPaused && !curHasSeek &&
+                                       fabs(curFrom - lastFrom) <= 1e-4 &&
+                                       fabs(curLen - lastLen) <= 1e-4 &&
+                                       fabs(curRate - lastRate) <= 1e-6);
+                    if (sameParams) {
+                        lastGen = curGen;
+                    } else {
+                        lastGen = curGen - 1;
+                    }
+                }
+                pthread_mutex_unlock(&p->src->mu);
+
+                if (immFrame >= 0) {
+                    Image im = {0};
+                    bool failed = false;
+                    uint64_t u = seqUniq > 0 ? seqUniq : 1;
+                    if (readerFetchFrame(p, immFrame, curRate < 0, curPaused,
+                                         curHasCrop, curCrop, curGen, u, &im, &failed)) {
+                        videoPublish(p, im);
+                        hasPublished = true;
+                        if (curHasCrop) { memcpy(lastPubCrop, curCrop, sizeof(curCrop)); }
+                        else { lastPubCrop[0] = -1; }
+                    }
+                    if (lastGen == curGen) {
+                        int64_t waitNs = nextFrameNs - videoNowNs();
+                        if (waitNs > 0 && waitNs <= 60000000LL) {
+                            pthread_mutex_lock(&p->mu);
+                            if (!atomic_load(&p->closing) && atomic_load(&p->paramsGen) == lastGen) {
+                                videoCondWaitNs(&p->playCond, &p->mu, waitNs);
+                            }
+                            pthread_mutex_unlock(&p->mu);
+                        }
+                    }
+                }
+            }
+
+            while (true) {
+                pthread_mutex_lock(&p->mu);
+                if (atomic_load(&p->closing)) {
+                    pthread_mutex_unlock(&p->mu);
+                    break;
+                }
+                double rate = p->rate;
+                double fromSec = p->fromSec;
+                double lengthSec = p->lengthSec;
+                bool hasSeek = p->hasSeek;
+                double seekSec = p->seekSec;
+                int seekGen = p->seekGen;
+                bool paused = atomic_load(&p->paused);
+                bool hasCrop = p->hasCrop;
+                double crop[4] = {p->crop[0], p->crop[1], p->crop[2], p->crop[3]};
+                int gen = atomic_load(&p->paramsGen);
+
+                if (gen != lastGen) {
+                    bool rangeChanged = (lastGen == -1 ||
+                                         fabs(fromSec - lastFrom) > 1e-4 ||
+                                         fabs(lengthSec - lastLen) > 1e-4);
+                    bool seekChanged = (hasSeek && seekGen != lastSeekGen);
+
+                    if (paused) {
+                        inPartialCycle = false;
+                    } else if (rangeChanged || seekChanged) {
+                        double tStart = seekChanged ? seekSec : fromSec;
+                        double absR = fabs(rate);
+                        if (absR < 0.05) absR = 1.0;
+                        if (seekChanged && tStart >= fromSec && tStart < fromSec + lengthSec) {
+                            double off = (rate < 0)
+                                ? (fromSec + lengthSec - 0.04 - tStart)
+                                : (tStart - fromSec);
+                            if (off < 0) off = 0;
+                            uint64_t s = (uint64_t)llround(off * 25.0 / absR);
+                            seqUniq = s;
+                            inPartialCycle = (s > 0);
+                            p->audioSrcSample = off * 48000.0;
+                        } else {
+                            seqUniq = 0;
+                            inPartialCycle = false;
+                            p->audioSrcSample = 0.0;
+                        }
+                        p->wsolaPrimed = false;
+                        nextFrameNs = videoNowNs();
+                    } else if (lastPaused && !paused) {
+                        seqUniq = 0;
+                        inPartialCycle = false;
+                        p->audioSrcSample = 0.0;
+                        p->wsolaPrimed = false;
+                        nextFrameNs = videoNowNs();
+                    } else if (fabs(rate - lastRate) > 1e-6) {
+                        if (!hasPublished) {
+                            // Direction/rate updated before first frame was published:
+                            // start cleanly at start/end of range without flashing frame 0.
+                            seqUniq = 0;
+                            inPartialCycle = false;
+                            p->audioSrcSample = 0.0;
+                        } else {
+                            // Rate or direction changed with same range: keep current playhead
+                            // position in the ring so edits never restart or jump to 0.
+                            double absR = fabs(rate);
+                            double tCur = lastPubFileFrame / 25.0;
+                            if (tCur < fromSec || tCur >= fromSec + lengthSec) {
+                                tCur = fromSec;
+                            }
+                            double off = (rate < 0)
+                                ? (fromSec + lengthSec - 0.04 - tCur)
+                                : (tCur - fromSec);
+                            if (off < 0) off = 0;
+                            uint64_t s = (uint64_t)llround(off * 25.0 / absR);
+                            seqUniq = s;
+                            inPartialCycle = (s > 0);
+                            p->audioSrcSample = (tCur - fromSec) * 48000.0;
+                        }
+                        p->wsolaPrimed = false;
+                        nextFrameNs = videoNowNs();
+                    }
+                    lastGen = gen;
+                    lastFrom = fromSec;
+                    lastLen = lengthSec;
+                    lastRate = rate;
+                    lastPaused = paused;
+                    lastSeekGen = seekGen;
+                }
+                pthread_mutex_unlock(&p->mu);
+
+                // Publish spawn/seek counter claim whenever it changes.
+                pthread_mutex_lock(&p->src->mu);
+                int curSpawns = p->src->spawns;
+                int curSeeks = p->src->seeks;
+                int totalFrames = p->src->totalFrames;
+                bool srcFailed = p->src->failed;
+                char errBuf[512];
+                if (srcFailed) { snprintf(errBuf, sizeof(errBuf), "%s", p->src->errTail); }
+                pthread_mutex_unlock(&p->src->mu);
+
+                if (curSpawns != lastSpawns || curSeeks != lastSeeks) {
+                    videoPublishStats(p, curSpawns, curSeeks);
+                    lastSpawns = curSpawns;
+                    lastSeeks = curSeeks;
+                }
+
+                if (srcFailed) {
+                    if (!errorPublished) {
+                        videoRetractKey(p->frameKey);
+                        videoHold(p->errorKey, p->errorTerms, p->errorTermsCount,
+                                  errBuf, NULL);
+                        errorPublished = true;
+                    }
+                    pthread_mutex_lock(&p->mu);
+                    if (!atomic_load(&p->closing)) { videoCondWaitNs(&p->playCond, &p->mu, 100000000LL); }
+                    pthread_mutex_unlock(&p->mu);
+                    continue;
+                }
+
+                if (paused) {
+                    double targetT = hasSeek ? seekSec : fromSec;
+                    int targetFrame = (int)llround(targetT * 25.0);
+                    if (targetFrame < 0) targetFrame = 0;
+                    if (totalFrames > 0 && targetFrame >= totalFrames) {
+                        targetFrame = totalFrames - 1;
+                    }
+                    bool cropSame = (!hasCrop && lastPubCrop[0] < 0) ||
+                        (hasCrop && lastPubCrop[0] == crop[0] && lastPubCrop[1] == crop[1] &&
+                         lastPubCrop[2] == crop[2] && lastPubCrop[3] == crop[3]);
+                    if (hasPublished && targetFrame == lastPubFileFrame && cropSame) {
+                        pthread_mutex_lock(&p->mu);
+                        if (!atomic_load(&p->closing) && atomic_load(&p->paramsGen) == lastGen) {
+                            pthread_cond_wait(&p->playCond, &p->mu);
+                        }
+                        pthread_mutex_unlock(&p->mu);
+                        continue;
+                    }
+                    Image im = {0};
+                    bool failed = false;
+                    uint64_t u = ++seqUniq;
+                    if (!readerFetchFrame(p, targetFrame, false, paused, hasCrop, crop, gen, u, &im, &failed)) {
+                        continue;
+                    }
+                    videoPublish(p, im);
+                    hasPublished = true;
+                    lastPubFileFrame = targetFrame;
+                    if (hasCrop) { memcpy(lastPubCrop, crop, sizeof(crop)); }
+                    else { lastPubCrop[0] = -1; }
+                    continue;
+                }
+
+                // Active playback (forward or reverse).
+                uint64_t k = ++seqUniq;
+                double absR = fabs(rate);
+                double off = fmod(((double)(k - 1) / 25.0) * absR, lengthSec);
+                if (inPartialCycle && k > 1) {
+                    double prevOff = fmod(((double)(k - 2) / 25.0) * absR, lengthSec);
+                    if (off < prevOff - 1e-6) {
+                        inPartialCycle = false;
+                        seqUniq = 1;
+                        k = 1;
+                        off = 0.0;
+                        p->audioSrcSample = 0.0;
+                        p->wsolaPrimed = false;
+                    }
+                }
+                double tFile = (rate < 0)
+                    ? (fromSec + lengthSec - 0.04 - off)
+                    : (fromSec + off);
+                if (tFile < fromSec) { tFile = fromSec; }
+                int targetFrame = (int)llround(tFile * 25.0);
+                if (targetFrame < 0) { targetFrame = 0; }
+                if (totalFrames > 0 && targetFrame >= totalFrames) {
+                    targetFrame = totalFrames - 1;
+                }
+
+                Image im = {0};
+                bool failed = false;
+                if (!readerFetchFrame(p, targetFrame, rate < 0, paused, hasCrop, crop, gen, k, &im, &failed)) {
+                    if (failed) { continue; }
+                    // Params changed or closing; undo k increment if params changed.
+                    if (seqUniq > 0) { seqUniq--; }
+                    continue;
+                }
+                videoPublish(p, im);
+                hasPublished = true;
+                lastPubFileFrame = targetFrame;
+                if (hasCrop) { memcpy(lastPubCrop, crop, sizeof(crop)); }
+                else { lastPubCrop[0] = -1; }
+
+                // Sync stats if fetch caused a seek/spawn.
+                pthread_mutex_lock(&p->src->mu);
+                curSpawns = p->src->spawns;
+                curSeeks = p->src->seeks;
+                pthread_mutex_unlock(&p->src->mu);
+                bool didSeek = (curSeeks != lastSeeks);
+                if (curSpawns != lastSpawns || curSeeks != lastSeeks) {
+                    videoPublishStats(p, curSpawns, curSeeks);
+                    lastSpawns = curSpawns;
+                    lastSeeks = curSeeks;
+                }
+
+                if (rate > 0.0) {
+                    int rangeStartFrame = (int)llround(fromSec * 25.0);
+                    int rangeLenFrames = (int)llround(lengthSec * 25.0);
+                    if (rangeLenFrames < 1) rangeLenFrames = 1;
+                    playerWriteFrameAudio(p, targetFrame, rangeStartFrame,
+                                          rangeLenFrames, rate);
+                }
+
+                if (didSeek) {
+                    // Let the seeked frame stay visible for one full frame interval
+                    // instead of burst-consuming the newly refilled ring.
+                    nextFrameNs = videoNowNs() + 40000000LL;
+                } else {
+                    nextFrameNs += 40000000LL;
+                    int64_t now = videoNowNs();
+                    if (now > nextFrameNs + 200000000LL) {
+                        nextFrameNs = now;
+                    }
+                }
+                if (p->isOwnerPlayer) {
+                    pthread_mutex_lock(&p->src->mu);
+                    videoSaveSourcePlayheadLocked(p, seqUniq, inPartialCycle, nextFrameNs,
+                                                  lastPubFileFrame, fromSec, lengthSec, rate, paused);
+                    pthread_mutex_unlock(&p->src->mu);
+                }
+                int64_t waitNs = nextFrameNs - videoNowNs();
+                if (waitNs > 0) {
+                    pthread_mutex_lock(&p->mu);
+                    if (!atomic_load(&p->closing) && atomic_load(&p->paramsGen) == lastGen) {
+                        videoCondWaitNs(&p->playCond, &p->mu, waitNs);
+                    }
+                    pthread_mutex_unlock(&p->mu);
+                }
+            }
+
+            epochThreadDestroy();
+            return NULL;
+        }
+
+        static void videoSetParamsLocked(Jim_Interp* interp, VideoPlayer* p,
+                                         double rate, double fromSec, double lengthSec,
+                                         int hasSeek, double seekSec, int paused,
+                                         Jim_Obj* cropObj, bool isInit) {
+            if (!isfinite(rate) || fabs(rate) < 0.05 || fabs(rate) > 16.0) {
+                rate = (isfinite(rate) && rate < 0.0) ? -1.0 : 1.0;
+            }
+            if (!isfinite(fromSec) || fromSec < 0.0) { fromSec = 0.0; }
+            if (!isfinite(lengthSec) || lengthSec < 0.04) { lengthSec = 0.04; }
+            if (!isfinite(seekSec) || seekSec < 0.0) { seekSec = 0.0; }
+            p->rate = rate;
+            p->fromSec = fromSec;
+            p->lengthSec = lengthSec;
+            if (isInit) {
+                p->hasSeek = (hasSeek != 0);
+                p->seekSec = seekSec;
+                p->seekGen = hasSeek ? 1 : 0;
+                atomic_init(&p->paused, paused != 0);
+                atomic_init(&p->paramsGen, 0);
+            } else {
+                if (hasSeek) {
+                    if (!p->hasSeek || fabs(p->seekSec - seekSec) > 1e-4) {
+                        p->seekGen++;
+                    }
+                    p->hasSeek = true;
+                    p->seekSec = seekSec;
+                } else if (!atomic_load(&p->paused)) {
+                    p->hasSeek = false;
+                }
+                atomic_store(&p->paused, paused != 0);
+            }
+            bool cropOk = false;
+            double tmpCrop[4] = {0};
+            if (Jim_ListLength(interp, cropObj) == 4) {
+                cropOk = true;
+                for (int i = 0; i < 4; i++) {
+                    if (Jim_GetDouble(interp, Jim_ListGetIndex(interp, cropObj, i), &tmpCrop[i]) != JIM_OK ||
+                        !isfinite(tmpCrop[i])) {
+                        cropOk = false;
+                        break;
+                    }
+                }
+            }
+            p->hasCrop = cropOk;
+            if (cropOk) { memcpy(p->crop, tmpCrop, sizeof(tmpCrop)); }
+        }
+        static void videoSourceDestroyNow(VideoSource* src) {
+            if (!src) { return; }
+            pthread_mutex_lock(&src->mu);
+            src->closing = true;
+            sourceWakeDecoder(src);
+            pthread_cond_broadcast(&src->frameCond);
+            pthread_mutex_unlock(&src->mu);
+
+            pthread_join(src->decodeThread, NULL);
+
+            if (src->audioStream != NULL && src->audioStreamCloseFn != NULL) {
+                src->audioStreamCloseFn(src->audioStream);
+                src->audioStream = NULL;
+                src->audioStreamCloseFn = NULL;
+            }
+
+            close(src->wakeFds[0]); close(src->wakeFds[1]);
+            for (int i = 0; i < src->ringCap; i++) {
+                if (src->ring[i].rgb && !ringPtrInSlab(src, src->ring[i].rgb)) {
+                    free(src->ring[i].rgb);
+                }
+            }
+            if (src->ringSlab) { munmap(src->ringSlab, src->ringSlabBytes); }
+            free(src->ring);
+            if (src->audioRing) { munmap(src->audioRing, src->audioRingBytes); }
+            free(src->ownerProg);
+            free(src->filePath);
+            videoFreeStrings(src->customArgs, src->customArgsCount);
+            pthread_cond_destroy(&src->decodeCond);
+            pthread_cond_destroy(&src->frameCond);
+            pthread_mutex_destroy(&src->mu);
+            free(src);
+        }
+
+        static void* videoSourceReapThread(void* arg) {
+            VideoSource* src = arg;
+            sigset_t all; sigfillset(&all);
+            pthread_sigmask(SIG_BLOCK, &all, NULL);
+            while (true) {
+                pthread_mutex_lock(&videoRegistryMutex);
+                if (src->refCount > 0) {
+                    src->reaperRunning = false;
+                    pthread_mutex_unlock(&videoRegistryMutex);
+                    return NULL;
+                }
+                int64_t remNs = src->warmUntilNs - videoNowNs();
+                if (remNs <= 0) {
+                    for (int i = 0; i < VIDEO_SOURCES_MAX; i++) {
+                        if (videoSources[i] == src) { videoSources[i] = NULL; break; }
+                    }
+                    src->reaperRunning = false;
+                    pthread_mutex_unlock(&videoRegistryMutex);
+                    break;
+                }
+                pthread_mutex_unlock(&videoRegistryMutex);
+                usleep((useconds_t)(remNs / 1000 + 1000));
+            }
+            videoSourceDestroyNow(src);
+            return NULL;
+        }
+
+        static void videoSourceRelease(VideoSource* src, bool allowWarm) {
+            if (!src) { return; }
+            pthread_mutex_lock(&videoRegistryMutex);
+            src->refCount--;
+            int rc = src->refCount;
+            if (rc > 0) {
+                pthread_mutex_unlock(&videoRegistryMutex);
+                return;
+            }
+            pthread_mutex_lock(&src->mu);
+            bool canWarm = allowWarm && src->ownerProg != NULL &&
+                           !src->closing && !src->failed && src->savedValid;
+            pthread_mutex_unlock(&src->mu);
+
+            if (canWarm) {
+                src->warmUntilNs = videoNowNs() + VIDEO_WARM_HOLD_NS;
+                if (!src->reaperRunning) {
+                    pthread_t rth;
+                    if (videoThreadCreateBlocked(&rth, videoSourceReapThread, src) == 0) {
+                        pthread_detach(rth);
+                        src->reaperRunning = true;
+                        pthread_mutex_unlock(&videoRegistryMutex);
+                        return;
+                    }
+                } else {
+                    pthread_mutex_unlock(&videoRegistryMutex);
+                    return;
+                }
+            }
+
+            for (int i = 0; i < VIDEO_SOURCES_MAX; i++) {
+                if (videoSources[i] == src) { videoSources[i] = NULL; break; }
+            }
+            pthread_mutex_unlock(&videoRegistryMutex);
+            videoSourceDestroyNow(src);
+        }
+
+        static bool videoCustomArgsMatch(const VideoSource* s, Jim_Interp* interp, Jim_Obj* customArgs) {
+            int n = Jim_ListLength(interp, customArgs);
+            if (s->customArgsCount != n) { return false; }
+            for (int i = 0; i < n; i++) {
+                const char* a = Jim_String(Jim_ListGetIndex(interp, customArgs, i));
+                if (!s->customArgs[i] || strcmp(s->customArgs[i], a) != 0) { return false; }
+            }
+            return true;
+        }
+    }
+
+    # Caches ffprobe results by (filePath, mtime, size) so live option edits
+    # never fork a new ffprobe subprocess.
+    $cc proc videoProbeCacheGet {char* filePath} Jim_Obj* {
+        struct stat st;
+        if (stat(filePath, &st) != 0) {
+            return Jim_NewStringObj(interp, "", 0);
+        }
+        Jim_Obj* res = NULL;
+        pthread_mutex_lock(&videoRegistryMutex);
+        for (int i = 0; i < PROBE_CACHE_MAX; i++) {
+            ProbeCacheEntry* e = &videoProbeCache[i];
+            if (e->valid && e->mtime == st.st_mtime && e->size == st.st_size &&
+                strcmp(e->path, filePath) == 0) {
+                res = Jim_ObjPrintf("%.6f %d %d %d", e->duration, e->width, e->height, e->hasAudio);
+                break;
+            }
+        }
+        pthread_mutex_unlock(&videoRegistryMutex);
+        return res ? res : Jim_NewStringObj(interp, "", 0);
+    }
+    $cc proc videoProbeCachePut {char* filePath double duration int width int height int hasAudio} void {
+        struct stat st;
+        if (stat(filePath, &st) != 0) { return; }
+        pthread_mutex_lock(&videoRegistryMutex);
+        int slot = -1;
+        for (int i = 0; i < PROBE_CACHE_MAX; i++) {
+            if (videoProbeCache[i].valid && strcmp(videoProbeCache[i].path, filePath) == 0) {
+                slot = i; break;
+            }
+        }
+        if (slot < 0) {
+            slot = videoProbeCacheNext;
+            videoProbeCacheNext = (videoProbeCacheNext + 1) % PROBE_CACHE_MAX;
+        }
+        ProbeCacheEntry* e = &videoProbeCache[slot];
+        snprintf(e->path, sizeof(e->path), "%s", filePath);
+        e->mtime = st.st_mtime;
+        e->size = st.st_size;
+        e->duration = duration;
+        e->width = width;
+        e->height = height;
+        e->hasAudio = hasAudio;
+        e->valid = true;
+        pthread_mutex_unlock(&videoRegistryMutex);
+    }
+
+    # Looks up a shareable live VideoSource owned by `ownerProg` playing
+    # `filePath` (whose entire clip fits inside its ring, and with sound if
+    # `needSound` is set). Returns source id or 0.
+    $cc proc videoFindSource {char* ownerProg char* filePath int needSound} int {
+        int found = 0;
+        pthread_mutex_lock(&videoRegistryMutex);
+        for (int i = 0; i < VIDEO_SOURCES_MAX; i++) {
+            VideoSource* s = videoSources[i];
+            if (!s || !s->canShare) { continue; }
+            if (s->ownerProg && strcmp(s->ownerProg, ownerProg) == 0 &&
+                s->filePath && strcmp(s->filePath, filePath) == 0 &&
+                (!needSound || s->withSound)) {
+                pthread_mutex_lock(&s->mu);
+                bool fits = s->allCached || s->ringCap == 0 ||
+                    (s->totalFrames > 0 && s->totalFrames <= s->ringCap);
+                bool ok = !s->closing && !s->failed && fits;
+                pthread_mutex_unlock(&s->mu);
+                if (ok) {
+                    found = s->id;
+                    break;
+                }
+            }
+        }
+        pthread_mutex_unlock(&videoRegistryMutex);
+        return found;
+    }
+
+    # Reserves a unique token before `videoOpen` so a match `Destructor` can be
+    # registered prior to opening threads/ffmpeg (closing any SIGUSR1 cancel window).
+    $cc proc videoNewToken {} int {
+        pthread_mutex_lock(&videoRegistryMutex);
+        int tok = videoNextToken++;
+        pthread_mutex_unlock(&videoRegistryMutex);
+        return tok;
+    }
+
+    # Opens a VideoPlayer (attaching to `shareSourceId` if > 0, reclaiming a
+    # warm/handoff VideoSource for (ownerProg, filePath) when `allowHandoff` is
+    # set, or spawning one new VideoSource decoder).
+    $cc proc videoOpen {int token int shareSourceId int allowHandoff
+                        char* ownerProg char* filePath
+                        int canShare int maxWidth int totalFrames
+                        Jim_Obj* customArgs int customLoop int withSound int initMuted
+                        double rate double fromSec double lengthSec
+                        int hasSeek double seekSec int paused Jim_Obj* cropObj
+                        char* frameKey Jim_Obj* frameTerms
+                        char* errorKey Jim_Obj* errorTerms
+                        char* statsKey Jim_Obj* statsTerms} int {
+        int cArgCount = Jim_ListLength(interp, customArgs);
+        if (cArgCount > 120) { FOLK_ERROR("video: bad ffmpeg arguments"); }
+
+        VideoSource* src = NULL;
+        bool inheritedPlayhead = false;
+        if (shareSourceId > 0) {
+            pthread_mutex_lock(&videoRegistryMutex);
+            for (int i = 0; i < VIDEO_SOURCES_MAX; i++) {
+                VideoSource* s = videoSources[i];
+                if (s && s->id == shareSourceId) {
+                    pthread_mutex_lock(&s->mu);
+                    bool ok = !s->closing && !s->failed;
+                    pthread_mutex_unlock(&s->mu);
+                    if (ok) {
+                        s->refCount++;
+                        src = s;
+                    }
+                    break;
+                }
+            }
+            pthread_mutex_unlock(&videoRegistryMutex);
+        } else if (ownerProg[0] != '\0') {
+            pthread_mutex_lock(&videoRegistryMutex);
+            for (int i = 0; i < VIDEO_SOURCES_MAX; i++) {
+                VideoSource* s = videoSources[i];
+                if (!s || !s->ownerProg || strcmp(s->ownerProg, ownerProg) != 0) { continue; }
+                if (!s->filePath || strcmp(s->filePath, filePath) != 0) { continue; }
+                if (s->isCustomArgs != (cArgCount > 0)) { continue; }
+                if (cArgCount > 0 && !videoCustomArgsMatch(s, interp, customArgs)) { continue; }
+                if (s->refCount > 0 && !allowHandoff) { continue; }
+
+                pthread_mutex_lock(&s->mu);
+                bool ok = !s->closing && !s->failed;
+                if (ok) {
+                    inheritedPlayhead = s->savedValid;
+                    if (withSound && !s->withSound && !s->isCustomArgs) {
+                        s->withSound = 1;
+                        if (s->ringCap > 0 && s->audioRing == NULL) {
+                            size_t audioBytes = (size_t)s->ringCap * sizeof(AudioSlot);
+                            void* amem = mmap(NULL, audioBytes, PROT_READ | PROT_WRITE,
+                                              MAP_PRIVATE | MAP_ANON, -1, 0);
+                            if (amem != MAP_FAILED) {
+                                s->audioRing = (AudioSlot*)amem;
+                                s->audioRingBytes = audioBytes;
+                                for (int k = 0; k < s->ringCap; k++) {
+                                    s->audioRing[k].fileFrame = -1;
+                                }
+                            }
+                        }
+                        s->seekRequested = true;
+                        s->seekTargetFrame = s->activeReadFrame >= 0 ? s->activeReadFrame : 0;
+                        sourceWakeDecoder(s);
+                        pthread_cond_broadcast(&s->decodeCond);
+                    }
+                }
+                pthread_mutex_unlock(&s->mu);
+                if (ok) {
+                    for (int j = 0; j < VIDEO_PLAYERS_MAX; j++) {
+                        VideoPlayer* oldP = videoPlayers[j];
+                        if (oldP && oldP->src == s && oldP->isOwnerPlayer) {
+                            oldP->isOwnerPlayer = false;
+                            atomic_store(&oldP->muted, true);
+                        }
+                    }
+                    s->refCount++;
+                    src = s;
+                    break;
+                }
+            }
+            pthread_mutex_unlock(&videoRegistryMutex);
+        }
+
+        if (src == NULL) {
+            int wakeFds[2];
+            FOLK_ENSURE(videoPipeCloexec(wakeFds) == 0);
+            videoSetNonblock(wakeFds[0]);
+            videoSetNonblock(wakeFds[1]);
+
+            src = calloc(1, sizeof(*src));
+            FOLK_ENSURE(src != NULL);
+            src->ownerProg = ownerProg[0] ? strdup(ownerProg) : NULL;
+            src->filePath = strdup(filePath);
+            src->refCount = 1;
+            src->canShare = (canShare != 0);
+            src->isCustomArgs = (cArgCount > 0);
+            src->isCustomLoop = (customLoop != 0);
+            if (cArgCount > 0) {
+                src->customArgs = videoStrings(interp, customArgs, &src->customArgsCount);
+            }
+            src->withSound = withSound;
+            src->maxWidth = maxWidth > 0 ? maxWidth : 640;
+            src->totalFrames = totalFrames;
+            src->wakeFds[0] = wakeFds[0];
+            src->wakeFds[1] = wakeFds[1];
+            pthread_mutex_init(&src->mu, NULL);
+            pthread_cond_init(&src->decodeCond, NULL);
+            pthread_cond_init(&src->frameCond, NULL);
+            src->forceDecodeToSeq = -1;
+            src->savedLastFileFrame = -1;
+
+            if (hasSeek && seekSec > 0.0 && !src->isCustomArgs) {
+                int estCap = 40;
+                if (totalFrames > 0 && totalFrames <= estCap) {
+                    src->seekTargetFrame = 0;
+                    src->seekRequested = false;
+                } else {
+                    int tf = (int)llround(seekSec * 25.0);
+                    int sf = tf - estCap / 2;
+                    src->seekTargetFrame = sf > 0 ? sf : 0;
+                    src->seekRequested = (src->seekTargetFrame > 0);
+                }
+            }
+
+            pthread_mutex_lock(&videoRegistryMutex);
+            int sSlot = -1;
+            for (int i = 0; i < VIDEO_SOURCES_MAX; i++) {
+                if (videoSources[i] == NULL) { sSlot = i; break; }
+            }
+            if (sSlot >= 0) {
+                src->id = videoNextSourceId++;
+                videoSources[sSlot] = src;
+            }
+            pthread_mutex_unlock(&videoRegistryMutex);
+
+            if (sSlot < 0 || videoThreadCreateBlocked(&src->decodeThread, videoDecodeThread, src) != 0) {
+                if (sSlot >= 0) {
+                    pthread_mutex_lock(&videoRegistryMutex);
+                    videoSources[sSlot] = NULL;
+                    pthread_mutex_unlock(&videoRegistryMutex);
+                }
+                close(wakeFds[0]); close(wakeFds[1]);
+                free(src->ownerProg); free(src->filePath);
+                videoFreeStrings(src->customArgs, src->customArgsCount);
+                pthread_cond_destroy(&src->decodeCond);
+                pthread_cond_destroy(&src->frameCond);
+                pthread_mutex_destroy(&src->mu);
+                free(src);
+                FOLK_ERROR("video: too many video sources playing");
+            }
+        }
+
+        VideoPlayer* p = calloc(1, sizeof(*p));
+        FOLK_ENSURE(p != NULL);
+        p->token = token;
+        p->src = src;
+        p->isOwnerPlayer = (ownerProg[0] != '\0');
+        p->inheritedPlayhead = inheritedPlayhead;
+        pthread_mutex_init(&p->mu, NULL);
+        pthread_cond_init(&p->playCond, NULL);
+        pthread_mutex_init(&p->sinkMutex, NULL);
+
+        atomic_init(&p->closing, false);
+        atomic_init(&p->muted, initMuted != 0);
+        videoSetParamsLocked(interp, p, rate, fromSec, lengthSec,
+                             hasSeek, seekSec, paused, cropObj, true);
+        p->frameTerms = videoStrings(interp, frameTerms, &p->frameTermsCount);
+        p->errorTerms = videoStrings(interp, errorTerms, &p->errorTermsCount);
+        p->statsTerms = videoStrings(interp, statsTerms, &p->statsTermsCount);
+
+        pthread_mutex_lock(&videoRegistryMutex);
+        int slot = -1;
+        for (int i = 0; i < VIDEO_PLAYERS_MAX; i++) {
+            if (videoPlayers[i] == NULL) { slot = i; break; }
+        }
+        if (slot >= 0) {
+            p->id = videoNextPlayerId++;
+            videoPlayers[slot] = p;
+        }
+        pthread_mutex_unlock(&videoRegistryMutex);
+
+        if (slot >= 0) {
+            FOLK_ENSURE(asprintf(&p->frameKey, "%s %d", frameKey, p->id) > 0);
+            FOLK_ENSURE(asprintf(&p->errorKey, "%s %d", errorKey, p->id) > 0);
+            FOLK_ENSURE(asprintf(&p->statsKey, "%s %d", statsKey, p->id) > 0);
+        }
+        if (slot < 0 || videoThreadCreateBlocked(&p->playThread, videoPlayThread, p) != 0) {
+            if (slot >= 0) {
+                pthread_mutex_lock(&videoRegistryMutex);
+                videoPlayers[slot] = NULL;
+                pthread_mutex_unlock(&videoRegistryMutex);
+            }
+            free(p->frameKey); videoFreeStrings(p->frameTerms, p->frameTermsCount);
+            free(p->errorKey); videoFreeStrings(p->errorTerms, p->errorTermsCount);
+            free(p->statsKey); videoFreeStrings(p->statsTerms, p->statsTermsCount);
+            pthread_cond_destroy(&p->playCond);
+            pthread_mutex_destroy(&p->mu);
+            pthread_mutex_destroy(&p->sinkMutex);
+            free(p);
+            videoSourceRelease(src, false);
+            FOLK_ERROR("video: too many videos playing");
+        }
+        return p->id;
+    }
+
+    # Updates playback parameters on a running VideoPlayer without restarting
+    # ffmpeg.
+    $cc proc videoUpdate {int id double rate double fromSec double lengthSec
+                          int hasSeek double seekSec int paused Jim_Obj* cropObj} void {
+        pthread_mutex_lock(&videoRegistryMutex);
+        VideoPlayer* p = NULL;
+        for (int i = 0; i < VIDEO_PLAYERS_MAX; i++) {
+            if (videoPlayers[i] && videoPlayers[i]->id == id && !atomic_load(&videoPlayers[i]->closing)) {
+                p = videoPlayers[i];
+                break;
+            }
+        }
+        if (p == NULL) {
+            pthread_mutex_unlock(&videoRegistryMutex);
+            return;
+        }
+        pthread_mutex_lock(&p->mu);
+        pthread_mutex_unlock(&videoRegistryMutex);
+
+        videoSetParamsLocked(interp, p, rate, fromSec, lengthSec,
+                             hasSeek, seekSec, paused, cropObj, false);
+        atomic_fetch_add(&p->paramsGen, 1);
+        pthread_cond_broadcast(&p->playCond);
+
+        // Wake any wait inside readerFetchFrame while holding p->mu so
+        // videoCloseByKey cannot free p or release p->src concurrently.
+        pthread_mutex_lock(&p->src->mu);
+        pthread_cond_broadcast(&p->src->frameCond);
+        pthread_mutex_unlock(&p->src->mu);
+        pthread_mutex_unlock(&p->mu);
+    }
+
+    # Updates mute state on a running VideoPlayer in realtime (and enables audio
+    # decoding on the underlying VideoSource if it was initially started muted).
+    $cc proc videoSetMuted {int id int muted} void {
+        pthread_mutex_lock(&videoRegistryMutex);
+        VideoPlayer* p = NULL;
+        for (int i = 0; i < VIDEO_PLAYERS_MAX; i++) {
+            if (videoPlayers[i] && videoPlayers[i]->id == id && !atomic_load(&videoPlayers[i]->closing)) {
+                p = videoPlayers[i];
+                break;
+            }
+        }
+        if (p != NULL) {
+            atomic_store(&p->muted, muted != 0);
+            if (!muted && p->src && !p->src->isCustomArgs) {
+                pthread_mutex_lock(&p->src->mu);
+                if (!p->src->withSound) {
+                    p->src->withSound = 1;
+                    if (p->src->ringCap > 0 && p->src->audioRing == NULL) {
+                        size_t audioBytes = (size_t)p->src->ringCap * sizeof(AudioSlot);
+                        void* amem = mmap(NULL, audioBytes, PROT_READ | PROT_WRITE,
+                                          MAP_PRIVATE | MAP_ANON, -1, 0);
+                        if (amem != MAP_FAILED) {
+                            p->src->audioRing = (AudioSlot*)amem;
+                            p->src->audioRingBytes = audioBytes;
+                            for (int k = 0; k < p->src->ringCap; k++) {
+                                p->src->audioRing[k].fileFrame = -1;
+                            }
+                        }
+                    }
+                    p->src->seekRequested = true;
+                    p->src->seekTargetFrame = p->src->activeReadFrame >= 0 ? p->src->activeReadFrame : 0;
+                    sourceWakeDecoder(p->src);
+                    pthread_cond_broadcast(&p->src->decodeCond);
+                }
+                pthread_mutex_unlock(&p->src->mu);
+            }
+        }
+        pthread_mutex_unlock(&videoRegistryMutex);
+    }
+
+    $cc code {
+        // Stops the reader thread (and releases the source decoder when no reader
+        // remains). SIGUSR1 is blocked for the whole close so destructor hold clears
+        // cannot be skipped. Returns closed player id (or 0 if already/never open).
+        static int videoCloseByKey(int id, int token, bool onlyUnclaimed) {
+            sigset_t usr1, oldMask;
+            sigemptyset(&usr1); sigaddset(&usr1, SIGUSR1);
+            pthread_sigmask(SIG_BLOCK, &usr1, &oldMask);
+
+            pthread_mutex_lock(&videoRegistryMutex);
+            VideoPlayer* p = NULL; int slot = -1;
+            for (int i = 0; i < VIDEO_PLAYERS_MAX; i++) {
+                VideoPlayer* cand = videoPlayers[i];
+                if (!cand || atomic_load(&cand->closing)) { continue; }
+                if (onlyUnclaimed && cand->claimed) { continue; }
+                if ((id > 0 && cand->id == id) || (token > 0 && cand->token == token)) {
+                    p = cand; atomic_store(&p->closing, true); slot = i; break;
+                }
+            }
+            pthread_mutex_unlock(&videoRegistryMutex);
+            if (p == NULL) { pthread_sigmask(SIG_SETMASK, &oldMask, NULL); return 0; }
+            int closedId = p->id;
+
+            pthread_mutex_lock(&p->mu);
+            pthread_cond_broadcast(&p->playCond);
+            pthread_mutex_lock(&p->src->mu);
+            pthread_cond_broadcast(&p->src->frameCond);
+            pthread_mutex_unlock(&p->src->mu);
+            pthread_mutex_unlock(&p->mu);
+
+            pthread_join(p->playThread, NULL);
+
+            // Nothing writes to the sink any more; remove from table.
+            pthread_mutex_lock(&videoRegistryMutex);
+            videoPlayers[slot] = NULL;
+            pthread_mutex_unlock(&videoRegistryMutex);
+
+            videoSourceRelease(p->src, !onlyUnclaimed);
+
+            free(p->frameKey); videoFreeStrings(p->frameTerms, p->frameTermsCount);
+            free(p->errorKey); videoFreeStrings(p->errorTerms, p->errorTermsCount);
+            free(p->statsKey); videoFreeStrings(p->statsTerms, p->statsTermsCount);
+            pthread_cond_destroy(&p->playCond);
+            pthread_mutex_destroy(&p->mu);
+            pthread_mutex_destroy(&p->sinkMutex);
+            free(p);
+
+            pthread_sigmask(SIG_SETMASK, &oldMask, NULL);
+            return closedId;
+        }
+    }
+    $cc proc videoMarkClaimed {int id} void {
+        pthread_mutex_lock(&videoRegistryMutex);
+        for (int i = 0; i < VIDEO_PLAYERS_MAX; i++) {
+            VideoPlayer* cand = videoPlayers[i];
+            if (cand && cand->id == id) { cand->claimed = true; break; }
+        }
+        pthread_mutex_unlock(&videoRegistryMutex);
+    }
+    $cc proc videoClose {int id} void {
+        videoCloseByKey(id, 0, false);
+    }
+    $cc proc videoCloseUnclaimed {int token} int {
+        return videoCloseByKey(0, token, true);
+    }
+
+    # Sends the player's sound to `sink(ctx, bytes, len)` (from playThread),
+    # or nowhere if sink is NULL.
+    $cc proc videoSetSoundSink {int id void* sink void* ctx} void {
+        pthread_mutex_lock(&videoRegistryMutex);
+        for (int i = 0; i < VIDEO_PLAYERS_MAX; i++) {
+            VideoPlayer* p = videoPlayers[i];
+            if (p && p->id == id) {
+                pthread_mutex_lock(&p->sinkMutex);
+                p->sink = (VideoSoundSink) sink;
+                p->sinkCtx = ctx;
+                pthread_mutex_unlock(&p->sinkMutex);
+                break;
+            }
+        }
+        pthread_mutex_unlock(&videoRegistryMutex);
+    }
+
+    # Attaches or reuses the persistent AudioStream on `p->src` so live option
+    # handoffs keep the miniaudio ring buffer playing continuously.
+    $cc proc videoAttachSourceSound {int id int createIfMissing
+                                     void* openFn void* closeFn void* writeSink} void* {
+        void* stream = NULL;
+        pthread_mutex_lock(&videoRegistryMutex);
+        for (int i = 0; i < VIDEO_PLAYERS_MAX; i++) {
+            VideoPlayer* p = videoPlayers[i];
+            if (p && p->id == id && !atomic_load(&p->closing) && p->src) {
+                pthread_mutex_lock(&p->src->mu);
+                if (p->src->audioStream == NULL && createIfMissing) {
+                    VideoAudioOpenFn fn = (VideoAudioOpenFn)openFn;
+                    if (fn != NULL) {
+                        p->src->audioStream = fn(48000, 2);
+                        p->src->audioStreamCloseFn = (VideoAudioCloseFn)closeFn;
+                    }
+                }
+                stream = p->src->audioStream;
+                pthread_mutex_unlock(&p->src->mu);
+
+                pthread_mutex_lock(&p->sinkMutex);
+                if (stream != NULL) {
+                    p->sink = (VideoSoundSink)writeSink;
+                    p->sinkCtx = stream;
+                }
+                pthread_mutex_unlock(&p->sinkMutex);
+                break;
+            }
+        }
+        pthread_mutex_unlock(&videoRegistryMutex);
+        return stream;
+    }
+    set videoLib [$cc compile]
+
+    # Without audio.folk (no sound card, say), videos play silently.
+    When the audio library is /audioLib/ {
+        set cc [C]
+        $cc code { typedef struct AudioStream AudioStream; }
+        $cc import $audioLib audioStreamOpen
+        $cc import $audioLib audioStreamSetVolume
+        $cc import $audioLib audioStreamWriteBytes
+        $cc import $audioLib audioStreamClose
+        $cc import $videoLib videoAttachSourceSound
+        $cc import $videoLib videoSetSoundSink
+        $cc code {
+            static void videoSoundToStream(void* stream, const char* bytes, int len) {
+                audioStreamWriteBytes((AudioStream*) stream, (char*) bytes, len);
+            }
+            static void videoCloseStream(void* stream) {
+                audioStreamClose((AudioStream*) stream);
+            }
+        }
+        $cc proc videoConfigureSound {int id double volume int muted} void {
+            AudioStream* s = (AudioStream*) videoAttachSourceSound(
+                id, muted ? 0 : 1,
+                (void*) audioStreamOpen, (void*) videoCloseStream,
+                (void*) videoSoundToStream);
+            if (s != NULL) {
+                audioStreamSetVolume(s, muted ? 0.0 : volume);
+            }
+        }
+        $cc proc videoPlaySoundOn {int id AudioStream* stream} void {
+            videoSetSoundSink(id, (void*) videoSoundToStream, stream);
+        }
+        $cc proc videoStopSound {int id} void {
+            videoSetSoundSink(id, NULL, NULL);
+        }
+        Claim the video sound library is [$cc compile]
+    }
+
+    When /someone/ wishes /p/ plays video /path/ with /...options/ {
+        # HACK: the short wish above matches this too, with no options
+        # (same as in draw/image.folk).
+        if {![info exists options]} { return }
+
+        # A bare name is looked up in ~/folk-data/video; a full path
+        # (or ~/...) is used as it is, like images.
+        set resolve {{path} {
+            file join $::env(HOME)/folk-data/video [regsub {^~/} $path "$::env(HOME)/"]
+        }}
+        set file [apply $resolve $path]
+        if {![file isfile $file]} {
+            Say $p has error "video: No video file '$path'" with info {}
+            return
+        }
+        # Videos to play next to it, or after it, into one picture.
+        set others {}
+        set layout [expr {[dict exists $options beside] ? "beside" :
+                          [dict exists $options then] ? "then" : "one"}]
+        foreach other [dict getdef $options $layout {}] {
+            set otherFile [apply $resolve $other]
+            if {![file isfile $otherFile]} {
+                Say $p has error "video: No video file '$other'" with info {}
+                return
+            }
+            lappend others $otherFile
+        }
+
+        set probeMedia {{videoLib file} {
+            set cached [$videoLib videoProbeCacheGet $file]
+            if {$cached ne ""} { return $cached }
+            set fdur 0.0; set vdur 0.0; set w 0; set h 0; set hasAudio 0
+            catch {
+                set out [exec ffprobe -v error -show_entries format=duration:stream=codec_type,width,height,duration \
+                             -of default $file]
+                set curType ""
+                foreach line [split $out "\n"] {
+                    if {$line eq {[STREAM]} || $line eq {[FORMAT]}} {
+                        set curType ""
+                    } elseif {[regexp {^codec_type=(.+)$} $line -> t]} {
+                        set curType $t
+                        if {$t eq "audio"} { set hasAudio 1 }
+                    } elseif {[regexp {^width=(\d+)$} $line -> v] && $curType eq "video" && $w == 0} {
+                        set w $v
+                    } elseif {[regexp {^height=(\d+)$} $line -> v] && $curType eq "video" && $h == 0} {
+                        set h $v
+                    } elseif {[regexp {^duration=([0-9.]+)$} $line -> v]} {
+                        if {$curType eq "video" && $vdur == 0.0} {
+                            set vdur [expr {double($v)}]
+                        } elseif {$curType eq ""} {
+                            set fdur [expr {double($v)}]
+                        }
+                    }
+                }
+            }
+            set dur [expr {$vdur > 0 ? $vdur : $fdur}]
+            $videoLib videoProbeCachePut $file $dur $w $h $hasAudio
+            list $dur $w $h $hasAudio
+        }}
+        lassign [apply $probeMedia $videoLib $file] duration vw vh hasAudio
+
+        set boolOpt {{options key default} {
+            if {![dict exists $options $key]} { return $default }
+            set v [string tolower [dict get $options $key]]
+            expr {$v in {1 true yes on}}
+        }}
+        set initOptMuted [expr {[apply $boolOpt $options muted 0]}]
+        set canHaveSound [expr {$layout eq "one" && $hasAudio}]
+        set hasSound [expr {!$initOptMuted && $canHaveSound}]
+        set totalFrames [expr {$duration > 0 ? int(round($duration * 25.0)) : 0}]
+        set maxWidth 640
+
+        # Estimate whether the full uncropped clip fits in a single source ring
+        # (~26 MB default), so `source` players can share it safely without
+        # ring contention on long videos.
+        set ringMb [expr {[info exists ::env(FOLK_VIDEO_RING_MB)] && [string is integer -strict $::env(FOLK_VIDEO_RING_MB)] ? $::env(FOLK_VIDEO_RING_MB) : 26}]
+        if {$ringMb < 4} { set ringMb 4 }
+        if {$ringMb > 256} { set ringMb 256 }
+        set estFits 0
+        if {$layout eq "one" && $totalFrames > 0 && $vw > 0 && $vh > 0} {
+            set sw [expr {$vw > $maxWidth ? $maxWidth : $vw}]
+            set sh [expr {int($vh * double($sw) / $vw)}]
+            set fBytes [expr {$sw * $sh * 3 + ($hasSound ? 7680 : 0)}]
+            if {$totalFrames <= 1024 && $totalFrames * $fBytes <= $ringMb * 1024 * 1024 * 0.90} {
+                set estFits 1
+            }
+        }
+
+        set sourceProg [dict getdef $options source ""]
+        set shareId 0
+        if {$sourceProg ne "" && $layout eq "one"} {
+            set shareId [$videoLib videoFindSource $sourceProg $file $hasSound]
+        }
+
+        # Build custom ffmpeg args only for multi-file layouts (beside/then).
+        set customArgs {}
+        set customLoop 0
+        if {$layout ne "one"} {
+            set files [list $file {*}$others]
+            set graph {}; set labels {}; set total 0.0
+            lappend customArgs -nostdin -loglevel error -threads 2
+            for {set i 0} {$i < [llength $files]} {incr i} {
+                set f [lindex $files $i]
+                if {$layout eq "beside"} {
+                    lappend customArgs -stream_loop -1 -i $f
+                    lappend graph "\[$i:v\]scale=-2:240,setsar=1,fps=25\[v$i\]"
+                } else {
+                    set d [expr {$i == 0 ? $duration : [lindex [apply $probeMedia $videoLib $f] 0]}]
+                    set d [expr {$d > 0 && $d < 10.0 ? $d : 10.0}]
+                    set total [expr {$total + $d}]
+                    lappend customArgs -t $d -i $f
+                    lappend graph "\[$i:v\]scale=320:240:force_original_aspect_ratio=decrease,pad=320:240:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=25\[v$i\]"
+                }
+                lappend labels "\[v$i\]"
+            }
+            set n [llength $files]
+            if {$layout eq "beside"} {
+                lappend graph "[join $labels {}]hstack=inputs=$n\[v\]"
+                set customLoop 1
+            } else {
+                lappend graph "[join $labels {}]concat=n=$n:v=1:a=0\[v\]"
+                set duration $total
+                set totalFrames [expr {$duration > 0 ? int(round($duration * 25.0)) : 0}]
+            }
+            lappend customArgs -filter_complex [join $graph {;}] -map {[v]} -f image2pipe -c:v ppm pipe:1
+        }
+
+        set clampRange {{from to duration} {
+            if {$from eq "" || ![string is double -strict $from] || !(abs($from) < 1e9)} {
+                set from 0.0
+            } else {
+                set from [expr {double($from) > 0.0 ? double($from) : 0.0}]
+                if {$duration > 0.04 && $from > $duration - 0.04} {
+                    set from [expr {$duration - 0.04}]
+                }
+            }
+            if {$to eq "" || ![string is double -strict $to] || !(abs($to) < 1e9) ||
+                ($duration > 0 && $to > $duration)} {
+                set to [expr {$duration > 0 ? $duration : $from + 30.0}]
+            }
+            set length [expr {double($to) - $from}]
+            if {$length < 0.04} { set length 0.04 }
+            list $from $length
+        }}
+        set firstSeek {{seeks} {
+            set valid {}
+            foreach sk $seeks {
+                set t [dict get $sk t]
+                if {[string is double -strict $t] && abs($t) < 1e9} { lappend valid [expr {double($t)}] }
+            }
+            if {[llength $valid] == 0} { return {0 0.0} }
+            list 1 [lindex [lsort -real $valid] 0]
+        }}
+
+        # Compute initial parameters (and see if an initial seek is already present).
+        set initRate [dict getdef $options rate 1.0]
+        if {![string is double -strict $initRate] || !($initRate >= 0.1 && $initRate <= 16)} {
+            Say $p has error "video: Can't play at rate $initRate (0.1 to 16)" with info {}
+            return
+        }
+        set initRate [expr {double($initRate)}]
+        set initRev [expr {[dict getdef $options reverse false] ? -1 : 1}]
+        lassign [apply $clampRange [dict getdef $options from ""] [dict getdef $options to ""] $duration] initFrom initLen
+        set initPaused [expr {[dict getdef $options paused false] ? 1 : 0}]
+        set initCrop [dict getdef $options crop {}]
+        if {[llength $initCrop] != 4} { set initCrop {} }
+        lassign [apply $firstSeek [Query! /someone/ wishes $p seeks to /t/]] initHasSeek initSeekT
+
+        set ownerName [expr {$sourceProg eq "" ? $p : ""}]
+        set canShare [expr {$sourceProg eq "" && $estFits}]
+        set activeWishes [llength [Query! /someone/ wishes $p plays video $path with /...o/]]
+        set allowHandoff [expr {$sourceProg eq "" && $activeWishes <= 1}]
+
+        set token [$videoLib videoNewToken]
+        set frameKey [list $this video $p $path]
+        set errorKey [list $this video $p $path error]
+        set statsKey [list $this video $p $path stats]
+
+        # Guard the cancel window between `videoOpen` and `Claim ... -destructor`:
+        # once the player Claim attaches its own non-inherited `-destructor` and
+        # marks `claimed = true`, this fallback becomes a no-op while teardown stays
+        # scoped to that single Claim.
+        Destructor [list apply {{videoLib token this frameKey errorKey statsKey} {
+            set id [$videoLib videoCloseUnclaimed $token]
+            if {$id > 0} {
+                Hold! -on $this -key [list {*}[lrange $frameKey 1 end] $id] {}
+                Hold! -on $this -key [list {*}[lrange $errorKey 1 end] $id] {}
+                Hold! -on $this -key [list {*}[lrange $statsKey 1 end] $id] {}
+            }
+        }} $videoLib $token $this $frameKey $errorKey $statsKey]
+        try {
+            set id [$videoLib videoOpen $token $shareId $allowHandoff $ownerName $file \
+                        $canShare $maxWidth $totalFrames \
+                        $customArgs $customLoop $hasSound $initOptMuted \
+                        [expr {$initRate * $initRev}] $initFrom $initLen \
+                        $initHasSeek $initSeekT $initPaused $initCrop \
+                        $frameKey [list $this claims $p has video $path frame] \
+                        $errorKey [list $this claims $p has error \
+                                       "video: ffmpeg could not play $file" with info] \
+                        $statsKey [list $this claims $p has video $path decoder spawns]]
+        } on error {e opts} {
+            Say $p has error $e with info $opts
+            return
+        }
+        lappend frameKey $id; lappend errorKey $id; lappend statsKey $id
+
+        set dispKey [list video-disp $p $path $id]
+
+        # Display options are passed straight to `displays image`, so they
+        # mean exactly what they mean for images.
+        Hold! -on $this -key $dispKey \
+            Claim $p has video $path player $id display options $options
+
+        Claim $p has video $path duration $duration
+        Claim $p plays video $path with player $id \
+            -destructor [list apply {{videoLib id this frameKey errorKey statsKey dispKey} {
+                $videoLib videoClose $id
+                Hold! -on $this -key [lrange $frameKey 1 end] {}
+                Hold! -on $this -key [lrange $errorKey 1 end] {}
+                Hold! -on $this -key [lrange $statsKey 1 end] {}
+                Hold! -on $this -key $dispKey {}
+            }} $videoLib $id $this $frameKey $errorKey $statsKey $dispKey]
+        $videoLib videoMarkClaimed $id
+
+        # Atomically, so that the previous frame stays up until the
+        # next one has been loaded onto the GPU. Keep the player id out
+        # of this pattern: the pattern is the Atomically key, and Folk
+        # has 256 keys for good, so a new key on every start would run
+        # out (test/video-restart.folk).
+        When -atomically $p has video $path frame /im/ {
+            When $p has video $path player $id display options /dOpts/ {
+                Wish $p displays image $im with {*}$dOpts
+            }
+        }
+
+        # Live edit controller: updates rate, reverse, range, seek, and crop on
+        # the running reader without restarting ffmpeg.
+        When the collected results for [list /someone/ wishes $p is sped up by /n/] are /speeds/ &\
+             the collected results for [list /someone/ wishes $p is reversed] are /reverses/ &\
+             the collected results for [list /someone/ wishes $p plays from /t0/ to /t1/] are /ranges/ &\
+             the collected results for [list /someone/ wishes $p is cropped to /rect/] are /crops/ &\
+             the collected results for [list /someone/ wishes $p seeks to /t/] are /seeks/ &\
+             the collected results for [list /someone/ wishes $p is paused] are /pauseWishes/ {
+            set rate [dict getdef $options rate 1.0]
+            foreach s $speeds { set rate [expr {$rate * double([dict get $s n])}] }
+            set reverse [expr {[dict getdef $options reverse false] || [llength $reverses] > 0}]
+            set signedRate [expr {$reverse ? -$rate : $rate}]
+            Claim $p has negotiated video speed [format %.1f $signedRate]
+            if {!($rate >= 0.1 && $rate <= 16)} {
+                Say $p has error "video: Can't play at rate $rate (0.1 to 16)" with info {}
+                return
+            }
+
+            set from [dict getdef $options from ""]
+            set to [dict getdef $options to ""]
+            if {$from eq "" && $to eq "" && [llength $ranges] > 0} {
+                set range [lindex [lsort [lmap r $ranges {list [dict get $r t0] [dict get $r t1]}]] 0]
+                lassign $range from to
+            }
+            lassign [apply $clampRange $from $to $duration] from length
+
+            set crop [dict getdef $options crop ""]
+            if {$crop eq "" && [llength $crops] > 0} {
+                set crop [lindex [lsort [lmap c $crops {dict get $c rect}]] 0]
+            }
+            if {[llength $crop] != 4} { set crop {} }
+
+            set paused [expr {([dict getdef $options paused false] || [llength $pauseWishes] > 0) ? 1 : 0}]
+            lassign [apply $firstSeek $seeks] hasSeek seekT
+
+            Claim $p plays video $path from $from length $length at rate $signedRate
+
+            $videoLib videoUpdate $id $signedRate $from $length $hasSeek $seekT $paused $crop
+        }
+
+        if {!$canHaveSound} { return }
+        # Live audio controller: updates volume and mute state in realtime without
+        # restarting ffmpeg or reopening the AudioStream.
+        When the collected results for [list /someone/ wishes $p has video volume /v/] are /volWishes/ &\
+             the collected results for [list /someone/ wishes $p is muted] are /muteWishes/ {
+            set vol [dict getdef $options volume 1.0]
+            foreach r $volWishes {
+                set cand [dict get $r v]
+                if {[string is double -strict $cand]} { set vol [expr {double($cand)}] }
+            }
+            if {![string is double -strict $vol]} { set vol 1.0 }
+            if {$vol < 0.0} { set vol 0.0 }
+
+            set isMuted [expr {$initOptMuted || [llength $muteWishes] > 0}]
+            if {$vol <= 0.0} {
+                set effMuted 1
+            } else {
+                set effMuted $isMuted
+            }
+
+            $videoLib videoSetMuted $id $effMuted
+            Claim $p has video $path player $id audio volume $vol muted $isMuted
+            Claim $p has video audio volume $vol muted $isMuted
+        }
+
+        When the audio library is /audioLib/ &\
+             the video sound library is /soundLib/ {
+            Destructor [list $soundLib videoStopSound $id]
+            When $p has video $path player $id audio volume /vol/ muted /isMuted/ {
+                try {
+                    $soundLib videoConfigureSound $id $vol [expr {$isMuted || $vol <= 0.0 ? 1 : 0}]
+                } on error {e opts} {
+                    Say $p has error $e with info $opts
+                }
+            }
+        }
+    }
+}
