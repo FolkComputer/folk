@@ -1,11 +1,8 @@
 # calibrate.folk --
 #
-#     Implements camera-projector calibration: generate a calibration
-#     pattern PDF, have the user measure its real-world dimension, run
-#     iterative projector-camera process to get various poses of the
-#     printed tags alongside projected tags, do linear fit and then
-#     nonlinear refinement to find intrinsic and extrinsic parameters
-#     for the camera and projector.
+#     Collects camera-projector calibration poses by iteratively aligning
+#     projected tags with a printed calibration board. session.folk uses
+#     the collected poses to solve for camera and projector parameters.
 #
 #     Closely based on the technique in Audet (2009):
 #     http://www.ok.sc.e.titech.ac.jp/res/PCS/publications/procams2009.pdf
@@ -19,6 +16,26 @@ dict assign [import lib/linalg.tcl] add norm sub scale matmul \
 Hold! -key {calibration poses max} \
     Claim the calibration poses max is 10
 
+# Save and clear setup's detection hold until the calibration request ends.
+When the db library is /dbLib/ &\
+     /someone/ wishes to calibrate camera /camera/ to display /display/ \
+         using measurements /measurements/ {
+    set setup builtin-programs/web/setup.folk
+    set detectTagsKey "camera $camera detects tags"
+    set savedDetectTagsClause {}
+    foreach hold [dbLib::holds [__db]] {
+        lassign $hold key version ref clause
+        if {$key eq [list $setup {*}$detectTagsKey]} {
+            set savedDetectTagsClause [dbLib::clause [__db] $ref]
+            break
+        }
+    }
+    Hold! -on $setup -key $detectTagsKey {}
+    On unmatch {
+        Hold! -on $setup -key $detectTagsKey -- {*}$savedDetectTagsClause
+    }
+}
+
 When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      display /display/ has width /displayWidth/ height /displayHeight/ &\
      the AprilTag detector maker is /makeAprilTagDetector/ &\
@@ -30,9 +47,14 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
     set printedSideLengthMm [string trimright $measurements::tagSideLength mm]
 
-    set calibrationTagDetector [makeAprilTagDetector "tagStandard52h13" 2.0 3]
+    if {$cameraWidth >= 3840 && $cameraHeight >= 2160} {
+        set calibrationTagDetector [makeAprilTagDetector "tagStandard52h13" 4.0 2]
+    } else {
+        set calibrationTagDetector [makeAprilTagDetector "tagStandard52h13" 2.0 3]
+    }
 
-    set calibrationId [clock milliseconds]
+    set calibrationId [clock microseconds]
+    Hold! -key collection-complete {}
 
     # VERY IMPORTANT: disable autofocus forever.
     catch { exec v4l2-ctl --device=$camera --set-ctrl=focus_automatic_continuous=0 }
@@ -76,9 +98,12 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     On unmatch { Hold! -key last-seen-poses {} }
     set SEEN_POSES_MAX 3
 
+    # Backward compatibility: clear legacy poses so old and scoped counts
+    # cannot coexist and double the projected labels.
+    Hold! -save -on calibration -key poses {}
     # The poses to use for actual calibration at the end. We'll want
     # at least 10 poses to do ultimate calibration+refinement.
-    Hold! -on calibration -key poses \
+    Hold! -on calibration -key [list poses $camera $display] \
         Claim the calibration poses from camera $camera to display $display are [list]
 
     Hold! -key cycle-time \
@@ -95,7 +120,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         set message "[llength $poses]/$posesMax poses ([expr {round($cycleTime*1000)}] ms)"
         Wish to draw calibration model $modelToDisplayOpts::model \
             using model-to-display homography $H_modelToDisplay \
-            with message $message
+            with message $message on display $display
     }
 
     # This is made a function so it can also be called by the Web page
@@ -141,6 +166,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
     When the calibration poses max is /calibrationPosesMax/ &\
          -serially camera $camera has gray frame /frame/ at timestamp /frameTimestamp/ {
+        if {[llength [Query! the calibration collection completed run $calibrationId with /poses/ at /timestamp/]]} { return }
         # HACK: so we just lookup whatever is latest _right now_,
         # instead of subscribing.
         set calibrationStates \
@@ -165,9 +191,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             return
         }
 
-        set aprilTime [time {
-            set tags [calibrationTagDetector::detect $frame]
-        }]
+        set tags [calibrationTagDetector::detect $frame]
 
         # This runs every frame, looks at the detected tags (both
         # projected and printed), and updates the H_modelToDisplay
@@ -361,8 +385,6 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             }
         }
 
-        puts "WOULD APPEND CALIBRATION..."
-
         # If the corners have _not_ moved a lot since last _saved_
         # calibration pose, this isn't different enough to be a good
         # calibration pose to save.
@@ -384,7 +406,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # OK, let's save this calibration pose.
         lappend calibrationPoses $pose
         puts "calibrate: APPENDED CALIBRATION TO POSES ([llength $calibrationPoses] poses collected)"
-        Hold! -on calibration -key poses \
+        Hold! -on calibration -key [list poses $camera $display] \
             -version $nextModelFrameTimestamp \
             Claim the calibration poses from camera $camera to display $display are $calibrationPoses
 
@@ -399,15 +421,15 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             Hold! -save -on calibration -key calibration-measurements \
                 Claim the calibration measurements are $measurements
 
-            Hold! -save -on calibration -key poses \
-                Claim the calibration poses from camera $camera to display $display are $calibrationPoses
-            # Destroy the old calibration and trigger a new one.
+            # Backward compatibility: prevent legacy poses from doubling labels,
+            # and retire the old unscoped calibration result.
+            Hold! -save -on calibration -key poses {}
             Hold! -save -on calibration -key calibration {}
 
-            Hold! -key {start calibration} {}
-        }
-    }
-}
+            Hold! -save -on calibration -key [list poses $camera $display] \
+                Claim the calibration poses from camera $camera to display $display are $calibrationPoses
+            # Destroy the old calibration and trigger a new one.
+            Hold! -save -on calibration -key [list calibration $camera $display] {}
 
 fn processHomography {H} {
     fn h {i j} { getelem $H [- $j 1] [- $i 1] }

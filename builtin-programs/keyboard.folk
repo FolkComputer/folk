@@ -17,10 +17,13 @@ fn isKeyboard {device} {
 #
 # This function goes through each of them and checks if they are keyboards
 fn walkInputEventPaths {} {
-    # set allDevices [glob -nocomplain "/dev/input/event*"]
-    set allDevices [glob -nocomplain "/dev/input/by-path/*"]
+    set allDevices [lsort [glob -nocomplain "/dev/input/by-path/*-event-*" "/dev/input/by-path/keyboard-*"]]
+    set seen [dict create]
     set keyboards [list]
     foreach device $allDevices {
+        set canonicalName [file readlink $device]
+        if {[dict exists $seen $canonicalName]} { continue }
+        dict set seen $canonicalName $device
         if {[isKeyboard $device]} {
             if {![file readable $device]} {
                 stream write $realStderr "keyboard: Device $device is not readable. Attempting to change permissions.\n"

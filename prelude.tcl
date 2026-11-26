@@ -36,6 +36,7 @@ fn Hold! {args} {
     set destructorCode {}
     set isNonCapturing false
     set saveHold false
+    set retainResources false
     for {set i 0} {$i < [llength $args]} {incr i} {
         set arg [lindex $args $i]
         if {$arg eq "-on"} {
@@ -72,6 +73,13 @@ fn Hold! {args} {
         # Hold! { ... body ... }
         set body [lindex $clause 0]
         lassign [vm source $body] filename lineno
+        # HACK: if we have a capturing body `Hold! {...}`, then we
+        # retain resources by default (unlike when we Hold! a plain
+        # statement), because the body may use any destructor-bound
+        # resource, so we need to keep them all alive just in case (so
+        # the held statement must inherit the current Match's
+        # destructor set).
+        if {!$isNonCapturing} { set retainResources true }
 
         set closure [vm source [uplevel 1 [list fn {} $body]] $filename $lineno]
         set clause [list when $closure]
@@ -97,7 +105,7 @@ fn Hold! {args} {
 
     tailcall HoldStatementGlobally! \
         $key $version $clause $keepMs $destructorCode \
-        $filename $lineno
+        $filename $lineno $retainResources
 }
 
 fn Say {args} {
@@ -256,6 +264,9 @@ fn When {args} {
             set ampersand [lsearch -exact $pattern &]
             set firstPattern [lrange $pattern 0 [expr {$ampersand < 0 ? [llength $pattern]-1 : $ampersand-1}]]
             if {([lrange $firstPattern 1 end-1] eq {has camera slice} ||
+                 ([llength $firstPattern] == 8 &&
+                  [lrange $firstPattern 1 3] eq {has camera slice} &&
+                  [lrange $firstPattern 5 6] eq {with width}) ||
                  [lrange $firstPattern 0 end-1] eq {the clock time is})} {
 
                 set key [list $this $sourceInfo $pattern]

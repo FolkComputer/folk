@@ -264,7 +264,9 @@ void HoldStatementGlobally(const char *key, double version,
 }
 static int HoldStatementGloballyFunc(Zicl_Interp *interp, int argc, Zicl_Shim *argv) {
     int rc = 0;
-    assert(argc == 8);
+    // TODO: The 9th argument, retainResources, comes from upstream's Hold!
+    // and is accepted but ignored until its destructor inheritance is ported.
+    assert(argc == 8 || argc == 9);
 
     const char* sourceFileName = ziclShimString(&argv[6]);
     long sourceLineNumber; ZICL_TRY(Zicl_GetLong(interp, &argv[7], &sourceLineNumber), rc);
@@ -755,8 +757,8 @@ static void interpBoot() {
     Zicl_CreateCommand(interp, "Retract!", RetractFunc, "?term ...?", 0, -1);
     Zicl_CreateCommand(
         interp, "HoldStatementGlobally!", HoldStatementGloballyFunc,
-        "key version clause keepMs destructorCode sourceFileName sourceLineNumber",
-        7, 7
+        "key version clause keepMs destructorCode sourceFileName sourceLineNumber ?retainResources?",
+        7, 8
     );
 
     Zicl_CreateCommand(interp, "NotifyImpl", NotifyFunc, "term ?term ...?", 0, -1);

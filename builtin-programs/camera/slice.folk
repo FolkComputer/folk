@@ -1,10 +1,7 @@
-# Example program, i.e the public API
-#
-# When $this has camera slice /slice/ {
-#     Wish $this displays camera slice $slice
-# }
+# Wish $p has camera slice with width 960
+# When $p has camera slice /slice/ with width 960 { ... }
+# The unqualified request/result uses the camera's projected pixel density.
 
-# Callback: extract out a camera slice
 When the image library is /imageLib/ &\
      the quad library is /quadLib/ &\
      the pose library is /poseLib/ &\
@@ -49,9 +46,16 @@ When the image library is /imageLib/ &\
     set max3D [math::max $quadWidth $quadHeight]
     set pixelsPerMeter [expr {$maxProjected / $max3D}]
 
-    # Scale to pixels while maintaining aspect ratio
-    set sliceWidth [expr {int($quadWidth * $pixelsPerMeter)}]
-    set sliceHeight [expr {int($quadHeight * $pixelsPerMeter)}]
+    When /someone/ wishes /p/ has camera slice &\
+         camera /cam/ has intrinsics /cameraIntrinsics/ &\
+         camera /cam/ has frame /frame/ at timestamp /timestamp/ &\
+         /p/ has quad /q/ {
+        lassign [cameraSliceGeometry $frame $q $cam $cameraIntrinsics] vertices width aspect
+        Wish $p has camera slice with width $width
+        When $p has camera slice /slice/ with width $width {
+            Claim $p has camera slice $slice
+        }
+    }
 
     tracy::zoneBegin
     tracy::zoneName "warpQuad"
@@ -66,8 +70,10 @@ When the image library is /imageLib/ &\
 When when /p/ has camera slice /slice/ /lambda/ {
     Wish -nonatomically $p has camera slice
 }
+When when /p/ has camera slice /slice/ with width /width/ /lambda/ with environment /e/ {
+    Wish -nonatomically $p has camera slice with width $width
+}
 
-# Display a camera slice (for backward compatibility).
 When /someone/ wishes /p/ displays camera slice /slice/ {
     Wish $p displays image $slice
 }
