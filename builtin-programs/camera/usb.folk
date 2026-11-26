@@ -333,12 +333,11 @@ When camera /cameraPath/ has width /decompWidth/ height /decompHeight/ {
 When /someone/ wishes $thisNode uses camera /camera/ with /...options/ {
     if {![string match "/dev/*" $camera]} { return }
 
-    set width [dict get $options width]
-    set height [dict get $options height]
+    dict assign $options width height
     set bufferCount [dict getdef $options bufferCount 2]
 
     if {[dict exists $options crops]} {
-        set crops [dict get $options crops]
+        set crops $options::crops
     }
 
     fn runCamera {camObjVar} {
@@ -359,8 +358,8 @@ When /someone/ wishes $thisNode uses camera /camera/ with /...options/ {
         if {[vm exists crops]} {
             for {set i 0} {$i < [llength $crops]} {incr i} {
                 set crop [lindex $crops $i]
-                Claim camera [list $camera $i] has width [dict get $crop width] \
-                    height [dict get $crop height]
+                Claim camera [list $camera $i] has width $crop::width \
+                    height $crop::height
             }
         } else {
             Claim camera $camera has width $width height $height
@@ -372,22 +371,22 @@ When /someone/ wishes $thisNode uses camera /camera/ with /...options/ {
 
         # Inner, frame loop.
         while true {
-            tracy zoneBegin
+            tracy::zoneBegin
 
             set ms [clock milliseconds]
             set jpeg [camLib::cameraFrameJpeg $camObj]
             set timestamp [expr {$ms / 1000.0}]
-            tracy zoneName "camera/usb: $timestamp"
+            tracy::zoneName "camera/usb: $timestamp"
 
             if {[vm exists crops]} {
                 for {set i 0} {$i < [llength $crops]} {incr i} {
                     set crop [lindex $crops $i]
                     set cropPath [list $camera $i]
                     set croppedJpeg [jpegLib::jpegSubimage $jpeg \
-                                         [dict get $crop x] \
-                                         [dict get $crop y] \
-                                         [dict get $crop width] \
-                                         [dict get $crop height]]
+                                         $crop::x \
+                                         $crop::y \
+                                         $crop::width \
+                                         $crop::height]
                     Hold! -key [list camera $cropPath jpeg] \
                         Claim camera $cropPath has jpeg frame $croppedJpeg at timestamp $timestamp \
                         -destructor [list $camLib jpegFree $croppedJpeg]
@@ -401,7 +400,7 @@ When /someone/ wishes $thisNode uses camera /camera/ with /...options/ {
                 Claim camera $camera has jpeg frame $jpeg at timestamp $timestamp \
                 -destructor [list $camLib jpegFree $jpeg]
 
-            tracy zoneEnd
+            tracy::zoneEnd
         }
     }
 

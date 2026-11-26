@@ -35,7 +35,7 @@ wsSend $client {
 
 # Verify the client receives the message sent by wsSend $ctx.
 set reply [wsReadMsg $client]
-set payload [dict get $reply payload]
+set payload $reply::payload
 if {$payload ne "test-channel pong"} {
     error "Expected 'test-channel pong', got '$payload'"
 }

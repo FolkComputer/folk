@@ -24,8 +24,7 @@ When the image library is /imageLib/ & the print library is /printLib/ &\
      /p/ has canvas projection /surfaceToClip/ &\
      /someone/ wishes to draw an AprilTag onto /p/ with /...options/ {
 
-    set id [dict get $options id]
-    set corners [dict get $options corners]
+    dict assign $options id corners
     set layer [dict getdef $options layer 0]
     set background [dict getdef $options background [list 1 1 1 1]]
 
@@ -45,7 +44,7 @@ When the image library is /imageLib/ & the print library is /printLib/ &\
                         0b[join [lreverse [lrange $tagBits 64 95]] ""] \
                         0b[join [lreverse [lrange $tagBits 96 127]] ""]]
 
-    set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
+    set wiResolution [list $wiOptions::width $wiOptions::height]
     Wish the GPU draws pipeline "apriltag" onto canvas $writableTexture with \
         arguments [list $wiResolution $surfaceToClip $background \
                        tagBitsVec::{*}$corners] \

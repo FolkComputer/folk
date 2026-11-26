@@ -8,7 +8,6 @@ When /someone/ wishes to load the DINOv2 image embedder {
 
 When /someone/ wishes to really load the DINOv2 image embedder &\
      the image uvx argtype definer is /defineImageArgtype/ {
-    fn defineImageArgtype
 
     set py [Uvx --with transformers --with pillow --with torch \
                 --with torchvision \
@@ -16,7 +15,7 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
                   [list --with openvino] : [list])]
     defineImageArgtype $py
 
-    $py exec {
+    py::exec {
         import sys
         import time
         import importlib.util
@@ -469,7 +468,7 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
               file=sys.stderr, flush=True)
     }
 
-    $py def embedImage {Image image} {
+    py::def embedImage {Image image} {
         rgb = image.convert("RGB")
         foreground = torch.from_numpy(np.array(rgb, copy=True))
         foreground = foreground.ne(128).any(dim=-1).float()[None, None]
@@ -499,7 +498,7 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
         return embedding[0].float().cpu().tolist()
     }
 
-    $py def localizeObjectCenters {
+    py::def localizeObjectCenters {
             Image image
             {list list list num} object_embeddings
             {list list str} template_filenames
@@ -603,7 +602,7 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
         return results
     }
 
-    $py def heatmapsImage {Image image {list list num} embeddings} {
+    py::def heatmapsImage {Image image {list list num} embeddings} {
         if not embeddings:
             return []
 
@@ -615,17 +614,17 @@ When /someone/ wishes to really load the DINOv2 image embedder &\
     }
 
     fn DINOv2Heatmaps {im embeddings} {
-        return [$py heatmapsImage $im $embeddings]
+        return [py::heatmapsImage $im $embeddings]
     }
     fn DINOv2LocalizeObjectCenters {
             im embeddings templateFilenames coarseThreshold radiusCells
             {poseAngles {}}} {
-        return [$py localizeObjectCenters \
+        return [py::localizeObjectCenters \
             $im $embeddings $templateFilenames $coarseThreshold $radiusCells \
             $poseAngles]
     }
 
-    fn DINOv2 {im} { return [$py embedImage $im] }
+    fn DINOv2 {im} { return [py::embedImage $im] }
     Claim the DINOv2 image embedder is [fn DINOv2]
     Claim the DINOv2 image heatmapper is [fn DINOv2Heatmaps]
     Claim the DINOv2 object center localizer is \

@@ -54,7 +54,7 @@ Assert! when /this/ has program code /programCode/ [fn {this programCode} {
         }
         When /someone/ wishes program $this is replaced with /...replacedOpts/ {
             SayWithSource [dict create sourceFileName $this sourceLineNumber 1] \
-                when [fn {} [vm source [dict get $replacedOpts code] $this 1]]
+                when [fn {} [vm source $replacedOpts::code $this 1]]
         }
     }
 }]

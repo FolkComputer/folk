@@ -219,8 +219,7 @@ When the image library is /imageLib/ &\
 
     puts "camera/rpi: Running."
 
-    set width [dict get $options width]
-    set height [dict get $options height]
+    dict assign $options width height
 
     set camLib [eval $makeCamera]
     camLib::cameraOpen $cameraPath $width $height
@@ -232,18 +231,18 @@ When the image library is /imageLib/ &\
 
     set oldFrames [list]
     while true {
-        tracy zoneBegin
+        tracy::zoneBegin
 
         try {
             set frame [camLib::grayFrame]
         } on error e {
-            tracy zoneName "err: $e"
-            tracy zoneEnd
+            tracy::zoneName "err: $e"
+            tracy::zoneEnd
             continue
         }
 
         set timestamp [expr {[clock milliseconds] / 1000.0}]
-        tracy zoneName "camera/rpi: $timestamp"
+        tracy::zoneName "camera/rpi: $timestamp"
         Hold! -key [list camera $cameraPath gray-frame] \
             Claim camera $cameraPath has gray frame $frame at timestamp $timestamp
         Hold! -key [list camera $cameraPath frame] \
@@ -255,6 +254,6 @@ When the image library is /imageLib/ &\
             camLib::freeImage $oldestFrame
         }
 
-        tracy zoneEnd
+        tracy::zoneEnd
     }
 }

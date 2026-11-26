@@ -22,7 +22,7 @@ When the gif library is /gifLib/ {
         if {[string match "*gif" $im]} {
             set gif [gifLib::loadGif $im]
             if {$coerceToImage} {
-                return [lindex [dict get $gif frames] 0]
+                return [lindex $gif::frames 0]
             }
 
             # WARNING: This is not an Image object -- it's a Gif
@@ -101,24 +101,23 @@ When the image library is /imageLib/ &\
      /p/ has canvas /id/ with /...wiOptions/ &\
      /p/ has canvas projection /surfaceToClip/ {
 
-    set im [dict get $options image]
+    set im $options::image
 
     if {[dict exists $options position]} {
-        lassign [dict get $options position] x0 y0
+        lassign $options::position x0 y0
     } else {
-        set x0 [dict get $options x]
-        set y0 [dict get $options y]
+        set x0 $options::x
+        set y0 $options::y
     }
     set radians [dict getdef $options radians 0]
     
     if {[dict exists $options width] && [dict exists $options height]} {
-        set width [dict get $options width]
-        set height [dict get $options height]
+        dict assign $options width height
     } elseif {[dict exists $options width] && ![dict exists $options height]} {
-        set width [dict get $options width]
+        set width $options::width
         set height $(double($im::height) / $im::width * $width)
     } elseif {![dict exists $options width] && [dict exists $options height]} {
-        set height [dict get $options height]
+        set height $options::height
         set width $(double($im::width) / $im::height * $height)
     }
 
@@ -138,7 +137,7 @@ When the image library is /imageLib/ &\
         error "Unsupported anchor: $anchor"
     }
 
-    set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
+    set wiResolution [list $wiOptions::width $wiOptions::height]
 
     Wish the GPU loads image $im as texture
     When the GPU has loaded image $im as texture /gim/ {
@@ -168,9 +167,9 @@ When the image library is /imageLib/ &\
         return
     }
 
-    set width [/ [dict getdef $geom left [dict get $geom width]] 1.5]
+    set width [/ [dict getdef $geom left $geom::width] 1.5]
     set derivedHeight $(double($im::height)/$im::width * $width)
-    set geomHeight [dict get $geom height]
+    set geomHeight $geom::height
     if {$derivedHeight > $geomHeight} {
         set width $($geomHeight / $derivedHeight * $width)
     }

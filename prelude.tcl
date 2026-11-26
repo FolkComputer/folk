@@ -85,8 +85,8 @@ fn Hold! {args} {
 
     if {![vm exists filename] || ![vm exists lineno]} {
         set frame [vm frame -1]
-        set filename [dict get $frame file]
-        set lineno [dict get $frame line]
+        set filename $frame::file
+        set lineno $frame::line
     }
 
     if {$saveHold} {
@@ -102,8 +102,8 @@ fn Hold! {args} {
 
 fn Say {args} {
     set callerInfo [vm frame -1]
-    set sourceFileName [dict get $callerInfo file]
-    set sourceLineNumber [dict get $callerInfo line]
+    set sourceFileName $callerInfo::file
+    set sourceLineNumber $callerInfo::line
 
     set keepMs 0
     set atomicallyVersion [__currentAtomicallyVersion]
@@ -293,9 +293,9 @@ fn When {args} {
         keepMs $keepMs \
         atomicallyVersion $atomicallyVersion]
     if {$whenOptions ne {}} {
-        dict set attrs atomicallyKey [lindex $whenOptions 1]
+        set attrs::atomicallyKey [lindex $whenOptions 1]
         if {[vm exists keep]} {
-            dict set attrs atomicTimeout $atomicTimeout
+            set attrs::atomicTimeout $atomicTimeout
         }
     }
 
@@ -510,7 +510,7 @@ fn Expect! {args} {
 
         set result [lindex $results 0]
         if {[dict exists $result __ref] && [__currentMatchRef] ne ""} {
-            set ref [dict get $result __ref]
+            set ref $result::__ref
             try {
                 CurrentMatchInheritStatementDestructors! $ref
             } on error e {
@@ -535,7 +535,7 @@ fn ForEach! {args} {
     set results [Query! {*}$pattern]
     foreach result $results {
         if {[dict exists $result __ref]} {
-            set ref [dict get $result __ref]
+            set ref $result::__ref
             try {
                 StatementAcquire! $ref
             } on error e {
@@ -587,60 +587,62 @@ fn ForEach! {args} {
 set thisNode [vm hostname]
 # TODO: Save ::thisNode and check if it's changed.
 
+# Tracing calls go through `tracy::name`, which is a no-op unless Folk
+# was built with Tracy.
+set tracyProcs {init message frameMark makeString frameMarkNamed
+    frameMarkStart frameMarkEnd plot setThreadName zoneBegin zoneName zoneEnd}
 if {[__isTracyEnabled]} {
     set tracyCid "tracy_$folkPid"
-    set tracyLib "<C:$tracyCid>"
-    set tracySo "/tmp/$tracyCid.so"
     fn tracyCompile {} {
         # We should only compile this once, then load the same library
         # everywhere in Folk (no matter what thread).
         set tracyCpp [C++]
-        $tracyCpp cflags -std=c++20 -I./vendor/tracy/public
-        $tracyCpp include <string.h>
-        $tracyCpp include "tracy/TracyC.h"
-        $tracyCpp proc init {} void {
+        tracyCpp::cflags -std=c++20 -I./vendor/tracy/public
+        tracyCpp::include <string.h>
+        tracyCpp::include "tracy/TracyC.h"
+        tracyCpp::proc init {} void {
             fprintf(stderr, "Tracy on\n");
         }
-        $tracyCpp proc message {char* x} void {
+        tracyCpp::proc message {char* x} void {
             TracyCMessage(x, strlen(x));
         }
 
-        $tracyCpp proc frameMark {} void {
+        tracyCpp::proc frameMark {} void {
             TracyCFrameMark;
         }
-        $tracyCpp proc makeString {char* x} uint8_t* {
+        tracyCpp::proc makeString {char* x} uint8_t* {
             return (uint8_t *)strdup(x);
         }
-        $tracyCpp proc frameMarkNamed {uint8_t* str} void {
+        tracyCpp::proc frameMarkNamed {uint8_t* str} void {
             TracyCFrameMarkNamed((char *)str);
         }
-        $tracyCpp proc frameMarkStart {uint8_t* str} void {
+        tracyCpp::proc frameMarkStart {uint8_t* str} void {
             TracyCFrameMarkStart((char *)str);
         }
-        $tracyCpp proc frameMarkEnd {uint8_t* str} void {
+        tracyCpp::proc frameMarkEnd {uint8_t* str} void {
             TracyCFrameMarkEnd((char *)str);
         }
-        $tracyCpp proc plot {uint8_t* str double val} void {
+        tracyCpp::proc plot {uint8_t* str double val} void {
             TracyCPlot((char *)str, val);
         }
 
-        $tracyCpp proc setThreadName {char* name} void {
+        tracyCpp::proc setThreadName {char* name} void {
             TracyCSetThreadName(strdup(name));
         }
-        $tracyCpp code {
+        tracyCpp::code {
             #define __ZONE_CTX_MAX 16
             __thread TracyCZoneCtx __zoneCtxs[__ZONE_CTX_MAX];
             __thread int __zoneCtxIdx;
         }
-        $tracyCpp proc zoneBegin {} void {
+        tracyCpp::proc zoneBegin {} void {
             Zicl_Val script = Zicl_GetScriptBeingEvaluated(interp);
             const char* sourceFileName = Zicl_SourceGetFilename(script);
             sourceFileName = sourceFileName ? sourceFileName : "<unknown>";
-            Zicl_OptVal fnName = Zicl_GetClosureNameBeingEvaluated(interp);
-            const char *fnName = "<unknown>";
-            if (Zicl_IsSome(fnName)) {
-                fnName = ziclString(Zicl_Unwrap(fnName));
-            }
+            int sourceLineNumber = Zicl_SourceGetLine(script);
+            if (sourceLineNumber < 0) { sourceLineNumber = 0; }
+            Zicl_OptVal closureName = Zicl_GetClosureNameBeingEvaluated(interp);
+            const char *fnName = Zicl_IsSome(closureName) ?
+                ziclString(Zicl_Unwrap(closureName)) : "<unknown>";
             uint64_t loc = ___tracy_alloc_srcloc((uint32_t) sourceLineNumber,
                                                  sourceFileName, strlen(sourceFileName),
                                                  fnName, strlen(fnName), 0);
@@ -650,46 +652,47 @@ if {[__isTracyEnabled]} {
             }
             __zoneCtxs[__zoneCtxIdx++] = ___tracy_emit_zone_begin_alloc(loc, 1);
         }
-        $tracyCpp proc zoneName {char* name} void {
+        tracyCpp::proc zoneName {char* name} void {
             if (__zoneCtxIdx > 0) {
                 ___tracy_emit_zone_name(__zoneCtxs[__zoneCtxIdx - 1], name, strlen(name));
             }
         }
-        $tracyCpp proc zoneEnd {} void {
+        tracyCpp::proc zoneEnd {} void {
             if (__zoneCtxIdx <= 0) {
                 fprintf(stderr, "tracy: zone stack underflow\n");
                 exit(1);
             }
             ___tracy_emit_zone_end(__zoneCtxs[--__zoneCtxIdx]);
         }
-        return [$tracyCpp compile $tracyCid]
-    }
-    fn tracyTryLoad {} {
-        if {![file exists $tracySo]} {
-            return false
-        }
-        $tracyLib init
-        unset tracy
-        set tracy $tracyLib
-        return true
+        assert {[lsort [dict keys $tracyCpp::procs]] eq [lsort $tracyProcs]}
+        return [tracyCpp::compile $tracyCid]
     }
 
     if {[__threadId] == 0} {
-        set tracyTemp [tracyCompile]
-        $tracyTemp init
-        set tracy $tracyTemp
+        set tracy [tracyCompile]
+        tracy::init
     } else {
-        fn tracy {args} {
-            # HACK: We pretty much just throw away all tracing calls
-            # until tracy is loaded.
-            if {[tracyTryLoad]} {
-                tracy {*}$args
-            }
+        # Workers boot concurrently with thread 0, so it may still be
+        # compiling. Once it loads the library, its procs are in the
+        # process-wide lazy-fn registry and resolve by native name from
+        # any thread. Until then, calls are dropped.
+        set tracy [dict create]
+        foreach procName $tracyProcs {
+            set native "nativefn ${tracyCid}::$procName"
+            set tracy::$procName [fn {args} {
+                try {
+                    native {*}$args
+                } on error {msg opts} {
+                    if {![string match "invalid native command name*" $msg]} {
+                        error $msg [dict getdef $opts -errorcode {}]
+                    }
+                }
+            }]
         }
     }
-
 } else {
-    fn tracy {args} {}
+    set tracy [dict create]
+    foreach procName $tracyProcs { set tracy::$procName [fn {args} {}] }
 }
 
 # FIXME: zicl doesn't have [signal] yet.

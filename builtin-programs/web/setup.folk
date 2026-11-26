@@ -84,8 +84,8 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
       set usingOpts [dict get [lindex $results 0] usingOpts]
     }
 
-    set info [dict get $opts info]
-    set displayName [dict get $info name]
+    set info $opts::info
+    set displayName $info::name
 
     set modesByRegion [dict create]
     foreach mode [dict getdef $info modes [list]] {
@@ -235,7 +235,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
     }
 
     set resolutions [list]
-    foreach format [dict get $opts formats] {
+    foreach format $opts::formats {
         # For now, we only support MJPG. The more raw formats are
         # rarely used by cameras at even medium resolutions and
         # framerates, anyway, so it's only worth supporting MJPG.
@@ -244,7 +244,7 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
         }
     }
     set resolutions [lsort -command [fn {a b} {
-        expr {[dict get $b width] - [dict get $a width]}
+        expr {$b::width - $a::width}
     }] $resolutions]
 
     if {[llength $resolutions] == 0} {
@@ -313,10 +313,10 @@ folk.watchCollected(`/someone/ wishes the web server handles route "/setup" with
                         pointer-events: none;">
               <!-- [set i 0] -->
               [join [lmap c $existingCrops {
-                set cx [dict get $c x]
-                set cy [dict get $c y]
-                set cw [dict get $c width]
-                set ch [dict get $c height]
+                set cx $c::x
+                set cy $c::y
+                set cw $c::width
+                set ch $c::height
                 set rx [expr {int($cx * $iframeWidth / $usingOpts::width)}]
                 set ry [expr {int($cy * $cameraAreaHeight / $usingOpts::height)}]
                 set rw [expr {int($cw * $iframeWidth / $usingOpts::width)}]

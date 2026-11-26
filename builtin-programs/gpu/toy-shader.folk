@@ -158,7 +158,7 @@ When /wisher/ wishes /p/ draws toy shader /shaderCode/ {
     set startTime [/ [clock microseconds] 1000000.0]
     When $p has canvas /id/ with /...wiOptions/ &\
          the clock time is /t/ {
-        set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
+        set wiResolution [list $wiOptions::width $wiOptions::height]
         Wish the GPU draws pipeline $sha1 onto canvas $id \
             with arguments [list $wiResolution [- $t $startTime]]
     }

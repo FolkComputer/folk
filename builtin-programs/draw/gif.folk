@@ -2,8 +2,7 @@ When the gif library is /gifLib/ {
   When /someone/ wishes /p/ displays gif /gif/ with /...options/ &\
        /p/ has resolved geometry /geom/ {
 
-      set frames [dict get $gif frames]
-      set delays [dict get $gif delays]
+      dict assign $gif frames delays
       
       set totalDuration 0
       set cumulativeDelays [list]

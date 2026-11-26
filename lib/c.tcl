@@ -322,7 +322,7 @@ method C::argtype {self t h} {
 # Looks up the argtype and returns C code to convert it.
 method C::arg {self argtype argname shim} {
     csubst [eval [dict getdef $self::argtypes $argtype \
-                      [dict get $self::argtypes default]]]
+                      $self::argtypes::default]]
 }
 
 # Registers a new rtype.
@@ -331,7 +331,7 @@ method C::rtype {self t h} {
 }
 method C::ret {self rtype robj rvalue} {
     csubst [eval [dict getdef $self::rtypes $rtype \
-                      [dict get $self::rtypes default]]]
+                      $self::rtypes::default]]
 }
 
 method C::include {self h} {
@@ -388,13 +388,13 @@ method C::typedef {self t newt {emitC true}} {
     # definition.
     try {
         self::argtype $newt [eval [dict getdef $self::argtypes $argtype \
-                                       [dict get $self::argtypes default]]]
+                                       $self::argtypes::default]]
     } on error e {
         # puts stderr "C typedef: $e"
     }
     try {
         self::rtype $newt [eval [dict getdef $self::rtypes $rtype \
-                                     [dict get $self::rtypes default]]]
+                                     $self::rtypes::default]]
     } on error e {
         # puts stderr "C typedef: $e"
     }
@@ -790,11 +790,11 @@ extern "C" \{
 
     set dynlibCap [load /tmp/$cid.so]
     set fns [dynlib fns $dynlibCap]
-    dict set fns __dynlib $dynlibCap
+    set fns::__dynlib $dynlibCap
     # Snapshot of this compilation's own type/proc/var registrations, so a
     # later, separate compilation unit can `cc::extend` this one -- see
     # `C::extend`.
-    dict set fns __cinfo [dict create \
+    set fns::__cinfo [dict create \
         cid $cid \
         argtypes $self::argtypes \
         rtypes $self::rtypes \
@@ -813,11 +813,10 @@ extern "C" \{
 method C::import {self srclib srcname {destname {}}} {
     if {$destname eq ""} { set destname $srcname }
 
-    set srcinfo [dict get $srclib __cinfo]
-    set srcCap [dict get $srclib __dynlib]
+    set srcinfo $srclib::__cinfo
+    set srcCap $srclib::__dynlib
     set procinfo [dict get $srcinfo procs $srcname]
-    set rtype [dict get $procinfo rtype]
-    set arglist [dict get $procinfo arglist]
+    dict assign $procinfo rtype arglist
 
     set cname [string map {":" "_" "!" "_"} $srcname]
     set addr [dynlib lookup $srcCap $cname]
@@ -842,10 +841,10 @@ method C::extend {self args} {
             set srclib $arg
         }
     }
-    set srcinfo [dict get $srclib __cinfo]
-    set srcCap [dict get $srclib __dynlib]
+    set srcinfo $srclib::__cinfo
+    set srcCap $srclib::__dynlib
 
-    foreach {snippet extend} [dict get $srcinfo code] {
+    foreach {snippet extend} $srcinfo::code {
         # Stays :extend so a unit extending *this* one gets it too (a struct
         # typedef has to reach every unit that inherited its objtype code, not
         # just the first). The lsearch is what keeps a diamond from emitting
@@ -855,10 +854,10 @@ method C::extend {self args} {
         }
     }
 
-    dict for {k v} [dict get $srcinfo argtypes] {
+    dict for {k v} $srcinfo::argtypes {
         if {![dict exists $self::argtypes $k]} { dict set self::argtypes $k $v }
     }
-    dict for {k v} [dict get $srcinfo rtypes] {
+    dict for {k v} $srcinfo::rtypes {
         if {![dict exists $self::rtypes $k]} { dict set self::rtypes $k $v }
     }
 
@@ -868,7 +867,7 @@ method C::extend {self args} {
     # C::compile's init codegen to instead borrow $srclib's existing vtable
     # via `dynlib lookup`, so values round-trip correctly between the two
     # units.
-    dict for {objtype code} [dict get $srcinfo objtypes] {
+    dict for {objtype code} $srcinfo::objtypes {
         if {![dict exists $self::objtypes $objtype]} {
             dict set self::objtypes $objtype $code
             dict set self::extendedObjtypes $objtype $srcCap
@@ -878,12 +877,12 @@ method C::extend {self args} {
     }
 
     if {!$noprocs} {
-        dict for {name _} [dict get $srcinfo procs] {
+        dict for {name _} $srcinfo::procs {
             self::import $srclib $name
         }
     }
 
-    dict for {varname vartype} [dict get $srcinfo vars] {
+    dict for {varname vartype} $srcinfo::vars {
         set addr [dynlib lookup $srcCap ${varname}_ptr]
         self::code "$vartype* (*${varname}_ptr)() = ($vartype* (*)()) ${addr}UL;"
     }
@@ -892,7 +891,7 @@ method C::extend {self args} {
     # so a thread that only ever touches the NEW library still gets
     # $srclib's commands (e.g. imageLib::slice) registered on itself too --
     # required since Zicl_RegisterLazyFn is per-interp-thread.
-    set srcid [dict get $srcinfo cid]
+    set srcid $srcinfo::cid
     if {[lsearch $self::extends $srcid] < 0} {
         set addr [dynlib lookup $srcCap ${srcid}_register]
         self::code "void (*${srcid}_register)(Zicl_Interp*) = (void (*)(Zicl_Interp*)) ${addr}UL;"

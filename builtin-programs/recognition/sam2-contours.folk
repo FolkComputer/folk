@@ -60,8 +60,7 @@ When /someone/ wishes /obj/ has contours in /v/ &\
      /v/ has resolved geometry /geom/ &\
      the SAM2 contours library is /sam2ContoursLib/ {
 
-    set width [dict get $maskOpts width]
-    set height [dict get $maskOpts height]
+    dict assign $maskOpts width height
     set scaleX $(double($geom::width) / double($width))
     set scaleY $(double($geom::height) / double($height))
     set epsilon 1.0

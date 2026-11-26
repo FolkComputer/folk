@@ -28,16 +28,16 @@ while true {
     sleep [expr {$settled ? 0.5 : 0.04}]
 
     set results [lsort -command [fn {a b} {
-        string compare [dict get $a program] [dict get $b program]
+        string compare $a::program $b::program
     }] [Query! /program/ has program code /programCode/]]
 
     set runnersByProgram [dict create]
     foreach runner [Query! when /runnerClosure/] {
-        set closureDict [lrange [dict get $runner runnerClosure] 1 end]
+        set closureDict [lrange $runner::runnerClosure 1 end]
         if {[dict exists $closureDict scope]} {
-            set scope [deref [dict get $closureDict scope]]
+            set scope [deref $closureDict::scope]
             if {[dict exists $scope this]} {
-                dict set runnersByProgram [dict get $scope this] [dict get $runner __ref]
+                dict set runnersByProgram $scope::this $runner::__ref
             }
         }
     }
@@ -45,7 +45,7 @@ while true {
     # Build groups: dict mapping dirname -> list of {status basename}
     set groups [dict create]
     foreach result $results {
-        set program [dict get $result program]
+        set program $result::program
 
         if {![dict exists $runnersByProgram $program]} { continue }
         set runnerRef [dict get $runnersByProgram $program]

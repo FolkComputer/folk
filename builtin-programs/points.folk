@@ -1,5 +1,4 @@
 fn pointsLib::surfacePoint {surface xy} {
-    upvar this this
     return [list surface-point $surface $xy]
 }
 
@@ -66,7 +65,7 @@ When the quad library is /quadLib/ &\
 
         # Note this will throw an error if the point can't be converted between these
         # two spaces.
-        set pointQuadInTargetSpace [$quadChange $pointInQuad $targetSpace]
+        set pointQuadInTargetSpace [quadChange $pointInQuad $targetSpace]
         set pointInTargetSpace [lindex [quadLib::vertices $pointQuadInTargetSpace] 0]
 
         set projectedOntoTarget [quadLib::projectAlongSourceNormal $pointQuad $targetQuad $pointInTargetSpace]

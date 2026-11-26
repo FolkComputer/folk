@@ -63,7 +63,7 @@ Wish the web server handles route "/" with handler [fn {args} {
         set rp [list]; # real programs
 
         foreach match $programs {
-            set programName [dict get $match programName]
+            set programName $match::programName
             switch -glob $programName {
                 "builtin-programs/*" { lappend vp $match }
                 "/home/*" { lappend cp $match }

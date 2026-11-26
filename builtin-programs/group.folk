@@ -16,10 +16,10 @@ When group /group/ contains /...programs/ &\
     set programTitles [dict create]
 
     foreach result $results {
-        set programId [dict get $result program]
+        set programId $result::program
 
         if {[lsearch $programs $programId] != -1} {
-            dict set programTitles $programId [dict get $result title]
+            dict set programTitles $programId $result::title
         }
     }
 

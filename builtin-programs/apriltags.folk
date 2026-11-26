@@ -131,8 +131,8 @@ set incrementalDetector [makeAprilTagDetector $tagFamily 1.5 1]
 When /nobody/ wishes to calibrate camera /any/ to display /any/ /...etc/ &\
     -serially camera /camera/ has gray frame /frame/ at timestamp /frameTs/ {
 
-    tracy zoneBegin
-    tracy zoneName "entireFrameDetect: $frameTs"
+    tracy::zoneBegin
+    tracy::zoneName "entireFrameDetect: $frameTs"
 
     try -signal {
         set aprilTime [time {
@@ -142,7 +142,7 @@ When /nobody/ wishes to calibrate camera /any/ to display /any/ /...etc/ &\
             Claim [list $this entire-frame] detects tags $tags on camera $camera \
             at timestamp $frameTs in time $aprilTime
     } finally {
-        tracy zoneEnd
+        tracy::zoneEnd
     }
 }
 
@@ -151,8 +151,8 @@ When /nobody/ wishes to calibrate camera /any/ to display /any/ /...etc/ &\
 When /nobody/ wishes to calibrate camera /any/ to display /any/ /...etc/ &\
      the image library is /imageLib/ &\
      -serially camera /camera/ has gray frame /frame/ at timestamp /frameTs/ {
-    tracy zoneBegin
-    tracy zoneName "incrementalDetect: $frameTs"
+    tracy::zoneBegin
+    tracy::zoneName "incrementalDetect: $frameTs"
 
     try -signal {
 
@@ -182,7 +182,7 @@ When /nobody/ wishes to calibrate camera /any/ to display /any/ /...etc/ &\
     set frameHeight $frame::height
     set aprilTime 0
     dict for {id prevDet} $dets {
-        set corners [dict get $prevDet p]
+        set corners $prevDet::p
 
         set x $(floor([min {*}[lmap corner $corners {lindex $corner 0}]]))
         set y $(floor([min {*}[lmap corner $corners {lindex $corner 1}]]))
@@ -198,10 +198,10 @@ When /nobody/ wishes to calibrate camera /any/ to display /any/ /...etc/ &\
         set subimage [imageLib::slice $frame $x $y [- $x1 $x] [- $y1 $y]]
         set aprilTime [+ $aprilTime [baretime {
             foreach tag [incrementalDetector::detect $subimage] {
-                dict assign -all $tag
+                dict assign $tag c p
                 # `dict with` wrote these back into the dict; `dict assign` does not.
-                dict set tag c [vec2 add $c [list $x $y]]
-                dict set tag p [lmap corner $p {vec2 add $corner [list $x $y]}]
+                set tag::c [vec2 add $c [list $x $y]]
+                set tag::p [lmap corner $p {vec2 add $corner [list $x $y]}]
                 lappend tags $tag
             }
         }]]
@@ -212,7 +212,7 @@ When /nobody/ wishes to calibrate camera /any/ to display /any/ /...etc/ &\
         at timestamp $frameTs in time $aprilTime
 
     } finally {
-        tracy zoneEnd
+        tracy::zoneEnd
     }
 }
 
@@ -225,12 +225,11 @@ When the collected results for \
 
     set latestTagDets [dict create]
     foreach result $results {
-        set timestamp [dict get $result timestamp]
-        set camera [dict get $result camera]
-        foreach tag [dict get $result tags] {
-            dict set tag timestamp $timestamp
-            dict set tag camera $camera
-            dict assign -all $tag
+        dict assign $result timestamp camera
+        foreach tag $result::tags {
+            set tag::timestamp $timestamp
+            set tag::camera $camera
+            dict assign $tag id
             if {![dict exists $latestTagDets $id] ||
                 [dict get $latestTagDets $id timestamp] < $timestamp} {
 
@@ -243,8 +242,8 @@ When the collected results for \
         # We want to not immediately destroy the entire drawlist /
         # downstream statement set from the previous detection (give
         # the new detection some time to converge first).
-        Claim -keep 8ms tag $id has detection $det on camera [dict get $det camera] \
-            at timestamp [dict get $det timestamp]
+        Claim -keep 8ms tag $id has detection $det on camera $det::camera \
+            at timestamp $det::timestamp
     }
     set aprilTime [lmap r $results {dict get $r aprilTime}]
     Claim the AprilTag time is $aprilTime

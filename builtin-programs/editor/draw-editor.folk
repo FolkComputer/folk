@@ -36,7 +36,7 @@ When /editor/ is an editor with /...anything/ &\
             dashoffset [expr {fmod($t, 1.6) * 0.01}]
     }
 
-    set textScale [dict get $fontOptions scale]
+    set textScale $fontOptions::scale
     set advance [utils::getAdvance $textScale]
 
     When editor $editor has selected program /program/ &\

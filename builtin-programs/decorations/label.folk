@@ -5,8 +5,7 @@ When /thing/ has resolved geometry /geom/ {
         set text [join [lmap result $results {dict get $result text}] "\n"]
         if {$text eq ""} { return }
 
-        set width [dict get $geom width]
-        set height [dict get $geom height]
+        dict assign $geom width height
 
         set maxLength 0
         foreach line [split $text "\n"] {
@@ -31,9 +30,9 @@ When /thing/ has resolved geometry /geom/ {
         if {[dict exists $geom top] &&
             [dict exists $geom tagSize] &&
             [dict exists $geom bottom]} {
-            dict set options position \
+            set options::position \
                 [list [expr {$width / 2.0}] \
-                    [expr {[dict get $geom top] + [dict get $geom tagSize] + [dict get $geom bottom] / 2.0}]]
+                    [expr {$geom::top + $geom::tagSize + $geom::bottom / 2.0}]]
         }
 
         # FIXME: support per-label options; right now, this just
@@ -41,9 +40,9 @@ When /thing/ has resolved geometry /geom/ {
         # be red and another wants to be blue, they'll both be
         # whatever the last label wants to be.)
         foreach result $results {
-            set options [dict merge $options [dict get $result options]]
+            set options [dict merge $options $result::options]
         }
-        dict set options text $text
+        set options::text $text
         Wish to draw text onto $thing with {*}$options
     }
 }

@@ -192,27 +192,27 @@ proc ::handleReadSpotify {chan addr port} {
             regexp {/?code=(.+)&state=(.+)} $path qpFullMatch qpCode qpState
             set encodedAuthorization [codec encode base64 "$clientId:$clientSecret"]
             dict set hd "Content-Type" "application/x-www-form-urlencoded"
-            dict set hd Authorization "Basic $encodedAuthorization"
+            set hd::Authorization "Basic $encodedAuthorization"
             set token [::http::geturl "https://accounts.spotify.com/api/token" -headers $hd -query [::http::formatQuery grant_type authorization_code redirect_uri $redirectUrl code $qpCode]]
             set responseBody [::http::data $token]
             ::http::cleanup $token
             puts $responseBody
             set resultData [::json::json2dict $responseBody]
-            set accessToken [dict get $resultData access_token]
-            set refreshToken [dict get $resultData refresh_token]
+            set accessToken $resultData::access_token
+            set refreshToken $resultData::refresh_token
             set spotifyAccessToken $accessToken
             puts -nonewline $chan "HTTP/1.1 302 Found\nSet-Cookie: spotify_auth_state=0; Max-Age=0\nLocation: /?access_token=$accessToken&refresh_token=$refreshToken"
         } elseif {[string match "/refresh_token*" $path]} {
             regexp {/?refresh_token=(.+)} $path qpFullMatch qpRefreshToken
             set encodedAuthorization [codec encode base64 "$clientId:$clientSecret"]
             dict set hd "Content-Type" "application/x-www-form-urlencoded"
-            dict set hd Authorization "Basic $encodedAuthorization"
+            set hd::Authorization "Basic $encodedAuthorization"
             set token [::http::geturl "https://accounts.spotify.com/api/token" -headers $hd -query [::http::formatQuery grant_type refresh_token refresh_token $qpRefreshToken]]
             set responseBody [::http::data $token]
             ::http::cleanup $token
             puts $responseBody
             set resultData [::json::json2dict $responseBody]
-            set accessToken [dict get $resultData access_token]
+            set accessToken $resultData::access_token
             set spotifyAccessToken $accessToken
             set response "{\"access_token\": \"$accessToken\"}"
             puts -nonewline $chan "HTTP/1.1 200 OK\nConnection: close\nContent-Type: application/json; charset=utf-8\n\n"
@@ -233,7 +233,7 @@ When /someone/ wishes /uri/ would be played on spotify {
         puts "spotifyAccessToken is empty"
     } else {
         dict set hd "Content-Type" "application/json"
-        dict set hd Authorization "Bearer $spotifyAccessToken"
+        set hd::Authorization "Bearer $spotifyAccessToken"
         puts "Requesting play of $uri on Spotify"
         # "spotify:album:04HMMwLmjkftjWy7xc6Bho"
         set queryParam "{\"context_uri\": \"$uri\"}"
@@ -254,7 +254,7 @@ proc ::pollCurrentSong {} {
         puts "spotifyAccessToken is empty"
     } else {
         dict set hd "Content-Type" "application/json"
-        dict set hd Authorization "Bearer $spotifyAccessToken"
+        set hd::Authorization "Bearer $spotifyAccessToken"
         set token [::http::geturl "https://api.spotify.com/v1/me/player/currently-playing" -headers $hd]
         set responseBody [::http::data $token]
         puts $responseBody
@@ -267,11 +267,11 @@ proc ::pollCurrentSong {} {
             puts "done doing the thing, for nothing"
         } else {
             set resultData [::json::json2dict $responseBody]
-            set item [dict get $resultData item]
-            set songTitle [dict get $item name]
-            set artists [dict get $item artists]
+            set item $resultData::item
+            set songTitle $item::name
+            set artists $item::artists
             set artistsNames {}
-            foreach element $artists {lappend artistsNames [dict get $element name]}
+            foreach element $artists {lappend artistsNames $element::name}
             set artistsString [join $artistsNames ", "]
             Retract spotify claims spotify is currently playing /something/
             Assert spotify claims spotify is currently playing "$songTitle by $artistsString"

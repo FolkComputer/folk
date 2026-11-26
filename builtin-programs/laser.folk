@@ -171,7 +171,7 @@ When /someone/ wishes to detect laser blobs &\
     Hold! {
         Claim the blob detection time is $blobTime
         foreach blob $blobs {
-            Claim laser blob [dict get $blob id] has center [dict get $blob center] size [dict get $blob size]
+            Claim laser blob $blob::id has center $blob::center size $blob::size
         }
     }
 }

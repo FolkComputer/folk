@@ -4,8 +4,8 @@ When the collected results for [list laser blob /t/ has center /c/ size /s/] are
     set blobsHtml "<ol>"
     set blobsJson ""
     foreach result $results {
-      append blobsHtml "<li><strong>[dict get $result t]</strong>: [dict get $result c]</li>"
-      append blobsJson "{\"id\": [dict get $result t], \"x\": [lindex [dict get $result c] 0], \"y\": [lindex [dict get $result c] 1]},
+      append blobsHtml "<li><strong>$result::t</strong>: $result::c</li>"
+      append blobsJson "{\"id\": $result::t, \"x\": [lindex $result::c 0], \"y\": [lindex $result::c 1]},
     }
     append blobsHtml "</ol>"
     append blobsJson ""

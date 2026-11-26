@@ -444,7 +444,7 @@ while True:
         set registeredArgtypes [pyGetRegisteredArgtypes]
         if {[dict exists $functions $fnName]} {
             set fnInfo [dict get $functions $fnName]
-            set argTypes [dict get $fnInfo argTypes]
+            set argTypes $fnInfo::argTypes
 
             # Send each argument according to its type
             foreach schema $argTypes arg $args {

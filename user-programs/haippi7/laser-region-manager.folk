@@ -1,7 +1,7 @@
 When the collected results for [list /someone/ claims /something/ region /id/ data /data/] are /regionResults/ {
     set regionDataJsStrList {}
     foreach result $regionResults {
-        set m [dict get $result data]
+        set m $result::data
         # Convert tcl list to javascript array
         lappend regionDataJsStrList "\[[string map {"{" "\[" "}" "\]" " " ", "} $m]\]"
     }

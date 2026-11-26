@@ -59,7 +59,7 @@ When -noncapturing the program save directory is /saveDir/ {
         Claim $obj has program code $code
 
         When /someone/ wishes program $obj is replaced with /...opts/ {
-            set editedTime [dict get $opts editedTime]
+            set editedTime $opts::editedTime
             Wish $obj is titled "(edited [clock format $editedTime -format "%a, %d %b %Y, %I:%M %p"])"
         }
 

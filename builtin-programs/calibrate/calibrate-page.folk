@@ -83,12 +83,12 @@ Wish the web server handles route "/calibrate" with hidden true handler {
                                       width: 100%; height: calc(100cqw * $cameraHeight / $cameraWidth)%;
                                       pointer-events: none;">}] \
                   [join [lmap tag $detectedTags {
-                    set points [dict get $tag p]
+                    set points $tag::p
                     set coords [lmap point $points {
                         format "%g,%g" [lindex $point 0] [lindex $point 1]
                     }]
                     lappend coords [lindex $coords 0]
-                    set id [dict get $tag id]
+                    set id $tag::id
                     subst {
                         <polyline points="$coords" fill="none" stroke="green" stroke-width="3" />
                         <text x="[lindex $points 0 0]" y="[lindex $points 0 1]" fill="green" font-size="12">${id}</text>
@@ -288,23 +288,23 @@ When the calibration poses from camera /camera/ to display /display/ are /calibr
     set posesReport [subst {
       <p>Poses:</p><ol>
       [join [lmap pose $calibrationPoses {
-        set width [dict get $pose cameraWidth]
-        set height [dict get $pose cameraHeight]
+        set width $pose::cameraWidth
+        set height $pose::cameraHeight
         subst {
           <li style="padding-bottom: 1em">
           RMSE [dict getdef $pose rmse (unavailable)]
           <div style="position: relative; width: 300px; height: [expr {(300.0 / $width) * $height}]px">
             <img style="position: absolute; top: 0; left: 0; width: 300px; height: [expr {(300.0 / $width) * $height}]px"
-                 src="/calibration-poses/[dict get $pose imageName]">
+                 src="/calibration-poses/$pose::imageName">
             <svg style="position: absolute; top: 0; left: 0; width: 300px; height: [expr {(300.0 / $width) * $height}]px; pointer-events: none"
-                 viewBox="0 0 [dict get $pose cameraWidth] [dict get $pose cameraHeight]">
-               [join [lmap det [dict values [dict get $pose tags]] {
-                    set points [dict get $det p]
+                 viewBox="0 0 $pose::cameraWidth $pose::cameraHeight">
+               [join [lmap det [dict values $pose::tags] {
+                    set points $det::p
                     set coords [lmap point $points {
                         format "%g,%g" [lindex $point 0] [lindex $point 1]
                     }]
                     lappend coords [lindex $coords 0]
-                    set id [dict get $det id]
+                    set id $det::id
                     subst {
                         <polyline points="$coords" fill="none" stroke="green" stroke-width="3" />
                         <text x="[lindex $points 0 0]" y="[lindex $points 0 1]" fill="green" font-size="12">${id}</text>
@@ -326,12 +326,12 @@ When the calibration poses from camera /camera/ to display /display/ are /calibr
         set calibrationReport "$posesReport
         <p>Calibration:</p><pre>
 Camera intrinsics --------
-[join [lmap {k v} [dict get $calibration camera intrinsics] {list $k $v}] \n]
+[join [lmap {k v} $calibration::camera::intrinsics {list $k $v}] \n]
 
 Camera RMSE [dict getdef $calibration camera rmse (unavailable)]
 
 Projector intrinsics -----
-[join [lmap {k v} [dict get $calibration projector intrinsics] {list $k $v}] \n]
+[join [lmap {k v} $calibration::projector::intrinsics {list $k $v}] \n]
 
 Projector RMSE [dict getdef $calibration projector rmse (unavailable)]
 

@@ -10,7 +10,7 @@ When the collected results for [list /regionName/ has region /region/] are /regi
   Wish the web server handles route "/regions/$" with handler [fn {args} {
     set body "<ol>"
     foreach result $regionResults {
-      append body "<li><strong>[dict get $result regionName]</strong>: [dict get $result region]</li>"
+      append body "<li><strong>$result::regionName</strong>: $result::region</li>"
     }
     append body "</ol>"
     html $body

@@ -27,16 +27,16 @@ Wish the GPU compiles pipeline "circle" {
         /p/ has canvas /id/ with /...wiOptions/ &\
         /p/ has canvas projection /surfaceToClip/ &\
         /someone/ wishes to draw a circle onto /p/ with /...options/ {
-            set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
+            set wiResolution [list $wiOptions::width $wiOptions::height]
             
             set center [dict getdef $options center ""]
             if {$center eq ""} {
-                set center [list [dict get $options x] [dict get $options y]]
+                set center [list $options::x $options::y]
             }
 
-            set radius [dict get $options radius]
+            set radius $options::radius
             set thickness [dict getdef $options thickness 0]
-            set color [dict get $options color]
+            set color $options::color
             set color [dict getdef $colorMap $color $color]
             set filled [dict getdef $options filled false]
             set layer [dict getdef $options layer 0]

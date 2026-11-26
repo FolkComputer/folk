@@ -54,9 +54,9 @@ When /anyone/ wishes /thing/ is a terminal spawning /cmd/ {
 
   When /anyone/ claims $thing has keyboard input \
     & keyboard /anyone/ claims key /key/ is /direction/ with /...options/ {
-    if {$direction != "up"} {
+    if {$direction ne "up"} {
       if {[dict exists $options printable]} {
-        terminalLib::write $term [dict get $options printable]
+        terminalLib::write $term $options::printable
       } else {
         terminalLib::handleKey $term $key
       }

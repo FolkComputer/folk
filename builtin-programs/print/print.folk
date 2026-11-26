@@ -87,8 +87,7 @@ fn codeToPostScript {id code opts {marginsVar {}}} {
     set tagWidth [expr {$tagInnerSideLength * 10.0 / 6}]
     set tagHeight $tagWidth
     lassign $opts::margin marginTop marginRight marginBottom marginLeft
-    set tagInset $opts::tagInset
-    set lineHeight $opts::lineHeight
+    dict assign $opts tagInset lineHeight
 
     # Mixins will be drawn with coordinate system in points from the
     # bottom-left corner of the page. X is rightward, Y is upward.
@@ -211,11 +210,11 @@ fn nextId {} {
 When $thisNode claims printer /name/ is a cups printer with /...options/ {
     set command [list /usr/sbin/lpadmin -p $name -E]
     if {[dict exists $options url]} {
-        lappend command -v [dict get $options url]
+        lappend command -v $options::url
     }
 
     if {[dict exists $options driver]} {
-        lappend command -m [dict get $options driver]
+        lappend command -m $options::driver
     }
 
     if {[dict exists $options extra-args]} {
@@ -260,7 +259,7 @@ Subscribe: print a new program with /...options/ {
     Notify: print program $id with {*}$options
 }
 Subscribe: print program /id/ with /...options/ {
-    set code [dict get $options code]
+    set code $options::code
 
     ForEach! printer /printer/ is a receipt printer &\
              printer /printer/ is the default printer {
@@ -271,17 +270,17 @@ Subscribe: print program /id/ with /...options/ {
     set calibScaleResults [Query! the calibrated print scale is /scale/]
     if {[llength $calibScaleResults] > 0} {
         set calibScale [dict get [lindex $calibScaleResults 0] scale]
-        dict set options tagInnerSideLength [expr {70.0 / $calibScale}]
-        dict set options calibratedPrintScale $calibScale
+        set options::tagInnerSideLength [expr {70.0 / $calibScale}]
+        set options::calibratedPrintScale $calibScale
     }
 
     set calibTranslationResults [Query! the calibrated print translation is /translation/]
     if {[llength $calibTranslationResults] > 0} {
-        dict set options calibratedPrintTranslation \
+        set options::calibratedPrintTranslation \
             [dict get [lindex $calibTranslationResults 0] translation]
     }
 
-    dict set options tagInset 16
+    set options::tagInset 16
 
     set printedMargins {}
     set ps [codeToPostScript $id $code $options printedMargins]
@@ -300,13 +299,13 @@ Subscribe: print program /id/ with /...options/ {
     # this program's quad and map (line, col) -> physical position.
     # All opts are in calibrated points; 1 calibrated pt = 25.4/72 mm.
     set ptmm [expr {25.4 / 72.0}]
-    lassign [dict get $options pageSize] PageWidth PageHeight
-    set tagInn [dict get $options tagInnerSideLength]
+    lassign $options::pageSize PageWidth PageHeight
+    set tagInn $options::tagInnerSideLength
     set tagOut [expr {$tagInn * 10.0 / 6}]
-    set lh [dict get $options lineHeight]
-    set adv [dict get $options advance]
+    set lh $options::lineHeight
+    set adv $options::advance
 
-    set tagInset [dict get $options tagInset]
+    set tagInset $options::tagInset
     set border [expr {($tagOut - $tagInn) / 2.0}]
 
     # Geometry should reflect where the tag actually lands on the
@@ -353,7 +352,7 @@ Subscribe: print pdf /pdfPath/ with /...options/ {
 
     if {![dict exists $options printer]} {
         try {
-            dict set options printer \
+            set options::printer \
                 [QueryOne! printer /./ is the default printer]
         } on error e {}
     }
@@ -363,7 +362,7 @@ Subscribe: print pdf /pdfPath/ with /...options/ {
 
     if {![dict exists $options format]} {
         try {
-            dict set options format \
+            set options::format \
                 [QueryOne! paper format /./ is the default paper format]
         } on error e {}
     }

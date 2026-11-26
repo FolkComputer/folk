@@ -335,9 +335,9 @@ When the GPU library is /gpuLib/ &\
     When /someone/ wishes the GPU creates canvas /id/ with /...options/ {
         puts "Create canvas: $id"
 
-        dict set options width [dict getdef $options width 1024]
-        dict set options height [dict getdef $options height 1024]
-        dict set options settle [dict getdef $options settle 3ms]
+        set options::width [dict getdef $options width 1024]
+        set options::height [dict getdef $options height 1024]
+        set options::settle [dict getdef $options settle 3ms]
 
         set wi [gpuCanvasLib::create $options::width $options::height]
 
@@ -369,8 +369,8 @@ When the GPU library is /gpuLib/ &\
             set results [Query! the GPU compiles pipeline /name/ to /pipeline/]
             set pipelines [dict create]
             foreach result $results {
-                dict assign -all $result
-                set ref [dict get $result __ref]
+                dict assign $result name pipeline
+                set ref $result::__ref
                 try {
                     StatementAcquire! $ref
                     lappend acquiredRefs $ref
@@ -383,8 +383,8 @@ When the GPU library is /gpuLib/ &\
             set results [Query! the GPU has created canvas /id/ with /...options/]
             set canvases [dict create]
             foreach result $results {
-                dict assign -all $result
-                set ref [dict get $result __ref]
+                dict assign $result id options
+                set ref $result::__ref
                 try {
                     StatementAcquire! $ref
                     lappend acquiredRefs $ref
@@ -392,8 +392,7 @@ When the GPU library is /gpuLib/ &\
                     continue
                 }
 
-                dict assign -all $options
-                dict set canvases $id $writableInfo
+                dict set canvases $id $options::writableInfo
             }
 
             dict for {id wi} $canvases {
@@ -407,11 +406,11 @@ When the GPU library is /gpuLib/ &\
                 }
 
                 set resultsStmt [lindex $resultsList 0]
-                set ref [dict get $resultsStmt __ref]
+                set ref $resultsStmt::__ref
                 try {
                     StatementAcquire! $ref
                     lappend acquiredRefs $ref
-                    set results [dict get $resultsStmt results]
+                    set results $resultsStmt::results
 
                 } on error e {
                     # It was invalidated since the query. Don't clear the canvas.
@@ -460,9 +459,9 @@ When the GPU library is /gpuLib/ &\
                                 # per-instance inserts don't copy a shared dict.
                                 dict unset thisDrawCache $pipeline
                                 if {[dict exists $options instances]} {
-                                    set instances [dict get $options instances]
+                                    set instances $options::instances
                                 } else {
-                                    set instances [list [dict get $options arguments]]
+                                    set instances [list $options::arguments]
                                 }
                                 foreach instance $instances {
                                     try {
@@ -522,8 +521,7 @@ When the GPU library is /gpuLib/ &\
             Claim $p has canvas $pCanvas with {*}$canvOpts
 
             When $p has resolved geometry /geom/ {
-                set width [dict get $geom width]
-                set height [dict get $geom height]
+                dict assign $geom width height
                 set proj [list [list $(2.0/$width) 0 -1] \
                               [list 0 $(2.0/$height) -1] \
                               [list 0 0 1]]
@@ -590,7 +588,7 @@ When the GPU library is /gpuLib/ &\
             Wish the GPU draws pipeline "composite-canvas" with arguments \
                 [list [list $dispWidth $dispHeight] \
                      $surfaceToClip \
-                     [dict get $canvOpts texture] $a $b $c $d] \
+                     $canvOpts::texture $a $b $c $d] \
                 layer [dict getdef $canvOpts layer 99]
         }
     }

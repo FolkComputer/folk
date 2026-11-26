@@ -53,13 +53,13 @@ When a calibration from camera /camera/ to display /display/ is /calibration/ {
     }
 
     Claim camera $camera has intrinsics \
-        [dict get $calibration camera intrinsics]
+        $calibration::camera::intrinsics
     Claim display $display has intrinsics \
-        [dict get $calibration projector intrinsics]
+        $calibration::projector::intrinsics
 
     set extrinsics [dict create \
-                        R [dict get $calibration R_cameraToProjector] \
-                        t [dict get $calibration t_cameraToProjector]]
+                        R $calibration::R_cameraToProjector \
+                        t $calibration::t_cameraToProjector]
     Claim camera $camera to display $display has extrinsics $extrinsics
 }
 

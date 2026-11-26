@@ -93,7 +93,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
          the calibration model-to-display homography is /H_modelToDisplay/ \
              with /...modelToDisplayOpts/ {
         set message "[llength $poses]/$posesMax poses ([expr {round($cycleTime*1000)}] ms)"
-        Wish to draw calibration model [dict get $modelToDisplayOpts model] \
+        Wish to draw calibration model $modelToDisplayOpts::model \
             using model-to-display homography $H_modelToDisplay \
             with message $message
     }
@@ -151,15 +151,14 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         }
         # Sort in ascending order to find the newest (highest frameTimestamp) model.
         set calibrationState [lindex [lsort -command [fn {a b} {
-            expr {[dict get $a modelToDisplayOpts frameTimestamp] <
-                  [dict get $b modelToDisplayOpts frameTimestamp]}
+            expr {$a::modelToDisplayOpts::frameTimestamp <
+                  $b::modelToDisplayOpts::frameTimestamp}
         }] $calibrationStates] end]
-        dict assign -all $calibrationState
+        dict assign $calibrationState H_modelToDisplay modelToDisplayOpts
 
-        set model [dict get $modelToDisplayOpts model]
-        set version [dict get $modelToDisplayOpts version]
-        set modelFrameTimestamp [dict get $modelToDisplayOpts frameTimestamp]
-        set modelTimestamp [dict get $modelToDisplayOpts modelTimestamp]
+        dict assign $modelToDisplayOpts model version
+        set modelFrameTimestamp $modelToDisplayOpts::frameTimestamp
+        set modelTimestamp $modelToDisplayOpts::modelTimestamp
         if {$modelFrameTimestamp >= $frameTimestamp} {
             # This is an old homography. This seems to only happen on
             # slider manual size adjust.
@@ -177,7 +176,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
         set printedTags [dict create] ;# dict keyed by tag id for easy lookup
         foreach tag $tags {
-            set id [dict get $tag id]
+            set id $tag::id
             dict set allDetectedTags $id $tag
             if {[modelLib::isPrintedTag $id]} { dict set printedTags $id $tag }
         }
@@ -186,8 +185,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         set printedPointPairs [list]
         dict for {id printedTag} $printedTags {
             set modelTag [dict get $model $id]
-            foreach modelCorner [dict get $modelTag p] \
-                cameraCorner [dict get $printedTag p] {
+            foreach modelCorner $modelTag::p \
+                cameraCorner $printedTag::p {
                     lappend printedPointPairs [list {*}$modelCorner {*}$cameraCorner]
                 }
         }
@@ -219,7 +218,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         dict for {id tag} $allDetectedTags {
             if {![modelLib::isProjectedTag $id]} { continue }
 
-            lassign [dict get $tag c] x y
+            lassign $tag::c x y
             if {$x > $boardMinX && $x < $boardMaxX &&
                 y::> $boardMinY && $y < $boardMaxY} {
                 # This is a projected tag that we detected.
@@ -242,8 +241,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         set projectedPointPairs [list]
         dict for {id projectedTag} $projectedTags {
             set modelTag [dict get $model $id]
-            foreach modelCorner [dict get $modelTag p] \
-                cameraCorner [dict get $projectedTag p] {
+            foreach modelCorner $modelTag::p \
+                cameraCorner $projectedTag::p {
                     set displayCorner [matLib::applyHomography $H_modelToDisplay $modelCorner]
                     lappend projectedPointPairs [list {*}$cameraCorner {*}$displayCorner]
                 }
@@ -270,7 +269,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # Check if any tag corners will be outside display bounds.
         foreach tagId [dict keys $nextModel] {
             set tag [dict get $nextModel $tagId]
-            set corners [dict get $tag p]
+            set corners $tag::p
             foreach corner $corners {
                 lassign [matLib::applyHomography $nextH_modelToDisplay $corner] x y
                 if {$x < 0 || $x > $displayWidth || $y < 0 || $y > $displayHeight} {
@@ -309,7 +308,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         set totalError 0.0
         dict for {id projectedTag} $projectedTags {
             foreach modelCorner [dict get $model $id p] \
-                cameraCorner [dict get $projectedTag p] {
+                cameraCorner $projectedTag::p {
                     lassign $cameraCorner cx cy
                     # Predicted camera x and y.
                     lassign [matLib::applyHomography $H_modelToCameraViaPs $modelCorner] px py
@@ -380,7 +379,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         set imageName "pose-$calibrationId-[llength $calibrationPoses].jpeg"
         exec mkdir -p "$env::HOME/folk-calibration-poses"
         jpegLib::saveAsJpeg $frame "$env::HOME/folk-calibration-poses/$imageName"
-        dict set pose imageName $imageName
+        set pose::imageName $imageName
 
         # OK, let's save this calibration pose.
         lappend calibrationPoses $pose
@@ -538,17 +537,17 @@ fn setCameraToProjectorExtrinsics {modelLib calibrationVar calibrationPoses} {
     for {set i 0} {$i < [llength $calibrationPoses]} {incr i} {
         set calibrationPose [lindex $calibrationPoses $i]
 
-        set Rc [dict get [lindex [dict get $cal camera extrinsics] $i] R]
-        set tc [dict get [lindex [dict get $cal camera extrinsics] $i] t]
+        set Rc [dict get [lindex $cal::camera::extrinsics $i] R]
+        set tc [dict get [lindex $cal::camera::extrinsics $i] t]
 
-        set Rp [dict get [lindex [dict get $cal projector extrinsics] $i] R]
-        set tp [dict get [lindex [dict get $cal projector extrinsics] $i] t]
+        set Rp [dict get [lindex $cal::projector::extrinsics $i] R]
+        set tp [dict get [lindex $cal::projector::extrinsics $i] t]
 
         # TODO: Try using pose estimation instead?
-        dict for {id tag} [dict get $calibrationPose model] {
+        dict for {id tag} $calibrationPose::model {
             if {![modelLib::isProjectedTag $id]} { continue }
             set k 0
-            foreach v [dict get $tag p] {
+            foreach v $tag::p {
                 incr k
                 lappend v 0.0
 
@@ -584,7 +583,7 @@ fn setCameraToProjectorExtrinsics {modelLib calibrationVar calibrationPoses} {
     set t [sub $projectorFramePointsCentroid \
                [matmul $R $cameraFramePointsCentroid]]
 
-    dict set cal R_cameraToProjector $R
+    set cal::R_cameraToProjector $R
     dict set cal t_cameraToProjector $t
 }
 
@@ -602,14 +601,13 @@ fn unrefinedCalibrateCameraAndProjector {modelLib matLib calibrationPoses} {
     set i 0
     set Hs_modelToCamera [lmap pose $calibrationPoses {
         # Pairs of (camera coordinates, model coordinates).
-        set model [dict get $pose model]
-        set tags [dict get $pose tags]
+        dict assign $pose model tags
         set pointPairs [list]
         dict for {id cameraTag} $tags {
             if {![modelLib::isPrintedTag $id]} continue
             set modelTag [dict get $model $id]
-            foreach modelCorner [dict get $modelTag p] \
-                cameraCorner [dict get $cameraTag p] {
+            foreach modelCorner $modelTag::p \
+                cameraCorner $cameraTag::p {
                     lappend pointPairs [list {*}$modelCorner {*}$cameraCorner]
                 }
         }
@@ -622,9 +620,8 @@ fn unrefinedCalibrateCameraAndProjector {modelLib matLib calibrationPoses} {
     }]
     puts "Zhang calibrate camera:"
     puts "========"
-    set cameraName [dict get $pose0 camera]
-    set cameraWidth [dict get $pose0 cameraWidth]
-    set cameraHeight [dict get $pose0 cameraHeight]
+    set cameraName $pose0::camera
+    dict assign $pose0 cameraWidth cameraHeight
     set cameraCalibration [zhangUnrefinedCalibrate \
                                $cameraName $cameraWidth $cameraHeight \
                                $Hs_modelToCamera]
@@ -633,13 +630,13 @@ fn unrefinedCalibrateCameraAndProjector {modelLib matLib calibrationPoses} {
     # Second, calibrate the projector.
     set i 0
     set Hs_modelToDisplay [lmap pose $calibrationPoses {
-        set H_modelToDisplay [dict get $pose H_modelToDisplay]
+        set H_modelToDisplay $pose::H_modelToDisplay
 
         set pointPairs [list]
-        set model [dict get $pose model]
+        set model $pose::model
         dict for {id modelTag} $model {
             if {![modelLib::isProjectedTag $id]} continue
-            foreach modelCorner [dict get $modelTag p] {
+            foreach modelCorner $modelTag::p {
                 set displayCorner [matLib::applyHomography $H_modelToDisplay $modelCorner]
                 lappend pointPairs [list {*}$modelCorner {*}$displayCorner]
             }
@@ -652,9 +649,9 @@ fn unrefinedCalibrateCameraAndProjector {modelLib matLib calibrationPoses} {
     }]
     puts "Zhang calibrate projector:"
     puts "========"
-    set projectorName [dict get $pose0 display]
-    set projectorWidth [dict get $pose0 displayWidth]
-    set projectorHeight [dict get $pose0 displayHeight]
+    set projectorName $pose0::display
+    set projectorWidth $pose0::displayWidth
+    set projectorHeight $pose0::displayHeight
     set projectorCalibration [zhangUnrefinedCalibrate \
                                   $projectorName \
                                   $projectorWidth $projectorHeight \

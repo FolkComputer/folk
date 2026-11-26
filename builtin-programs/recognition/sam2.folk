@@ -415,7 +415,7 @@ When the SAM2 mask-to-image library is /mtiLib/ &\
 
         set activeObjectIdsBySam2Id {}
         foreach result $trackingResults {
-            dict assign -all $result
+            dict assign $result id
             dict set activeObjectIdsBySam2Id [sam2ObjectId $id] $id
         }
         if {[dict size $activeObjectIdsBySam2Id] == 0} { return }
@@ -468,7 +468,7 @@ When the SAM2 mask-to-image library is /mtiLib/ &\
 
                     if {[llength $imageResults] > 0} {
                         set imageResult [lindex $imageResults end]
-                        dict assign -all $imageResult
+                        dict assign $imageResult __ref im
                         StatementAcquire! $__ref
 
                         set filename [format "/tmp/sam2-%s-%s.png" \
@@ -490,7 +490,7 @@ When the SAM2 mask-to-image library is /mtiLib/ &\
                     set promptSlices [list]
                     set promptIndex 0
                     foreach promptTrackingResult $promptTrackingResults {
-                        set promptResult [dict get $promptTrackingResult promptResult]
+                        set promptResult $promptTrackingResult::promptResult
                         set maskedIndex [lsearch -exact $promptResult masked-slice]
                         if {$maskedIndex < 0 || $maskedIndex + 1 >= [llength $promptResult]} {
                             continue
@@ -500,7 +500,7 @@ When the SAM2 mask-to-image library is /mtiLib/ &\
                             [expr {$maskedIndex - 1}]]
                         set promptIm [lindex $promptResult \
                             [expr {$maskedIndex + 1}]]
-                        set promptRef [dict get $promptTrackingResult __ref]
+                        set promptRef $promptTrackingResult::__ref
                         StatementAcquire! $promptRef
 
                         set filename [format "/tmp/sam2-prompt-%s-%s-%d.png" \

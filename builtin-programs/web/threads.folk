@@ -204,12 +204,12 @@ Wish the web server handles route "/threads" with handler [fn {args} {
                   }} else {
                       set totalAllocsMinusFrees [expr {$totalAllocsMinusFrees + ($allocs - $frees)}]
 
-                      set workQueue [dict get $workerInfo workQueue]
+                      set workQueue $workerInfo::workQueue
                       subst {
                           [format "allocs - frees: %.2f MB" [expr {($allocs - $frees) / 1000000.0}]]
                           ([format "allocs: %.2f MB" [/ $allocs 1000000.0]];
                           [format "frees: %.2f MB" [/ $frees 1000000.0]])<br>
-                          [htmlEscape [dict get $workerInfo op]] (elapsed: [dict get $workerInfo elapsed] us)<br>
+                          [htmlEscape $workerInfo::op] (elapsed: $workerInfo::elapsed us)<br>
                           <details>
                             <summary>Work queue ([llength $workQueue] items):</summary>
                             <pre>[htmlEscape [join $workQueue "\n"]]</pre>

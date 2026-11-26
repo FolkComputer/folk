@@ -25,7 +25,7 @@ assert {$err eq "C proc: Name collision: addify"}
 
 # Plain dicts are values: mutating a copy leaves the original alone.
 set D $C
-dict set D name D
+set D::name D
 assert {$C::name eq "C"}
 assert {$D::name eq "D"}
 

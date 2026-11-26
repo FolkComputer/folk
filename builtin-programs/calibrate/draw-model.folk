@@ -20,10 +20,10 @@ When display /display/ has width /displayWidth/ height /displayHeight/ &\
     set bottomLeftTag  [dict get $model [expr {48600 + ($ROWS-1)*$COLS + 0}]]
 
     set boardBorderScale [expr {1.66666667 * 2}]
-    set boardTopLeft    [innerToOuter [dict get $topLeftTag c]     [lindex [dict get $topLeftTag p]     3] $boardBorderScale]
-    set boardTopRight   [innerToOuter [dict get $topRightTag c]    [lindex [dict get $topRightTag p]    2] $boardBorderScale]
-    set boardBottomRight [innerToOuter [dict get $bottomRightTag c] [lindex [dict get $bottomRightTag p] 1] $boardBorderScale]
-    set boardBottomLeft [innerToOuter [dict get $bottomLeftTag c]  [lindex [dict get $bottomLeftTag p]  0] $boardBorderScale]
+    set boardTopLeft    [innerToOuter $topLeftTag::c     [lindex $topLeftTag::p     3] $boardBorderScale]
+    set boardTopRight   [innerToOuter $topRightTag::c    [lindex $topRightTag::p    2] $boardBorderScale]
+    set boardBottomRight [innerToOuter $bottomRightTag::c [lindex $bottomRightTag::p 1] $boardBorderScale]
+    set boardBottomLeft [innerToOuter $bottomLeftTag::c  [lindex $bottomLeftTag::p  0] $boardBorderScale]
 
     set boardToClipSpaceCorners \
         [list [list 0 0 -1 -1] \
@@ -58,8 +58,8 @@ When display /display/ has width /displayWidth/ height /displayHeight/ &\
         dict for {id modelTag} $model {
             if {![modelLib::isProjectedTag $id]} { continue }
 
-            set modelInnerCorners [lreverse [dict get $modelTag p]]
-            set modelCenter [dict get $modelTag c]
+            set modelInnerCorners [lreverse $modelTag::p]
+            set modelCenter $modelTag::c
 
             set displayOuterCorners [lmap modelInnerCorner $modelInnerCorners {
                 set modelOuterCorner [innerToOuter $modelCenter $modelInnerCorner]
@@ -116,7 +116,7 @@ When display /display/ has width /displayWidth/ height /displayHeight/ &\
         Wish the GPU draws pipeline "image" with arguments \
             [list [list $displayWidth $displayHeight] \
                  $displayToClip \
-                 [dict get $wiOpts texture] \
+                 $wiOpts::texture \
                  [list -1 -1] [list 1 -1] [list 1 1] [list -1 1]] \
             layer 100
     }

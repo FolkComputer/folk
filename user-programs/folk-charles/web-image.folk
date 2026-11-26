@@ -1,7 +1,7 @@
 When the camera frame is /im/ {
   Wish the web server handles route "/frame-image/?$" with handler [fn {args} {
-    # set width [dict get $im width]
-    # set height [dict get $im height]
+    # set width $im::width
+    # set height $im::height
     set filename "/tmp/web-image-frame.jpg"
     image saveAsJpeg $im $filename
     set fsize [file size $filename]

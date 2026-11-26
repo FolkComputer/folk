@@ -11,8 +11,7 @@ When the image library is /imageLib/ &\
      the image loader is /loadImage/ &\
      /anyone/ wishes /p/ draws sprite /path/ with /...options/ {
 
-  set frames [dict get $options frames]
-  set columns [dict get $options columns]
+  dict assign $options frames columns
   set fps [dict getdef $options fps 60]
 
   set im [loadImage $path]

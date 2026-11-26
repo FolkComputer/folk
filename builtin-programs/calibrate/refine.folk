@@ -509,16 +509,16 @@ fn refineMonoCalibration {calibration} {
     set poseModelPoints [list]
     set posePoints [list]
     set posePointsCount [list]
-    foreach pose [dict get $calibration poses] {
-        set modelPoints [dict get $pose modelPoints]
+    foreach pose $calibration::poses {
+        set modelPoints $pose::modelPoints
         lappend poseModelPoints {*}[concat {*}$modelPoints]
 
-        set points [dict get $pose points]
+        set points $pose::points
         lappend posePoints {*}[concat {*}$points]
 
         lappend posePointsCount [llength $points]
     }
-    refineLib::monoSetPoints [llength [dict get $calibration poses]] \
+    refineLib::monoSetPoints [llength $calibration::poses] \
         $posePointsCount $poseModelPoints $posePoints
 
     set intrNames {fx cx fy cy k1 k2 p1 p2}
@@ -527,9 +527,9 @@ fn refineMonoCalibration {calibration} {
     set params [lmap intrName $intrNames {
         dict get $calibration intrinsics $intrName
     }]
-    foreach pose [dict get $calibration poses] {
-        lappend params {*}[rotationMatrixToRotationVector [dict get $pose R]]
-        lappend params {*}[dict get $pose t]
+    foreach pose $calibration::poses {
+        lappend params {*}[rotationMatrixToRotationVector $pose::R]
+        lappend params {*}$pose::t
     }
 
     # Do the actual optimization:
@@ -539,22 +539,22 @@ fn refineMonoCalibration {calibration} {
     # structure and return that.
 
     set refined [lassign $refined rmse {*}$intrNames]
-    dict set calibration rmse $rmse
+    set calibration::rmse $rmse
     foreach intrName $intrNames {
         dict set calibration intrinsics $intrName [set $intrName]
     }
     # HACK: zero out skew.
-    dict set calibration intrinsics s 0.0
+    set calibration::intrinsics::s 0.0
 
-    set poses [dict get $calibration poses]
+    set poses $calibration::poses
     for {set i 0} {$i < [llength $poses]} {incr i} {
         set pose [lindex $poses $i]
-        dict set pose R [rotationVectorToRotationMatrix [lrange $refined 0 2]]
-        dict set pose t [lrange $refined 3 5]
+        set pose::R [rotationVectorToRotationMatrix [lrange $refined 0 2]]
+        set pose::t [lrange $refined 3 5]
         lset poses $i $pose
         set refined [lrange $refined 6 end]
     }
-    dict set calibration poses $poses
+    set calibration::poses $poses
 
     return $calibration
 }
@@ -567,53 +567,53 @@ fn refineCalibration {modelLib matLib setCameraToProjectorExtrinsics
     # Refine the camera:
 
     set cameraCalibration [dict create]
-    dict set cameraCalibration intrinsics \
-        [dict get $calibration camera intrinsics]
-    dict set cameraCalibration poses \
+    set cameraCalibration::intrinsics \
+        $calibration::camera::intrinsics
+    set cameraCalibration::poses \
         [lmap pose $calibrationPoses \
-             extrinsics [dict get $calibration camera extrinsics] \
+             extrinsics $calibration::camera::extrinsics \
       {
           set modelPoints [list]
           set points [list]
-          dict for {id tag} [dict get $pose tags] {
+          dict for {id tag} $pose::tags {
               if {[modelLib::isPrintedTag $id]} continue
               lappend modelPoints {*}[lmap corner [dict get $pose model $id p] {
                   list {*}$corner 0.0
               }]
-              lappend points {*}[dict get $tag p]
+              lappend points {*}$tag::p
           }
           dict create \
-              R [dict get $extrinsics R] \
-              t [dict get $extrinsics t] \
+              R $extrinsics::R \
+              t $extrinsics::t \
               modelPoints $modelPoints \
               points $points
       }]
     puts ".\nMono camera calibration\n-------"
     set cameraCalibration [refineMonoCalibration $cameraCalibration]
 
-    dict set calibration camera rmse \
-        [dict get $cameraCalibration rmse]
-    dict set calibration camera intrinsics \
-        [dict get $cameraCalibration intrinsics]
-    dict set calibration camera extrinsics \
-        [lmap pose [dict get $cameraCalibration poses] {
-            dict create R [dict get $pose R] t [dict get $pose t]
+    set calibration::camera::rmse \
+        $cameraCalibration::rmse
+    set calibration::camera::intrinsics \
+        $cameraCalibration::intrinsics
+    set calibration::camera::extrinsics \
+        [lmap pose $cameraCalibration::poses {
+            dict create R $pose::R t $pose::t
         }]
 
     # Refine the projector:
 
     set projectorCalibration [dict create]
-    dict set projectorCalibration intrinsics \
-        [dict get $calibration projector intrinsics]
-    dict set projectorCalibration poses \
+    set projectorCalibration::intrinsics \
+        $calibration::projector::intrinsics
+    set projectorCalibration::poses \
         [lmap pose $calibrationPoses \
-             extrinsics [dict get $calibration projector extrinsics] \
+             extrinsics $calibration::projector::extrinsics \
       {
-          set H_modelToProjector [dict get $pose H_modelToDisplay]
+          set H_modelToProjector $pose::H_modelToDisplay
 
           set modelPoints [list]
           set points [list]
-          dict for {id tag} [dict get $pose tags] {
+          dict for {id tag} $pose::tags {
               if {![modelLib::isProjectedTag $id]} continue
               foreach modelCorner [dict get $pose model $id p] {
                   lappend modelPoints [list {*}$modelCorner 0.0]
@@ -621,21 +621,21 @@ fn refineCalibration {modelLib matLib setCameraToProjectorExtrinsics
               }
           }
           dict create \
-              R [dict get $extrinsics R] \
-              t [dict get $extrinsics t] \
+              R $extrinsics::R \
+              t $extrinsics::t \
               modelPoints $modelPoints \
               points $points
       }]
     puts ".\nMono projector calibration\n-------"
     set projectorCalibration [refineMonoCalibration $projectorCalibration]
 
-    dict set calibration projector rmse \
-        [dict get $projectorCalibration rmse]
-    dict set calibration projector intrinsics \
-        [dict get $projectorCalibration intrinsics]
-    dict set calibration projector extrinsics \
-        [lmap pose [dict get $projectorCalibration poses] {
-            dict create R [dict get $pose R] t [dict get $pose t]
+    set calibration::projector::rmse \
+        $projectorCalibration::rmse
+    set calibration::projector::intrinsics \
+        $projectorCalibration::intrinsics
+    set calibration::projector::extrinsics \
+        [lmap pose $projectorCalibration::poses {
+            dict create R $pose::R t $pose::t
         }]
 
     # Reconstruct camera->projector extrinsics after refinement.
@@ -655,12 +655,12 @@ fn refineCalibration {modelLib matLib setCameraToProjectorExtrinsics
                                # for poses we're using
     for {set i 0} {$i < [llength $calibrationPoses]} {incr i} {
         set pose [lindex $calibrationPoses $i]
-        set H_modelToProjector [dict get $pose H_modelToDisplay]
+        set H_modelToProjector $pose::H_modelToDisplay
 
         # If the pose has been estimated to be _behind_ the camera
         # or projector (z < 0), we should skip it.
-        set tc [dict get [lindex [dict get $calibration camera extrinsics] $i] t]
-        set tp [dict get [lindex [dict get $calibration projector extrinsics] $i] t]
+        set tc [dict get [lindex $calibration::camera::extrinsics $i] t]
+        set tp [dict get [lindex $calibration::projector::extrinsics $i] t]
         if {[lindex $tc 2] < 0 || [lindex $tp 2] < 0} {
             puts "SKIP POSE:$i"
             continue
@@ -669,14 +669,14 @@ fn refineCalibration {modelLib matLib setCameraToProjectorExtrinsics
         set modelPoints [list]
         set cameraPoints [list]
         set projectorPoints [list]
-        dict for {id tag} [dict get $pose tags] {
+        dict for {id tag} $pose::tags {
             # We only look at _projected_ tags & they have to be
             # in `tags`, so were actually detected by the camera.
             if {![modelLib::isProjectedTag $id]} continue
             for {set j 0} {$j < 4} {incr j} {
                 set modelCorner [lindex [dict get $pose model $id p] $j]
                 lappend modelPoints [list {*}$modelCorner 0.0]
-                lappend cameraPoints [lindex [dict get $tag p] $j]
+                lappend cameraPoints [lindex $tag::p $j]
                 lappend projectorPoints [matLib::applyHomography $H_modelToProjector $modelCorner]
             }
         }
@@ -685,7 +685,7 @@ fn refineCalibration {modelLib matLib setCameraToProjectorExtrinsics
         lappend poseModelPoints {*}$modelPoints
         lappend poseCameraPoints {*}$cameraPoints
         lappend poseProjectorPoints {*}$projectorPoints
-        lappend poseExtrinsics [lindex [dict get $calibration camera extrinsics] $i]
+        lappend poseExtrinsics [lindex $calibration::camera::extrinsics $i]
     }
     refineLib::stereoSetPoints $poseCount $posePointsCount \
         [concat {*}$poseModelPoints] \
@@ -701,8 +701,8 @@ fn refineCalibration {modelLib matLib setCameraToProjectorExtrinsics
 
     # Load the initial guesses for all parameters for fitting.
     set params [list {*}[rotationMatrixToRotationVector \
-                             [dict get $calibration R_cameraToProjector]] \
-                    {*}[dict get $calibration t_cameraToProjector]]
+                             $calibration::R_cameraToProjector] \
+                    {*}$calibration::t_cameraToProjector]
     foreach extrinsic $poseExtrinsics {
         lappend params {*}[rotationMatrixToRotationVector $extrinsic::R]
         lappend params {*}$extrinsic::t
@@ -711,9 +711,9 @@ fn refineCalibration {modelLib matLib setCameraToProjectorExtrinsics
     puts ".\nStereo refine ($poseCount poses):"
     set refined [refineLib::stereoRefineCalibrationOptimize $params]
     set refined [lassign $refined rmse]
-    dict set calibration rmse $rmse
-    dict set calibration R_cameraToProjector [rotationVectorToRotationMatrix [lrange $refined 0 2]]
-    dict set calibration t_cameraToProjector [lrange $refined 3 5]
+    set calibration::rmse $rmse
+    set calibration::R_cameraToProjector [rotationVectorToRotationMatrix [lrange $refined 0 2]]
+    set calibration::t_cameraToProjector [lrange $refined 3 5]
 
     # TODO: Fixup the extrinsics of the poses. They don't really
     # matter.

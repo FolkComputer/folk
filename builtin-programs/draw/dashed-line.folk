@@ -41,14 +41,12 @@ When the color map is /colorMap/ &\
      /p/ has canvas projection /surfaceToClip/ &\
      /someone/ wishes to draw a dashed line onto /p/ with /...options/ {
 
-    set points [dict get $options points]
-    set width [dict get $options width]
-    set color [dict get $options color]
+    dict assign $options points width color
     set color [dict getdef $colorMap $color $color]
     set dashlength [dict getdef $options dashlength 4]
     set dashoffset [dict getdef $options dashoffset 0]
 
-    set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
+    set wiResolution [list $wiOptions::width $wiOptions::height]
     set instances [list]
     for {set i 0} {$i < [llength $points] - 1} {incr i} {
         set from [lindex $points $i]

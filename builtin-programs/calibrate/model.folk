@@ -140,7 +140,7 @@ fn modelLib::detectVersionFromDetectedTags {detectedTags} {
     # Compare angle to angle of any other projected tag.
     if {[llength $detectedTags] < 2} { return {} }
     foreach detectedTag $detectedTags {
-        set id [dict get $detectedTag id]
+        set id $detectedTag::id
         if {[modelLib::isProjectedTag $id] && ![modelLib::isVersionTag $id]} {
             set otherTagAngle [getTagAngle $detectedTag]
             break

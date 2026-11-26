@@ -28,7 +28,7 @@ On process {
             Claim the AprilTag time is $aprilTime
 
             foreach tag $tags {
-                Claim laser blob [dict get $tag id] has center [dict get $tag center] size [dict get $tag size]
+                Claim laser blob $tag::id has center $tag::center size $tag::size
             }
         }
         Step

@@ -5,51 +5,49 @@ When display /disp/ has width /w/ height /h/ {
 }
 
 When page /p/ is out {
-    Wish the GPU creates writable texture [list im $p] with width 1024 height 1024
-    Wish the GPU draws pipeline "fillTriangle" onto canvas [list im $p] \
+    set canvasId [list im $p]
+    Wish the GPU creates canvas $canvasId with width 1024 height 1024
+    Wish the GPU draws pipeline "fillTriangle" onto canvas $canvasId \
         with arguments [list {
             {1 0 0}
             {0 1 0}
             {0 0 1}
         } {-1 -1} {1 -1} {-1 1} {0.5 0 0.5 0.5}]
 
-    Wish the GPU draws pipeline "fillTriangle" onto canvas [list im $p] \
+    Wish the GPU draws pipeline "fillTriangle" onto canvas $canvasId \
         with arguments [list {
             {1 0 0}
             {0 1 0}
             {0 0 1}
         } {1 -1} {1 1} {-1 1} {1 0 1 0.5}]
-}
 
-When the GPU library is /gpuLib/ &\
-     the GPU writable texture library is /gpuDrawableLib/ &\
-     the GPU creates writable texture /imId/ as /surf/ {
+    When display /disp/ has width /w/ height /h/ &\
+         the GPU has created canvas $canvasId with /...canvasOpts/ {
 
-    puts ON---------------
-    set testim [$gpuDrawableLib gpuTexture $surf]
+        puts ON---------------
 
-    set xSize 2.0
-    set ySize 2.0
-    set xStep [expr {$xSize / 4.0}]
-    set yStep [expr {$ySize / 4.0}]
+        set xSize 2.0
+        set ySize 2.0
+        set xStep [expr {$xSize / 4.0}]
+        set yStep [expr {$ySize / 4.0}]
 
-    set idx [lindex $imId 1]
-    set row [expr {$idx / 4}]
-    set col [expr {$idx % 4}]
+        set row [expr {$p / 4}]
+        set col [expr {$p % 4}]
 
-    set a [list [expr {-1.0 + $col * $xStep}] [expr {-1.0 + $row * $yStep}]]
-    set b [list [expr {-1.0 + ($col + 1) * $xStep}] [expr {-1.0 + $row * $yStep}]]
-    set c [list [expr {-1.0 + ($col + 1) * $xStep}] [expr {-1.0 + ($row + 1) * $yStep}]]
-    set d [list [expr {-1.0 + $col * $xStep}] [expr {-1.0 + ($row + 1) * $yStep}]]
+        set a [list [expr {-1.0 + $col * $xStep}] [expr {-1.0 + $row * $yStep}]]
+        set b [list [expr {-1.0 + ($col + 1) * $xStep}] [expr {-1.0 + $row * $yStep}]]
+        set c [list [expr {-1.0 + ($col + 1) * $xStep}] [expr {-1.0 + ($row + 1) * $yStep}]]
+        set d [list [expr {-1.0 + $col * $xStep}] [expr {-1.0 + ($row + 1) * $yStep}]]
 
-    Wish the GPU draws pipeline "image" with arguments \
-        [list [list [$gpuLib getWidth] [$gpuLib getHeight]] \
-             {
-                 {1 0 0}
-                 {0 1 0}
-                 {0 0 1}
-             } \
-             $testim $a $b $c $d]
+        Wish the GPU draws pipeline "composite-canvas" with arguments \
+            [list [list $w $h] \
+                 {
+                     {1 0 0}
+                     {0 1 0}
+                     {0 0 1}
+                 } \
+                 $canvasOpts::texture $a $b $c $d]
+    }
 }
 
 ##############
@@ -84,8 +82,16 @@ fn LoadProgram! {programFilename} {
     close $fp
 }
 
+# The GPU picks its display once, at startup, so this has to be wished
+# before gpu.folk and draw.folk load.
+Wish $thisNode uses display "glfw" with width 640 height 480 refreshRate -1
+
 fn loadPrograms {} {
     set __envStack [list]
+    LoadProgram! builtin-programs/gpu/enumerate.folk
+    LoadProgram! builtin-programs/gpu/vma.folk
+    LoadProgram! builtin-programs/gpu/pipelines.folk
+    LoadProgram! builtin-programs/gpu/draw.folk
     LoadProgram! builtin-programs/gpu/textures.folk
     LoadProgram! builtin-programs/gpu/canvases.folk
     LoadProgram! builtin-programs/draw/color-map.folk

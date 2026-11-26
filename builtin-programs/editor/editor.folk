@@ -8,10 +8,10 @@ When /k/ is a keyboard with /...opts/ {
         set program ""
         set smallestArea Inf
         foreach result $results {
-            set target [dict get $result program]
+            set target $result::program
             foreach geometry [Query! $target has resolved geometry /geom/] {
-                set geom [dict get $geometry geom]
-                set area [expr {[dict get $geom width] * [dict get $geom height]}]
+                set geom $geometry::geom
+                set area [expr {$geom::width * $geom::height}]
                 if {$area < $smallestArea} { set program $target; set smallestArea $area }
             }
         }
@@ -65,10 +65,10 @@ When /editor/ is an editor with /...options/ {
     When $editor has resolved geometry /geom/ {
         if {[dict exists $geom marginTop]} {
             Claim editor $editor has margin [list \
-                [dict get $geom marginTop] \
-                [dict get $geom marginRight] \
-                [dict get $geom marginBottom] \
-                [dict get $geom marginLeft]]
+                $geom::marginTop \
+                $geom::marginRight \
+                $geom::marginBottom \
+                $geom::marginLeft]
         } else {
             Claim editor $editor has margin [list 0.01 0.005 0.005 0.01]
         }
@@ -81,7 +81,7 @@ When /editor/ is an editor with /...options/ {
          the saved holds are loaded {
         # Wait until all the saved holds are loaded, so we don't accidentally
         # overwrite a saved setting.
-        set textScale [dict get $options textScale]
+        set textScale $options::textScale
         # If the program's geometry carries a lineHeight (printed-page
         # metadata), prefer that over the global default so the editor
         # opens at the same scale the program was printed at.
@@ -89,7 +89,7 @@ When /editor/ is an editor with /...options/ {
         if {[llength $geomResults] > 0} {
             set geom [dict get [lindex $geomResults 0] geom]
             if {[dict exists $geom lineHeight]} {
-                set textScale [dict get $geom lineHeight]
+                set textScale $geom::lineHeight
             }
         }
         Hold! -save -key font-options-of:$editor:$program \
@@ -163,7 +163,7 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
             lassign $vpPos vpX vpY
             lassign $vpSize vpWidth vpHeight
 
-            if {$keyState == "up"} { return }
+            if {$keyState eq "up"} { return }
 
             # if this is true, the buffer will remove the hold for program code
             # (triggering a reinitialization)
@@ -184,7 +184,7 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                 set selEnd [max $selAnchor $cursor]
 
                 if {[dict exists $options printable]} {
-                    lassign [utils::replaceRange $code $selStart $selEnd [dict get $options printable]] code cursor maxCursorX
+                    lassign [utils::replaceRange $code $selStart $selEnd $options::printable] code cursor maxCursorX
                     set selAnchor ""
                     set selectionHandled true
                 } elseif {$key eq "Delete" || $key eq "Remove"} {
@@ -204,7 +204,7 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                     if {$selAnchor eq ""} { set selAnchor $cursor }
                     lassign [utils::handleNavigation $key $code $cursor $maxCursorX] cursor maxCursorX
                 } elseif {[dict exists $options printable]} {
-                    lassign [utils::insertText $code $cursor [dict get $options printable]] code cursor maxCursorX
+                    lassign [utils::insertText $code $cursor $options::printable] code cursor maxCursorX
                 } else {
                     # Regular navigation clears selection
                     if {$isNavKey} { set selAnchor "" }
@@ -280,7 +280,7 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                         }
                         Control_underscore {
                             # ctrl and - (zoom out)
-                            set textScale [dict get $textOptions scale]
+                            set textScale $textOptions::scale
                             set textScale [/ $textScale 1.1]
 
                             Hold! -save -key font-options-of:$editor:$program \
@@ -289,7 +289,7 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                         equal {
                             # Dunno why it registers as equal instead of Control_equal? It works regardless, lol
                             # ctrl and + (zoom in)
-                            set textScale [dict get $textOptions scale]
+                            set textScale $textOptions::scale
                             set textScale [* $textScale 1.1]
 
                             Hold! -save -key font-options-of:$editor:$program \
@@ -408,7 +408,7 @@ When /editor/ is an editor with /...anything/ &\
 
     lassign [utils::cursorToXy $code $cursor] cursorX cursorY
 
-    set textScale [dict get $textOptions scale]
+    set textScale $textOptions::scale
     set advance [utils::getAdvance $textScale]
 
     set offsetX $(($cursorX - $vpX) * $advance)

@@ -4,7 +4,7 @@ fn dbNotify {db} {
     set dot [list]
     set matchRefs [dict create]
     foreach stmt [Query! /...anything/] {
-        set stmtRef [dict get $stmt __ref]
+        set stmtRef $stmt::__ref
         set label [dbLib::clause $db $stmtRef]
         set label [join [lmap line [split $label "\n"] {
             expr { [string length $line] > 80 ? "[string range $line 0 80]..." : $line }

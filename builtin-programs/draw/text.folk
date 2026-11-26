@@ -309,45 +309,37 @@ Wish the GPU compiles pipeline "glyph" {
 When the color map is /colorMap/ &\
      /someone/ wishes to draw text onto /p/ with /...options/ {
     if {[dict exists $options position]} {
-        lassign [dict get $options position] x0 y0
+        lassign $options::position x0 y0
     } else {
-        set x0 [dict get $options x]
-        set y0 [dict get $options y]
+        set x0 $options::x
+        set y0 $options::y
     }
     set scale [dict getdef $options scale 0.01] ;# 1cm default scale
     set font [dict getdef $options font "PTSans-Regular"]
-    set text [dict get $options text]
+    set text $options::text
     set anchor [dict getdef $options anchor "center"]
     set radians [dict getdef $options radians 0]
     set color [dict getdef $options color white]
     set color [dict getdef $colorMap $color $color]
     set layer [dict getdef $options layer 0]
 
-    if {$anchor == "topleft"} {
-        set anchor [list 0 0 0 0]
-    } elseif {$anchor == "top"} {
-        set anchor [list 0.5 0 0.5 0]
-    } elseif {$anchor == "topright"} {
-        set anchor [list 1.0 0 1 0]
-    } elseif {$anchor == "left"} {
-        set anchor [list 0 0.5 0 0.5]
-    } elseif {$anchor == "center"} {
-        set anchor [list 0.5 0.5 0.5 0.5]
-    } elseif {$anchor == "right"} {
-        set anchor [list 1.0 0.5 1 0.5]
-    } elseif {$anchor == "bottomleft"} {
-        set anchor [list 0 1 0 1]
-    } elseif {$anchor == "bottom"} {
-        set anchor [list 0.5 1 0.5 1]
-    } elseif {$anchor == "bottomright"} {
-        set anchor [list 1 1 1 1]
+    switch $anchor {
+        topleft     { set anchor [list 0 0 0 0] }
+        top         { set anchor [list 0.5 0 0.5 0] }
+        topright    { set anchor [list 1.0 0 1 0] }
+        left        { set anchor [list 0 0.5 0 0.5] }
+        center      { set anchor [list 0.5 0.5 0.5 0.5] }
+        right       { set anchor [list 1.0 0.5 1 0.5] }
+        bottomleft  { set anchor [list 0 1 0 1] }
+        bottom      { set anchor [list 0.5 1 0.5 1] }
+        bottomright { set anchor [list 1 1 1 1] }
     }
 
     When $p has canvas /id/ with /...wiOptions/ &\
          p::has canvas projection /surfaceToClip/ &\
          the GPU has font $font with data /fontData/ {
 
-        set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
+        set wiResolution [list $wiOptions::width $wiOptions::height]
         set instances [fontLib::textShape \
                            $wiResolution $surfaceToClip \
                            $fontData \

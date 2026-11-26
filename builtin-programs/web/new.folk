@@ -179,14 +179,11 @@ Wish the web server handles route "/new" with nav "<button>New program</button>"
       Require! display $disp has intrinsics /displayIntrinsics/
       
       # Convert pixel coordinates to 3D coordinates in projector space
-      set fx [dict get $displayIntrinsics fx]
-      set fy [dict get $displayIntrinsics fy] 
-      set cx [dict get $displayIntrinsics cx]
-      set cy [dict get $displayIntrinsics cy]
+      dict assign $displayIntrinsics fx fy cx cy
       
       # Scale pixel coordinates to intrinsic matrix dimensions
-      set scale_x [expr {[dict get $displayIntrinsics width] / double($displayWidth)}]
-      set scale_y [expr {[dict get $displayIntrinsics height] / double($displayHeight)}]
+      set scale_x [expr {$displayIntrinsics::width / double($displayWidth)}]
+      set scale_y [expr {$displayIntrinsics::height / double($displayHeight)}]
       
       set x_scaled [expr {$x * $scale_x}]
       set y_scaled [expr {$y * $scale_y}]

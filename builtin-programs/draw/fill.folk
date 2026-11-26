@@ -35,8 +35,7 @@ When the color map is /colorMap/ {
     When /someone/ wishes to draw a polygon onto /p/ with /...options/ &\
         /p/ has canvas /id/ with /...wiOptions/ &\
         /p/ has canvas projection /surfaceToClip/ {
-            set points [dict get $options points]
-            set color [dict get $options color]
+            dict assign $options points color
             set layer [dict getdef $options layer 0]
 
             set num_points [llength $points]

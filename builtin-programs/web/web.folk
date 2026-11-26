@@ -188,7 +188,7 @@ fn handleConnection {chan} {
             set response {}
             try {
                 ForEach! /someone/ wishes the web server handles route /route/ with /...options/ {
-                    set handler [dict get $options handler]
+                    set handler $options::handler
                     set vars [regexp -inline ^${route}(\\?.*)?$ $path]
                     if {[llength $vars] > 0} {
                         set queryString [lindex $vars end]
@@ -236,9 +236,9 @@ fn handleConnection {chan} {
                 }]
                 set response [dict create statusAndHeaders "HTTP/1.1 500 Internal Server Error\r\nConnection: close\r\nContent-Type: $contentType\r\n\r\n" body $body]
             }
-            stream write $chan [dict get $response statusAndHeaders]
+            stream write $chan $response::statusAndHeaders
             if {[dict exists $response body]} {
-                stream write $chan [dict get $response body]
+                stream write $chan $response::body
             }
             close $chan
 
@@ -276,11 +276,11 @@ fn handleConnection {chan} {
             try {
                 while true {
                     set msg [wsReadMsg $chan]
-                    set opcode [dict get $msg opcode]
+                    set opcode $msg::opcode
                     if {$opcode eq "close"} {
                         break
                     } elseif {$opcode eq "text"} {
-                        set text [dict get $msg payload]
+                        set text $msg::payload
                         try {
                             eval $text
                         } on error e {

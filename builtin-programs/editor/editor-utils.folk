@@ -199,11 +199,7 @@ fn editorUtilsLib::getAdvance {em} {
 }
 
 fn editorUtilsLib::widthAndHeight {resolvedGeom} {
-    set tagSize [dict get $resolvedGeom tagSize]
-    set left [dict get $resolvedGeom left]
-    set right [dict get $resolvedGeom right]
-    set top [dict get $resolvedGeom top]
-    set bottom [dict get $resolvedGeom bottom]
+    dict assign $resolvedGeom tagSize left right top bottom
 
     set width $($left + $tagSize + $right)
     set height $($top + $tagSize + $bottom)
@@ -214,7 +210,7 @@ fn editorUtilsLib::widthAndHeight {resolvedGeom} {
 # given program and the editor options, figure out how many characters can
 # fit in this editor
 fn editorUtilsLib::editorSizeInCharacters {margin resolvedGeom options} {
-    set textScale [dict get $options scale]
+    set textScale $options::scale
     set advance [editorUtilsLib::getAdvance $textScale]
 
     lassign [editorUtilsLib::widthAndHeight $resolvedGeom] width height

@@ -107,7 +107,7 @@ When /keyboard/ is a keyboard device {
 
             set keyState [lindex $KEY_STATES $value]
 
-            set isDown [expr {$keyState != "up"}]
+            set isDown [expr {$keyState ne "up"}]
             if {[dict exists $keymap::modWeights $key]} {
                 set weight [dict get $keymap::modWeights $key]
                 dict set modifiers $key [expr {$isDown * $weight}]
@@ -115,10 +115,10 @@ When /keyboard/ is a keyboard device {
 
             set now $([clock milliseconds] / 1000.0)
             set options [dict create timestamp $now]
-            if {$mods & 1} { dict set options shift 1 }
+            if {$mods & 1} { set options::shift 1 }
             set modKeyNotHeld [expr {$mods <= 1}] ;# excluding Shift
             if {$keychar ne "" && $modKeyNotHeld} {
-                dict set options printable $keychar
+                set options::printable $keychar
             }
             Notify: keyboard $keyboard claims key $key is $keyState with {*}$options
         }

@@ -553,16 +553,16 @@ Claim the GPU draw library is $drawLib
 
 set gpu $drawLib
 
-tracy setThreadName "gpu"
+tracy::setThreadName "gpu"
 
 # Track initialized displays: dict mapping display name -> DisplayState*
 set displays [dict create]
 
-set kGpu [tracy makeString "gpu"]
-set kLatency [tracy makeString "latency"]
-set kQuadCount [tracy makeString "quadCount"]
-set kRegionCount [tracy makeString "regionCount"]
-set kDrawCount [tracy makeString "drawCount"]
+set kGpu [tracy::makeString "gpu"]
+set kLatency [tracy::makeString "latency"]
+set kQuadCount [tracy::makeString "quadCount"]
+set kRegionCount [tracy::makeString "regionCount"]
+set kDrawCount [tracy::makeString "drawCount"]
 
 fn QueryAllFns! {} {
     set fns [dict create]
@@ -645,7 +645,7 @@ while true {
     set displayList [dict create]
     foreach result [Query! /wisher/ wishes the GPU draws pipeline /name/ with /...options/] {
         try {
-            set name [dict get $result name]
+            set name $result::name
             if {![dict exists $pipelines $name]} {
                 if {![dict exists $missingPipelines $name]} {
                     puts stderr "gpu: Missing pipeline $name"
@@ -655,14 +655,14 @@ while true {
             }
             dict unset missingPipelines $name
 
-            set pipeline [dict get $pipelines [dict get $result name]]
+            set pipeline [dict get $pipelines $result::name]
 
-            set options [dict get $result options]
+            set options $result::options
             set layer [dict getdef $options layer 0]
             if {[dict exists $options instances]} {
-                set instances [dict get $options instances]
+                set instances $options::instances
             } else {
-                set instances [list [dict get $options arguments]]
+                set instances [list $options::arguments]
             }
             foreach instance $instances {
                 dict lappend displayList $layer \
@@ -670,15 +670,14 @@ while true {
             }
         } on error {e opts} {
             puts stderr "Error: GPU draws pipeline $name: [errorInfoFor $e $opts]"
-            Assert! $this claims [dict get $result wisher] has error $e with info [dict get $opts -errorstack]
+            Assert! $this claims $result::wisher has error $e with info [dict get $opts -errorstack]
             # TODO: does this ever get disposed?
         }
     }
 
     # Query active displays; init new ones on first sight.
     foreach result $useDisplays {
-        set display [dict get $result display]
-        set displayOpts [dict get $result displayOpts]
+        dict assign $result display displayOpts
 
         if {![dict exists $displays $display]} {
             if {[llength [Query! $thisNode has display $display with /...any/]] == 0} {
@@ -721,7 +720,7 @@ while true {
         gpu::drawEnd
     }
 
-    tracy frameMarkNamed $kGpu
+    tracy::frameMarkNamed $kGpu
 
     if {$useGlfw} { drawLib::poll }
     # TODO: sleep for 5ms or something?
